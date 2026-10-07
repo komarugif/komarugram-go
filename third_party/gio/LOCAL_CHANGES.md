@@ -281,13 +281,17 @@ Run the focused check from the project root:
     sent as it is. Checked live under XFCE with an Xlib reader of the
     selection.
   - `app/os_wayland.go`: the data source offers `text/html` beside the
-    text types, and sends the HTML for it. Not checked live.
+    text types, and sends the HTML for it. Checked live by the maintainer
+    on Wayland (2026-10-07): an article's text pasted into Obsidian kept
+    its formatting and links.
   - `app/os_windows.go`, `app/clipboard_html.go`: `CF_UNICODETEXT` and the
     registered "HTML Format", its header of byte offsets and the fragment's
     comments around the document's body (`cfHTML`, `TestCFHTML`). Built
-    for Windows, not run there.
+    for Windows here; the branch was then checked on Windows by its
+    maintainer (2026-10-07).
   - `app/os_macos.go`: `NSPasteboardTypeString` and `NSPasteboardTypeHTML`.
-    Not built: macOS needs cgo.
+    Not built here (macOS needs cgo); the branch was checked on macOS by
+    its maintainer (2026-10-07).
   - iOS, Android and js put the text alone. Test:
     `TestQueueProcessWriteClipboardHTML`.
 
@@ -388,7 +392,9 @@ Run the focused check from the project root:
   pointer moved, which ends it. It went on only when the fingers left
   while a frame was still being drawn, so it came often where frames
   take long (the history) and seldom where they are quick (settings, the
-  article window). Not checked live here: this machine has no Wayland.
+  article window). Checked live by the maintainer on a Wayland host
+  (2026-10-07): the fling goes on in the article window and the settings
+  as in the history.
 
 - Smooth scrolling on X11, through XInput 2.1, which upstream Gio does not
   take: a touchpad scrolled by the notches of a wheel the server made of it,

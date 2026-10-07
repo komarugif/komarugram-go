@@ -1030,13 +1030,13 @@ large and needs a dynamic linker.
 
 | # | Stage | Needs a decision |
 |---|---|---|
-| 0 | Finish ordinary entities: `pre` as a block with its language (kept in `model.Entity`) and copy button; blockquote with its bar and `collapsed`; clickable hashtag, bot command, email, phone; formatted date | — |
-| 1 | `model.RichPage`; conversion from `tg` (RichText into runs and entities, PageBlock into blocks); stored in the cache's JSON; `part` and `messages.getRichMessage`; summary text for the chat list, replies and FTS | gotd v0.162.0 (layer 229) |
-| 2 | Article engine: headings, nested lists with numbering and checkboxes, quotes, code, divider, tables with spans and alignment, details, media blocks, sub- and superscript, marks, anchors, inline images, buttons; selection across blocks | — |
+| 0 | Finish ordinary entities: `pre` as a block with its language (kept in `model.Entity`) and copy button; blockquote with its bar and `collapsed`; clickable hashtag, bot command, email, phone; formatted date (done) | — |
+| 1 | `model.RichPage`; conversion from `tg` (RichText into runs and entities, PageBlock into blocks); stored in the cache's JSON; `part` and `messages.getRichMessage`; summary text for the chat list, replies and FTS (done) | gotd v0.162.0 (layer 229) |
+| 2 | Article engine: headings, nested lists with numbering and checkboxes, quotes, code, divider, tables with spans and alignment, details, media blocks, sub- and superscript, marks, anchors, inline images, buttons; selection across blocks (done) | — |
 | 3 | The engine in the bubble: links to anchors, "Show more" and the article window with its steps back and ahead, search, zoom and sharing, heights in `HeightIndex` and the layout cache, lazy media, a table's sideways scrolling (done) | — |
 | 3b | Drafts bots stream: `sendMessageTextDraftAction`, `sendMessageRichMessageDraftAction`, `sendMessageStopDraftAction`, the Stop button (done) | — |
 | 4 | Formulas: the RaTeX module, its build script, the Go drawer of its display list, KaTeX fonts, fallback font for Cyrillic, size bounds (done) | decided: RaTeX |
-| 4a | Code highlighting for `pre`, rich messages and `.md`: the Go port of libprisma, worker goroutine, LRU cache, deadlines, theme colors | decided: regexp2 v1.12.0 |
+| 4a | Code highlighting for `pre`, rich messages and `.md`: the Go port of libprisma, worker goroutine, LRU cache, deadlines, theme colors (done) | decided: regexp2 v1.12.0 |
 | 5 | `.md` viewer: parse, prepare into the same document, a window with scrolling, search and anchors, limits, "Open file" (done) | decided: cmark-gfm in wasm |
 | 6 | Instant View from `cached_page`, and the link previews it opens from (done) | — |
 | 7 | Save a rich message as HTML, as Telegram Desktop's "Save as HTML" (`iv/iv_rich_message_html_export.cpp`): a folder in Downloads with the page and its media, our own CSS (tdesktop's is GPLv3), formulas as SVG from RaTeX's display list; then copying selected blocks as HTML, which needs `text/html` in the clipboard of the Gio fork on every platform (done) | — |
@@ -1858,8 +1858,8 @@ so CRLF text may differ; Prism's tests were compared with LF only.
 - **Tests**: the conversion telling a page with a view from one without;
   the view opening as the whole article, titled with the site, and one
   that cannot be loaded told of. Each fails with its code removed.
-  **Live**, Linux/X11, in the demo: the preview and the view. Not checked
-  on a real account's page yet.
+  **Live**, Linux/X11, in the demo: the preview and the view; by the
+  maintainer on a real account's page (2026-10-07).
 
 ### Anchors inside a text
 
@@ -1924,7 +1924,8 @@ an inline one; each fails with its code removed.
   whole has) and its photo; Chromium showed it in both themes. A
   selection from a caption into a table, copied, offered `text/html` in
   the CLIPBOARD's TARGETS beside the text, with the caption and the whole
-  table. Not checked: Wayland, Windows and macOS.
+  table. By the maintainer on Wayland (2026-10-07): an article's text
+  copied into Obsidian kept its formatting and links.
 
 ### Code in messages: tabs and colour
 
@@ -1976,13 +1977,15 @@ collapsed-quote regression scenarios, without an additional production fix.
   bot's rich messages.
 - Verified (2026-10-06): RaTeX drawn by Gio inside the client, with the
   client's text font for Cyrillic in `\text` (stage 4).
+- Verified (2026-10-07) by the maintainers: the branch on Windows and on
+  macOS, the problems found there fixed (the cursor over what a click acts
+  on; windows that waited for each other on macOS, #22 and after); on a
+  Wayland host, the fling of the article window and the settings, and an
+  article copied as HTML; on a real account, Instant View and the video
+  of a link's preview.
 - Not verified:
   - MicroTeX drawn by Gio inside the client (its prototype draws to PNG
     with `x/image`);
-  - any of it on Windows; the libraries are portable, but nothing was run
-    there (this machine has no Wine);
-  - any of it on macOS, which needs cgo and cannot be built from this
-    Linux machine;
   - chroma's colors against tdesktop's (they cannot match token for
     token);
   - AyuGram and materialgram, which were not cloned.
