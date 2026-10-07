@@ -115,7 +115,7 @@ func (ws *photoWindows) closeAll() {
 	}
 	ws.mu.Unlock()
 	for _, w := range windows {
-		w.Perform(system.ActionClose)
+		w.PerformLater(system.ActionClose)
 	}
 }
 

@@ -4,8 +4,10 @@ package appwindow
 
 import (
 	"testing"
+	"time"
 
 	"gioui.org/app"
+	"gioui.org/io/system"
 	"gioui.org/unit"
 )
 
@@ -36,5 +38,38 @@ func TestSetTitleLeavesTheWindowToItsGoroutine(t *testing.T) {
 	w.applyTitle()
 	if len(asked) != 1 {
 		t.Fatalf("the same title was asked for again: %q", asked)
+	}
+}
+
+// PerformLater returns while the actions wait for the main thread, and
+// they are performed once it is free.
+func TestPerformLaterDoesNotWait(t *testing.T) {
+	free := make(chan struct{})
+	done := make(chan system.Action, 1)
+	old := perform
+	perform = func(w *Window, actions system.Action) {
+		<-free
+		done <- actions
+	}
+	t.Cleanup(func() { perform = old })
+	w := &Window{Window: new(app.Window)}
+	returned := make(chan struct{})
+	go func() {
+		w.PerformLater(system.ActionRaise)
+		close(returned)
+	}()
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("PerformLater waited for the main thread")
+	}
+	close(free)
+	select {
+	case a := <-done:
+		if a != system.ActionRaise {
+			t.Fatalf("performed %v", a)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the actions were not performed")
 	}
 }

@@ -157,6 +157,10 @@ modules are not in this repository, and the client fetches them
   must be safe for concurrent use.
 - On X11, `Window.Run`/`Option` run on the caller's goroutine: anything a
   driver method uses must be set before `SetDriver`.
+- Never call another window's `Option`, `Perform` or `Run` from a window's
+  goroutine and wait: on macOS one main thread serves every window, and
+  while it hands an event to one it runs only that window's calls, so both
+  hang. Use `appwindow`'s `SetTitle` and `PerformLater`.
 
 The full list, with the story behind each item, is README "Pitfalls met while
 working on this code".

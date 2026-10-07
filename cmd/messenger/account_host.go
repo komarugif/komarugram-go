@@ -231,7 +231,8 @@ func (h *accountWindows) Add() {
 	h.mu.Lock()
 	if window := h.signIn; window != nil {
 		h.mu.Unlock()
-		window.Perform(system.ActionRaise)
+		// Asked from another window's goroutine: see PerformLater.
+		window.PerformLater(system.ActionRaise)
 		return
 	}
 	if h.signInOpening {
@@ -250,7 +251,7 @@ func (h *accountWindows) Open(id string) {
 	if window := h.windows[id]; window != nil {
 		h.mu.Unlock()
 		h.remember(id)
-		window.Perform(system.ActionRaise)
+		window.PerformLater(system.ActionRaise)
 		return
 	}
 	a := h.accounts[id]

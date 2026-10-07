@@ -459,7 +459,7 @@ func (ws *articleWindows) raise(key model.MessageKey, fragment string) bool {
 		default:
 		}
 	}
-	a.w.Perform(system.ActionRaise)
+	a.w.PerformLater(system.ActionRaise)
 	a.w.Invalidate()
 	return true
 }
@@ -487,7 +487,7 @@ func (ws *articleWindows) closeAll() {
 	}
 	ws.mu.Unlock()
 	for _, w := range windows {
-		w.Perform(system.ActionClose)
+		w.PerformLater(system.ActionClose)
 	}
 }
 

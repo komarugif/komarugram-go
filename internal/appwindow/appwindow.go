@@ -145,7 +145,9 @@ func (w *Window) SetTitle(title string) {
 	}
 	w.titleMu.Unlock()
 	if !same && w.Window != nil {
-		// Not w.Invalidate: a hidden window takes its title too.
+		// Not w.Invalidate, which a suspended window ignores: the title
+		// waits for its next event, which a hidden window may only have
+		// once it is shown.
 		w.Window.Invalidate()
 	}
 }
@@ -164,6 +166,20 @@ func (w *Window) applyTitle() {
 
 // setOption is w.Option, for the tests to see what is asked of the window.
 var setOption = func(w *Window, opts ...app.Option) { w.Option(opts...) }
+
+// PerformLater performs actions on w without waiting for them, from any
+// goroutine; one window raising or closing another does so. Perform waits
+// for the main thread, which, while it hands an event to the window
+// calling, serves only that window: on macOS the two would wait for each
+// other, as SetTitle's comment tells. The actions are not queued for w's
+// own goroutine as the title is, since a minimized window may have no
+// event to take them with, and a raise must reach it.
+func (w *Window) PerformLater(actions system.Action) {
+	go perform(w, actions)
+}
+
+// perform is w.Perform, for the tests to hold it.
+var perform = func(w *Window, actions system.Action) { w.Perform(actions) }
 
 // SetFrameDark picks the dark or the light look of the system's window frame
 // (macOS), which otherwise follows the system, not the theme of the program.
