@@ -153,12 +153,18 @@ and then.
    fork of Go for `haiku/amd64` and `haiku/386`, at commit `6f78c909`
    (Go 1.27.1, the version `go.mod` needs), with
    [`haiku/go-haiku-6f78c909.patch`](haiku/go-haiku-6f78c909.patch), built
-   on Linux with `src/make.bash` (2 minutes). The patch sets the runtime's
-   `_SS_DISABLE` to Haiku's 2 instead of Solaris's 4: with cgo, the runtime
-   asked `sigaltstack` whether C had set a signal stack, read Haiku's "none"
-   as "one", and ran signal handlers on goroutines' stacks. Programs died
-   at random with `unexpected return pc`, `traceback did not unwind
-   completely` or `morestack on gsignal`; after it, none did.
+   on Linux with `src/make.bash` (2 minutes). The patch fixes two things of
+   the runtime's:
+   - `_SS_DISABLE` is Haiku's 2, not Solaris's 4: with cgo, the runtime
+     asked `sigaltstack` whether C had set a signal stack, read Haiku's
+     "none" as "one", and ran signal handlers on goroutines' stacks.
+     Programs died at random with `unexpected return pc`, `traceback did
+     not unwind completely` or `morestack on gsignal`; after it, none did.
+   - The process ends with `_exit`, as on Solaris, not `exit`: `exit` ran
+     the C++ destructors of every library (libbe, OSMesa's LLVM) while the
+     windows' threads still ran, and closing two windows at once ended in
+     `Segmentation violation` five times out of five; with `_exit`, none
+     of five.
 2. **cgo.** The fork says `CgoSupported: false`, but cgo works when asked
    for (`CGO_ENABLED=1`), with Go's internal linker only
    (`-ldflags=-linkmode=internal`): Haiku links programs as shared objects
