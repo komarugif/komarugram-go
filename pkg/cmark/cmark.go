@@ -15,13 +15,11 @@ package cmark
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	_ "embed"
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"time"
 
 	"komarugram/pkg/sandbox"
@@ -77,17 +75,7 @@ func NewRuntime(ctx context.Context, limits Limits) (*Runtime, error) {
 		sb.Close(ctx)
 		return nil, fmt.Errorf("cmark: wasi: %w", err)
 	}
-	zr, err := gzip.NewReader(bytes.NewReader(moduleGz))
-	if err != nil {
-		sb.Close(ctx)
-		return nil, err
-	}
-	binary, err := io.ReadAll(zr)
-	if err != nil {
-		sb.Close(ctx)
-		return nil, err
-	}
-	compiled, err := sb.CompileModule(ctx, binary)
+	compiled, err := sb.CompileGzipModule(ctx, moduleGz)
 	if err != nil {
 		sb.Close(ctx)
 		return nil, err

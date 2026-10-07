@@ -47,10 +47,10 @@ The Go modules linked into `messenger` and `kitchen`, as `go version -m` lists t
 
 | Component | License |
 |---|---|
-| `pkg/vp9/vpxdec.wasm`: [libvpx](https://github.com/webmproject/libvpx) with [SIMDe](https://github.com/simd-everywhere/simde) | BSD-3-Clause (libvpx), MIT (SIMDe) |
-| `pkg/opus/opusdec.wasm`: [libopus](https://github.com/xiph/opus) (notice in `pkg/opus/COPYING.libopus`) | BSD-3-Clause |
-| `pkg/drdec/drdec.wasm`: [dr_libs](https://github.com/mackron/dr_libs) (dr_mp3, dr_flac, dr_wav; `pkg/drdec/LICENSE.dr_libs`) | Unlicense OR MIT-0 |
-| `pkg/lottie/tlottie.wasm`: [tlottie](https://github.com/dkaraush/tlottie) and the Rust standard library | MIT; MIT OR Apache-2.0 |
+| `pkg/vp9/vpxdec.wasm.gz`: [libvpx](https://github.com/webmproject/libvpx) with [SIMDe](https://github.com/simd-everywhere/simde) | BSD-3-Clause (libvpx), MIT (SIMDe) |
+| `pkg/opus/opusdec.wasm.gz`: [libopus](https://github.com/xiph/opus) (notice in `pkg/opus/COPYING.libopus`) | BSD-3-Clause |
+| `pkg/drdec/drdec.wasm.gz`: [dr_libs](https://github.com/mackron/dr_libs) (dr_mp3, dr_flac, dr_wav; `pkg/drdec/LICENSE.dr_libs`) | Unlicense OR MIT-0 |
+| `pkg/lottie/tlottie.wasm.gz`: [tlottie](https://github.com/dkaraush/tlottie) and the Rust standard library | MIT; MIT OR Apache-2.0 |
 | WASI libc and compiler-rt inside the modules above ([wasi-sdk](https://github.com/WebAssembly/wasi-sdk)) | MIT, Apache-2.0 WITH LLVM-exception |
 | `pkg/ratex/ratex.wasm.gz`: [RaTeX](https://github.com/erweixin/RaTeX), its Rust crates and the Rust standard library (built by `pkg/ratex/build`) | MIT; MIT OR Apache-2.0; Unlicense OR MIT; Zlib OR Apache-2.0 OR MIT |
 | `pkg/ratex/fonts`: [KaTeX](https://github.com/KaTeX/KaTeX)'s fonts (`pkg/ratex/fonts/OFL.txt`, `NOTICE`) | SIL OFL 1.1 |

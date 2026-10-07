@@ -466,7 +466,7 @@ waveform Telegram sends with it (`MessageMedia.Waveform`, 5-bit bars unpacked
 by `voice.Bars`), the heard part in the primary color, and the time. It plays
 in the client, without FFmpeg or an external player: `pkg/opus` parses the
 OGG file in Go and decodes its packets with libopus compiled to WebAssembly
-(`opusdec.wasm`, BSD-licensed and embedded; `pkg/opus/build`), as it plays,
+(`opusdec.wasm.gz`, BSD-licensed and embedded; `pkg/opus/build`), as it plays,
 and `pkg/audio` puts the sound out through oto — PulseAudio or PipeWire,
 else ALSA through dlopen, on Linux, WASAPI on Windows, all without cgo. A
 click on the waveform, or a drag across it, moves the message there: the
@@ -710,7 +710,7 @@ way in.
 
 The renderer is [tlottie](https://github.com/dkaraush/tlottie) (MIT), written in
 Rust and compiled to WebAssembly. It is embedded in the binary as
-`pkg/lottie/tlottie.wasm` and executed by [wazero](https://github.com/tetratelabs/wazero),
+`pkg/lottie/tlottie.wasm.gz` and executed by [wazero](https://github.com/tetratelabs/wazero),
 a WebAssembly runtime written in Go — so animations are drawn without cgo and
 without a C or C++ dependency, and the build stays a single static binary.
 
@@ -759,7 +759,7 @@ libvpx-vp9` honours it.
 output (the alpha channel matches exactly), feeds the demuxer and decoder
 hostile input, and measures decoding cost.
 
-`pkg/vp9/vpxdec.wasm` is built from an unmodified libvpx checkout by
+`pkg/vp9/vpxdec.wasm.gz` is built from an unmodified libvpx checkout by
 `pkg/vp9/build/build.sh`; that directory also holds the small C shim that is the
 module's entire export surface.
 

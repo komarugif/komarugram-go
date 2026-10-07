@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds drdec.wasm: dr_libs's MP3, FLAC and WAV decoders as a WebAssembly
+# Builds drdec.wasm.gz: dr_libs's MP3, FLAC and WAV decoders as a WebAssembly
 # reactor module.
 #
 # Needs clang with a wasm32 backend, wasm-ld, and the WASI sysroot plus the
@@ -27,6 +27,10 @@ here=$(cd "$(dirname "$0")" && pwd)
 "$CLANG" --target=wasm32-wasip1 --sysroot="$WASI_SYSROOT" -resource-dir "$RESOURCE_DIR" \
 	-O2 -msimd128 -mexec-model=reactor -Wl,--strip-all \
 	-I"$DR_LIBS" "$here/drshim.c" \
-	-o "$here/../drdec.wasm"
+	-o "$here/drdec.wasm"
+# Embedded gzipped, without a name or a time, so that the same build
+# gives the same bytes.
+gzip -9 -n -c "$here/drdec.wasm" >"$here/../drdec.wasm.gz"
+rm "$here/drdec.wasm"
 
-echo "built $(cd "$here/.." && pwd)/drdec.wasm"
+echo "built $(cd "$here/.." && pwd)/drdec.wasm.gz"

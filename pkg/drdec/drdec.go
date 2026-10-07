@@ -27,7 +27,7 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
-//go:embed drdec.wasm
+//go:embed drdec.wasm.gz
 var drWasm []byte
 
 // Format is a kind of file the module decodes, as drshim.c numbers them.
@@ -86,7 +86,7 @@ func NewRuntime(ctx context.Context) (*Runtime, error) {
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("host module: %w", err)
 	}
-	compiled, err := rt.CompileModule(ctx, drWasm)
+	compiled, err := rt.CompileGzipModule(ctx, drWasm)
 	if err != nil {
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("compile dr_libs: %w", err)

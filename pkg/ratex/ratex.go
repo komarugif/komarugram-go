@@ -16,13 +16,11 @@ package ratex
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"sync"
 	"time"
 
@@ -75,15 +73,7 @@ func NewRuntime(ctx context.Context, limits Limits) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	zr, err := gzip.NewReader(bytes.NewReader(moduleGz))
-	if err != nil {
-		return nil, err
-	}
-	binary, err := io.ReadAll(zr)
-	if err != nil {
-		return nil, err
-	}
-	compiled, err := sb.CompileModule(ctx, binary)
+	compiled, err := sb.CompileGzipModule(ctx, moduleGz)
 	if err != nil {
 		sb.Close(ctx)
 		return nil, err

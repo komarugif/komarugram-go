@@ -27,7 +27,7 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
-//go:embed vpxdec.wasm
+//go:embed vpxdec.wasm.gz
 var vpxWasm []byte
 
 // Limits bounds what a hostile file can make the decoder take.
@@ -74,7 +74,7 @@ func NewRuntimeWithLimits(ctx context.Context, limits Limits) (*Runtime, error) 
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("wasi: %w", err)
 	}
-	compiled, err := rt.CompileModule(ctx, vpxWasm)
+	compiled, err := rt.CompileGzipModule(ctx, vpxWasm)
 	if err != nil {
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("compile libvpx: %w", err)
