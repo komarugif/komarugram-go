@@ -355,7 +355,7 @@ public:
 	}
 
 	bool QuitRequested() override {
-		if (fClosing)
+		if (atomic_get(&fClosing) != 0)
 			return true;
 		fQueue.Push(NewEvent(GH_EV_CLOSE));
 		return false;
@@ -397,7 +397,10 @@ public:
 	OSMesaContext fContext = NULL;
 	void *fBuffer = NULL;
 	int32 fWidth = 0, fHeight = 0;
-	bool fClosing = false;
+	// fClosing is set by gh_window_destroy, from another thread.
+	int32 fClosing = 0;
+	// fInjector is the input of GIO_HAIKU_INPUT, if any (see Injector).
+	struct Injector *fInjector = NULL;
 	bool fZoomed;
 	BRect fRestore;
 	bool fFullscreen = false;
@@ -527,6 +530,11 @@ template <typename F> void Locked(void *w, F f) {
 struct Injector {
 	GioWindow *win;
 	char path[B_PATH_NAME_LENGTH];
+	// stop is set, under lock, when the window goes; commands run under
+	// lock, so none touches a window that is gone. The Injector outlives
+	// the window, and its thread frees it.
+	BLocker lock;
+	bool stop = false;
 };
 
 void PostMouse(GioWindow *win, uint32 what, float x, float y, int32 buttons, int32 clicks) {
@@ -564,6 +572,13 @@ int32 RunInjector(void *data) {
 	Injector *in = (Injector *)data;
 	for (;;) {
 		snooze(100000);
+		in->lock.Lock();
+		bool stop = in->stop;
+		in->lock.Unlock();
+		if (stop) {
+			delete in;
+			return 0;
+		}
 		char taken[B_PATH_NAME_LENGTH + 8];
 		snprintf(taken, sizeof(taken), "%s.run", in->path);
 		// Renamed first, so a writer's next file is not lost to the delete.
@@ -572,6 +587,13 @@ int32 RunInjector(void *data) {
 		FILE *f = fopen(taken, "r");
 		if (f == NULL)
 			continue;
+		in->lock.Lock();
+		if (in->stop) {
+			in->lock.Unlock();
+			fclose(f);
+			delete in;
+			return 0;
+		}
 		char line[256];
 		while (fgets(line, sizeof(line), f) != NULL) {
 			float x = 0, y = 0;
@@ -614,6 +636,7 @@ int32 RunInjector(void *data) {
 				}
 			}
 		}
+		in->lock.Unlock();
 		fclose(f);
 		unlink(taken);
 	}
@@ -624,6 +647,7 @@ void StartInjector(GioWindow *win) {
 	if (path == NULL || path[0] == 0)
 		return;
 	Injector *in = new Injector;
+	win->fInjector = in;
 	in->win = win;
 	strlcpy(in->path, path, sizeof(in->path));
 	thread_id t = spawn_thread(RunInjector, "gio input", B_NORMAL_PRIORITY, in);
@@ -658,11 +682,18 @@ void *gh_window_create(int32_t width, int32_t height, const char *title, int32_t
 }
 
 void gh_window_destroy(void *w) {
+	// The window quits in its own thread. BWindow::Quit from another thread
+	// waits for that thread to end, and a window whose thread was busy kept
+	// Gio's goroutine waiting before the program could exit: the window was
+	// gone, the program stayed in the Deskbar.
 	GioWindow *win = Win(w);
-	if (win->Lock()) {
-		win->fClosing = true;
-		win->Quit();
+	if (win->fInjector != NULL) {
+		win->fInjector->lock.Lock();
+		win->fInjector->stop = true;
+		win->fInjector->lock.Unlock();
 	}
+	atomic_set(&win->fClosing, 1);
+	win->PostMessage(B_QUIT_REQUESTED);
 }
 
 int32_t gh_window_next_event(void *w, gh_event *ev, int64_t timeout) {
