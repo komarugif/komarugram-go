@@ -264,7 +264,7 @@ func TestSharedCacheRetainsScrolledTilesAndPausesAnimations(t *testing.T) {
 }
 
 func TestWebMPreviewUsesRequestedPixelSize(t *testing.T) {
-	data, err := os.ReadFile("../../../stickers/circle.webm")
+	data, err := os.ReadFile("../../../assets/stickers/circle.webm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +336,7 @@ func TestRigbySetFitsGridCacheWhenAvailable(t *testing.T) {
 }
 
 func TestWebMPreviewCachesLoopAndReusesItAfterScrolling(t *testing.T) {
-	data, err := os.ReadFile("../../../stickers/circle.webm")
+	data, err := os.ReadFile("../../../assets/stickers/circle.webm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +403,7 @@ func TestWebMPreviewCachesLoopAndReusesItAfterScrolling(t *testing.T) {
 }
 
 func TestPausedWebMPreviewDoesNotPredecodeLoop(t *testing.T) {
-	data, err := os.ReadFile("../../../stickers/circle.webm")
+	data, err := os.ReadFile("../../../assets/stickers/circle.webm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -451,7 +451,7 @@ func TestGIFResizeKeepsItsPlayer(t *testing.T) {
 }
 
 func TestLottiePreviewUsesRequestedPixelSize(t *testing.T) {
-	data, err := os.ReadFile("../../../stickers/sample.tgs")
+	data, err := os.ReadFile("../../../assets/stickers/sample.tgs")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -484,7 +484,7 @@ func (s customEmojiSource) CustomEmoji(context.Context, int64) (model.Message, e
 }
 
 func TestCustomEmojiPreviewUsesRequestedPixelSize(t *testing.T) {
-	data, err := os.ReadFile("../../../stickers/sample.tgs")
+	data, err := os.ReadFile("../../../assets/stickers/sample.tgs")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -601,7 +601,7 @@ func TestStickerStillsOutliveTheLimit(t *testing.T) {
 // once, with animations on, gives up its decoded loop when scrolled far past
 // but keeps its first frame, shown at once when it comes back.
 func TestPlayedStickerKeepsItsStillWhenEvicted(t *testing.T) {
-	data, err := os.ReadFile("../../../stickers/circle.webm")
+	data, err := os.ReadFile("../../../assets/stickers/circle.webm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -666,7 +666,7 @@ func playedStickers(t *testing.T, m *Manager, prefix string, count int) []model.
 
 func webmManager(t *testing.T, changed func()) *Manager {
 	t.Helper()
-	data, err := os.ReadFile("../../../stickers/circle.webm")
+	data, err := os.ReadFile("../../../assets/stickers/circle.webm")
 	if err != nil {
 		t.Fatal(err)
 	}

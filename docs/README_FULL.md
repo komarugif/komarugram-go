@@ -52,7 +52,7 @@ Two applications built on the same base:
 | `pkg/tdata`                 | Telegram Desktop tdata (and Telethon/Pyrogram sessions): read and write |
 | `pkg/set`, `pkg/helpers`    | Small generic helpers used by `pkg/tdata`                          |
 | `pkg/miniapp`               | Telegram Mini Apps in the user's browser, bridged over CDP           |
-| `stickers/`, `videos/`, `video.mp4` | Media the kitchen pages read from the working directory      |
+| `assets/stickers/`, `assets/video.mp4`, `videos/` | Media the kitchen pages and `-demo` read from the working directory, the repository's root |
 | `web/kitchen`               | A web build of the kitchen                                          |
 | `third_party/gio` | Local Gio v0.10.2 with XKB shortcut handling fixes; see `LOCAL_CHANGES.md` |
 | `third_party/gio-mw`        | Our fork of the widget library, wired in with a `replace`           |
@@ -466,7 +466,7 @@ waveform Telegram sends with it (`MessageMedia.Waveform`, 5-bit bars unpacked
 by `voice.Bars`), the heard part in the primary color, and the time. It plays
 in the client, without FFmpeg or an external player: `pkg/opus` parses the
 OGG file in Go and decodes its packets with libopus compiled to WebAssembly
-(`opusdec.wasm`, BSD-licensed and embedded; `pkg/opus/build`), as it plays,
+(`opusdec.wasm.gz`, BSD-licensed and embedded; `pkg/opus/build`), as it plays,
 and `pkg/audio` puts the sound out through oto — PulseAudio or PipeWire,
 else ALSA through dlopen, on Linux, WASAPI on Windows, all without cgo. A
 click on the waveform, or a drag across it, moves the message there: the
@@ -561,7 +561,7 @@ saves a GPU screenshot of the viewer over the demo photos.
 
 There are two approaches to video on display, and they suit different content.
 
-**Video** streams one file: `video.mp4` from the working directory is decoded by
+**Video** streams one file: `assets/video.mp4` from the working directory is decoded by
 an ffmpeg subprocess that writes raw RGBA frames into a pipe, paced by ffmpeg's
 `-re` flag and looped by its `-stream_loop -1` in the same process; a process
 per pass started several a second for a short GIF. Playback suspends itself about a second after the page stops being
@@ -704,13 +704,13 @@ processes cannot read the file just because they can reach the port.
 
 ## Kitchen: animated stickers
 
-**Lottie** plays every `stickers/*.json` and `stickers/*.tgs`. Drop Telegram
+**Lottie** plays every `assets/stickers/*.json` and `assets/stickers/*.tgs`. Drop Telegram
 stickers into that folder; `.tgs` is gzipped Lottie JSON and is unpacked on the
 way in.
 
 The renderer is [tlottie](https://github.com/dkaraush/tlottie) (MIT), written in
 Rust and compiled to WebAssembly. It is embedded in the binary as
-`pkg/lottie/tlottie.wasm` and executed by [wazero](https://github.com/tetratelabs/wazero),
+`pkg/lottie/tlottie.wasm.gz` and executed by [wazero](https://github.com/tetratelabs/wazero),
 a WebAssembly runtime written in Go — so animations are drawn without cgo and
 without a C or C++ dependency, and the build stays a single static binary.
 
@@ -726,7 +726,7 @@ while caching their frames would cost hundreds of megabytes.
 
 ## Kitchen: video stickers
 
-**Video stickers** plays every `stickers/*.webm`, the other format Telegram
+**Video stickers** plays every `assets/stickers/*.webm`, the other format Telegram
 uses for stickers and custom emoji. The work is split along the line where
 trust changes:
 
@@ -759,7 +759,7 @@ libvpx-vp9` honours it.
 output (the alpha channel matches exactly), feeds the demuxer and decoder
 hostile input, and measures decoding cost.
 
-`pkg/vp9/vpxdec.wasm` is built from an unmodified libvpx checkout by
+`pkg/vp9/vpxdec.wasm.gz` is built from an unmodified libvpx checkout by
 `pkg/vp9/build/build.sh`; that directory also holds the small C shim that is the
 module's entire export surface.
 

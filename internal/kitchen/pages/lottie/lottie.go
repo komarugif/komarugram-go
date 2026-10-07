@@ -31,7 +31,7 @@ import (
 const (
 	// stickerDir holds .tgs and .json animations, resolved relative to the
 	// working directory the example is started from.
-	stickerDir = "stickers"
+	stickerDir = "assets/stickers"
 
 	// renderSize is the pixel size each animation is rendered at. Nothing is
 	// cached: a frame is drawn on demand and thrown away.

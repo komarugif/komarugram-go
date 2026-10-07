@@ -26,9 +26,12 @@
 package sandbox
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -106,6 +109,21 @@ func (r *Runtime) CompileModule(ctx context.Context, binary []byte) (wazero.Comp
 	r.compiled = append(r.compiled, compiled)
 	r.mu.Unlock()
 	return compiled, nil
+}
+
+// CompileGzipModule compiles a module embedded gzipped, as the modules of
+// this program are: unpacked for the compiling only, so that the program
+// carries a third of their size and keeps none of them unpacked.
+func (r *Runtime) CompileGzipModule(ctx context.Context, gz []byte) (wazero.CompiledModule, error) {
+	zr, err := gzip.NewReader(bytes.NewReader(gz))
+	if err != nil {
+		return nil, err
+	}
+	binary, err := io.ReadAll(zr)
+	if err != nil {
+		return nil, err
+	}
+	return r.CompileModule(ctx, binary)
 }
 
 // Close tears down every sandbox of this runtime and lets its compiled

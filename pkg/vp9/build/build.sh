@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds vpxdec.wasm: libvpx's VP9 decoder as a WebAssembly reactor module.
+# Builds vpxdec.wasm.gz: libvpx's VP9 decoder as a WebAssembly reactor module.
 #
 # Needs clang with a wasm32 backend, wasm-ld, and the WASI sysroot plus the
 # wasm32 compiler-rt builtins from https://github.com/WebAssembly/wasi-sdk
@@ -68,6 +68,10 @@ make -j"$(nproc)"
 "$CLANG" $target $simd -O3 -mexec-model=reactor \
   -I"$LIBVPX" -I"$LIBVPX/build-wasm" -I"$here" \
   "$here/vpxshim.c" "$LIBVPX/build-wasm/libvpx.a" \
-  -o "$here/../vpxdec.wasm"
+  -o "$here/vpxdec.wasm"
+# Embedded gzipped, without a name or a time, so that the same build
+# gives the same bytes.
+gzip -9 -n -c "$here/vpxdec.wasm" >"$here/../vpxdec.wasm.gz"
+rm "$here/vpxdec.wasm"
 
-echo "built $(cd "$here/.." && pwd)/vpxdec.wasm"
+echo "built $(cd "$here/.." && pwd)/vpxdec.wasm.gz"

@@ -45,7 +45,7 @@ func TestFFmpegStickerAlphaAndHover(t *testing.T) {
 	if err != nil {
 		t.Skip(err)
 	}
-	data, err := os.ReadFile("../../../stickers/circle.webm")
+	data, err := os.ReadFile("../../../assets/stickers/circle.webm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestFFmpegStickerAlphaAndHover(t *testing.T) {
 }
 
 func TestStickerFFmpegFailureFallsBack(t *testing.T) {
-	data, err := os.ReadFile("../../../stickers/circle.webm")
+	data, err := os.ReadFile("../../../assets/stickers/circle.webm")
 	if err != nil {
 		t.Fatal(err)
 	}

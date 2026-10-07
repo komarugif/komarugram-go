@@ -28,7 +28,7 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
-//go:embed tlottie.wasm
+//go:embed tlottie.wasm.gz
 var tlottieWasm []byte
 
 // Limits bounds what a hostile animation can make the renderer take.
@@ -71,7 +71,7 @@ func NewRuntimeWithLimits(ctx context.Context, limits Limits) (*Runtime, error) 
 	if err != nil {
 		return nil, err
 	}
-	compiled, err := rt.CompileModule(ctx, tlottieWasm)
+	compiled, err := rt.CompileGzipModule(ctx, tlottieWasm)
 	if err != nil {
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("compile tlottie: %w", err)

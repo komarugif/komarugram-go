@@ -27,9 +27,9 @@ func newRuntime(t *testing.T) (*lottie.Runtime, context.Context) {
 
 func sampleAnimation(t *testing.T) []byte {
 	t.Helper()
-	data, err := os.ReadFile("../../stickers/sample.json")
+	data, err := os.ReadFile("../../assets/stickers/sample.json")
 	if err != nil {
-		t.Skip("no ../../stickers/sample.json to render")
+		t.Skip("no ../../assets/stickers/sample.json to render")
 	}
 	return data
 }

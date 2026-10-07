@@ -32,7 +32,7 @@ import (
 const (
 	// stickerDir holds the .webm stickers, resolved relative to the working
 	// directory the example is started from.
-	stickerDir = "stickers"
+	stickerDir = "assets/stickers"
 
 	// tileSize is how large a sticker is laid out. Stickers are coded at
 	// 512x512; the GPU scales the decoded frame down to this.

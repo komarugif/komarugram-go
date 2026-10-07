@@ -4,15 +4,25 @@ package vp9_test
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/binary"
+	"io"
 	"os"
 	"testing"
 )
 
-// TestModuleUsesSIMD checks that vpxdec.wasm was built with WebAssembly
+// TestModuleUsesSIMD checks that vpxdec.wasm.gz was built with WebAssembly
 // SIMD, as build.sh does: without it, decoding takes three times as long.
 func TestModuleUsesSIMD(t *testing.T) {
-	module, err := os.ReadFile("vpxdec.wasm")
+	gz, err := os.ReadFile("vpxdec.wasm.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(gz))
+	if err != nil {
+		t.Fatal(err)
+	}
+	module, err := io.ReadAll(zr)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -192,11 +192,11 @@ func (s *Store) Media(ctx context.Context, m model.Message) ([]byte, error) {
 	case "demo/voice-m4a":
 		return demoVoiceM4A, nil
 	case "demo/tgs":
-		return os.ReadFile("stickers/sample.tgs")
+		return os.ReadFile("assets/stickers/sample.tgs")
 	case "demo/webm":
-		return os.ReadFile("stickers/circle.webm")
+		return os.ReadFile("assets/stickers/circle.webm")
 	case "demo/video":
-		return os.ReadFile("video.mp4")
+		return os.ReadFile("assets/video.mp4")
 	case "demo/photo":
 		im := image.NewRGBA(image.Rect(0, 0, 640, 360))
 		for y := 0; y < 360; y++ {

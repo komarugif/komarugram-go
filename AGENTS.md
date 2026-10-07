@@ -172,7 +172,10 @@ working on this code".
 - `-no-integrations` makes the client find no FFmpeg, player or browser on
   the system, only the paths set in the settings: the way to see it as on a
   machine without them.
-- Run the built binary from a scratch directory in the background.
+- Run the built binary from a scratch directory in the background. The
+  demo's sticker and video, and the kitchen's pages, read `assets/` from
+  the working directory: start those from the repository's root, the
+  binary still built outside the tree.
 - Local data is in the user's configuration directory, `komarugram-go` in
   it (accounts, sessions, `history.db.*`), crash reports in the cache
   directory's `komarugram-go/crashes`: `~/.config` and `~/.cache` on Linux,

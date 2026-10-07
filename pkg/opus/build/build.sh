@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds opusdec.wasm: libopus's decoder as a WebAssembly reactor module.
+# Builds opusdec.wasm.gz: libopus's decoder as a WebAssembly reactor module.
 #
 # Needs clang with a wasm32 backend, wasm-ld, and the WASI sysroot plus the
 # wasm32 compiler-rt builtins from https://github.com/WebAssembly/wasi-sdk
@@ -39,6 +39,10 @@ sources() {
 	-Iinclude -Icelt -Isilk -Isilk/float -Isrc \
 	$(sources OPUS_SOURCES OPUS_SOURCES_FLOAT CELT_SOURCES SILK_SOURCES SILK_SOURCES_FLOAT) \
 	"$here/opusshim.c" \
-	-o "$here/../opusdec.wasm"
+	-o "$here/opusdec.wasm"
+# Embedded gzipped, without a name or a time, so that the same build
+# gives the same bytes.
+gzip -9 -n -c "$here/opusdec.wasm" >"$here/../opusdec.wasm.gz"
+rm "$here/opusdec.wasm"
 
-echo "built $(cd "$here/.." && pwd)/opusdec.wasm"
+echo "built $(cd "$here/.." && pwd)/opusdec.wasm.gz"
