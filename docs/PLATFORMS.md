@@ -2,12 +2,13 @@
 
 How Gio draws on each platform, and what building KomaruGram for other
 Unix-like systems takes, from a FreeBSD build tried in October 2026; and
-what a port to Haiku would take, from its sources.
+how it is built and run on Haiku, from the port of October 2026.
 
 **What is checked stays Linux, Windows and macOS.** A native build for FreeBSD,
-and likely OpenBSD, is possible and cheap to port, but nobody runs it:
-live checks, the tests and the cross-builds in `AGENTS.md` are for Linux,
-Windows and macOS only. A
+and likely OpenBSD, is possible and cheap to port, but nobody runs it;
+Haiku runs the demo, with the steps below and patches kept out of
+`go.mod`. Live checks, the tests and the cross-builds in `AGENTS.md` are
+for Linux, Windows and macOS only. A
 change need not be checked on these systems, and nothing here is a
 promise that they work.
 
@@ -22,6 +23,7 @@ under it are the graphics APIs of each:
 | Linux, X11 | `app/os_x11.go`, `os_x11_xi2.go` | OpenGL ES 3 through EGL | Vulkan is there but off: `vulkanBuggy = true` |
 | Windows | `app/os_windows.go` | Direct3D 11; EGL (ANGLE's `libEGL.dll`) if that fails | priority: D3D11 1, EGL 2 |
 | macOS | `app/os_macos.go` | Metal; OpenGL with the `nometal` tag | — |
+| Haiku | `app/os_haiku.go`, `app/internal/haiku` | OpenGL 3.3 core through OSMesa (llvmpipe), into memory; the window shows the frames | the only one (see Haiku below) |
 | Android, iOS, js | their own | GLES or Vulkan, Metal or GLES, WebGL | — |
 
 - On Linux the client draws with OpenGL ES in practice. `libEGL` is
@@ -128,79 +130,197 @@ only), and the `deviceinfo` file above stands in the way as on FreeBSD.
 
 ## Haiku
 
-Read from sources in October 2026, nothing built. Unlike FreeBSD, a port
-is not cheap: Gio has no backend for Haiku, and the graphics stack it
-draws with elsewhere is not there.
+Built and run in October 2026: `messenger -demo` runs on Haiku R1/beta6
+(`hrev59866+79`, x86_64), drawn in software. The development machine ran
+it in a VirtualBox VM with 4 cores and 6 GB, cross-built from Linux. The
+maintainer looked at it live on 2026-10-08: quick, for a VM. Nothing of
+a real account was tried.
 
 Haiku is not a Unix by descent, but it has a good POSIX layer (libc,
 threads, sockets, `mmap`), which is why Go and ffmpeg run there. What is
 its own is the GUI: the `app_server` and the Be API in C++, with no X11 or
-Wayland server.
+Wayland server. Gio had no backend for it; the one here is new
+(`third_party/gio/app/os_haiku.go`, `gl_haiku.go`, `app/internal/haiku`).
 
-### Go
+### Building
 
-- [go-haiku](https://github.com/Quad4-Software/go-haiku), a fork of Go
-  for `haiku/amd64` and `haiku/386`, built on Haiku or cross-built from
-  amd64 Haiku. Its source is Go 1.27.1, the version `go.mod` needs, but
-  the latest release is `go1.26.8-haiku1`: 1.27 would be built from the
-  source.
-- cgo is on, which Gio needs. In this fork the `unix` build tag takes in
-  Haiku, so the files built for `unix` or `!windows` here are built there.
-- `golang.org/x/sys/unix` knows no Haiku upstream; the fork has its files
-  only in the toolchain's own copy,
-  [`src/cmd/vendor/golang.org/x/sys/unix`](https://github.com/Quad4-Software/go-haiku/tree/golang-1.26-haiku/src/cmd/vendor/golang.org/x/sys/unix).
-  `internal/messenger/account/lock_unix.go` and the SQLite VFS import it:
-  a fork of `x/sys` with those files would go in a `replace`.
+Everything is built on Linux; Haiku only runs the program. Compiling
+`github.com/gotd/td/tg` for a new target peaks at 4.8 GB, which Haiku's
+own `go` needs too, and the `go` command on Haiku crashed and stalled now
+and then.
 
-### Graphics
+1. **Go.** [go-haiku](https://github.com/Quad4-Software/go-haiku), a
+   fork of Go for `haiku/amd64` and `haiku/386`, at commit `6f78c909`
+   (Go 1.27.1, the version `go.mod` needs), with
+   [`haiku/go-haiku-6f78c909.patch`](haiku/go-haiku-6f78c909.patch), built
+   on Linux with `src/make.bash` (2 minutes). The patch sets the runtime's
+   `_SS_DISABLE` to Haiku's 2 instead of Solaris's 4: with cgo, the runtime
+   asked `sigaltstack` whether C had set a signal stack, read Haiku's "none"
+   as "one", and ran signal handlers on goroutines' stacks. Programs died
+   at random with `unexpected return pc`, `traceback did not unwind
+   completely` or `morestack on gsignal`; after it, none did.
+2. **cgo.** The fork says `CgoSupported: false`, but cgo works when asked
+   for (`CGO_ENABLED=1`), with Go's internal linker only
+   (`-ldflags=-linkmode=internal`): Haiku links programs as shared objects
+   (gcc's spec passes `-shared`), and the external linker fails on Go's
+   local-exec TLS (`R_X86_64_TPOFF32 against runtime.tlsg`); the fork has
+   no `-buildmode=pie`. The C compiler is clang (22 here) with
+   `--target=x86_64-unknown-haiku -fuse-ld=lld --sysroot=$ROOT`, its Haiku
+   driver finding everything under `$ROOT/boot/system/develop`: copy
+   Haiku's `/boot/system/develop/headers` and `/boot/system/develop/lib`
+   there (with `tar h`, the libraries are links), and from
+   `/boot/system/develop/tools/lib/gcc/x86_64-unknown-haiku/13.3.0` the
+   `crtbegin*.o`, `crtend*.o`, `libgcc*`, `include` and `include-fixed`;
+   add `/boot/system/lib/libgcc_s.so.1` and `libstdc++.so.6.0.32` to
+   `develop/lib`, and link `$ROOT/boot/system/lib` to `develop/lib`.
+3. **Modules**, patched outside the repository and taken in with a
+   `go.work` beside it, not with `go.mod`:
+   - `golang.org/x/sys` v0.48.0, which knows no Haiku: copy the `*_haiku*`
+     files of go-haiku's own copy, `src/cmd/vendor/golang.org/x/sys/unix`,
+     into `unix`, and apply
+     [`haiku/x-sys-v0.48.0.patch`](haiku/x-sys-v0.48.0.patch) (`haiku`
+     in 15 files' build tags, as go-haiku has them, and `Mprotect`, which
+     wazero needs and go-haiku's copy lacks).
+   - `github.com/tetratelabs/wazero` v1.12.0,
+     [`haiku/wazero-v1.12.0.patch`](haiku/wazero-v1.12.0.patch): Haiku's
+     `Stat_t.Ino` is an `int64`; and the compiler for `haiku/amd64`, which
+     needs only `mmap` and `mprotect`. Without it wazero interprets, and
+     the history cache and the decoders run many times slower.
+   - `gioui.org/shader` v1.0.9,
+     [`haiku/gioui-shader-v1.0.9.patch`](haiku/gioui-shader-v1.0.9.patch):
+     it fills in the GLSL 1.50 sources, which Gio's desktop OpenGL uses,
+     on macOS only; on Haiku they were empty.
 
-Gio draws on Linux and the BSDs with OpenGL ES 3 through EGL, in an X11 or
-Wayland window. On Haiku:
+   ```
+   go 1.27.1
 
-1. **A Haiku backend in the Gio fork**, as Gio has for Windows and macOS:
-   windows, input, the clipboard and input methods on the Be API
-   (`BWindow`, `BView`, `BMessage`), in C++ behind a C layer for cgo; and
-   [Mesa's EGL platform for Haiku](https://gitlab.freedesktop.org/mesa/mesa/-/blob/main/src/egl/drivers/haiku/egl_haiku.cpp)
-   to draw with, which gives OpenGL ES 3 and takes a `BitmapHook` as its
-   native window, an object Mesa hands each drawn frame to. The surest way,
-   and the largest: Gio's backends for Windows and macOS are over a
-   thousand lines each.
-2. **X512's Wayland compatibility layer**: a `libwayland-client.so`
-   compatible in API and ABI, loaded into each program, with no compositor
-   ([forum thread](https://discuss.haiku-os.org/t/my-progress-in-wayland-compatibility-layer/12373));
-   GTK 3 and 4 run on it. Gio's Wayland backend could take it with `haiku`
-   in its build tags, but GTK draws into shared memory buffers in software,
-   while Gio needs EGL on Wayland, of which the thread says only that Mesa's
-   EGL was built with Wayland. It hangs on others' experimental work.
-3. **[Xlibe](https://github.com/waddlesplash/xlibe)**, Xlib on the Haiku
-   API without an X server, does not fit: Gio's X11 backend needs xcb
-   (`libX11-xcb`, `xkbcommon-x11`) and EGL on X11, and Xlibe has Xlib only.
+   use /path/to/komarugram-go
 
-There is little 3D acceleration: the drivers for AMD and Intel set modes
-only, without 2D or 3D acceleration, and an accelerated driver for NVIDIA
-Turing and Ampere came out as an alpha in January 2026
-([OSnews](https://www.osnews.com/story/144097/haiku-gets-accelerated-nvidia-graphics-driver/),
-[forum](https://discuss.haiku-os.org/t/whats-the-end-game-when-it-comes-to-3d-acceleration/18068)).
-Gio would draw in software through Mesa there, and animations and the
-blur would load the processor.
+   replace golang.org/x/sys => /path/to/x-sys
+   replace github.com/tetratelabs/wazero => /path/to/wazero
+   replace gioui.org/shader => /path/to/shader
+   ```
+4. **Tags.** `sqlite3_flock`: without a tag `go-sqlite3` knows no file
+   locks on Haiku and fails every lock, `disk I/O error`
+   (`SQLITE_IOERR_LOCK`). `sqlite3_dotlk` works too, but leaves lock files
+   behind a crashed process.
+5. **The client:**
 
-### The rest
+   ```sh
+   GOWORK=/path/to/go.work GOOS=haiku GOARCH=amd64 CGO_ENABLED=1 \
+     CC="clang --target=x86_64-unknown-haiku --sysroot=$ROOT -fuse-ld=lld" \
+     /path/to/go-haiku/bin/go build -ldflags=-linkmode=internal \
+     -tags sqlite3_flock -o messenger ./cmd/messenger
+   ```
+6. **libgiohaiku.so**, the C++ half of Gio's driver, which the program
+   loads from beside itself or from `lib` beside it (or from
+   `GIO_HAIKU_LIB`):
+
+   ```sh
+   go run third_party/gio/app/internal/haiku/build.go \
+     -cxx "clang++ --target=x86_64-unknown-haiku --sysroot=$ROOT -fuse-ld=lld" \
+     -o libgiohaiku.so
+   ```
+
+   On Haiku itself, `go run build.go -o libgiohaiku.so` uses g++.
+
+Copy `messenger`, `libgiohaiku.so` and, for `-demo`, `assets` to Haiku.
+ffmpeg is the package `ffmpeg6_tools` (`pkgman install ffmpeg6_tools`);
+`ffmpeg6` is its libraries only.
+
+### Gio's Haiku driver
+
+- **Two halves.** Go's internal linker takes C, not C++: classes come in
+  COMDAT groups (`unrecognized symbol in section ".group"`), and C++
+  exceptions abort. The Be API's half is a library of its own,
+  `libgiohaiku.so` (`giohaiku.cpp`, its C interface in `giohaiku.h`),
+  which `os_haiku.go` opens with `dlopen` and calls through pointers;
+  nothing of it is needed to build. `GH_ABI` must match.
+- **Threads.** A `BApplication` runs in a thread of its own. Each window
+  is a `BWindow` whose thread puts what happens into a queue;
+  `gh_window_next_event` hands it to the window's goroutine, which waits
+  on it as other drivers wait on their event sources.
+- **Drawing.** With OSMesa, Mesa's llvmpipe drawing into memory, on the
+  window's goroutine (core profile 3.3, BGRA, rows from the top); the
+  finished frame is copied into a `BBitmap`, which the window's thread
+  draws when told. GL's functions are `libOSMesa.so.8`'s. Not the others:
+  Haiku's EGL does not initialize (`EGL_NOT_INITIALIZED`), and a
+  `BGLView`, drawn into from another thread, locks the window from it:
+  the window's thread waited on the drawing, so a window that animated
+  took no input at all. One message to show a frame waits at a time:
+  one a frame piled up in the window's queue, and input waited behind
+  them for seconds.
+- **Colors.** OSMesa's framebuffer has no sRGB encoding, which Gio's
+  desktop OpenGL takes for granted. Gio draws into an `SRGB8_ALPHA8`
+  texture, and `Present` blits it to the framebuffer without decoding
+  it. The context is `Shared`, so Gio reads the state anew each frame:
+  otherwise it took `GL_FRAMEBUFFER_SRGB` for on after the blit turned it
+  off, and every frame but the first was too dark. It keeps a vertex
+  array bound, which the core profile needs.
+- **Frames** come only when Gio asks, and none while the window is
+  minimized.
+- **Keys.** Haiku's Command (Alt on most keyboards) and Control are both
+  Gio's Ctrl, as in Qt's Haiku port; Option, the Windows key, is Alt.
+  Keys are named by their codes, with the US layout's letter for
+  shortcuts in other layouts. `BWindow`'s own Command+W, X, C, V and A
+  are removed, for Gio to have them; Command+Q asks every window to
+  close.
+- **Pointer.** The first click on an inactive window reaches Gio
+  (`B_WILL_ACCEPT_FIRST_CLICK`). Haiku's wheel message has no position:
+  the wheel scrolls at the pointer's last, a notch 100 pixels, as on
+  Wayland and Windows.
+- **The window** keeps within the screen, less the Deskbar when it lies
+  across it, and is centered there; the client asked for 1200×760 and
+  got 1014×713 on a screen of 1024×768.
+- **The clipboard** is `be_clipboard`'s `text/plain` and other MIME types;
+  input methods give their confirmed text only.
+- `GIO_HAIKU_TRACE=1` prints the events the driver gives Gio and frames
+  slower than 30 ms. With `GIO_HAIKU_INPUT` naming a file, each window
+  looks for it ten times a second, runs the commands in it (`move X Y`,
+  `down X Y`, `up X Y`, `click X Y`, `wheel DX DY`, `key TEXT`) as the
+  `app_server`'s messages would come, and deletes it: input for testing
+  when no one can click.
+
+### Checked on Haiku
+
+From 2026-10-07 to 2026-10-08, in the VM above:
+
+| What | Result |
+|---|---|
+| Tests, built on Linux and run there | `historycache` 11/11 and `securedb` 2/2 (with `sqlite3_flock`); `sandbox`, `aac`, `cmark`, `drdec`, `h264`, `lottie`, `opus`, `ratex` all pass with wazero's compiler; `vp9` passes, but its 250 ms limit for a frame was missed while the VM stalled |
+| `messenger -demo` | the chat list and chats draw, colors right; clicks, scrolling with the wheel, hover, resizing, minimizing; 8 starts of a Gio test program and 3 of the client without a crash |
+| Speed | first frame 1.3 s, then 30–50 ms a frame at 1014×713 with `LP_NUM_THREADS=3`; a chat opened about 2.5 s after the click on an older install, which stalled often |
+| Editing | typing, Backspace, the arrows and Delete in an editor of a Gio test program |
+
+`LP_NUM_THREADS` limits llvmpipe's threads (one a core otherwise): with
+all four busy, Haiku stopped answering over SSH while a first frame was
+drawn.
+
+### Not done
 
 | What | On Haiku |
 |---|---|
-| SQLite, the sandbox of decoders (wasm on `wazero`) | `wazero` has no compiler for Haiku, only its interpreter (`compilerPlatformSupports`: Linux, macOS, FreeBSD, NetBSD, Windows and a few others): the history cache, search and the H.264 and AAC decoders would be many times slower; video likely unusable without patching `wazero` |
-| SQLite's file locks | `go-sqlite3` knows no Haiku and goes without locks; its portable `sqlite3_dotlk` tag is there for such systems |
-| Sound (`oto`) | no backend for Haiku's Media Kit; the ALSA file is built for Linux, FreeBSD and NetBSD only, leaving PulseAudio's. Output through the Media Kit would be ours to write |
-| Tray | Haiku has the Deskbar and its replicants; SNI over D-Bus does not apply |
-| TPM | none |
-| ffmpeg (the external player, voice recording) | ported to Haiku; its input devices for a microphone not looked into |
+| Sound (`oto`) | no backend for the Media Kit; `oto` falls to PulseAudio's protocol, which Haiku has no server for |
+| Voice messages | ffmpeg's only input device there is `lavfi`: no microphone; recording would be the Media Kit's |
+| Tray, notifications | the Deskbar's replicants and Haiku's `BNotification`, not written; SNI over D-Bus does not apply |
+| TPM | none; how the key is kept without one was not tried |
+| Emoji | drawn as boxes: no emoji font on the system |
+| Other windows | the photo viewer's transparent window, drag and drop, opening links in a browser: not tried |
+| The clipboard, shortcuts | written, not tried |
+| 3D acceleration | none in practice: the drivers for AMD and Intel set modes only, and an accelerated one for NVIDIA Turing and Ampere is an alpha of January 2026 ([OSnews](https://www.osnews.com/story/144097/haiku-gets-accelerated-nvidia-graphics-driver/)) |
 
-### What a port would take
+### Things met on the way
 
-A new backend for windows and graphics in the Gio fork, or a bet on the
-experimental Wayland layer; a fork of `x/sys` with Haiku; a patched
-`wazero`, or its interpreter; sound through the Media Kit; and an
-unofficial Go toolchain. A project of its own, of weeks, drawing in
-software. Were it started, the first thing to find out is whether EGL on
-the Wayland layer works on Haiku: if it does, the backend comes down to
-build tags and fixes.
+- A program that crashes on Haiku is not killed: the debug server holds
+  it behind a dialog, and it looks hung. `~/config/settings/system/debug_server/settings`
+  can make chosen programs end with a report on the Desktop instead:
+  `executable_actions { *.test report  messenger report }`.
+- In the VM, the AHCI disk timed out under load (`ahci: ExecuteAtaRequest
+  port 0: device timeout` in `/var/log/syslog`): everything stalled for
+  minutes, and files written just before a hard reset came back as
+  zeros. VirtualBox's host I/O cache helped; the VM was then reinstalled
+  on a disk of a fixed size.
+- Haiku's `ps` puts a command's arguments in its first column: the team's
+  ID is `$(NF-3)`, not `$2`.
+- `hey` drives a window by scripting:
+  `hey messenger set Minimize of Window 0 to true`.

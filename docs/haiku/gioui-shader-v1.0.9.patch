@@ -1,0 +1,12 @@
+diff -ruN a/gio/shaders.go b/gio/shaders.go
+--- a/gio/shaders.go
++++ b/gio/shaders.go
+@@ -393,7 +393,7 @@
+ func init() {
+ 	const (
+ 		opengles = runtime.GOOS == "linux" || runtime.GOOS == "freebsd" || runtime.GOOS == "openbsd" || runtime.GOOS == "windows" || runtime.GOOS == "js" || runtime.GOOS == "android" || runtime.GOOS == "darwin" || runtime.GOOS == "ios"
+-		opengl   = runtime.GOOS == "darwin"
++		opengl   = runtime.GOOS == "darwin" || runtime.GOOS == "haiku" // haiku: KomaruGram port experiment
+ 		d3d11    = runtime.GOOS == "windows"
+ 		vulkan   = runtime.GOOS == "linux" || runtime.GOOS == "android"
+ 	)

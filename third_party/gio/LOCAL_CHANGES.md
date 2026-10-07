@@ -484,3 +484,25 @@ Run the focused check from the project root:
   to one grid cell of capture padding is added at the top/left.
   `ui.TestBlurDoesNotSwimWhenMenuCaptureMoves` checks fixed screen pixels
   through one-pixel shifts and across a grid boundary.
+
+- A driver for Haiku, which upstream Gio has none for (October 2026; how to
+  build and what was checked: `docs/PLATFORMS.md`, "Haiku"):
+  - `app/os_haiku.go`: windows, input, the clipboard and cursors, through
+    `libgiohaiku.so`, opened with `dlopen` (Go's internal linker, the only
+    one that links for Haiku, takes no C++). Each window's events wait in a
+    queue in the library, which the window's goroutine reads.
+    `HaikuViewEvent` carries the `BWindow`. `GIO_HAIKU_TRACE=1` prints the
+    events given to Gio and slow frames; `GIO_HAIKU_INPUT` names a file of
+    input commands, for tests without a screen.
+  - `app/gl_haiku.go`: OpenGL 3.3 core through OSMesa into memory, drawn
+    into an `SRGB8_ALPHA8` texture and blitted to OSMesa's linear
+    framebuffer undecoded; the context is `Shared` and keeps a vertex array
+    bound. `BGLView` and Haiku's EGL were tried first and do not work for
+    this (see `docs/PLATFORMS.md`).
+  - `app/internal/haiku/{giohaiku.h,giohaiku.cpp,build.go}`: the library, in
+    C++ on the Be API: a `BApplication` thread, a `BWindow` and `BView` for
+    each window, frames shown by the window's thread from a `BBitmap`;
+    `build.go` builds it (`go run build.go -cxx ... -o libgiohaiku.so`).
+  - `internal/gl/gl_unix.go`: built for Haiku too, loading GL from
+    `libOSMesa.so.8`; Haiku reads the extensions with `glGetStringi`, as
+    macOS, its core profile having no `glGetString(GL_EXTENSIONS)`.

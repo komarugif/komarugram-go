@@ -1,0 +1,24 @@
+diff -ruN a/internal/platform/platform.go b/internal/platform/platform.go
+--- a/internal/platform/platform.go
++++ b/internal/platform/platform.go
+@@ -31,7 +31,7 @@
+ 			return true
+ 		}
+ 		fallthrough
+-	case "dragonfly", "solaris", "illumos":
++	case "dragonfly", "solaris", "illumos", "haiku": // haiku: KomaruGram port experiment
+ 		return runtime.GOARCH == "amd64" && CpuFeatures.Has(CpuFeatureAmd64SSE4_1)
+ 	default:
+ 		return false
+diff -ruN a/internal/sysfs/ino_unix.go b/internal/sysfs/ino_unix.go
+--- a/internal/sysfs/ino_unix.go
++++ b/internal/sysfs/ino_unix.go
+@@ -15,7 +15,7 @@
+ 	case *sys.Stat_t:
+ 		return v.Ino, 0
+ 	case *syscall.Stat_t:
+-		return v.Ino, 0
++		return sys.Inode(v.Ino), 0 // haiku: Ino is int64
+ 	default:
+ 		return 0, 0
+ 	}

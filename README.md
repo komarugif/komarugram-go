@@ -69,12 +69,12 @@ KomaruGram Go can be ported to a wide range of operating systems thanks to its a
 | Linux (Wayland) | ✅ First-class support |
 | Linux (X11) | ✅ Supported, within X11 limitations |
 | MacOS | ✅ First-class support |
+| Haiku OS | ✅ Builds and runs the demo |
 | FreeBSD | ⚠️ Should build; not tested in practice |
 | OpenBSD | ⚠️ Should build in theory; not tested |
 | NetBSD | ❓ Porting possible, with some caveats |
 | Android | ❓ Porting possible, with some caveats |
 | Windows 7 | ❓ Porting possible, with some caveats |
-| Haiku OS | ❓ Porting possible, with significant caveats |
 
 ## Vibecoding
 

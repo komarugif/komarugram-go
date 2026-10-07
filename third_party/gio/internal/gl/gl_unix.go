@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Unlicense OR MIT
 
-//go:build darwin || linux || freebsd || openbsd
+//go:build darwin || linux || freebsd || openbsd || haiku
 
 package gl
 
@@ -663,6 +663,9 @@ func (f *Functions) load(forceES bool) error {
 		libNames = []string{"/System/Library/Frameworks/OpenGLES.framework/OpenGLES"}
 	case runtime.GOOS == "android":
 		libNames = []string{"libGLESv2.so", "libGLESv3.so"}
+	case runtime.GOOS == "haiku":
+		// The functions of OSMesa, which Gio draws with (app/gl_haiku.go).
+		libNames = []string{"libOSMesa.so.8", "libOSMesa.so"}
 	default:
 		libNames = []string{"libGLESv2.so.2", "libGLESv2.so.3.0"}
 	}
@@ -1154,7 +1157,7 @@ func (f *Functions) getStringi(pname Enum, index int) string {
 
 func (f *Functions) GetString(pname Enum) string {
 	switch {
-	case runtime.GOOS == "darwin" && pname == EXTENSIONS:
+	case (runtime.GOOS == "darwin" || runtime.GOOS == "haiku") && pname == EXTENSIONS:
 		// macOS OpenGL 3 core profile doesn't support glGetString(GL_EXTENSIONS).
 		// Use glGetStringi(GL_EXTENSIONS, <index>).
 		var exts []string
