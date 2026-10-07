@@ -12,6 +12,11 @@ import (
 type WriteCmd struct {
 	Type string
 	Data io.ReadCloser
+	// HTML, when set with text, is the same content as HTML, offered
+	// beside the text as TypeHTML, for editors and browsers that paste
+	// its formatting. X11, Wayland, Windows and macOS offer it; the
+	// others put the text alone.
+	HTML []byte
 }
 
 // ReadCmd requests the content of the clipboard, delivered to
@@ -27,6 +32,7 @@ const (
 	TypeText    = "application/text"
 	TypeURIList = "text/uri-list" // files copied in a file manager
 	TypePNG     = "image/png"
+	TypeHTML    = "text/html"
 )
 
 func (WriteCmd) ImplementsCommand() {}

@@ -22,7 +22,8 @@ const loginWidth = unit.Dp(420)
 // 2FA password if the account has one. It shows what login.Login says and
 // hands the answers back.
 type loginPage struct {
-	login *login.Login
+	height heightTransition
+	login  *login.Login
 	// security draws the offer to protect local data, at StepProtect.
 	security *securityView
 	skip     *button.Button
@@ -133,7 +134,7 @@ func (p *loginPage) Layout(gtx layout.Context, l localization.Catalog, private b
 		gtx.Constraints.Min = layout.Constraints{}.Min
 		return layout.UniformInset(16).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(loginWidth))
-			return card(gtx, func(gtx layout.Context) layout.Dimensions {
+			return p.height.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 				if st.Step == login.StepProtect {
 					return p.layoutProtect(gtx, l)
 				}

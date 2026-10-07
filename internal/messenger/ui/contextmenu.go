@@ -4,6 +4,8 @@ package ui
 
 import (
 	"image"
+	"math"
+	"time"
 
 	"gio-mw/token"
 	"gio-mw/wdk"
@@ -40,23 +42,57 @@ const (
 // the emoji and sticker picker, the attachment menu and the like.
 type contextMenu struct {
 	visibility wdk.FloatTween
+	height     heightTransition
+	top        wdk.FloatTween
+	bounds     image.Rectangle
+	viewport   image.Point
+	placed     bool
+	anchor     image.Point
+	corner     menuCorner
 }
 
 // Layout draws content in rect while the menu is open or animating out,
 // reporting whether it drew. radius is the corner radius of the menu, which
 // its expanding outline keeps.
 func (m *contextMenu) Layout(gtx layout.Context, open bool, rect image.Rectangle, from menuCorner, radius int, content layout.Widget) bool {
-	visibility := m.animate(gtx, open)
+	// Resizing the window is not a disclosure transition. Snap to the new
+	// clamped rectangle, finishing any pending entrance at the same time.
+	resized := !m.bounds.Empty() && m.viewport != gtx.Constraints.Max
+	m.viewport = gtx.Constraints.Max
+	motion := gtx
+	if resized {
+		motion.Now = time.Time{}
+	}
+	visibility := m.animate(motion, open)
 	if visibility == 0 {
+		m.height = heightTransition{}
+		m.top = wdk.FloatTween{}
+		m.bounds = image.Rectangle{}
+		if !open {
+			m.placed = false
+		}
 		return false
+	}
+	// Changing contents (reactions, fetched actions, picker rows) resize an
+	// already-open menu too. Interpolate its top with its height so bottom-
+	// anchored menus and their hit regions keep moving together.
+	geometry := gtx
+	geometry.Constraints.Max.X = rect.Dx()
+	if resized || m.height.initialized && m.height.width != rect.Dx() {
+		m.top = wdk.FloatTween{}
+	}
+	height := m.height.Value(geometry, rect.Dy(), !resized)
+	m.top.Duration, m.top.Easing = heightDuration, &token.EasingStandard
+	y := int(math.Round(float64(m.top.Animate(gtx, float32(rect.Min.Y)))))
+	m.bounds = image.Rect(rect.Min.X, y, rect.Max.X, y+height)
+	rect = m.bounds
+	if !open {
+		// A closing menu takes no input.
+		gtx = gtx.Disabled()
 	}
 	if visibility == 1 {
 		inRect(gtx, rect, content)
 		return true
-	}
-	if !open {
-		// A closing menu takes no input.
-		gtx = gtx.Disabled()
 	}
 	size := rect.Size()
 	macro := op.Record(gtx.Ops)
@@ -96,4 +132,32 @@ func (m *contextMenu) animate(gtx layout.Context, open bool) float32 {
 		m.visibility.Easing = &token.EasingEmphasizedDecelerate
 	}
 	return m.visibility.Animate(gtx, target)
+}
+
+// Place chooses the opening side once. Resizing an open menu must not flip
+// it across the pointer: it grows against the window edge when it runs out
+// of room. A new pointer anchor starts a fresh placement.
+func (m *contextMenu) Place(gtx layout.Context, at, viewport, size image.Point) (image.Rectangle, menuCorner) {
+	margin := gtx.Dp(8)
+	size.X = min(max(0, size.X), max(0, viewport.X-2*margin))
+	size.Y = min(max(0, size.Y), max(0, viewport.Y-2*margin))
+	if !m.placed || m.anchor != at {
+		m.placed, m.anchor, m.corner = true, at, menuFromTopLeft
+		if at.X+size.X > viewport.X-margin {
+			m.corner = menuFromTopRight
+		}
+		if at.Y+size.Y > viewport.Y-margin {
+			m.corner += menuFromBottomLeft
+		}
+	}
+	x, y := at.X, at.Y
+	if m.corner == menuFromTopRight || m.corner == menuFromBottomRight {
+		x -= size.X
+	}
+	if m.corner == menuFromBottomLeft || m.corner == menuFromBottomRight {
+		y -= size.Y
+	}
+	x = max(margin, min(x, viewport.X-margin-size.X))
+	y = max(margin, min(y, viewport.Y-margin-size.Y))
+	return image.Rect(x, y, x+size.X, y+size.Y), m.corner
 }

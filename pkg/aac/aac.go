@@ -61,7 +61,7 @@ func NewRuntime(ctx context.Context, module []byte) (*Runtime, error) {
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("wasi: %w", err)
 	}
-	compiled, err := rt.Wazero().CompileModule(ctx, module)
+	compiled, err := rt.CompileModule(ctx, module)
 	if err != nil {
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("compile fdk-aac: %w", err)

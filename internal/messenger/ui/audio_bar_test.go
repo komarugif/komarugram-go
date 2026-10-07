@@ -4,6 +4,7 @@ package ui
 
 import (
 	"image"
+	"image/color"
 	"testing"
 	"time"
 
@@ -11,8 +12,10 @@ import (
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
+	"gioui.org/gpu/headless"
 	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/paint"
 	"gioui.org/unit"
 
 	"komarugram/internal/messenger/localization"
@@ -20,9 +23,9 @@ import (
 )
 
 // audioFrame draws p showing chat, and returns the height of its bar of
-// what plays.
+// what plays. Animations are off: the bar is there at once, or gone.
 func audioFrame(p *chatPage, chat int64) int {
-	gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(600, 820)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
+	gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(600, 820)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{wdk.AnimationsNamespace: false}}
 	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
 	if p.images == nil {
 		p.images = &imageOps{}
@@ -204,5 +207,58 @@ func TestAudioTitle(t *testing.T) {
 	}
 	if speedText(1.5) != "1.5×" || speedText(2) != "2×" {
 		t.Errorf("speeds %q %q", speedText(1.5), speedText(2))
+	}
+}
+
+// While the bar closes, the space it leaves is still the bar, as it was
+// when it closed: not the window under it.
+func TestAudioBarClosesWithWhatItShowed(t *testing.T) {
+	p, _, find := audioHarnessPage(t)
+	t.Chdir("../../..")
+	size := image.Pt(600, 48)
+	win, err := headless.NewWindow(size.X, size.Y)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer win.Release()
+	ops := new(op.Ops)
+	background := color.NRGBA{R: 255, B: 255, A: 255}
+	now := time.Now()
+	frame := func() {
+		ops.Reset()
+		gtx := layout.Context{Ops: ops, Now: now, Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
+		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		paint.Fill(gtx.Ops, background)
+		if p.audioBarSize(gtx) > 0 {
+			p.layoutAudioBar(gtx, localization.For("ru"), false)
+		}
+	}
+	m := find("demo/voice")
+	p.audio.toggle(p, m, -1)
+	waitAudio(t, "it did not start", func() bool { return p.audio.state(m).playing })
+	frame()
+	now = now.Add(heightDuration + time.Millisecond)
+	frame()
+	p.audio.stop()
+	frame()
+	now = now.Add(heightDuration / 3)
+	frame()
+	if p.audioBar.height.value == 0 {
+		t.Fatal("the bar closed at once")
+	}
+	if err := win.Frame(ops); err != nil {
+		t.Fatal(err)
+	}
+	img := image.NewRGBA(image.Rectangle{Max: size})
+	if err := win.Screenshot(img); err != nil {
+		t.Fatal(err)
+	}
+	if got := color.NRGBAModel.Convert(img.At(size.X/2, 1)).(color.NRGBA); got == background {
+		t.Fatal("the closing bar shows the window under it")
+	}
+	now = now.Add(heightDuration)
+	frame()
+	if p.audioBar.height.value != 0 || p.audioBar.shown != nil {
+		t.Fatal("the bar keeps what it showed after it closed")
 	}
 }

@@ -156,7 +156,7 @@ func (d *shotDialog) layout(gtx layout.Context, p *chatPage, l localization.Cata
 		width := min(gtx.Constraints.Max.X, gtx.Dp(520))
 		height := min(gtx.Constraints.Max.Y, gtx.Dp(720))
 		gtx.Constraints = layout.Exact(image.Pt(width, height))
-		return card(gtx, func(gtx layout.Context) layout.Dimensions { return d.layoutContent(gtx, p, l) }, defaultCardPadding)
+		return d.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions { return d.layoutContent(gtx, p, l) }, defaultCardPadding)
 	})
 	if !shown {
 		d.stop()

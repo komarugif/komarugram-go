@@ -99,7 +99,7 @@ func (d *translateDialog) layout(gtx layout.Context, p *chatPage, l localization
 		width := min(gtx.Constraints.Max.X, gtx.Dp(460))
 		height := min(gtx.Constraints.Max.Y, gtx.Dp(520))
 		gtx.Constraints = layout.Exact(image.Pt(width, height))
-		return card(gtx, func(gtx layout.Context) layout.Dimensions {
+		return d.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 			sc := scheme(gtx)
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {

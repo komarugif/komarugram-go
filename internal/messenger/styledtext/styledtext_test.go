@@ -107,3 +107,92 @@ func TestLinePrefixWrapsAsWholeSpan(t *testing.T) {
 		}
 	}
 }
+
+// Collapsed quotes must stop both drawing and hit testing at three visual
+// lines, including when a line contains several styles or wraps a long span.
+func TestMaxLinesStopsBeforeHiddenContent(t *testing.T) {
+	shaper := text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
+	for _, content := range []string{"one\ntwo\nthree\nHIDDEN", "one\n\ntwo\nHIDDEN", strings.Repeat("wrapped word ", 1000)} {
+		gtx := layout.Context{Ops: new(op.Ops), Constraints: layout.Constraints{Max: image.Pt(120, 10000)}, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}
+		style := Text(shaper, SpanStyle{Content: "bold ", Size: 14, Font: font.Font{Weight: font.Bold}}, SpanStyle{Content: content, Size: 14})
+		style.MaxLines = 3
+		lines := map[int]bool{}
+		end := 0
+		style.Decorate = func(_ layout.Context, f Fragment, draw func()) {
+			lines[f.Bounds.Min.Y] = true
+			for _, c := range f.Clusters {
+				end = max(end, c.End)
+			}
+			draw()
+		}
+		style.Layout(gtx, nil)
+		if len(lines) != 3 || end >= len([]rune("bold "+content)) {
+			t.Fatalf("hidden content exposed: %d lines, %d runes", len(lines), end)
+		}
+	}
+}
+
+func TestLongCodeTokenWrapsOneLinePerFragment(t *testing.T) {
+	shaper := text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
+	code := "func greet() {\n    fmt.Println(\"Привет, мир! 👋\")\n}"
+	for width := 80; width <= 240; width += 10 {
+		fragments, _ := layoutFragments(t, shaper, nil, width, SpanStyle{Content: code, Size: 20, Font: font.Font{Typeface: "Go Mono"}})
+		for _, f := range fragments {
+			if f.Bounds.Dy() > 35 {
+				t.Fatalf("width %d: fragment spans multiple lines: %v", width, f.Bounds)
+			}
+		}
+	}
+}
+
+// A shifted span is set lower on its line, as a subscript, and its line is
+// as high as it reaches.
+func TestShiftMovesASpanDown(t *testing.T) {
+	shaper := text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
+	plain, size := layoutFragments(t, shaper, nil, 800, SpanStyle{Size: 16, Content: "H"}, SpanStyle{Size: 12, Content: "2"}, SpanStyle{Size: 16, Content: "O"})
+	shifted, shiftedSize := layoutFragments(t, shaper, nil, 800, SpanStyle{Size: 16, Content: "H"}, SpanStyle{Size: 12, Content: "2", Shift: 7}, SpanStyle{Size: 16, Content: "O"})
+	if len(plain) != 3 || len(shifted) != 3 {
+		t.Fatalf("%d and %d fragments", len(plain), len(shifted))
+	}
+	if d := shifted[1].Bounds.Min.Y - plain[1].Bounds.Min.Y; d != 7 {
+		t.Fatalf("the subscript moved %d down", d)
+	}
+	if shifted[1].Clusters[0].Bounds.Min.Y != shifted[1].Bounds.Min.Y {
+		t.Fatal("the subscript's clusters stayed")
+	}
+	if shifted[0].Bounds != plain[0].Bounds || shifted[2].Bounds != plain[2].Bounds {
+		t.Fatal("the spans around it moved")
+	}
+	if shiftedSize.Y < plain[1].Bounds.Dy()+7 || shiftedSize.Y < size.Y {
+		t.Fatalf("the line is %d high, the subscript reaches %d", shiftedSize.Y, plain[1].Bounds.Dy()+7)
+	}
+}
+
+// A box is an object of its size in its line, as an inline formula: one
+// cluster of all its text, its baseline on the text's, and to the next line
+// when it does not fit.
+func TestBoxSitsOnTheBaseline(t *testing.T) {
+	shaper := text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
+	box := &Box{Size: image.Pt(60, 40), Ascent: 30}
+	frags, size := layoutFragments(t, shaper, nil, 800, SpanStyle{Size: 16, Content: "ab "}, SpanStyle{Size: 16, Content: `\frac{1}{2}`, Box: box}, SpanStyle{Size: 16, Content: " cd"})
+	if len(frags) != 3 {
+		t.Fatalf("%d fragments", len(frags))
+	}
+	b := frags[1]
+	if b.Bounds.Dx() != 60 || b.Bounds.Dy() != 40 || len(b.Clusters) != 1 || b.Clusters[0].End-b.Clusters[0].Start != len([]rune(`\frac{1}{2}`)) {
+		t.Fatalf("the box is %v, clusters %+v", b.Bounds, b.Clusters)
+	}
+	plain, _ := layoutFragments(t, shaper, nil, 800, SpanStyle{Size: 16, Content: "ab "})
+	textAscent := plain[0].Bounds.Dy() * 3 / 4
+	// The text's baseline is 30 under the box's top.
+	if top := frags[0].Bounds.Min.Y; top < b.Bounds.Min.Y+30-textAscent-4 || top > b.Bounds.Min.Y+30-textAscent+4 {
+		t.Fatalf("the text's top is at %d, the box's at %d", top, b.Bounds.Min.Y)
+	}
+	if size.Y < 40 {
+		t.Fatalf("the line is %d high", size.Y)
+	}
+	wrapped, _ := layoutFragments(t, shaper, nil, 70, SpanStyle{Size: 16, Content: "ab "}, SpanStyle{Size: 16, Content: "x", Box: box})
+	if wrapped[1].Bounds.Min.X != 0 || wrapped[1].Bounds.Min.Y <= wrapped[0].Bounds.Min.Y {
+		t.Fatalf("a box that does not fit stays at %v", wrapped[1].Bounds)
+	}
+}

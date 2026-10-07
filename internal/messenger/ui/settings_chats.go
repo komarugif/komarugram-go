@@ -46,8 +46,9 @@ var imageFiles = fileFilter{"Images", []string{".jpg", ".jpeg", ".png", ".webp"}
 // one for the dark, as Telegram Desktop keeps a theme for the day and one
 // for the night.
 type chatsSettings struct {
-	chats    func() preferences.ChatLook
-	setChats func(preferences.ChatLook) error
+	themesHeight, wallpaperHeight heightTransition
+	chats                         func() preferences.ChatLook
+	setChats                      func(preferences.ChatLook) error
 	// dark reports whether the application is dark; setDark makes it so,
 	// for a theme of the other kind.
 	dark    func() bool
@@ -172,11 +173,11 @@ func (s *chatsSettings) Layout(gtx layout.Context, l localization.Catalog) layou
 	s.thumbs.Frame()
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return card(gtx, func(gtx layout.Context) layout.Dimensions { return s.layoutThemes(gtx, l) }, defaultCardPadding)
+			return s.themesHeight.Card(gtx, func(gtx layout.Context) layout.Dimensions { return s.layoutThemes(gtx, l) }, defaultCardPadding)
 		}),
 		vspace(12),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return card(gtx, func(gtx layout.Context) layout.Dimensions { return s.layoutWallpaper(gtx, l) }, defaultCardPadding)
+			return s.wallpaperHeight.Card(gtx, func(gtx layout.Context) layout.Dimensions { return s.layoutWallpaper(gtx, l) }, defaultCardPadding)
 		}),
 	)
 }

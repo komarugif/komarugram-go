@@ -29,6 +29,7 @@ import (
 	"komarugram/internal/appwindow"
 	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/emojipacks"
+	"komarugram/internal/messenger/formula"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/login"
 	"komarugram/internal/messenger/model"
@@ -108,10 +109,13 @@ type App struct {
 	// forum; a topic opens as thread, like comments.
 	forum  *forumPage
 	viewer *photoViewer
-	// openWindow and photoWindows are the viewer windows' host and list.
-	openWindow   func(appwindow.Spec)
-	photoWindows photoWindows
-	settings     *settingsPage
+	// openWindow is the host of the windows the viewer and articles open
+	// in; photoWindows and articleWindows, their lists, which close with
+	// this window and when it locks.
+	openWindow     func(appwindow.Spec)
+	photoWindows   photoWindows
+	articleWindows articleWindows
+	settings       *settingsPage
 	// sessionEnded asks what to do once Telegram ended the session.
 	sessionEnded *sessionEndedDialog
 	// connectionFailed offers to connect again once the connection stopped.
@@ -453,6 +457,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		if _, ok := store.(model.ForumSource); ok {
 			a.forum = newForumPage()
 			a.forum.open = a.openTopic
+			a.forum.openAt = a.openTopicAt
 			a.forum.emoji = a.layoutCustomEmoji
 			if a.comments == nil {
 				a.comments = a.newChatPage(source, store, w)
@@ -481,6 +486,12 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		if services.OpenWindow != nil {
 			a.openWindow = services.OpenWindow
 			a.viewer.popout = a.openPhotoWindow
+			a.history.openArticle = a.openArticleWindow
+			a.history.openSourceWindow = a.openSourceWindow
+			if a.comments != nil {
+				a.comments.openArticle = a.openArticleWindow
+				a.comments.openSourceWindow = a.openSourceWindow
+			}
 		}
 	}
 	return a
@@ -515,6 +526,7 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 	p.openPhoto = func(m model.Message) { a.viewer.Open(p.chat, m, p.photos()) }
 	p.openAlone = func(m model.Message) { a.viewer.OpenAlone(p.chat, m) }
 	p.releaseMemory, p.keepMemory = w.ReleaseMemoryLater, w.KeepMemory
+	formula.SetRelease(w.ReleaseMemoryLater)
 	p.openWebApp = a.launchWebApp
 	if p.composer != nil {
 		p.composer.confirmations = func() (bool, bool) {
@@ -548,6 +560,7 @@ func (a *App) messageFilter() *messageFilter {
 func (a *App) Close() {
 	a.closeMiniApps()
 	a.photoWindows.closeAll()
+	a.articleWindows.closeAll()
 	if a.avatars != nil {
 		a.avatars.media.Close()
 	}
@@ -1218,6 +1231,7 @@ func (a *App) SetMinimized(minimized bool) {
 		a.windowLocked.Store(true)
 		a.window.SetTitle(a.catalog().T("app.title"))
 		a.photoWindows.closeAll()
+		a.articleWindows.closeAll()
 	}
 }
 
@@ -1261,6 +1275,7 @@ func (a *App) checkWindowLock(gtx layout.Context) bool {
 			a.windowLocked.Store(true)
 			a.window.SetTitle(a.catalog().T("app.title"))
 			a.photoWindows.closeAll()
+			a.articleWindows.closeAll()
 			return true
 		}
 		gtx.Execute(op.InvalidateCmd{At: deadline})

@@ -62,7 +62,7 @@ func TestMediaClassificationAttributeOrder(t *testing.T) {
 			t.Fatal(k, m)
 		}
 	}
-	msg := &tg.Message{ID: 1, PeerID: &tg.PeerUser{UserID: 2}, Message: "👋 link", Entities: []tg.MessageEntityClass{&tg.MessageEntityTextURL{Offset: 3, Length: 4, URL: "https://telegram.org"}}, ReplyMarkup: &tg.ReplyInlineMarkup{Rows: []tg.KeyboardButtonRow{{Buttons: []tg.KeyboardButtonClass{&tg.KeyboardButtonURL{Text: "open", URL: "https://telegram.org"}, &tg.KeyboardButtonCallback{Text: "action", Data: []byte("secret callback")}}}}}}
+	msg := &tg.Message{ID: 1, PeerID: &tg.PeerUser{UserID: 2}, Message: "👋 link", Entities: []tg.MessageEntityClass{&tg.MessageEntityTextURL{Offset: 3, Length: 4, URL: "https://telegram.org"}}, ReplyMarkup: &tg.ReplyInlineMarkup{Rows: []tg.KeyboardInlineButtonRow{{Buttons: []tg.KeyboardInlineButton{{Text: "open", Type: &tg.InlineButtonTypeURL{URL: "https://telegram.org"}}, {Text: "action", Type: &tg.InlineButtonTypeCallback{Data: []byte("secret callback")}}}}}}}
 	m, _ := convertMessage("a", msg, nil)
 	if m.Entities[0].Offset != 3 || m.Buttons[0][0].Kind != "url" || m.Buttons[0][1].URL != "" {
 		t.Fatal("entities/readonly keyboard conversion")

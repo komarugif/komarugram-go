@@ -45,6 +45,7 @@ type notifyGroup struct {
 	// accounts shows the card only with more than one account.
 	accounts bool
 	toggle   *toggle.Toggle[string]
+	height   heightTransition
 }
 
 type notifySettings struct {
@@ -123,7 +124,7 @@ func (s *notifySettings) Layout(gtx layout.Context, l localization.Catalog, acco
 			children = append(children, vspace(12))
 		}
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return settingsChoiceCard(gtx, l.T(g.title), hint, func(gtx layout.Context) layout.Dimensions {
+			return settingsChoiceCard(gtx, &g.height, l.T(g.title), hint, func(gtx layout.Context) layout.Dimensions {
 				return g.toggle.Layout(gtx, s.texts)
 			})
 		}))

@@ -35,6 +35,7 @@ type sharedResult struct {
 	err        error
 }
 type chatInfo struct {
+	cardHeights       [4]heightTransition
 	loader            loadingIndicator
 	giftGeneration    uint64
 	drawAvatar        avatarLayout
@@ -449,7 +450,7 @@ func (p *chatInfo) layoutInfo(gtx layout.Context, l localization.Catalog) layout
 						return layout.Dimensions{}
 					}
 					return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return card(gtx, func(gtx layout.Context) layout.Dimensions {
+						return p.cardHeights[0].Card(gtx, func(gtx layout.Context) layout.Dimensions {
 							subtitle := l.T("info.username")
 							return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -468,7 +469,7 @@ func (p *chatInfo) layoutInfo(gtx layout.Context, l localization.Catalog) layout
 						return layout.Dimensions{}
 					}
 					return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return card(gtx, func(gtx layout.Context) layout.Dimensions {
+						return p.cardHeights[1].Card(gtx, func(gtx layout.Context) layout.Dimensions {
 							return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 									if registration == "" {
@@ -494,7 +495,7 @@ func (p *chatInfo) layoutInfo(gtx layout.Context, l localization.Catalog) layout
 					if subtitle == "" {
 						subtitle = l.T("chat_theme.default")
 					}
-					return card(gtx, func(gtx layout.Context) layout.Dimensions {
+					return p.cardHeights[2].Card(gtx, func(gtx layout.Context) layout.Dimensions {
 						return p.themesButton.Layout(gtx, iconPalette, l.T("chat_theme.title"), subtitle)
 					}, 6)
 				}), vspace(12),
@@ -503,7 +504,7 @@ func (p *chatInfo) layoutInfo(gtx layout.Context, l localization.Catalog) layout
 					if len(kinds) == 0 {
 						return layout.Dimensions{}
 					}
-					return card(gtx, func(gtx layout.Context) layout.Dimensions {
+					return p.cardHeights[3].Card(gtx, func(gtx layout.Context) layout.Dimensions {
 						rows := make([]layout.FlexChild, 0, len(kinds))
 						for _, kind := range kinds {
 							rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {

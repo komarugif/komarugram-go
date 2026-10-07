@@ -106,6 +106,9 @@ type Global struct {
 	// AudioVolume is how loud voice messages and music play in the client,
 	// in percent.
 	AudioVolume int `json:"audio_volume"`
+	// ArticleZoom is how big the article window draws articles, in
+	// percent, from 25 to 400 as Telegram Desktop's: 0 for 100.
+	ArticleZoom int `json:"article_zoom,omitempty"`
 	// Ghost is what the accounts tell others of themselves, as AyuGram's
 	// Ghost Mode, the same for all of them.
 	Ghost Ghost `json:"ghost"`
@@ -411,6 +414,9 @@ func validate(g Global) error {
 	if g.AudioVolume < 0 || g.AudioVolume > 100 {
 		return errors.New("invalid audio volume")
 	}
+	if g.ArticleZoom != 0 && (g.ArticleZoom < 25 || g.ArticleZoom > 400) {
+		return errors.New("invalid article zoom")
+	}
 	if g.VoiceSpeed != 0 && (g.VoiceSpeed < 0.5 || g.VoiceSpeed > 3) {
 		return errors.New("invalid voice speed")
 	}
@@ -470,6 +476,15 @@ func (s *Store) SetAudioPlayer(value string) error {
 
 func (s *Store) SetAudioVolume(percent int) error {
 	return s.change(func(g *Global) { g.AudioVolume = percent })
+}
+
+// SetArticleZoom sets how big the article window draws articles, in
+// percent; 100 is kept as 0.
+func (s *Store) SetArticleZoom(percent int) error {
+	if percent == 100 {
+		percent = 0
+	}
+	return s.change(func(g *Global) { g.ArticleZoom = percent })
 }
 
 func (s *Store) SetVoiceSpeed(value float64) error {

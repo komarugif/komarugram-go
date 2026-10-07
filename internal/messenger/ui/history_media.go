@@ -16,6 +16,7 @@ import (
 	"gio-mw/token"
 
 	"gioui.org/f32"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -97,6 +98,8 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	if clicked {
 		if video {
 			p.play(gtx, m, p.reportMedia, l)
+		} else if m.Kind == model.MessagePhoto && r.alone && p.openAlone != nil {
+			p.openAlone(m)
 		} else if m.Kind == model.MessagePhoto && p.openPhoto != nil {
 			p.openPhoto(m)
 		} else if m.Kind == model.MessageGIF && p.openAlone != nil && err == nil && !cancelled && !loading {
@@ -133,10 +136,21 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			origin := image.Pt((size.X-diameter)/2, (size.Y-diameter)/2)
 			offset(gtx, origin, func(gtx layout.Context) layout.Dimensions {
 				paint.FillShape(gtx.Ops, color.NRGBA{A: 145}, clip.Ellipse{Max: image.Pt(diameter, diameter)}.Op(gtx.Ops))
+				// White on the dark circle in either theme.
+				white := token.NewMatColorFromHexRGB(0xffffff)
+				if video {
+					// An icon, not "▶": the text's fonts lack it, and the
+					// emoji font drew it as the colored emoji.
+					inset := diameter / 6
+					offset(gtx, image.Pt(inset, inset), func(gtx layout.Context) layout.Dimensions {
+						return exact(gtx, image.Pt(diameter-2*inset, diameter-2*inset), func(gtx layout.Context) layout.Dimensions {
+							return iconPlayFile(gtx, white)
+						})
+					})
+					return layout.Dimensions{Size: image.Pt(diameter, diameter)}
+				}
 				symbol := "×"
 				switch {
-				case video:
-					symbol = "▶"
 				case cancelled:
 					symbol = "↓"
 				case err != nil:
@@ -147,9 +161,9 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 				box.Constraints = layout.Exact(image.Pt(diameter, diameter))
 				layout.Center.Layout(box, func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min = image.Point{}
-					return label(gtx, symbol, token.TypestyleTitleLarge, scheme(gtx).InverseSurface.OnColor, 1)
+					return label(gtx, symbol, token.TypestyleTitleLarge, white, 1)
 				})
-				if loading && !video {
+				if loading {
 					ring(gtx, diameter, progress, animate)
 				}
 				return layout.Dimensions{Size: image.Pt(diameter, diameter)}
@@ -167,7 +181,11 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 		style := surfaceStyle{radius: gtx.Dp(8), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor, button: l.T("stickers.open")}
 		return r.sticker.Layout(gtx, size, style, draw)
 	}
-	return r.media.Layout(gtx, draw)
+	return r.media.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		// A press opens or plays it, as a button.
+		pointer.CursorPointer.Add(gtx.Ops)
+		return draw(gtx)
+	})
 }
 
 // tileMedia returns the message showing the smallest variant of a photo
@@ -208,15 +226,16 @@ func ring(gtx layout.Context, diameter int, progress float32, animate bool) {
 	}
 	paint.FillShape(gtx.Ops, color.NRGBA{R: 255, G: 255, B: 255, A: 240}, clip.Stroke{Path: path.End(), Width: float32(gtx.Dp(2))}.Op())
 }
-func albumRow(r *messageRow, m model.Message) *messageRow {
+func albumRow(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog) *messageRow {
 	if r.album == nil {
 		r.album = map[model.MessageID]*messageRow{}
 	}
 	child := r.album[m.Key.MessageID]
 	if child == nil || child.revision != m.ContentRevision {
-		child = &messageRow{revision: m.ContentRevision, runs: model.TextRuns(m.Text, m.Entities)}
+		child = newMessageRow(m, l, gtx.Now)
 		r.album[m.Key.MessageID] = child
 	}
+	child.refreshDates(gtx, m, l)
 	return child
 }
 func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog, animate bool) layout.Dimensions {
@@ -252,7 +271,7 @@ func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Messag
 			tileGtx := gtx
 			tileGtx.Constraints = layout.Exact(image.Pt(w, height))
 			offset(tileGtx, image.Pt(x, y), func(gtx layout.Context) layout.Dimensions {
-				return p.mediaTile(gtx, albumRow(r, member), member, image.Pt(w, height), true, l, animate)
+				return p.mediaTile(gtx, albumRow(gtx, r, member, l), member, image.Pt(w, height), true, l, animate)
 			})
 			x += w + gap
 		}

@@ -18,6 +18,7 @@ import (
 	"gioui.org/gpu"
 	"gioui.org/internal/debug"
 	"gioui.org/internal/ops"
+	"gioui.org/io/clipboard"
 	"gioui.org/io/event"
 	"gioui.org/io/input"
 	"gioui.org/io/key"
@@ -272,8 +273,12 @@ func (w *Window) updateState() {
 	if hint, ok := q.TextInputHint(); ok {
 		w.driver.SetInputHint(hint)
 	}
-	if mime, txt, ok := q.WriteClipboard(); ok {
-		w.driver.WriteClipboard(mime, txt)
+	if mime, txt, html, ok := q.WriteClipboardHTML(); ok {
+		if d, ok := w.driver.(htmlClipboardWriter); ok && html != nil && mime == clipboard.TypeText {
+			d.WriteClipboardHTML(txt, html)
+		} else {
+			w.driver.WriteClipboard(mime, txt)
+		}
 	}
 	if types, ok := q.ClipboardRequested(); ok {
 		w.driver.ReadClipboard(types)

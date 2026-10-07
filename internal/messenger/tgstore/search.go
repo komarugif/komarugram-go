@@ -407,8 +407,11 @@ func (s *Store) searchGlobal(ctx context.Context, api *tg.Client, q model.Search
 // messages were read. The messages found are not saved, as no found message
 // is: see foundPage.
 func (s *Store) SearchChat(ctx context.Context, chat int64, text string, next string, limit int) (model.ChatSearchPage, error) {
-	chat = s.realChat(chat)
+	// A thread, a topic or a post's comments, is searched in its group,
+	// as Telegram Desktop searches it: under its root (top_msg_id).
+	thread := isThread(chat)
 	s.history.mu.Lock()
+	chat, top := s.history.threadChat(chat)
 	api, cache, peer := s.history.api, s.history.cache, s.history.peers[chat]
 	s.history.mu.Unlock()
 	text = strings.TrimSpace(text)
@@ -416,6 +419,10 @@ func (s *Store) SearchChat(ctx context.Context, chat int64, text string, next st
 		return model.ChatSearchPage{}, nil
 	}
 	remote := api != nil && peer.ID != 0 && !strings.HasPrefix(next, "l")
+	if !remote && thread {
+		// The cache keeps no thread's messages.
+		return model.ChatSearchPage{}, model.ErrSearchOffline
+	}
 	if !remote {
 		if cache == nil {
 			return model.ChatSearchPage{}, model.ErrSearchOffline
@@ -432,7 +439,11 @@ func (s *Store) SearchChat(ctx context.Context, chat int64, text string, next st
 		return page, nil
 	}
 	offsetID, _ := strconv.Atoi(strings.TrimPrefix(next, "r"))
-	res, err := api.MessagesSearch(ctx, &tg.MessagesSearchRequest{Peer: peer.input(), Q: text, Filter: &tg.InputMessagesFilterEmpty{}, OffsetID: offsetID, Limit: limit})
+	req := &tg.MessagesSearchRequest{Peer: peer.input(), Q: text, Filter: &tg.InputMessagesFilterEmpty{}, OffsetID: offsetID, Limit: limit}
+	if top != 0 {
+		req.SetTopMsgID(top)
+	}
+	res, err := api.MessagesSearch(ctx, req)
 	if err != nil {
 		return model.ChatSearchPage{}, err
 	}

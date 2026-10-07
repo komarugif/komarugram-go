@@ -29,12 +29,15 @@ Two applications built on the same base:
 | `internal/messenger/historycache` | SQLite history, media, viewport and update-state cache |
 | `internal/messenger/chatmedia` | Media loading, bounded rendering cache and playback |
 | `internal/messenger/styledtext` | Rich text rendering and glyph geometry for selection |
+| `internal/messenger/richhtml` | A rich message as an HTML page: "Save as HTML", and the HTML of blocks copied |
 | `internal/messenger/tgstore` | `Store` backed by a Telegram account through gotd               |
 | `internal/messenger/ui`     | Messenger interface; its components: [docs/UI_COMPONENTS.md](docs/UI_COMPONENTS.md) |
 | `internal/kitchen`          | Kitchen app shell, pages and services                             |
 | `pkg/resample`              | Streaming Catmull-Rom image scaling with a few rows of memory       |
 | `pkg/video`                 | ffmpeg-backed player and frame cache, independent of any UI        |
 | `pkg/lottie`                | Lottie/.tgs renderer: tlottie compiled to wasm, run by wazero       |
+| `pkg/ratex`                 | LaTeX formulas: RaTeX compiled to wasm, run by wazero; drawn with KaTeX's fonts |
+| `pkg/cmark`                 | Markdown: cmark-gfm compiled to wasm, run by wazero; `internal/messenger/markdown` makes an article of its tree |
 | `pkg/webm`                  | Matroska/WebM demuxer written in Go                                 |
 | `pkg/vp9`                   | VP9 decoder: libvpx compiled to wasm, run by wazero                 |
 | `pkg/opus`                  | Opus decoder for voice messages: libopus compiled to wasm, OGG parsed in Go, seekable |
@@ -445,8 +448,10 @@ A forum (a group divided in topics) opens as the list of its topics instead of a
 history, as in Telegram Desktop: the icon of the topic's colour, its title, the last
 message, the unread and mention counters, a pin for a pinned topic and a lock for
 a closed one. A topic opens as a page of its own, like the comments to a post, with
-a way back; messages sent there reply to the topic's first message. Creating and
-editing topics is not done.
+a way back and how many messages it has; messages sent there reply to the topic's
+first message. The forum's header searches all its topics, and a message found
+opens its topic there; a topic's header, and the comments', search the topic.
+Creating and editing topics is not done.
 
 With nothing written, a microphone takes Send's place: it records a voice
 message (`pkg/voice`) through `ffmpeg` — PulseAudio/PipeWire or ALSA on Linux,

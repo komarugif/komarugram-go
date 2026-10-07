@@ -26,6 +26,25 @@ func TestWebPreviewPhotoReferencesAndPlainMessage(t *testing.T) {
 		t.Fatal("Telegram preview is not downloadable", ref)
 	}
 }
+
+// A preview tells whether its page has an Instant View.
+func TestWebPreviewInstantView(t *testing.T) {
+	s := testStore(t)
+	page := &tg.WebPage{URL: "https://example.org/a", Title: "Article"}
+	page.SetCachedPage(tg.Page{URL: page.URL, Blocks: []tg.PageBlockClass{&tg.PageBlockParagraph{Text: &tg.TextPlain{Text: "Hi"}}}})
+	plain := &tg.WebPage{URL: "https://example.org/b"}
+	var raws []tg.MessageClass
+	for i, w := range []*tg.WebPage{page, plain} {
+		raws = append(raws, &tg.Message{ID: 10 + i, PeerID: &tg.PeerUser{UserID: 2}, Message: w.URL, Media: &tg.MessageMediaWebPage{Webpage: w}})
+	}
+	messages, err := s.ingest(context.Background(), raws, false, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !messages[0].WebPage.InstantView || messages[1].WebPage.InstantView {
+		t.Fatalf("instant views %v %v", messages[0].WebPage.InstantView, messages[1].WebPage.InstantView)
+	}
+}
 func TestGiftAttributesPrivacyAndInstanceIdentity(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
@@ -76,4 +95,40 @@ func TestLanguagePackKeepsPluralsAndLoadsOffline(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("offline server language pack not restored")
+}
+
+// A paragraph's anchor at its start is the block's; one inside it stays
+// in the text, where it is.
+func TestTextBlockAnchors(t *testing.T) {
+	var start model.RichText
+	start.AddAnchor("top")
+	start.Append(model.RichText{Text: "text"})
+	if b := textBlock(model.RichParagraph, start); b.Anchor != "top" || len(b.Text.Anchors) != 0 {
+		t.Fatalf("anchor %q, inline %v", b.Anchor, b.Text.Anchors)
+	}
+	inside := model.RichText{Text: "some "}
+	inside.AddAnchor("mid")
+	if b := textBlock(model.RichParagraph, inside); b.Anchor != "" || b.Text.AnchorOffset(0) != 5 {
+		t.Fatalf("anchor %q, inline %v at %v", b.Anchor, b.Text.Anchors, b.Text.AnchorAt)
+	}
+}
+
+// The video Telegram keeps of a page, as of a page of YouTube, is the
+// preview's video, and what downloads.
+func TestWebPreviewVideo(t *testing.T) {
+	s := testStore(t)
+	doc := &tg.Document{ID: 77, AccessHash: 8, FileReference: []byte{1}, MimeType: "video/mp4", Size: 1 << 20, Attributes: []tg.DocumentAttributeClass{&tg.DocumentAttributeVideo{Duration: 212, W: 1280, H: 720, SupportsStreaming: true}}}
+	page := &tg.WebPage{URL: "https://www.youtube.com/watch?v=abc", SiteName: "YouTube", Type: "video", Document: doc, Photo: &tg.Photo{ID: 4, AccessHash: 6, FileReference: []byte{9}, Sizes: []tg.PhotoSizeClass{&tg.PhotoSize{Type: "m", W: 320, H: 180, Size: 42}}}}
+	raw := &tg.Message{ID: 20, PeerID: &tg.PeerUser{UserID: 2}, Message: page.URL, Media: &tg.MessageMediaWebPage{Webpage: page}}
+	messages, err := s.ingest(context.Background(), []tg.MessageClass{raw}, false, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := messages[0].WebPage
+	if w.Video == nil || w.VideoKind != model.MessageVideo || w.Video.Width != 1280 {
+		t.Fatalf("video %+v kind %v", w.Video, w.VideoKind)
+	}
+	if ref, ok := s.history.refs[w.Video.ID]; !ok || ref.ID != 77 || ref.Photo {
+		t.Fatal("the preview's video is not downloadable", ref)
+	}
 }

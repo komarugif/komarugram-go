@@ -42,6 +42,7 @@ import (
 	"komarugram/internal/tray"
 	"komarugram/pkg/miniapp"
 	"komarugram/pkg/program"
+	"komarugram/pkg/sandbox"
 )
 
 type pathsFlag []string
@@ -71,6 +72,7 @@ func main() {
 	if *noIntegrations {
 		program.SetSearching(false)
 	}
+	useWasmCache()
 	if *scrollLog != "" {
 		if err := logScroll(*scrollLog); err != nil {
 			log.Printf("scroll log: %v", err)
@@ -285,6 +287,11 @@ func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive
 			}
 		})
 	})
+	store.SetChanged(func() {
+		if w := window.Load(); w != nil {
+			w.Invalidate()
+		}
+	})
 	if receive > 0 {
 		go func() {
 			for range time.Tick(receive) {
@@ -466,4 +473,26 @@ func (b *trayBalloon) Notify(title, text string, sound bool) error {
 		return icon.Notify(title, text, sound)
 	}
 	return tray.ErrUnsupported
+}
+
+// useWasmCache keeps the decoders' compiled code on disk between starts:
+// in the cache directory, signed with a key kept in the configuration
+// directory, apart from it. Without it they still share code in memory.
+func useWasmCache() {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		log.Printf("wasm cache: %v", err)
+		return
+	}
+	config, err := os.UserConfigDir()
+	if err != nil {
+		log.Printf("wasm cache: %v", err)
+		return
+	}
+	c, err := sandbox.NewDiskCache(filepath.Join(cache, "komarugram-go", "wasm-cache"), filepath.Join(config, "komarugram-go", "wasm-cache.key"))
+	if err != nil {
+		log.Printf("wasm cache: %v; compiled code is kept in memory only", err)
+		return
+	}
+	sandbox.SetCache(c)
 }

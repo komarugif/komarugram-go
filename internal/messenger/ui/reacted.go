@@ -164,7 +164,7 @@ func (d *reactedDialog) layout(gtx layout.Context, p *chatPage, l localization.C
 		width := min(gtx.Constraints.Max.X, gtx.Dp(420))
 		height := min(gtx.Constraints.Max.Y, gtx.Dp(560))
 		gtx.Constraints = layout.Exact(image.Pt(width, height))
-		return card(gtx, func(gtx layout.Context) layout.Dimensions {
+		return d.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 			sc := scheme(gtx)
 			var labels []string
 			for i := range d.filters {

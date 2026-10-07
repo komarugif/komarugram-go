@@ -21,6 +21,9 @@ import (
 // replied to, as Telegram Desktop's field shows it: a click shows the
 // message, the cross stops replying.
 type replyBar struct {
+	height       heightTransition
+	chat         int64
+	shown        *model.Message
 	show, remove surface
 }
 
@@ -42,34 +45,53 @@ func (c *messageComposer) replyTo(gtx layout.Context, chat int64, m model.Messag
 // replyHeight is how much higher than its bar the composer of chat is for
 // the reply strip, 0 when it replies to nothing.
 func (c *messageComposer) replyHeight(gtx layout.Context, chat int64, classic bool) int {
-	if d := c.drafts[chat]; d == nil || d.reply == nil {
-		return 0
+	b := &c.replies
+	if b.chat != chat {
+		b.height = heightTransition{}
+		b.shown = nil
+		b.chat = chat
 	}
-	if classic {
-		return gtx.Dp(44)
+	target := 0
+	if d := c.drafts[chat]; d != nil && d.reply != nil {
+		b.shown = d.reply
+		target = gtx.Dp(44)
+		if !classic {
+			target += gtx.Dp(replyGap)
+		}
 	}
-	return gtx.Dp(44 + replyGap)
+	height := b.height.Value(gtx, target, true)
+	if height == 0 && target == 0 {
+		b.shown = nil
+	}
+	return height
 }
 
 // replyLayout draws the reply strip of chat over bar, the composer's bar.
 func (c *messageComposer) replyLayout(gtx layout.Context, chat int64, bar image.Rectangle, classic bool, backdrop *blurBackdrop, l localization.Catalog, p *chatPage) {
 	d := c.draft(chat)
-	if d.reply == nil {
+	height := c.replyHeight(gtx, chat, classic)
+	if height == 0 || c.replies.shown == nil {
 		return
 	}
-	reply := *d.reply
-	if c.replies.remove.Clicked(gtx) {
+	reply := *c.replies.shown
+	if d.reply == nil {
+		gtx = gtx.Disabled()
+	}
+	if d.reply != nil && c.replies.remove.Clicked(gtx) {
 		d.reply = nil
 		gtx.Execute(op.InvalidateCmd{})
-		return
+		height = c.replyHeight(gtx, chat, classic)
+		gtx = gtx.Disabled()
 	}
-	if c.replies.show.Clicked(gtx) {
+	if d.reply != nil && c.replies.show.Clicked(gtx) {
 		p.jumpTo(reply.Key.MessageID)
 	}
-	height := c.replyHeight(gtx, chat, classic)
 	rect := image.Rect(bar.Min.X, bar.Min.Y-height, bar.Max.X, bar.Min.Y)
 	if !classic {
-		rect.Max.Y -= gtx.Dp(replyGap)
+		rect.Max.Y = max(rect.Min.Y, rect.Max.Y-gtx.Dp(replyGap))
+	}
+	if rect.Empty() {
+		return
 	}
 	inRect(gtx, rect, func(gtx layout.Context) layout.Dimensions {
 		sc := scheme(gtx)

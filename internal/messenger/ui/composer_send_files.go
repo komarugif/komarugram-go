@@ -322,7 +322,7 @@ func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l loca
 	shown := b.modal.Layout(gtx, false, func(gtx layout.Context) layout.Dimensions {
 		width := min(gtx.Constraints.Max.X-2*gtx.Dp(16), gtx.Dp(filesBoxWidth))
 		gtx.Constraints.Min.X, gtx.Constraints.Max.X = width, width
-		return card(gtx, func(gtx layout.Context) layout.Dimensions { return c.layoutFilesContent(gtx, p, l) }, defaultCardPadding)
+		return b.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions { return c.layoutFilesContent(gtx, p, l) }, defaultCardPadding)
 	})
 	if !shown {
 		b.close()

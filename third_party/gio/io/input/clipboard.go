@@ -21,17 +21,25 @@ type clipboardQueue struct {
 	types     []string
 	mime      string
 	text      []byte
+	html      []byte
 }
 
 // WriteClipboard returns the most recent data to be copied
 // to the clipboard, if any.
 func (q *clipboardQueue) WriteClipboard() (mime string, content []byte, ok bool) {
+	mime, content, _, ok = q.WriteClipboardHTML()
+	return mime, content, ok
+}
+
+// WriteClipboardHTML is WriteClipboard with the HTML of the content, if
+// it has one (clipboard.WriteCmd.HTML).
+func (q *clipboardQueue) WriteClipboardHTML() (mime string, content, html []byte, ok bool) {
 	if q.text == nil {
-		return "", nil, false
+		return "", nil, nil, false
 	}
-	content = q.text
-	q.text = nil
-	return q.mime, content, true
+	content, html = q.text, q.html
+	q.text, q.html = nil, nil
+	return q.mime, content, html, true
 }
 
 // ClipboardRequested reports if any new handler is waiting
@@ -63,6 +71,7 @@ func (q *clipboardQueue) ProcessWriteClipboard(req clipboard.WriteCmd) {
 	}
 	q.mime = req.Type
 	q.text = content
+	q.html = req.HTML
 }
 
 func (q *clipboardQueue) ProcessReadClipboard(state clipboardState, req clipboard.ReadCmd) clipboardState {

@@ -92,6 +92,10 @@ func (p *chatPage) bottomMessage() model.MessageID {
 	if !p.restored || last < 0 || last >= len(p.messages) {
 		return 0
 	}
+	// Drafts bots stream are not messages to read.
+	for last > 0 && p.messages[last].Streaming {
+		last--
+	}
 	return p.messages[last].Key.MessageID
 }
 

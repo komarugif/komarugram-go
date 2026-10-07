@@ -158,6 +158,7 @@ func (m *chatRowMenu) update(gtx layout.Context, sec section, chats []model.Chat
 			}
 			if c, ok := chatByID(chats, id); ok && len(m.actions(c, sec)) > 0 {
 				m.open, m.id, m.focus = true, id, true
+				m.menu = contextMenu{}
 				m.at = image.Pt(int(m.press.X), int(m.press.Y))
 				gtx.Execute(op.InvalidateCmd{})
 			}
@@ -311,22 +312,14 @@ func (m *chatRowMenu) layout(gtx layout.Context, bd *blurBackdrop, l localizatio
 	margin := gtx.Dp(8)
 	w := min(gtx.Dp(menuWidth), max(0, size.X-2*margin))
 	h := 2*gtx.Dp(menuPadding) + len(actions)*gtx.Dp(menuItemHeight)
-	x, y, corner := m.at.X, m.at.Y, menuFromTopLeft
-	if x+w > size.X-margin {
-		x, corner = x-w, menuFromTopRight
-	}
-	if y+h > size.Y-margin {
-		y -= h
-		corner += menuFromBottomLeft
-	}
-	x, y = max(margin, min(x, size.X-margin-w)), max(margin, min(y, size.Y-margin-h))
-	m.rect = image.Rect(x, y, x+w, y+h)
+	rect, corner := m.menu.Place(gtx, m.at, size, image.Pt(w, h))
+	m.rect = rect
 	radius := gtx.Dp(12)
 	m.menu.Layout(gtx, m.open, m.rect, corner, radius, func(gtx layout.Context) layout.Dimensions {
 		sc := scheme(gtx)
 		menuSize := gtx.Constraints.Max
 		defer clip.UniformRRect(image.Rectangle{Max: menuSize}, radius).Push(gtx.Ops).Pop()
-		overlayFill(gtx, bd, menuSize, m.rect.Min, sc.SurfaceContainerHigh, radius)
+		overlayFill(gtx, bd, menuSize, m.menu.bounds.Min, sc.SurfaceContainerHigh, radius)
 		// The menu takes its own clicks from the dismissing area under it.
 		event.Op(gtx.Ops, &m.menu)
 		y := gtx.Dp(menuPadding)

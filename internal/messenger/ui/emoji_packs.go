@@ -117,7 +117,7 @@ func (d *emojiPacksDialog) layout(gtx layout.Context, p *chatPage, l localizatio
 		width := min(gtx.Constraints.Max.X, gtx.Dp(420))
 		height := min(gtx.Constraints.Max.Y, gtx.Dp(140)+min(len(d.refs), 6)*gtx.Dp(56))
 		gtx.Constraints = layout.Exact(image.Pt(width, height))
-		return card(gtx, func(gtx layout.Context) layout.Dimensions {
+		return d.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 			sc := scheme(gtx)
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {

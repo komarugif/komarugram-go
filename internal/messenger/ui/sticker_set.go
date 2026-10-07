@@ -309,7 +309,7 @@ func (d *stickerSetDialog) layout(gtx layout.Context, p *chatPage, l localizatio
 		}
 		size := image.Pt(width, min(gtx.Constraints.Max.Y, min(height, gtx.Dp(520))))
 		gtx.Constraints = layout.Exact(size)
-		return card(gtx, func(gtx layout.Context) layout.Dimensions {
+		return d.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 			sc := scheme(gtx)
 			title := l.T("stickers.title")
 			if d.pack != nil {

@@ -21,6 +21,15 @@ type SpanStyle struct {
 	Size    unit.Sp
 	Color   color.NRGBA
 	Content string
+	// Shift moves the span down from the top of its line, as a
+	// subscript's: spans of a line are set at its top.
+	Shift unit.Sp
+	// Box, when set, makes the span an object of that size in its line, as
+	// an inline formula, in place of its text: Content is what it stands
+	// for, to select and copy, and Decorate draws it. A line with a box is
+	// set on one baseline: its text, as high as it is, under the boxes'
+	// tops.
+	Box *Box
 
 	idx   int
 	start int
@@ -31,6 +40,13 @@ type SpanStyle struct {
 	runes  int
 }
 
+// Box is the size of an object in a line of text, and where its baseline
+// is under its top.
+type Box struct {
+	Size   image.Point
+	Ascent int
+}
+
 // spanShape describes the text shaping of a single span.
 type spanShape struct {
 	offset   image.Point
@@ -38,6 +54,9 @@ type spanShape struct {
 	size     image.Point
 	ascent   int
 	clusters []Cluster
+	// shift is the span's Shift in pixels.
+	shift int
+	box   bool
 }
 
 // Layout renders the span using the provided text shaping.
@@ -93,6 +112,9 @@ type TextStyle struct {
 	// The context and draw callback use fragment-local coordinates. Call draw
 	// inside a clip to reveal text without changing its shaping or wrapping.
 	Decorate func(layout.Context, Fragment, func())
+	// MaxLines limits the visible lines; zero means all. Hidden lines are
+	// neither drawn nor exposed to hit testing.
+	MaxLines int
 	// Clusters, when not nil, is reused as the storage of Fragment.Clusters.
 	// A text laid out every frame then allocates nothing per glyph; fragments
 	// from an earlier Layout with the same buffer are overwritten.
@@ -144,6 +166,7 @@ func (t TextStyle) iterateSpan(gtx layout.Context, maxWidth int, span SpanStyle,
 		WrapPolicy: t.WrapPolicy.textPolicy(),
 	}, shaped)
 	ti := textIterator{
+		color:    span.Color,
 		hidden:   span.Color.A == 0,
 		viewport: image.Rectangle{Max: gtx.Constraints.Max},
 		maxLines: 1,
@@ -204,6 +227,11 @@ func linePrefix(span SpanStyle, maxWidth, ppem int) (string, int) {
 }
 
 func (t TextStyle) layoutSpan(gtx layout.Context, maxWidth int, span SpanStyle, clusters *[]Cluster) spanResults {
+	if b := span.Box; b != nil {
+		// One cluster of all of Content, as wide and high as the box.
+		*clusters = append(*clusters, Cluster{Bounds: image.Rectangle{Max: b.Size}, Start: span.start, End: span.start + span.runes})
+		return spanResults{width: b.Size.X, height: b.Size.Y, ascent: b.Ascent, runes: span.runes, clusters: (*clusters)[len(*clusters)-1:]}
+	}
 	// One line needs only the start of the span: shaping all the rest of
 	// a long span for each of its lines made wrapping quadratic.
 	mark := len(*clusters)
@@ -227,10 +255,10 @@ func (t TextStyle) layoutSpan(gtx layout.Context, maxWidth int, span SpanStyle, 
 		if firstTruncatedRune == '\n' {
 			endedWithNewline = true
 			runesDisplayed++
-		} else if runesDisplayed == 0 && t.WrapPolicy == WrapWords {
-			// If we're only wrapping on word boundaries, we failed to display any runes whatsoever,
-			// and it wasn't due to a hard newline, we need to line-wrap without truncation to discover
-			// the word that doesn't fit on the line.
+		} else if runesDisplayed == 0 {
+			// Even grapheme wrapping needs an untruncated fallback when the
+			// viewport is narrower than one glyph. Otherwise a truncator-only
+			// line consumes nothing and Layout loops forever.
 			call, ti = t.iterateSpan(gtx, maxWidth, span, span.shaped, span.runes, false, clusters)
 			runesDisplayed = ti.runes
 			multiLine = runesDisplayed < span.runes
@@ -287,6 +315,7 @@ func (t TextStyle) Layout(gtx layout.Context, spanFn func(gtx layout.Context, id
 		overallSize    image.Point
 		lineShapes     []spanShape
 		lineStartIndex int
+		lines          int
 	)
 
 	for i := 0; i < len(spans); i++ {
@@ -306,17 +335,20 @@ func (t TextStyle) Layout(gtx layout.Context, spanFn func(gtx layout.Context, id
 
 		if !forceToNextLine {
 			// store the text shaping results for the line
+			shift := gtx.Sp(span.Shift)
 			lineShapes = append(lineShapes, spanShape{
 				offset:   image.Point{X: lineDims.X},
 				size:     image.Point{X: res.width, Y: res.height},
 				call:     res.call,
 				ascent:   res.ascent,
 				clusters: res.clusters,
+				shift:    shift,
+				box:      span.Box != nil,
 			})
 			// update the dimensions of the current line
 			lineDims.X += res.width
-			if lineDims.Y < res.height {
-				lineDims.Y = res.height
+			if lineDims.Y < res.height+shift {
+				lineDims.Y = res.height + shift
 			}
 			if lineAscent < res.ascent {
 				lineAscent = res.ascent
@@ -341,11 +373,38 @@ func (t TextStyle) Layout(gtx layout.Context, spanFn func(gtx layout.Context, id
 					pad = gtx.Constraints.Max.X - lineDims.X
 				}
 			}
+			// A line with a box is set on one baseline; others keep their
+			// spans at the line's top.
+			textAscent, boxAscent, boxed := 0, 0, false
+			for _, shape := range lineShapes {
+				if shape.box {
+					boxed, boxAscent = true, max(boxAscent, shape.ascent)
+				} else {
+					textAscent = max(textAscent, shape.ascent)
+				}
+			}
+			lineAscent = max(textAscent, boxAscent)
+			if boxed {
+				lineDims.Y = 0
+				for _, shape := range lineShapes {
+					top := lineAscent - textAscent + shape.shift
+					if shape.box {
+						top = lineAscent - shape.ascent
+					}
+					lineDims.Y = max(lineDims.Y, top+shape.size.Y)
+				}
+			}
 			lineMacro := op.Record(gtx.Ops)
 			for i, shape := range lineShapes {
 				// lay out this span
 				span = spans[i+lineStartIndex]
-				shape.offset.Y = overallSize.Y
+				shape.offset.Y = overallSize.Y + shape.shift
+				if boxed {
+					shape.offset.Y += lineAscent - textAscent
+					if shape.box {
+						shape.offset.Y = overallSize.Y + lineAscent - shape.ascent
+					}
+				}
 				if t.Decorate == nil {
 					span.Layout(gtx, shape)
 				} else {
@@ -381,6 +440,12 @@ func (t TextStyle) Layout(gtx layout.Context, spanFn func(gtx layout.Context, id
 			// reset line shaping data and update overall vertical dimensions
 			lineShapes = lineShapes[:0]
 			overallSize.Y += lineDims.Y
+			if lineDims.Y > 0 {
+				lines++
+				if t.MaxLines > 0 && lines >= t.MaxLines {
+					break
+				}
+			}
 			lineDims = image.Point{}
 			lineAscent = 0
 		}

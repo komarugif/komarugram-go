@@ -137,7 +137,7 @@ func (p *chatPage) playerDialog(gtx layout.Context, l localization.Catalog) {
 	sc := scheme(gtx)
 	c.modal.Layout(gtx, false, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(440))
-		return card(gtx, func(gtx layout.Context) layout.Dimensions {
+		return c.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return label(gtx, l.T("player.ask"), token.TypestyleTitleMedium, sc.Surface.OnColor, 2)
@@ -173,6 +173,7 @@ func (p *chatPage) playerDialog(gtx layout.Context, l localization.Catalog) {
 // last option, "", is to ask when a video opens, which is what the app does
 // while the user has not chosen.
 type playerSettings struct {
+	height heightTransition
 	radios *radio.Radios[player.Kind]
 	// installed is looked up when the settings open, not on every frame.
 	installed []player.Kind
@@ -308,7 +309,7 @@ func (s *playerSettings) Layout(gtx layout.Context, l localization.Catalog) layo
 			labels[k] += " · " + l.T("player.not_installed")
 		}
 	}
-	return settingsChoiceCard(gtx, l.T("player.title"), hint, func(gtx layout.Context) layout.Dimensions {
+	return settingsChoiceCard(gtx, &s.height, l.T("player.title"), hint, func(gtx layout.Context) layout.Dimensions {
 		return s.radios.Layout(gtx, radio.LeadingKind, labels)
 	})
 }

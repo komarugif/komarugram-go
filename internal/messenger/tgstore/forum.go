@@ -175,13 +175,7 @@ func (s *Store) topicsRead(chat int64, res *tg.MessagesForumTopics, more bool) {
 		if !ok || t.Hidden {
 			continue
 		}
-		e := topicEntry{top: t.TopMessage}
-		e.Topic = model.Topic{
-			ID: t.ID, Title: t.Title, IconColor: t.IconColor, General: t.ID == model.GeneralTopic,
-			Closed: t.Closed, Pinned: t.Pinned, Unread: t.UnreadCount, Mentions: t.UnreadMentionsCount,
-		}
-		e.IconEmoji, _ = t.GetIconEmojiID()
-		e.Muted = mutedNow(t.NotifySettings)
+		e := topicEntry{top: t.TopMessage, Topic: convertTopic(t)}
 		if m, ok := messages[t.TopMessage]; ok {
 			e.LastMessage, e.LastTime = preview(m)
 			switch m := m.(type) {
@@ -229,6 +223,17 @@ func (s *Store) topicsRead(chat int64, res *tg.MessagesForumTopics, more bool) {
 	if again {
 		s.readTopics(chat, false)
 	}
+}
+
+// convertTopic is a topic as Telegram describes it.
+func convertTopic(t *tg.ForumTopic) model.Topic {
+	out := model.Topic{
+		ID: t.ID, Title: t.Title, IconColor: t.IconColor, General: t.ID == model.GeneralTopic,
+		Closed: t.Closed, Pinned: t.Pinned, Unread: t.UnreadCount, Mentions: t.UnreadMentionsCount,
+	}
+	out.IconEmoji, _ = t.GetIconEmojiID()
+	out.Muted = mutedNow(t.NotifySettings)
+	return out
 }
 
 // noteTopic keeps a forum's list of topics up to date with a message that
@@ -303,11 +308,9 @@ func (c *conversation) readTopic(group int64, topic int, id int) {
 	}
 }
 
-// OpenTopic implements model.ForumSource.
-func (s *Store) OpenTopic(chat int64, topic model.Topic) model.Chat {
-	c := s.history
-	c.mu.Lock()
-	defer c.mu.Unlock()
+// topicChat is the thread chat that shows topic, made the first time it
+// is asked for. The caller holds c.mu.
+func (c *conversation) topicChat(chat int64, topic model.Topic) model.Chat {
 	if c.threads == nil {
 		c.threads, c.threadIDs = map[int64]*thread{}, map[model.MessageKey]int64{}
 	}
@@ -315,13 +318,24 @@ func (s *Store) OpenTopic(chat int64, topic model.Topic) model.Chat {
 	out := model.Chat{Kind: model.KindGroup, Title: topic.Title}
 	if id, ok := c.threadIDs[key]; ok {
 		out.ID = id
-		if h := c.histories[id]; h != nil && h.Err == nil {
-			return out
-		}
-	} else {
-		out.ID = threadBase - int64(len(c.threadIDs))
-		c.threadIDs[key] = out.ID
-		c.threads[out.ID] = &thread{post: key, group: chat, top: topic.ID, topic: true}
+		return out
+	}
+	out.ID = threadBase - int64(len(c.threadIDs))
+	c.threadIDs[key] = out.ID
+	c.threads[out.ID] = &thread{post: key, group: chat, top: topic.ID, topic: true}
+	return out
+}
+
+// OpenTopic implements model.ForumSource.
+func (s *Store) OpenTopic(chat int64, topic model.Topic) model.Chat {
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := c.topicChat(chat, topic)
+	// Opened again, it opens at its end, not where a search went.
+	delete(c.views, out.ID)
+	if h := c.histories[out.ID]; h != nil && h.Err == nil {
+		return out
 	}
 	if c.closing {
 		return out

@@ -110,8 +110,10 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 				entity.Kind = "code"
 			case *tg.MessageEntityPre:
 				entity.Kind = "pre"
+				entity.Language = e.Language
 			case *tg.MessageEntityBlockquote:
 				entity.Kind = "quote"
+				entity.Collapsed = e.Collapsed
 			case *tg.MessageEntitySpoiler:
 				entity.Kind = "spoiler"
 			case *tg.MessageEntityURL:
@@ -127,10 +129,33 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 			case *tg.MessageEntityCustomEmoji:
 				entity.Kind = "emoji"
 				entity.DocumentID = e.DocumentID
+			case *tg.MessageEntityHashtag:
+				entity.Kind = "hashtag"
+			case *tg.MessageEntityCashtag:
+				entity.Kind = "cashtag"
+			case *tg.MessageEntityBotCommand:
+				entity.Kind = "bot_command"
+			case *tg.MessageEntityEmail:
+				entity.Kind = "email"
+			case *tg.MessageEntityPhone:
+				entity.Kind = "phone"
+			case *tg.MessageEntityBankCard:
+				entity.Kind = "bank_card"
+			case *tg.MessageEntityFormattedDate:
+				entity.Kind = "date"
+				entity.Date = int64(e.Date)
+				entity.DateFormat = dateFlags(e.Relative, e.ShortTime, e.LongTime, e.ShortDate, e.LongDate, e.DayOfWeek)
 			default:
 				entity.Kind = "unsupported"
 			}
 			out.Entities = append(out.Entities, entity)
+		}
+		if rich, ok := m.GetRichMessage(); ok {
+			// Telegram sends a rich message's text empty: it shows the
+			// article's summary, as Telegram Desktop does.
+			out.Rich = convertRich(rich)
+			summary := out.Rich.Summary()
+			out.Text, out.Entities = summary.Text, summary.Entities
 		}
 		switch media := m.Media.(type) {
 		case *tg.MessageMediaPhoto:
@@ -143,10 +168,20 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 		case *tg.MessageMediaWebPage:
 			if page, ok := media.Webpage.(*tg.WebPage); ok {
 				out.WebPage = &model.WebPreview{URL: page.URL, DisplayURL: page.DisplayURL, Site: page.SiteName, Title: page.Title, Description: page.Description}
+				_, out.WebPage.InstantView = page.GetCachedPage()
 				if photo, ok := page.Photo.(*tg.Photo); ok {
 					meta, thumb := photoMedia(photo)
 					out.WebPage.Photo = meta
 					loc = &fileLocation{ID: photo.ID, Hash: photo.AccessHash, Reference: photo.FileReference, DC: photo.DCID, Photo: true, Thumb: thumb}
+				}
+				// A page's video, as Telegram keeps the video of a YouTube
+				// page, plays as a video message: it is what downloads,
+				// its own thumbnail standing for the photo.
+				if doc, ok := page.Document.(*tg.Document); ok {
+					if kind, meta, ref := documentMedia(doc); kind == model.MessageVideo || kind == model.MessageGIF {
+						out.WebPage.Video, out.WebPage.VideoKind = meta, kind
+						loc = ref
+					}
 				}
 			}
 		case *tg.MessageMediaToDo:
@@ -174,10 +209,10 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 		}
 		switch markup := m.ReplyMarkup.(type) {
 		case *tg.ReplyInlineMarkup:
-			out.Buttons = convertKeyboard(markup.Rows, false)
+			out.Buttons = convertInlineKeyboard(markup.Rows)
 		case *tg.ReplyKeyboardMarkup:
 			out.Keyboard = &model.ReplyKeyboard{
-				Rows:      convertKeyboard(markup.Rows, true),
+				Rows:      convertReplyKeyboard(markup.Rows),
 				SingleUse: markup.SingleUse, Persistent: markup.Persistent, Placeholder: markup.Placeholder,
 			}
 		case *tg.ReplyKeyboardHide:
@@ -374,33 +409,54 @@ func convertPoll(media *tg.MessageMediaPoll) *model.Poll {
 	return p
 }
 
-// convertKeyboard turns the rows of a bot's keyboard into the model's. In a
-// reply keyboard a plain button sends its own text; what this client does
-// not do stays a disabled "action".
-func convertKeyboard(rows []tg.KeyboardButtonRow, reply bool) [][]model.MessageButton {
+// convertInlineKeyboard turns the rows of the keyboard under a bot's message
+// into the model's; what this client does not do stays a disabled "action".
+func convertInlineKeyboard(rows []tg.KeyboardInlineButtonRow) [][]model.MessageButton {
 	var out [][]model.MessageButton
 	for _, r := range rows {
 		var row []model.MessageButton
 		for _, b := range r.Buttons {
-			btn := model.MessageButton{Text: b.GetText(), Kind: "action"}
-			switch b := b.(type) {
-			case *tg.KeyboardButtonURL:
-				btn.Kind, btn.URL = "url", b.URL
-			case *tg.KeyboardButtonCallback:
-				// One that wants the password is left disabled.
-				if !b.RequiresPassword {
-					btn.Kind, btn.Data = "callback", b.Data
-				}
-			case *tg.KeyboardButtonCopy:
-				btn.Kind, btn.Copy = "copy", b.CopyText
-			case *tg.KeyboardButtonWebView:
-				btn.Kind, btn.URL = "webview", b.URL
-			case *tg.KeyboardButtonSimpleWebView:
-				btn.Kind, btn.URL = "simple_webview", b.URL
-			case *tg.KeyboardButton:
-				if reply {
-					btn.Kind = "text"
-				}
+			row = append(row, inlineButton(b.Text, b.Type))
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// inlineButton is a button of a bot's message, or of a rich message, with
+// text and type t; what this client does not do stays a disabled "action".
+func inlineButton(text string, t tg.InlineButtonTypeClass) model.MessageButton {
+	btn := model.MessageButton{Text: text, Kind: "action"}
+	switch t := t.(type) {
+	case *tg.InlineButtonTypeURL:
+		btn.Kind, btn.URL = "url", t.URL
+	case *tg.InlineButtonTypeCallback:
+		// One that wants the password is left disabled.
+		if !t.RequiresPassword {
+			btn.Kind, btn.Data = "callback", t.Data
+		}
+	case *tg.InlineButtonTypeCopy:
+		btn.Kind, btn.Copy = "copy", t.CopyText
+	case *tg.InlineButtonTypeWebView:
+		btn.Kind, btn.URL = "webview", t.URL
+	}
+	return btn
+}
+
+// convertReplyKeyboard turns the rows of a bot's reply keyboard into the
+// model's. A plain button sends its own text; what this client does not do
+// stays a disabled "action".
+func convertReplyKeyboard(rows []tg.KeyboardButtonRow) [][]model.MessageButton {
+	var out [][]model.MessageButton
+	for _, r := range rows {
+		var row []model.MessageButton
+		for _, b := range r.Buttons {
+			btn := model.MessageButton{Text: b.Text, Kind: "action"}
+			switch t := b.Type.(type) {
+			case *tg.ButtonTypeDefault:
+				btn.Kind = "text"
+			case *tg.ButtonTypeSimpleWebView:
+				btn.Kind, btn.URL = "simple_webview", t.URL
 			}
 			row = append(row, btn)
 		}

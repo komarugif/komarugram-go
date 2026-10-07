@@ -2,6 +2,7 @@ package styledtext
 
 import (
 	"image"
+	"image/color"
 
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -14,6 +15,7 @@ import (
 // textIterator computes the bounding box of and paints text. This iterator is
 // specialized to laying out single lines of text.
 type textIterator struct {
+	color    color.NRGBA
 	hidden   bool
 	clusters []Cluster
 	// viewport is the rectangle of document coordinates that the iterator is
@@ -98,7 +100,9 @@ func (it *textIterator) processGlyph(g text.Glyph, ok bool) (_ text.Glyph, visib
 		it.bounds.Max.X = max(it.bounds.Max.X, logicalBounds.Max.X)
 		it.bounds.Max.Y = max(it.bounds.Max.Y, logicalBounds.Max.Y)
 	}
-	return g, ok && !below
+	// The untruncated fallback can contain several soft-wrapped lines.
+	// Stop after painting this line, not only at a paragraph separator.
+	return g, ok && !below && (it.maxLines <= 0 || it.linesSeen < it.maxLines)
 
 }
 
@@ -133,6 +137,9 @@ func (it *textIterator) paintGlyph(gtx layout.Context, shaper *text.Shaper, glyp
 	}
 	if glyph.Flags&text.FlagLineBreak > 0 || cap(line)-len(line) == 0 || !visibleOrBefore {
 		t := op.Offset(it.lineOff).Push(gtx.Ops)
+		// Bitmap emoji leave an image material active. Each glyph batch
+		// must restore the span color before painting vector outlines.
+		paint.ColorOp{Color: it.color}.Add(gtx.Ops)
 		outline := clip.Outline{Path: shaper.Shape(line)}.Op().Push(gtx.Ops)
 		paint.PaintOp{}.Add(gtx.Ops)
 		outline.Pop()

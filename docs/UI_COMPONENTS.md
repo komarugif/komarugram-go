@@ -91,6 +91,144 @@ The history is drawn as materialgram draws it:
 - Channel posts have no avatar; groups, channels and bots have an icon of
   their kind before the title in the chat list (`chatKindIcon`).
 
+### Code and quote entities (`history_text_blocks.go`)
+
+`chatPage.richText` groups `model.TextRuns` into inline flows and `pre`/quote
+blocks, retaining source rune offsets for selection across them. The block
+plate uses theme colors. Code copying uses a compact `ContentContentCopy` icon button; a collapsed quote
+reserves a 24 dp right gutter with a 16 dp expand/collapse icon on `surface`,
+without a footer row. Quotes animate their height; while contracting they
+keep the full text behind a moving clip. Selection fragments and clusters
+are clipped too, so hidden lines have no hit regions. Code wraps by graphemes. Source newlines beside
+blocks remain in copied text without adding empty lines to the layout.
+
+`TEXT_BLOCKS_PNG_DIR=/tmp/text-blocks go test ./internal/messenger/ui -run
+TestRenderTextBlocks` draws both themes, narrow/wide and collapsed/expanded.
+`go run ./cmd/render-all -only text-blocks /tmp/text-blocks` runs the same
+scenes. The live demo includes the same example at the end of each history.
+
+A code block with a language is colored (`code_colors.go`): its text goes
+to `internal/messenger/codehighlight`, which tokenizes it with Prism's
+grammars on a goroutine of its own and redraws the window when the colors
+come; until then it is plain. Its runs are cut into spans where the color
+changes, each still mapped to its run, so selection, links and spoilers
+work as before. The eight colors, in `codePalettes`, are the theme's for
+light and dark. `CODE_COLORS_PNG_DIR=/tmp/code go test
+./internal/messenger/ui -run TestRenderCodeColors` (`render-all -only
+code-colors`) draws JavaScript, Python, HTML and a diff in both themes.
+
+A rich message is an article (`article.go`, `article_layout.go`,
+`article_blocks.go`): `prepareArticle` makes its blocks' texts one
+sequence of runs, each block's a leaf that `textFlow` sets in its role
+(`flowStyle`), so the text selects across blocks; `articleLayout` stacks
+the blocks, registers one text area of the article's size and lays the
+controls over it (code's copy, details' headers, media, buttons, cards).
+`articleState` on the row keeps details opened, slideshows' items and
+the surfaces, and where its anchors were laid out (`tops`): a link to
+`#name` opens the details over the anchor and scrolls to it in the next
+frame (`article_anchors.go`; the history with `restore`, under
+`bubblePadTop` and `messageRow.articleAbove`). An article Telegram sent
+cut short has "Show more" under it (`showMore`), which opens
+`articleWindow` (`article_window.go`): a window of its own whose
+`chatPage` draws the article as the history does, with its own photo
+viewer, dialogs and toasts; `newArticleView` is the same without the
+window, for tests. Its bar steps back and ahead once it went to an anchor
+(`articleWindow.step`), and holds the search, sharing and zoom
+(`article_window_tools.go`): the match gone to is the text's selection,
+the others are tinted over the text (under it, the plates of code and
+tables would hide them); the zoom scales the window's `Metric`, the same
+in every window and kept in the settings. What the bar holds is laid out
+with `Constraints.Min` zeroed, and an icon button's content is given its
+exact size, since `surface.Layout` passes its caller's constraints on.
+Until a rich message's row is laid out, the
+history guesses its height from its article (`article_height.go`, sharing
+the media's sizes with the layout). A row learns where its article is in
+the view (`messageRow.viewTop`, from `chatPage.rowTop`), and media far
+from it are not laid out, nor loaded. A table wider than its article
+scrolls sideways under its view (`tableScroll`), its view passing presses
+to the text under it. `ARTICLE_PNG_DIR=/tmp/article go test
+./internal/messenger/ui -run TestRenderArticle` (`render-all -only
+article`) draws every kind of block, and a part with its button, narrow
+and wide, in both themes.
+
+A message's link preview is a card under its text (`web_preview.go`),
+in the style of a reply's quote; a page with an Instant View has a
+button under it, as wide, in the style of "Show more". An Instant View
+and a Markdown file (`markdown_viewer.go`) are made into a message with
+a rich page off the frame (`chatPage.openSource`), which
+`sourceEvents` gives to `openSourceWindow`: the article window, whose
+bar has a button that opens the source as the system would
+(`articleSource`).
+
+Formulas (`formulas.go`) are laid out by `internal/messenger/formula`:
+RaTeX (`pkg/ratex`) in a sandbox on a goroutine of its own, as code is
+colored. `chatPage.formula` asks for one and redraws when it comes; until
+then, and when RaTeX cannot read it or it is too large to draw, its
+source shows in the code's font. An inline formula is one `styledtext`
+box (`SpanStyle.Box`), its baseline on the line's, scaled down to fit
+the line, to half its size at most; a block's is centred, 1.21 times the
+text, and scrolls sideways as a wide table does. Either is one cluster
+of all its source (`formulaFragment`), so it selects and copies as its
+source. `ratex.List.Draw` fills KaTeX's glyphs from their outlines, and
+draws what those fonts lack, Cyrillic in `\text`, with the client's text
+font (`formulaGlyph`); a formula without a colour of its own takes the
+text's. The article's render test draws them once they are laid out
+(`waitFormulas`).
+
+The drafts bots stream are messages with `Streaming` set at the end of
+the history (`streamed_drafts.go`): a ring (`chatPage.writing`) turns in
+their footer, their buttons do nothing, they have no menu and no place
+in a selection, and while one may be stopped the composer's Stop
+(`messageComposer.stopDraft`) takes the place of Send. Their text types
+itself in (`typing.go`): `typingStep` moves a caret along the lines of the
+text's fragments and gives the height to show, down to the caret's line;
+`typed` replays the recorded text area clipped to what the caret passed,
+the caret's line under an edge drawn in strips of falling opacity. The
+message a draft becomes takes its caret over in `rebuild`
+(`handOverTyping`). Details in an article unfold through a
+`heightTransition` of their body (`articleState.opening`), its blocks
+faded and the arrow turned with it.
+
+Hashtags, commands, email, phone and card numbers and formatted dates
+act on a click (`history_entities.go`, `chatPage.activateRun`). A phone
+number, a card or a date opens `entityMenu`, a context menu at the press
+(`contextMenu.Place`) with lines that may tell only, or say more in a
+second line; what it asks Telegram comes into it while it is open. It
+takes the presses itself, before the messages take their clicks, since
+menus that read them after open at the previous press when a click comes
+in one frame. Formatted dates are written in the reader's language when
+the row is made (`messageRuns`), and again when a relative one changes.
+
+### Height transitions (`height.go`)
+
+A view owns a `heightTransition`. `Value` moves from the displayed height
+when a target changes or reverses; `Card` measures once, paints the shared
+card background at the animated size and clips both drawing and input.
+First layout, width changes and disabled animations snap to the target.
+Transitions use `token.DurationMedium2` and `token.EasingStandard`.
+
+The disclosure audit covers code quotes, open context menus (including
+expanded reactions), modal cards, settings cards (logout confirmation,
+privacy/security, fonts, emoji, appearance and integrations), profile editing,
+login/lock forms, chat-info cards, reply strips, bot reply keyboards and the
+player's height reservation. These views keep independent height state;
+`modal.Card` resets with its dialog. Fixed-size pickers and attachment forms
+retain their existing entrance/exit transition and now also animate changes
+to an open panel's height. Menu backdrop sampling follows the displayed
+origin so blur does not slide independently of the panel. Cursor menus use
+`contextMenu.Place`: choose a side only on opening, then clamp growth to
+the window edge instead of flipping the whole menu across the pointer.
+A viewport resize snaps both menu position and height and finishes any
+entrance in progress; it does not retarget the content animation each frame.
+
+Use `heightTransition.Card` for a stateful card whose contents change height;
+plain `card` remains suitable for static or virtualized list items. Keep
+source data until a closing strip has reached zero height and disable its
+controls as it closes. Avoid animating normal window resizing. The Gio blur capture is aligned to
+the deepest downsampling grid so moving the whole capture, as when a menu
+grows upward, does not change the blur sampling phase. The older clip- and
+size-stability fixes remain in place.
+
 ## Messenger views worth copying
 
 - **Chat list rows** (`chatlist.go`): `layoutRowWith` draws any row that looks
@@ -203,7 +341,15 @@ The history is drawn as materialgram draws it:
   chat list's: `surface`, icon plate (`fillRounded`, the topic's colour, a house
   for General, `drawPin`/lock for the marks), badges through `drawBadgeRight`.
   A topic opens as `commentsView{topic: true}` shown by `layoutComments` on
-  the thread's `chatPage`, whose `topic` flag makes it read what it shows.
+  the thread's `chatPage`, whose `topic` flag makes it read what it shows;
+  its header tells how many messages it has (`topicCount`, from the
+  thread's `History.Count`, the topic's first message not counted, as
+  Telegram Desktop's). The search button at the end of the forum's header
+  (`forum_search.go`, `model.ForumSearcher`) searches all the topics: a
+  field over the header, as a chat's search has it (`layoutSearchField`),
+  and what is found in place of the topics, each message drawn as its
+  topic's row draws its last one; a click opens the topic at the message
+  (`OpenTopicAt`), tinted. Going back finds the search as it was.
   `FORUM_PNG` saves the list.
 - **Message sent** (`history_send.go`): a message the composer sent, when it
   shows at the end of a history that is at its end, flies up from the
@@ -352,7 +498,11 @@ The history is drawn as materialgram draws it:
   menu buttons at the end of a chat's header. The search is a field over
   the header (`model.ChatSearcher`) with a counter and buttons to the older
   and newer found messages; the one shown is tinted for a moment
-  (`highlight`). The menu is a `contextMenu` under its button.
+  (`highlight`). The menu is a `contextMenu` under its button. A thread's
+  header, a topic's or a post's comments', has the search only; it
+  searches the thread (`top_msg_id`), and a found message the thread has
+  not loaded loads it around the message (`Reveal`). A hashtag clicked
+  searches the chat it is in the same way.
 - **Message shot** (`snapshot.go`): the dialog the selection's snapshot
   button opens, as AyuGram's message shot box: a preview rendered off the
   frame (`buildSnapshot`, `renderSnapshot`), the theme and what it shows,

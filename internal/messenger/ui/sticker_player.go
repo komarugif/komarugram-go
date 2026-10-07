@@ -24,6 +24,7 @@ type decoderSettings struct {
 
 // decoderChoice is the player of one kind of media.
 type decoderChoice struct {
+	height heightTransition
 	// title and hint are localization keys; hint may be empty.
 	title, hint string
 	program     *programSetting
@@ -111,7 +112,7 @@ func (c *decoderChoice) Layout(gtx layout.Context, l localization.Catalog) layou
 	if c.hint != "" {
 		hint = l.T(c.hint)
 	}
-	return settingsChoiceCard(gtx, l.T(c.title), hint, func(gtx layout.Context) layout.Dimensions {
+	return settingsChoiceCard(gtx, &c.height, l.T(c.title), hint, func(gtx layout.Context) layout.Dimensions {
 		return c.radios.Layout(gtx, radio.LeadingKind, labels)
 	})
 }

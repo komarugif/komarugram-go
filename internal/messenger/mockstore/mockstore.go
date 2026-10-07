@@ -43,6 +43,10 @@ type Store struct {
 	// notices tells of what Receive brings, the received-th message.
 	notices  func(model.MessageNotice)
 	received int
+	// streams are the drafts the demo's bots stream, by chat; changed is
+	// told when one goes further.
+	streams map[int64]*demoStream
+	changed func()
 }
 
 // New returns a store with demo chats whose times are relative to now, and

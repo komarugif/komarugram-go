@@ -126,3 +126,46 @@ func TestBlurDoesNotSwimWithTheSizeOfItsClip(t *testing.T) {
 		}
 	}
 }
+
+// Unlike the older corner tests, the entire blur capture moves here: a
+// bottom-anchored menu changes its top and height when reactions expand.
+// Compare fixed screen pixels, well away from either capture's boundaries.
+func TestBlurDoesNotSwimWhenMenuCaptureMoves(t *testing.T) {
+	render := func(rect image.Rectangle) image.Image {
+		path := filepath.Join(t.TempDir(), "moving-menu.png")
+		renderFrames(t, image.Pt(300, 300), path, func(gtx layout.Context) {
+			macro := op.Record(gtx.Ops)
+			for y := 0; y < 300; y += 6 {
+				for x := 0; x < 300; x += 6 {
+					if (x/6+y/6)%3 == 0 {
+						paint.FillShape(gtx.Ops, color.NRGBA{A: 255}, clip.Rect(image.Rect(x, y, x+3, y+4)).Op())
+					}
+				}
+			}
+			page := macro.Stop()
+			defer op.Offset(rect.Min).Push(gtx.Ops).Pop()
+			defer clip.UniformRRect(image.Rectangle{Max: rect.Size()}, 8).Push(gtx.Ops).Pop()
+			layoutBackdrop(gtx, rect.Size(), rect.Min, page)
+		})
+		return decodePNG(t, path)
+	}
+	rect := image.Rect(96, 96, 260, 260)
+	before := render(rect)
+	for _, shift := range []image.Point{{0, 1}, {0, 3}, {0, 17}, {1, 0}, {17, 0}} {
+		afterRect := rect
+		afterRect.Min = afterRect.Min.Sub(shift)
+		after := render(afterRect)
+		worst := 0
+		for y := 160; y < 210; y++ {
+			for x := 160; x < 210; x++ {
+				a, _, _, _ := before.At(x, y).RGBA()
+				b, _, _, _ := after.At(x, y).RGBA()
+				d := int(a>>8) - int(b>>8)
+				worst = max(worst, d, -d)
+			}
+		}
+		if worst > 1 {
+			t.Errorf("capture moved by %v: static backdrop differs by %d/255", shift, worst)
+		}
+	}
+}

@@ -108,6 +108,7 @@ func motionShort(l localization.Catalog) map[powersave.Mode]string {
 
 // settingsPage shows the main settings page or one of its sections.
 type settingsPage struct {
+	cardHeights map[string]*heightTransition
 	scrollPage
 	section settingsSection
 	// layingOut stays set on panic, identifying the failed page to RecoverFrame.
@@ -520,15 +521,15 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 							return layout.Dimensions{}
 						}
 						return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutVisualPrivacy(gtx, l) }, defaultCardPadding)
+							return p.cardHeight("Layout-1").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutVisualPrivacy(gtx, l) }, defaultCardPadding)
 						})
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return card(gtx, func(gtx layout.Context) layout.Dimensions { return p.security.SettingsLayout(gtx, l) }, defaultCardPadding)
+						return p.cardHeight("Layout-2").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.security.SettingsLayout(gtx, l) }, defaultCardPadding)
 					}),
 					vspace(12),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return card(gtx, func(gtx layout.Context) layout.Dimensions { return p.security.WindowLockLayout(gtx, l) }, defaultCardPadding)
+						return p.cardHeight("Layout-3").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.security.WindowLockLayout(gtx, l) }, defaultCardPadding)
 					}),
 					vspace(12),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -536,7 +537,7 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 							return layout.Dimensions{}
 						}
 						return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutGhost(gtx, l) }, defaultCardPadding)
+							return p.cardHeight("Layout-4").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutGhost(gtx, l) }, defaultCardPadding)
 						})
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -544,7 +545,7 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 							return layout.Dimensions{}
 						}
 						return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return card(gtx, func(gtx layout.Context) layout.Dimensions { return p.filtersView.Layout(gtx, l) }, defaultCardPadding)
+							return p.cardHeight("Layout-5").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.filtersView.Layout(gtx, l) }, defaultCardPadding)
 						})
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -552,14 +553,18 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 							return layout.Dimensions{}
 						}
 						return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutKeep(gtx, l) }, defaultCardPadding)
+							return p.cardHeight("Layout-6").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutKeep(gtx, l) }, defaultCardPadding)
 						})
 					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return card(gtx, p.privacy.Layout, defaultCardPadding) }),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return p.cardHeight("Layout-7").Card(gtx, p.privacy.Layout, defaultCardPadding)
+					}),
 				)
 			}
 		case settingsPower:
-			content = func(gtx layout.Context) layout.Dimensions { return card(gtx, p.animations.Layout, defaultCardPadding) }
+			content = func(gtx layout.Context) layout.Dimensions {
+				return p.cardHeight("Layout-8").Card(gtx, p.animations.Layout, defaultCardPadding)
+			}
 		case settingsPremium:
 			content = func(gtx layout.Context) layout.Dimensions { return p.layoutPremium(gtx, l) }
 		case settingsIntegrations:
@@ -680,7 +685,7 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 	}
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return card(gtx, func(gtx layout.Context) layout.Dimensions {
+			return p.cardHeight("layoutMain-1").Card(gtx, func(gtx layout.Context) layout.Dimensions {
 				var children []layout.FlexChild
 				if len(p.shownAccounts) == 0 {
 					children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -732,7 +737,7 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 		}),
 		vspace(12),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return card(gtx, func(gtx layout.Context) layout.Dimensions {
+			return p.cardHeight("layoutMain-2").Card(gtx, func(gtx layout.Context) layout.Dimensions {
 				var rows []layout.FlexChild
 				sections := []settingsSection{settingsAppearance}
 				if p.chats.available() || p.composerStyle != nil || p.lookView.look != nil {
@@ -773,11 +778,11 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 func (p *settingsPage) layoutLogOut(gtx layout.Context, l localization.Catalog) layout.Dimensions {
 	sc := scheme(gtx)
 	if !p.confirmingLogOut {
-		return card(gtx, func(gtx layout.Context) layout.Dimensions {
+		return p.cardHeight("logout").Card(gtx, func(gtx layout.Context) layout.Dimensions {
 			return p.logOut.Layout(gtx, iconLogOut, l.T("account.logout"), l.T("account.logout_hint"))
 		}, 6)
 	}
-	return card(gtx, func(gtx layout.Context) layout.Dimensions {
+	return p.cardHeight("logout").Card(gtx, func(gtx layout.Context) layout.Dimensions {
 		if p.loggingOut {
 			p.confirmLogOut.Disable()
 		} else {
@@ -828,13 +833,13 @@ func (p *settingsPage) layoutAppearance(gtx layout.Context, mode themeMode, syst
 	}
 	cards := []layout.FlexChild{
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return settingsChoiceCard(gtx, l.T("settings.theme"), hint, func(gtx layout.Context) layout.Dimensions {
+			return settingsChoiceCard(gtx, p.cardHeight("choice-theme"), l.T("settings.theme"), hint, func(gtx layout.Context) layout.Dimensions {
 				return p.theme.Layout(gtx, radio.LeadingKind, themeLabels(l))
 			})
 		}),
 		vspace(12),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return settingsChoiceCard(gtx, l.T("settings.language"), "", func(gtx layout.Context) layout.Dimensions {
+			return settingsChoiceCard(gtx, p.cardHeight("choice-language"), l.T("settings.language"), "", func(gtx layout.Context) layout.Dimensions {
 				return p.language.Layout(gtx, radio.LeadingKind, map[string]string{"ru": "Русский", "en": "English"})
 			})
 		}),
@@ -844,12 +849,12 @@ func (p *settingsPage) layoutAppearance(gtx layout.Context, mode themeMode, syst
 	}
 	if p.emojiView.available() {
 		cards = append(cards, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return card(gtx, func(gtx layout.Context) layout.Dimensions { return p.emojiView.Layout(gtx, l) }, defaultCardPadding)
+			return p.cardHeight("layoutAppearance-1").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.emojiView.Layout(gtx, l) }, defaultCardPadding)
 		}))
 	}
 	if p.fontsView.files != nil {
 		cards = append(cards, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return card(gtx, func(gtx layout.Context) layout.Dimensions { return p.fontsView.Layout(gtx, l) }, defaultCardPadding)
+			return p.cardHeight("layoutAppearance-2").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.fontsView.Layout(gtx, l) }, defaultCardPadding)
 		}))
 	}
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, cards...)
@@ -864,7 +869,7 @@ func (p *settingsPage) layoutChats(gtx layout.Context, l localization.Catalog) l
 	}
 	if p.composerStyle != nil {
 		cards = append(cards, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return settingsChoiceCard(gtx, l.T("settings.composer"), "", func(gtx layout.Context) layout.Dimensions {
+			return settingsChoiceCard(gtx, p.cardHeight("choice-composer"), l.T("settings.composer"), "", func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return p.composer.Layout(gtx, radio.LeadingKind, map[preferences.ComposerStyle]string{
@@ -893,7 +898,7 @@ func (p *settingsPage) layoutChats(gtx layout.Context, l localization.Catalog) l
 	}
 	if p.lookView.look != nil {
 		cards = append(cards, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return card(gtx, func(gtx layout.Context) layout.Dimensions { return p.lookView.Layout(gtx, l) }, defaultCardPadding)
+			return p.cardHeight("layoutChats-1").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.lookView.Layout(gtx, l) }, defaultCardPadding)
 		}))
 	}
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, cards...)
@@ -920,7 +925,7 @@ func (p *settingsPage) layoutOverlays(gtx layout.Context, l localization.Catalog
 	case p.composerStyle != nil && p.composerStyle() != preferences.ComposerFloating:
 		hint = l.T("settings.overlays_classic")
 	}
-	return card(gtx, func(gtx layout.Context) layout.Dimensions {
+	return p.cardHeight("layoutOverlays-1").Card(gtx, func(gtx layout.Context) layout.Dimensions {
 		children := []layout.FlexChild{
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, l.T("settings.overlays"), token.TypestyleTitleMedium, sc.Surface.OnColor, 1)
@@ -981,9 +986,9 @@ func (p *settingsPage) layoutOverlays(gtx layout.Context, l localization.Catalog
 
 // settingsChoiceCard draws a card with a title, the choices and, if set, a
 // hint below them.
-func settingsChoiceCard(gtx layout.Context, title, hint string, choices layout.Widget) layout.Dimensions {
+func settingsChoiceCard(gtx layout.Context, height *heightTransition, title, hint string, choices layout.Widget) layout.Dimensions {
 	sc := scheme(gtx)
-	return card(gtx, func(gtx layout.Context) layout.Dimensions {
+	return height.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 		children := []layout.FlexChild{
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, title, token.TypestyleTitleMedium, sc.Surface.OnColor, 1)
@@ -1219,7 +1224,7 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 	}
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return card(gtx, func(gtx layout.Context) layout.Dimensions {
+			return p.cardHeight("layoutPremium-1").Card(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, append(head, offer...)...)
 			}, defaultCardPadding)
 		}),
@@ -1229,7 +1234,7 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 				return layout.Dimensions{}
 			}
 			return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return card(gtx, func(gtx layout.Context) layout.Dimensions {
+				return p.cardHeight("layoutPremium-2").Card(gtx, func(gtx layout.Context) layout.Dimensions {
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							return p.localPremiumToggle.Layout(gtx, map[string]string{"local": l.T("premium.local")})
@@ -1243,7 +1248,7 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 			})
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return card(gtx, func(gtx layout.Context) layout.Dimensions {
+			return p.cardHeight("layoutPremium-3").Card(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, rows...)
 			}, defaultCardPadding)
 		}),
@@ -1263,4 +1268,14 @@ func limitValue(key string, value int, l localization.Catalog) string {
 		number = strings.Replace(number, ".", ",", 1)
 	}
 	return fmt.Sprintf(l.T("premium.gb"), number)
+}
+
+func (p *settingsPage) cardHeight(key string) *heightTransition {
+	if p.cardHeights == nil {
+		p.cardHeights = make(map[string]*heightTransition)
+	}
+	if p.cardHeights[key] == nil {
+		p.cardHeights[key] = new(heightTransition)
+	}
+	return p.cardHeights[key]
 }

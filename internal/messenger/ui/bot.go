@@ -40,6 +40,9 @@ const (
 
 // botPage is the part of a chat page that is for bots.
 type botPage struct {
+	height        heightTransition
+	heightChat    int64
+	shownKeyboard *model.ReplyKeyboard
 	// keyboard is the chat's reply keyboard, and keyboardKey the message
 	// that set it; hidden, by chat, is the one the account hid.
 	keyboard    *model.ReplyKeyboard
@@ -112,28 +115,41 @@ func (b *botPage) keysDiffer() bool {
 // keyboardHeight is how much higher than its bar the composer is for the
 // reply keyboard, with the gap over the bar of a floating one.
 func (p *chatPage) keyboardHeight(gtx layout.Context, classic bool, page image.Point) int {
-	k := p.bot.keyboard
-	if k == nil || len(k.Rows) == 0 || p.frozen.Frozen() {
-		return 0
+	b := &p.bot
+	if b.heightChat != p.chat {
+		b.height = heightTransition{}
+		b.shownKeyboard = nil
+		b.heightChat = p.chat
 	}
-	rows := len(k.Rows)
-	h := rows*gtx.Dp(keyboardButton) + (rows+1)*gtx.Dp(keyboardGap)
-	h = min(h, page.Y*2/5)
-	if !classic {
-		h += gtx.Dp(replyGap)
+	k := b.keyboard
+	h := 0
+	if k != nil && len(k.Rows) > 0 && !p.frozen.Frozen() {
+		b.shownKeyboard = k
+		rows := len(k.Rows)
+		h = min(rows*gtx.Dp(keyboardButton)+(rows+1)*gtx.Dp(keyboardGap), page.Y*2/5)
+		if !classic {
+			h += gtx.Dp(replyGap)
+		}
 	}
-	return h
+	height := b.height.Value(gtx, h, true)
+	if height == 0 && h == 0 {
+		b.shownKeyboard = nil
+	}
+	return height
 }
 
 // layoutKeyboard draws the reply keyboard in rect, over the composer's bar,
 // and sends the text of the key pressed.
 func (p *chatPage) layoutKeyboard(gtx layout.Context, chat int64, rect image.Rectangle, classic bool, backdrop *blurBackdrop, l localization.Catalog) {
 	b := &p.bot
-	k := b.keyboard
+	k := b.shownKeyboard
+	if b.keyboard == nil {
+		gtx = gtx.Disabled()
+	}
 	if k == nil || rect.Empty() {
 		return
 	}
-	if b.hide.Clicked(gtx) {
+	if b.keyboard != nil && b.hide.Clicked(gtx) {
 		if b.hidden == nil {
 			b.hidden = map[int64]model.MessageKey{}
 		}

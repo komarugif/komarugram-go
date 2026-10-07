@@ -449,6 +449,13 @@ func preview(m tg.MessageClass) (string, time.Time) {
 	switch m := m.(type) {
 	case *tg.Message:
 		text := strings.Join(strings.Fields(m.Message), " ")
+		if rich, ok := m.GetRichMessage(); ok {
+			page := convertRich(rich)
+			text = strings.Join(strings.Fields(page.Summary().Text), " ")
+			if text == "" {
+				text = richFallbackName(*page)
+			}
+		}
 		if media := mediaName(m.Media); media != "" {
 			if text == "" {
 				text = media

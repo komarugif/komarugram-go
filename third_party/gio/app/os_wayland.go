@@ -162,6 +162,8 @@ type wlSeat struct {
 	source *C.struct_wl_data_source
 	// content is the data belonging to source.
 	content []byte
+	// html is content's HTML, offered beside it, or nil.
+	html []byte
 	// drag is the drag of files over a window.
 	drag wlDrag
 }
@@ -321,6 +323,11 @@ func newWLWindow(callbacks *callbacks, options []Option) error {
 }
 
 func (d *wlDisplay) writeClipboard(mime string, content []byte) error {
+	return d.writeClipboardHTML(mime, content, nil)
+}
+
+// writeClipboardHTML offers content, and html beside it when it is not nil.
+func (d *wlDisplay) writeClipboardHTML(mime string, content, html []byte) error {
 	s := d.seat
 	if s == nil {
 		return nil
@@ -330,16 +337,20 @@ func (d *wlDisplay) writeClipboard(mime string, content []byte) error {
 		C.wl_data_source_destroy(s.source)
 		s.source = nil
 		s.content = nil
+		s.html = nil
 	}
 	if d.dataDeviceManager == nil || s.dataDev == nil {
 		return nil
 	}
 	s.content = content
+	s.html = html
 	s.source = C.wl_data_device_manager_create_data_source(d.dataDeviceManager)
 	C.wl_data_source_add_listener(s.source, &C.gio_data_source_listener, unsafe.Pointer(s.seat))
 	offers := clipboardMimeTypes
 	if mime == "image/png" {
 		offers = []string{mime}
+	} else if html != nil {
+		offers = append(slices.Clip(offers), "text/html")
 	}
 	for _, mime := range offers {
 		cmime := C.CString(mime)
@@ -1066,14 +1077,22 @@ func gio_onPointerFrame(data unsafe.Pointer, p *C.struct_wl_pointer) {
 		return
 	}
 	w.flushScroll()
-	w.flushFling()
+	if w.flushFling() {
+		// The fling moves on in draw, and nothing else may ask for one:
+		// a window that drew its last frame of the scrolling before the
+		// fingers left waits for no frame callback, and the fling would
+		// stand still until the pointer moved, which ends it.
+		w.draw(false)
+	}
 	// The axis source is told again with the axes of each frame.
 	w.scroll.continuous = false
 }
 
-func (w *window) flushFling() {
+// flushFling starts the fling after a touchpad's scrolling, once the
+// compositor told it ended; it tells whether one started.
+func (w *window) flushFling() bool {
 	if !w.fling.start {
-		return
+		return false
 	}
 	w.fling.start = false
 	estx, esty := w.fling.xExtrapolation.Estimate(), w.fling.yExtrapolation.Estimate()
@@ -1082,11 +1101,12 @@ func (w *window) flushFling() {
 	vel := float32(math.Sqrt(float64(estx.Velocity*estx.Velocity + esty.Velocity*esty.Velocity)))
 	_, c := w.getConfig()
 	if !w.fling.anim.Start(c, time.Now(), vel) {
-		return
+		return false
 	}
 	invDist := 1 / vel
 	w.fling.dir.X = estx.Velocity * invDist
 	w.fling.dir.Y = esty.Velocity * invDist
+	return true
 }
 
 //export gio_onPointerAxisSource
@@ -1156,6 +1176,10 @@ func (w *window) ReadClipboard(types []string) {
 
 func (w *window) WriteClipboard(mime string, s []byte) {
 	w.disp.writeClipboard(mime, s)
+}
+
+func (w *window) WriteClipboardHTML(text, html []byte) {
+	w.disp.writeClipboardHTML("application/text", text, html)
 }
 
 func (w *window) Configure(options []Option) {
@@ -1797,6 +1821,9 @@ func gio_onDataSourceTarget(data unsafe.Pointer, source *C.struct_wl_data_source
 func gio_onDataSourceSend(data unsafe.Pointer, source *C.struct_wl_data_source, mime *C.char, fd C.int32_t) {
 	s := callbackLoad(data).(*wlSeat)
 	content := s.content
+	if C.GoString(mime) == "text/html" {
+		content = s.html
+	}
 	go func() {
 		defer syscall.Close(int(fd))
 		// A pipe takes a picture in parts.
@@ -1818,6 +1845,7 @@ func gio_onDataSourceCancelled(data unsafe.Pointer, source *C.struct_wl_data_sou
 	s := callbackLoad(data).(*wlSeat)
 	if s.source == source {
 		s.content = nil
+		s.html = nil
 		s.source = nil
 	}
 	C.wl_data_source_destroy(source)

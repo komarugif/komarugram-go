@@ -347,3 +347,35 @@ func TestBatchedDragDoesNotActivateSpoiler(t *testing.T) {
 		t.Fatal("batched drag lost selection")
 	}
 }
+
+// Over what a click acts on, a link, an entity's action and a spoiler not
+// revealed, the cursor is a hand, as over a button; over the rest of the
+// text, and a spoiler revealed, it is the text's.
+func TestEntityCursors(t *testing.T) {
+	runs := []model.TextRun{{Text: "plain "}, {Text: "link", URL: "https://example.com"}, {Text: " "}, {Text: "#tag", Action: "hashtag", Value: "#tag"}, {Text: " "}, {Text: "secret", Spoiler: true}, {Text: " end"}}
+	h := newInteractionHarness(t, runs)
+	h.animate = false
+	cursorOver := func(i int) pointer.Cursor {
+		t.Helper()
+		for _, f := range h.row.text.fragments {
+			if f.Index == i {
+				c := f.Bounds.Min.Add(f.Bounds.Size().Div(2))
+				h.router.Queue(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: f32.Pt(float32(c.X), float32(c.Y))})
+				h.frame()
+				return h.router.Cursor()
+			}
+		}
+		t.Fatalf("run %d is not drawn", i)
+		return 0
+	}
+	for i, want := range []pointer.Cursor{pointer.CursorText, pointer.CursorPointer, pointer.CursorText, pointer.CursorPointer, pointer.CursorText, pointer.CursorPointer, pointer.CursorText} {
+		if got := cursorOver(i); got != want {
+			t.Errorf("over %q: %v, not %v", runs[i].Text, got, want)
+		}
+	}
+	h.row.revealed = true
+	h.frame()
+	if got := cursorOver(5); got != pointer.CursorText {
+		t.Errorf("over a spoiler revealed: %v", got)
+	}
+}

@@ -1,0 +1,12 @@
+{
+  "name": "komarugram-prism-grammars",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Generates pkg/prism/grammars.dat.gz from Prism.js's grammars, as libprisma's generate.js does.",
+  "main": "generate.js",
+  "license": "MIT",
+  "dependencies": {
+    "lodash.isequal": "4.5.0",
+    "prismjs": "1.29.0"
+  }
+}

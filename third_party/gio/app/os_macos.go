@@ -53,6 +53,17 @@ static void writeClipboard(CFTypeRef str) {
 	}
 }
 
+static void writeClipboardHTML(CFTypeRef str, CFTypeRef html) {
+	@autoreleasepool {
+		NSString *s = (__bridge NSString *)str;
+		NSString *h = (__bridge NSString *)html;
+		NSPasteboard *p = NSPasteboard.generalPasteboard;
+		[p declareTypes:@[NSPasteboardTypeString, NSPasteboardTypeHTML] owner:nil];
+		[p setString:s forType:NSPasteboardTypeString];
+		[p setString:h forType:NSPasteboardTypeHTML];
+	}
+}
+
 static CFTypeRef readClipboard(void) {
 	@autoreleasepool {
 		NSPasteboard *p = NSPasteboard.generalPasteboard;
@@ -472,6 +483,14 @@ func (w *window) WriteClipboard(mime string, s []byte) {
 	cstr := stringToNSString(string(s))
 	defer C.CFRelease(cstr)
 	C.writeClipboard(cstr)
+}
+
+func (w *window) WriteClipboardHTML(text, html []byte) {
+	cstr := stringToNSString(string(text))
+	defer C.CFRelease(cstr)
+	chtml := stringToNSString(string(html))
+	defer C.CFRelease(chtml)
+	C.writeClipboardHTML(cstr, chtml)
 }
 
 func (w *window) updateWindowMode() {

@@ -26,10 +26,12 @@ import (
 )
 
 var (
-	iconViews     = wdk.RequireIconWidget(icons.ActionVisibility)
-	iconComments  = wdk.RequireIconWidget(icons.CommunicationChatBubbleOutline)
-	iconFileRow   = wdk.RequireIconWidget(icons.EditorInsertDriveFile)
-	iconPlayFile  = wdk.RequireIconWidget(icons.AVPlayArrow)
+	iconViews    = wdk.RequireIconWidget(icons.ActionVisibility)
+	iconComments = wdk.RequireIconWidget(icons.CommunicationChatBubbleOutline)
+	iconFileRow  = wdk.RequireIconWidget(icons.EditorInsertDriveFile)
+	iconPlayFile = wdk.RequireIconWidget(icons.AVPlayArrow)
+	// iconStop stops a draft a bot streams.
+	iconStop      = wdk.RequireIconWidget(icons.AVStop)
 	iconPauseFile = wdk.RequireIconWidget(icons.AVPause)
 	// iconAudiotrack marks music in the box for sending files.
 	iconAudiotrack = wdk.RequireIconWidget(icons.ImageAudiotrack)
@@ -149,11 +151,17 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 		if p.activeText == r {
 			p.activeText = nil
 		}
-		r = &messageRow{revision: m.ContentRevision, runs: model.TextRuns(m.Text, m.Entities)}
+		r = newMessageRow(m, l, gtx.Now)
 		for _, row := range m.Buttons {
 			r.buttons = append(r.buttons, make([]surface, len(row)))
 		}
 		p.rows[m.Key.MessageID] = r
+	}
+	r.refreshDates(gtx, m, l)
+	// Where the article is in the history, as the last frame put it.
+	r.viewKnown = p.rowTopKnown
+	if r.viewKnown {
+		r.viewTop = p.rowTop + r.bodyTop + gtx.Dp(bubblePadTop) + r.articleAbove
 	}
 	if m.ReplyToMessageID != 0 && r.reply.Clicked(gtx) {
 		p.jumpPending = m.ReplyToMessageID
@@ -247,6 +255,9 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 	return dims
 }
 
+// bubblePadTop is the space over what a bubble holds.
+const bubblePadTop unit.Dp = 8
+
 // bubble draws a message's bubble and what it holds.
 func (p *chatPage) bubble(gtx layout.Context, r *messageRow, m model.Message, join bubbleJoin, l localization.Catalog, animate bool) layout.Dimensions {
 	shape := shapeOf(gtx, join, m.Outgoing)
@@ -270,7 +281,7 @@ func (p *chatPage) bubble(gtx layout.Context, r *messageRow, m model.Message, jo
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			content := func(gtx layout.Context) layout.Dimensions {
-				return layout.Inset{Top: 8, Bottom: 7, Left: 12, Right: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Top: bubblePadTop, Bottom: 7, Left: 12, Right: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx, p.bubbleContent(gtx, r, m, join, l, animate)...)
 				})
 			}
@@ -326,13 +337,26 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 	if m.Poll != nil {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return pollLayout(gtx, m.Poll, l) }))
 	}
-	if len(m.Attachments) > 1 {
+	if r.article != nil {
+		// What is over the article is measured, for links to its anchors.
+		above := children
+		children = []layout.FlexChild{layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx, above...)
+			r.articleAbove = dims.Size.Y
+			return dims
+		}), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.articleLayout(gtx, r, m, l, animate) })}
+		if r.article.part && p.openArticle != nil {
+			children = append(children, vspace(6), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.showMore(gtx, r, m, l) }))
+		}
+	} else if len(m.Attachments) > 1 {
 		seen := map[string]bool{}
 		for _, member := range m.Attachments {
 			if member.Text != "" && !seen[member.Text] {
 				seen[member.Text] = true
 				member := member
-				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.richText(gtx, albumRow(r, member), l, animate) }), vspace(4))
+				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return p.richText(gtx, albumRow(gtx, r, member, l), l, animate)
+				}), vspace(4))
 			}
 		}
 	} else if m.Text != "" {
@@ -342,8 +366,17 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 			if m.Kind == model.MessageService {
 				return label(gtx, p.serviceText(m, l), token.TypestyleBodyMedium, sc.Surface.OnColor, 0)
 			}
-			return label(gtx, l.T("history.empty_message"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
+			text := l.T("history.empty_message")
+			if m.Rich != nil {
+				if kind := m.Rich.Fallback(); kind != "" {
+					text = l.T("rich." + kind)
+				}
+			}
+			return label(gtx, text, token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
 		}))
+	}
+	if m.WebPage != nil && m.Rich == nil {
+		children = append(children, vspace(6), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.webPreview(gtx, r, m, l, animate) }))
 	}
 	if len(m.Reactions) > 0 {
 		children = append(children, vspace(8), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -352,6 +385,14 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 	}
 	children = append(children, vspace(4), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 		return layout.E.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			if m.Streaming {
+				// A draft a bot streams turns a ring before its time while
+				// the bot writes it.
+				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.writing.sized(gtx, l, 12) }),
+					layout.Rigid(layout.Spacer{Width: 6}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return messageFooter(gtx, m, l, false) }))
+			}
 			return messageFooter(gtx, m, l, !p.showsComments(m))
 		})
 	}))

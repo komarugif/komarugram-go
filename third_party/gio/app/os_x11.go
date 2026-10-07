@@ -68,6 +68,8 @@ type x11Window struct {
 		targets C.Atom
 		// "image/png"
 		imagePNG C.Atom
+		// "text/html", the HTML beside the text.
+		textHTML C.Atom
 		// "CLIPBOARD".
 		clipboard C.Atom
 		// "PRIMARY".
@@ -111,6 +113,8 @@ type x11Window struct {
 		content []byte
 		// mime is the type of content: "image/png", or text.
 		mime string
+		// html is the text's HTML, offered beside it, or nil.
+		html []byte
 	}
 	cursor pointer.Cursor
 	config Config
@@ -167,6 +171,15 @@ func (w *x11Window) SetAnimating(anim bool) {
 func (w *x11Window) WriteClipboard(mime string, s []byte) {
 	w.clipboard.content = s
 	w.clipboard.mime = mime
+	w.clipboard.html = nil
+	C.XSetSelectionOwner(w.x, w.atoms.clipboard, w.xw, C.CurrentTime)
+	C.XSetSelectionOwner(w.x, w.atoms.primary, w.xw, C.CurrentTime)
+}
+
+func (w *x11Window) WriteClipboardHTML(text, html []byte) {
+	w.clipboard.content = text
+	w.clipboard.mime = "application/text"
+	w.clipboard.html = html
 	C.XSetSelectionOwner(w.x, w.atoms.clipboard, w.xw, C.CurrentTime)
 	C.XSetSelectionOwner(w.x, w.atoms.primary, w.xw, C.CurrentTime)
 }
@@ -787,6 +800,8 @@ func (h *x11EventHandler) handleEvents() bool {
 				}
 				if w.clipboard.mime == "image/png" {
 					formats = []C.long{C.long(w.atoms.targets), C.long(w.atoms.imagePNG)}
+				} else if w.clipboard.html != nil {
+					formats = append(formats, C.long(w.atoms.textHTML))
 				}
 				C.XChangeProperty(w.x, cevt.requestor, cevt.property, w.atoms.atom,
 					32 /* bitwidth of formats */, C.PropModeReplace,
@@ -799,6 +814,17 @@ func (h *x11EventHandler) handleEvents() bool {
 					break
 				}
 				content := w.clipboard.content
+				ptr := (*C.uchar)(unsafe.Pointer(unsafe.SliceData(content)))
+				C.XChangeProperty(w.x, cevt.requestor, cevt.property, cevt.target,
+					8 /* bitwidth */, C.PropModeReplace,
+					ptr, C.int(len(content)),
+				)
+				notify()
+			case w.atoms.textHTML:
+				if w.clipboard.html == nil {
+					break
+				}
+				content := w.clipboard.html
 				ptr := (*C.uchar)(unsafe.Pointer(unsafe.SliceData(content)))
 				C.XChangeProperty(w.x, cevt.requestor, cevt.property, cevt.target,
 					8 /* bitwidth */, C.PropModeReplace,
@@ -926,6 +952,7 @@ func newX11Window(gioWin *callbacks, options []Option) error {
 	w.atoms.atom = w.atom("ATOM", false)
 	w.atoms.targets = w.atom("TARGETS", false)
 	w.atoms.imagePNG = w.atom("image/png", false)
+	w.atoms.textHTML = w.atom("text/html", false)
 	w.atoms.wmName = w.atom("_NET_WM_NAME", false)
 	w.atoms.wmState = w.atom("_NET_WM_STATE", false)
 	w.atoms.wmStateFullscreen = w.atom("_NET_WM_STATE_FULLSCREEN", false)

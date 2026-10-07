@@ -11,6 +11,7 @@ import (
 	"image/gif"
 	"image/png"
 	"os"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf16"
@@ -130,6 +131,19 @@ func (s *Store) History(chat int64) model.History {
 	spoiler := "Спойлер на нескольких строках: " + strings.Repeat("Нажмите здесь — текст откроется волной от места клика. ", 4)
 	add(spoiler, model.MessageText, nil, []model.Entity{{Kind: "spoiler", Offset: 0, Length: len(utf16.Encode([]rune(spoiler)))}}, nil)
 	add("Выделите часть этого текста и нажмите Ctrl/Cmd+C. Для выборки сообщений проведите по свободному месту рядом с пузырьками. Escape отменяет выделение.", model.MessageText, nil, nil, nil)
+	page := RichExample(true)
+	summary := page.Summary()
+	add(summary.Text, model.MessageText, nil, summary.Entities, nil)
+	messages[len(messages)-1].Rich = &page
+	add("Статья с мгновенным просмотром: https://telegram.org/blog/instant-view", model.MessageText, nil, []model.Entity{{Kind: "url", Offset: 32, Length: 38, URL: "https://telegram.org/blog/instant-view"}}, nil)
+	messages[len(messages)-1].WebPage = &model.WebPreview{URL: "https://telegram.org/blog/instant-view", DisplayURL: "telegram.org/blog/instant-view", Site: "Telegram", Title: "Instant View", Description: "Статьи из интернета открываются мгновенно, прямо в клиенте, даже без подключения.", InstantView: true}
+	add("https://www.youtube.com/watch?v=demo", model.MessageText, nil, []model.Entity{{Kind: "url", Offset: 0, Length: 36}}, nil)
+	messages[len(messages)-1].WebPage = &model.WebPreview{URL: "https://www.youtube.com/watch?v=demo", Site: "YouTube", Title: "Видео со ссылки", Description: "Telegram хранит видео страницы, и оно играет, как видео сообщения.", VideoKind: model.MessageVideo, Video: &model.MessageMedia{ID: "demo/video", MIMEType: "video/mp4", Width: 640, Height: 360, Size: 7789765, Thumbnail: &model.MessageMedia{ID: "demo/photo", MIMEType: "image/png", Width: 640, Height: 360}}}
+	add("", model.MessageFile, &model.MessageMedia{ID: "demo/markdown", FileName: "Пример.md", MIMEType: "text/markdown", Size: int64(len(demoMarkdown))}, nil, nil)
+	blocksText, blocksEntities := TextBlocksExample()
+	add(blocksText, model.MessageText, nil, blocksEntities, nil)
+	entitiesText, entities := EntitiesExample(time.Now())
+	add(entitiesText, model.MessageText, nil, entities, nil)
 	if s.isChannel(chat) {
 		// A channel's posts have no sender and a discussion: the last ones
 		// have comments, the others wait for the first one.
@@ -169,6 +183,8 @@ func (s *Store) Media(ctx context.Context, m model.Message) ([]byte, error) {
 		return sent, nil
 	}
 	switch m.Media.ID {
+	case "demo/markdown":
+		return []byte(demoMarkdown), nil
 	case "demo/voice", "demo/voice-bare":
 		return demoVoice, nil
 	case "demo/voice-mp3", "demo/music":
@@ -224,6 +240,9 @@ func (s *Store) HistorySince(chat int64, revision uint64) (model.History, bool) 
 		h.Messages = nil
 		return h, false
 	}
+	s.mu.Lock()
+	h.Messages = append(slices.Clone(h.Messages), s.streamedDrafts(chat)...)
+	s.mu.Unlock()
 	return h, true
 }
 

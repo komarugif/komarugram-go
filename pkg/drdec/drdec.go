@@ -86,7 +86,7 @@ func NewRuntime(ctx context.Context) (*Runtime, error) {
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("host module: %w", err)
 	}
-	compiled, err := rt.Wazero().CompileModule(ctx, drWasm)
+	compiled, err := rt.CompileModule(ctx, drWasm)
 	if err != nil {
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("compile dr_libs: %w", err)

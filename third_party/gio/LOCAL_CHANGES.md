@@ -273,6 +273,28 @@ Run the focused check from the project root:
     `CF_DIB` (`app/clipboard_image.go`, bottom-up BGRA) for other programs.
   - macOS, iOS, Android and js still take text only.
 
+- HTML on the clipboard beside text, for copying a rich message's blocks:
+  `clipboard.WriteCmd.HTML` (`TypeHTML`, "text/html"), taken by
+  `Router.WriteClipboardHTML`; a driver that can (`htmlClipboardWriter`)
+  offers both, the others put the text alone.
+  - `app/os_x11.go`: TARGETS has `text/html` while the window owns HTML,
+    sent as it is. Checked live under XFCE with an Xlib reader of the
+    selection.
+  - `app/os_wayland.go`: the data source offers `text/html` beside the
+    text types, and sends the HTML for it. Checked live by the maintainer
+    on Wayland (2026-10-07): an article's text pasted into Obsidian kept
+    its formatting and links.
+  - `app/os_windows.go`, `app/clipboard_html.go`: `CF_UNICODETEXT` and the
+    registered "HTML Format", its header of byte offsets and the fragment's
+    comments around the document's body (`cfHTML`, `TestCFHTML`). Built
+    for Windows here; the branch was then checked on Windows by its
+    maintainer (2026-10-07).
+  - `app/os_macos.go`: `NSPasteboardTypeString` and `NSPasteboardTypeHTML`.
+    Not built here (macOS needs cgo); the branch was checked on macOS by
+    its maintainer (2026-10-07).
+  - iOS, Android and js put the text alone. Test:
+    `TestQueueProcessWriteClipboardHTML`.
+
 - Files and pictures read from the clipboard, for Ctrl+V in the messenger:
   `clipboard.ReadCmd.Types` (`TypeText`, `TypeURIList`, `TypePNG`), the
   event's `Type` the first the clipboard has, empty for none; a read always
@@ -362,6 +384,18 @@ Run the focused check from the project root:
   - Other platforms leave it unset. On X11, XInput 2 tells no source of
     smooth scrolling.
 
+- `app/os_wayland.go`: the fling after a touchpad's scrolling draws at
+  once when it starts (`gio_onPointerFrame`, `flushFling`). It moves on
+  only in `draw`, and upstream asks for no frame when it starts: a window
+  that had drawn the last frame of the scrolling before `axis_stop` came
+  waited for no frame callback, and the fling stood still until the
+  pointer moved, which ends it. It went on only when the fingers left
+  while a frame was still being drawn, so it came often where frames
+  take long (the history) and seldom where they are quick (settings, the
+  article window). Checked live by the maintainer on a Wayland host
+  (2026-10-07): the fling goes on in the article window and the settings
+  as in the history.
+
 - Smooth scrolling on X11, through XInput 2.1, which upstream Gio does not
   take: a touchpad scrolled by the notches of a wheel the server made of it,
   in steps of a notch.
@@ -440,3 +474,13 @@ Run the focused check from the project root:
     1.49.
   - `app/os_x11.go`: `_NET_WM_ICON`, leaving out sizes that would make the
     request longer than the server takes.
+
+- `gpu/gpu.go`: align a blur capture's top-left to the pixel grid of its
+  deepest downsampling level before packing layers. Moving an entire
+  capture (a bottom-anchored menu changing height) otherwise changed the
+  sampling phase and made static text flicker. This complements the earlier
+  exact 2:1 resampling and the separation of capture/composite clips; neither
+  is reverted. The visible composite keeps its original clip, and only up
+  to one grid cell of capture padding is added at the top/left.
+  `ui.TestBlurDoesNotSwimWhenMenuCaptureMoves` checks fixed screen pixels
+  through one-pixel shifts and across a grid boundary.

@@ -20,6 +20,7 @@ import (
 
 	"gio-mw/token"
 
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
@@ -43,6 +44,22 @@ func (f *attachmentFiles) Close() {
 		_ = os.RemoveAll(f.dir)
 	}
 }
+
+// directory is the window's private temporary directory, made the first
+// time it is asked for.
+func (f *attachmentFiles) directory() (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.dir == "" {
+		dir, err := os.MkdirTemp("", "komarugram-go-attachments-")
+		if err != nil {
+			return "", err
+		}
+		f.dir = dir
+	}
+	return f.dir, nil
+}
+
 func (p *chatPage) openAttachment(m model.Message) {
 	if p.files == nil {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -62,20 +79,17 @@ func (p *chatPage) openAttachment(m model.Message) {
 		defer crash.Recover("open attachment", func(e *crash.Panic) { p.reportMedia(e) })
 		ctx, cancel := context.WithTimeout(f.ctx, 10*time.Minute)
 		defer cancel()
-		if f.dir == "" {
-			var err error
-			f.dir, err = os.MkdirTemp("", "komarugram-go-attachments-")
-			if err != nil {
-				p.reportMedia(err)
-				return
-			}
+		dir, err := f.directory()
+		if err != nil {
+			p.reportMedia(err)
+			return
 		}
 		name := filepath.Base(strings.ReplaceAll(m.Media.FileName, "\\", "/"))
 		if name == "" || name == "." || name == "/" {
 			name = "attachment"
 		}
 		// Prefix the message ID to keep equal filenames from replacing one another.
-		path := filepath.Join(f.dir, fmt.Sprintf("%d-%d-%s", m.Key.ChatID, m.Key.MessageID, name))
+		path := filepath.Join(dir, fmt.Sprintf("%d-%d-%s", m.Key.ChatID, m.Key.MessageID, name))
 		out, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 		if err != nil {
 			p.reportMedia(err)
@@ -130,6 +144,8 @@ func (p *chatPage) fileLayout(gtx layout.Context, r *messageRow, m model.Message
 	if r.media.Clicked(gtx) {
 		if playing {
 			p.play(gtx, m, p.reportMedia, l)
+		} else if markdownFile(m) {
+			p.openMarkdown(m)
 		} else {
 			p.openAttachment(m)
 		}
@@ -162,6 +178,7 @@ func (p *chatPage) fileLayout(gtx layout.Context, r *messageRow, m model.Message
 	// As materialgram draws files: a round button in the primary color,
 	// the name and the size beside it.
 	return r.media.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		pointer.CursorPointer.Add(gtx.Ops)
 		sc := scheme(gtx)
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {

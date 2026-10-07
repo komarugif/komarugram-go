@@ -326,7 +326,7 @@ func (v *sessionsView) layoutDialog(gtx layout.Context, l localization.Catalog) 
 	}
 	v.dialog.Layout(gtx, false, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(420))
-		return card(gtx, func(gtx layout.Context) layout.Dimensions {
+		return v.dialog.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 			children := []layout.FlexChild{
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return label(gtx, s.Device, token.TypestyleTitleLarge, sc.Surface.OnColor, 2)

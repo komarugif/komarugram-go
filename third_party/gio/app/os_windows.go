@@ -1023,7 +1023,31 @@ func (w *window) WriteClipboard(mime string, s []byte) {
 		w.writeClipboardImage(s)
 		return
 	}
-	w.writeClipboard(string(s))
+	w.writeClipboard(string(s), nil)
+}
+
+func (w *window) WriteClipboardHTML(text, html []byte) {
+	w.writeClipboard(string(text), html)
+}
+
+// putClipboard puts data on the open clipboard in format.
+func putClipboard(format uint32, data []byte) error {
+	mem, err := windows.GlobalAlloc(len(data))
+	if err != nil {
+		return err
+	}
+	ptr, err := windows.GlobalLock(mem)
+	if err != nil {
+		windows.GlobalFree(mem)
+		return err
+	}
+	copy(unsafe.Slice((*byte)(ptr), len(data)), data)
+	windows.GlobalUnlock(mem)
+	if err := windows.SetClipboardData(format, mem); err != nil {
+		windows.GlobalFree(mem)
+		return err
+	}
+	return nil
 }
 
 // writeClipboardImage puts a PNG on the clipboard as itself, in the
@@ -1037,24 +1061,7 @@ func (w *window) writeClipboardImage(png []byte) error {
 	if err := windows.EmptyClipboard(); err != nil {
 		return err
 	}
-	put := func(format uint32, data []byte) error {
-		mem, err := windows.GlobalAlloc(len(data))
-		if err != nil {
-			return err
-		}
-		ptr, err := windows.GlobalLock(mem)
-		if err != nil {
-			windows.GlobalFree(mem)
-			return err
-		}
-		copy(unsafe.Slice((*byte)(ptr), len(data)), data)
-		windows.GlobalUnlock(mem)
-		if err := windows.SetClipboardData(format, mem); err != nil {
-			windows.GlobalFree(mem)
-			return err
-		}
-		return nil
-	}
+	put := putClipboard
 	if format, err := windows.RegisterClipboardFormat("PNG"); err == nil {
 		if err := put(format, png); err != nil {
 			return err
@@ -1067,7 +1074,9 @@ func (w *window) writeClipboardImage(png []byte) error {
 	return put(windows.CF_DIB, dib)
 }
 
-func (w *window) writeClipboard(s string) error {
+// writeClipboard puts text on the clipboard, and html beside it in the
+// registered "HTML Format" when it is not nil.
+func (w *window) writeClipboard(s string, html []byte) error {
 	if err := windows.OpenClipboard(w.hwnd); err != nil {
 		return err
 	}
@@ -1095,6 +1104,11 @@ func (w *window) writeClipboard(s string) error {
 	if err := windows.SetClipboardData(windows.CF_UNICODETEXT, mem); err != nil {
 		windows.GlobalFree(mem)
 		return err
+	}
+	if html != nil {
+		if format, err := windows.RegisterClipboardFormat("HTML Format"); err == nil {
+			return putClipboard(format, cfHTML(html))
+		}
 	}
 	return nil
 }

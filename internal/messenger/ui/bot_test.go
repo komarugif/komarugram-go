@@ -45,9 +45,17 @@ func (s *botStore) count() int {
 // was pressed or nothing is left to hit.
 func (h *menuHarness) pressButtonOf(id model.MessageID, x float32, store *botStore) {
 	h.t.Helper()
+	// A press is in once the bot is asked or waited for: the bot may answer
+	// between a look at the store and the next click, which would press the
+	// button again.
+	pressed := func() bool {
+		h.page.bot.mu.Lock()
+		defer h.page.bot.mu.Unlock()
+		return len(h.page.bot.pressing) > 0 || store.count() > 0
+	}
 	at := h.messageAt(id)
-	for y := at.Y - 80; y < at.Y+120 && store.count() == 0; y += 4 {
-		for x := x; x < 300 && store.count() == 0; x += 60 {
+	for y := at.Y - 80; y < at.Y+120 && !pressed(); y += 4 {
+		for x := x; x < 300 && !pressed(); x += 60 {
 			h.press(pointer.ButtonPrimary, f32.Pt(x, y))
 		}
 	}
@@ -91,7 +99,7 @@ func TestCallbackButton(t *testing.T) {
 	h, store := botHarness(t, model.BotAnswer{Text: "Refreshed"}, nil, buttons)
 	h.pressButtonOf(3, 60, store)
 	if store.count() != 1 {
-		t.Fatal("the button did not ask the bot")
+		t.Fatalf("the bot was asked %d times", store.count())
 	}
 	if store.pressed[0].MessageID != 3 || string(store.data[0]) != "\x07\x08" {
 		t.Fatalf("asked %v with %v", store.pressed, store.data)

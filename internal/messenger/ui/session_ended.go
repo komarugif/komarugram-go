@@ -71,7 +71,7 @@ func (d *sessionEndedDialog) Layout(gtx layout.Context, l localization.Catalog) 
 	sc := scheme(gtx)
 	shown := d.modal.Layout(gtx, false, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(440))
-		return card(gtx, func(gtx layout.Context) layout.Dimensions {
+		return d.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return label(gtx, l.T(sessionEndedText[d.why][0]), token.TypestyleTitleMedium, sc.Surface.OnColor, 2)

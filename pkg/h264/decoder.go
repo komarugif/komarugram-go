@@ -87,7 +87,7 @@ func NewRuntimeWithLimits(ctx context.Context, module []byte, limits Limits) (*R
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("wasi: %w", err)
 	}
-	compiled, err := rt.Wazero().CompileModule(ctx, module)
+	compiled, err := rt.CompileModule(ctx, module)
 	if err != nil {
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("compile h264: %w", err)

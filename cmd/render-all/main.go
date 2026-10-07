@@ -42,6 +42,9 @@ func renders() []render {
 		all = append(all, render{"settings-" + section, "TestRenderSettingsAccounts", []string{"SETTINGS_SECTION=" + section, "SETTINGS_PNG={out}/settings-" + section + ".png"}})
 	}
 	return append(all,
+		render{"text-blocks", "TestRenderTextBlocks", []string{"TEXT_BLOCKS_PNG_DIR={out}"}},
+		render{"code-colors", "TestRenderCodeColors", []string{"CODE_COLORS_PNG_DIR={out}"}},
+		render{"article", "TestRenderArticle", []string{"ARTICLE_PNG_DIR={out}"}},
 		render{"window-surfaces", "TestWindowSurfacePixels", []string{"WINDOW_SURFACES_PNG_DIR={out}"}},
 		render{"accounts", "TestRenderAccountScreens", []string{"ACCOUNTS_PNG_DIR={out}"}},
 		render{"session-ended", "TestRenderSessionEnded", []string{"SESSION_PNG_DIR={out}"}},

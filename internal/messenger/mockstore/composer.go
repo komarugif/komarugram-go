@@ -104,7 +104,10 @@ func (s *Store) Send(ctx context.Context, chat int64, out model.OutgoingMessage)
 		m.Text += "\n☐ " + task
 	}
 	h.Messages = append(append([]model.Message(nil), h.Messages...), m)
-	if s.isBot(chat) {
+	if s.isBot(chat) && m.Text == "/stream" {
+		// The bot streams its answer as it writes it.
+		s.startStream(chat)
+	} else if s.isBot(chat) {
 		if reply, ok := botReply(chat, id+1, m.Text, time.Now()); ok {
 			h.Messages = append(h.Messages, reply)
 			m = reply

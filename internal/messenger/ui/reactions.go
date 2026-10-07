@@ -120,6 +120,11 @@ func (s *reactionStrip) grow() {
 // layout draws the strip at the top of a menu of width, with the line under
 // it.
 func (s *reactionStrip) layout(gtx layout.Context, p *chatPage, width int, animate bool) {
+	s.layoutHeight(gtx, p, width, s.height(gtx), animate)
+}
+
+func (s *reactionStrip) layoutHeight(gtx layout.Context, p *chatPage, width, height int, animate bool) {
+	defer clip.Rect(image.Rect(0, 0, width, height)).Push(gtx.Ops).Pop()
 	s.grow()
 	sc := scheme(gtx)
 	cell := gtx.Dp(reactionCell)
@@ -141,7 +146,7 @@ func (s *reactionStrip) layout(gtx layout.Context, p *chatPage, width int, anima
 		})
 	}
 	rows := s.rows()
-	if !s.expanded {
+	if !s.expanded && height <= s.height(gtx) {
 		count := s.collapsedCount()
 		for i := range count {
 			offset(gtx, image.Pt(x0+i*cell, pad), func(gtx layout.Context) layout.Dimensions { return drawCell(gtx, i) })
@@ -151,8 +156,9 @@ func (s *reactionStrip) layout(gtx layout.Context, p *chatPage, width int, anima
 		}
 	} else {
 		all := (len(s.shown) + reactionsPerRow - 1) / reactionsPerRow
+		rows = min(reactionRowsShow, all)
 		s.list.Axis = layout.Vertical
-		inRect(gtx, image.Rect(0, pad, width, pad+rows*cell), func(gtx layout.Context) layout.Dimensions {
+		inRect(gtx, image.Rect(0, pad, width, min(pad+rows*cell, max(pad, height-pad-gtx.Dp(9)))), func(gtx layout.Context) layout.Dimensions {
 			return s.list.List.Layout(gtx, all, func(gtx layout.Context, row int) layout.Dimensions {
 				for col := range reactionsPerRow {
 					i := row*reactionsPerRow + col
@@ -165,7 +171,7 @@ func (s *reactionStrip) layout(gtx layout.Context, p *chatPage, width int, anima
 			})
 		})
 	}
-	line := op.Offset(image.Pt(0, rows*cell+2*pad+gtx.Dp(4))).Push(gtx.Ops)
+	line := op.Offset(image.Pt(0, max(0, height-gtx.Dp(5)))).Push(gtx.Ops)
 	fillRect(gtx, sc.OutlineVariant, image.Pt(width, gtx.Dp(1)))
 	line.Pop()
 }

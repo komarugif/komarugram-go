@@ -71,7 +71,7 @@ func NewRuntimeWithLimits(ctx context.Context, limits Limits) (*Runtime, error) 
 	if err != nil {
 		return nil, err
 	}
-	compiled, err := rt.Wazero().CompileModule(ctx, tlottieWasm)
+	compiled, err := rt.CompileModule(ctx, tlottieWasm)
 	if err != nil {
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("compile tlottie: %w", err)

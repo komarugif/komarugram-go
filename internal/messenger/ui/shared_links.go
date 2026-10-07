@@ -12,6 +12,7 @@ import (
 
 	"gio-mw/token"
 
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op/clip"
 	"gioui.org/widget"
@@ -89,6 +90,7 @@ func (p *chatInfo) linkRow(gtx layout.Context, m model.Message, l localization.C
 			return layout.Flex{Alignment: layout.Start}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return r.open.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						pointer.CursorPointer.Add(gtx.Ops)
 						size := image.Pt(gtx.Dp(72), gtx.Dp(72))
 						gtx.Constraints = layout.Exact(size)
 						defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(10)).Push(gtx.Ops).Pop()
@@ -126,6 +128,7 @@ func (p *chatInfo) linkRow(gtx layout.Context, m model.Message, l localization.C
 					for i, link := range urls {
 						rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							return r.links[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+								pointer.CursorPointer.Add(gtx.Ops)
 								return layout.Inset{Top: 4, Bottom: 4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 									return label(gtx, link, token.TypestyleBodyMedium, scheme(gtx).Primary.Color, 1)
 								})

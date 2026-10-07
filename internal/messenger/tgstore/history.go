@@ -132,6 +132,8 @@ type conversation struct {
 	liveEpoch uint64
 	// firsts are the chats' first messages, when known: see noteFirst.
 	firsts map[int64]int
+	// drafts are the messages bots stream: see drafts.go.
+	drafts streamedDrafts
 }
 type viewSave struct {
 	view    model.Viewport
@@ -467,6 +469,7 @@ func (s *Store) OpenChat(chat int64) {
 // pages already asked for are of the old history, and are dropped too.
 func (s *Store) Reveal(chat int64, id model.MessageID) {
 	if isThread(chat) {
+		s.revealThreadAt(chat, id)
 		return
 	}
 	s.reveal(chat, id, false)
@@ -992,6 +995,29 @@ func (s *Store) ingest(ctx context.Context, raw []tg.MessageClass, live bool, st
 	return msgs, nil
 }
 
+// addMediaRefs keeps in refs where media, its sizes and its thumbnail
+// download from, ref being where media itself does. It returns the
+// thumbnail when its bytes came inline, to be kept as they are.
+func addMediaRefs(refs map[string]fileLocation, media *model.MessageMedia, ref fileLocation) *model.MessageMedia {
+	refs[media.ID] = ref
+	for _, v := range media.Variants {
+		vr := ref
+		vr.Thumb = v.ID[strings.LastIndexByte(v.ID, '/')+1:]
+		refs[v.ID] = vr
+	}
+	thumb := media.Thumbnail
+	if thumb == nil {
+		return nil
+	}
+	tr := ref
+	tr.Thumb = thumb.ID[strings.LastIndexByte(thumb.ID, '/')+1:]
+	if tr.Thumb == "inline" {
+		return thumb
+	}
+	refs[thumb.ID] = tr
+	return nil
+}
+
 // convert turns raw messages into the model's, and keeps where their media
 // can be downloaded from. Messages deleted, or changed by an update newer
 // than start, are left out. The caller holds c.apply.
@@ -1011,7 +1037,12 @@ func (s *Store) convert(ctx context.Context, raw []tg.MessageClass, live bool, s
 		}
 		m, ref := convertMessage(account, r, names)
 		refs := map[string]fileLocation{}
-		var inline *model.MessageMedia
+		var inlines []*model.MessageMedia
+		if raw, ok := r.(*tg.Message); ok {
+			if rich, ok := raw.GetRichMessage(); ok {
+				inlines = richRefs(rich, refs)
+			}
+		}
 		c.mu.Lock()
 		if c.deleted[m.Key] || (m.Key.ChatID > -1000000000000 && c.globalDeleted[int(m.Key.MessageID)]) || (!live && c.touched[m.Key] > start) {
 			c.mu.Unlock()
@@ -1024,27 +1055,17 @@ func (s *Store) convert(ctx context.Context, raw []tg.MessageClass, live bool, s
 		media := m.Media
 		if media == nil && m.WebPage != nil {
 			media = m.WebPage.Photo
+			if m.WebPage.Video != nil {
+				media = m.WebPage.Video
+			}
 		}
 		if ref != nil && media != nil {
-			refs[media.ID] = *ref
-			for _, v := range media.Variants {
-				vr := *ref
-				vr.Thumb = v.ID[strings.LastIndexByte(v.ID, '/')+1:]
-				refs[v.ID] = vr
+			if inline := addMediaRefs(refs, media, *ref); inline != nil {
+				inlines = append(inlines, inline)
 			}
-			if thumb := media.Thumbnail; thumb != nil {
-				tr := *ref
-				parts := strings.Split(thumb.ID, "/")
-				tr.Thumb = parts[len(parts)-1]
-				if tr.Thumb == "inline" {
-					inline = thumb
-				} else {
-					refs[thumb.ID] = tr
-				}
-			}
-			for id, ref := range refs {
-				c.refs[id] = ref
-			}
+		}
+		for id, ref := range refs {
+			c.refs[id] = ref
 		}
 		c.mu.Unlock()
 		// SQLite/encryption may wait on disk or a media writer. Never keep the UI's
@@ -1055,7 +1076,7 @@ func (s *Store) convert(ctx context.Context, raw []tg.MessageClass, live bool, s
 					return nil, e
 				}
 			}
-			if inline != nil {
+			for _, inline := range inlines {
 				if e := cache.SaveMedia(ctx, inline.ID, inline.Preview); e != nil {
 					return nil, e
 				}
@@ -1143,6 +1164,13 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			s.contentsRead(peerID(&tg.PeerChannel{ChannelID: u.ChannelID}), u.Messages)
 		case *tg.UpdateChannelMessageViews:
 			s.changeMessage(peerID(&tg.PeerChannel{ChannelID: u.ChannelID}), u.ID, func(m *model.Message) { m.Views = max(m.Views, u.Views) })
+		case *tg.UpdateUserTyping:
+			peer := &tg.PeerUser{UserID: u.UserID}
+			s.applyDraftAction(peer, u.TopMsgID, peer, u.Action)
+		case *tg.UpdateChatUserTyping:
+			s.applyDraftAction(&tg.PeerChat{ChatID: u.ChatID}, 0, u.FromID, u.Action)
+		case *tg.UpdateChannelUserTyping:
+			s.applyDraftAction(&tg.PeerChannel{ChannelID: u.ChannelID}, u.TopMsgID, u.FromID, u.Action)
 		}
 		if msg != nil {
 			if service, ok := msg.(*tg.MessageService); ok {
@@ -1161,6 +1189,9 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 				}
 			}
 			for _, m := range ms {
+				if fresh {
+					s.adoptDraft(m)
+				}
 				if chat, isNew := s.mergeUpdate(m); fresh && isNew {
 					s.notice(m, chat, msg)
 				}
@@ -1208,7 +1239,7 @@ func (s *Store) mergeUpdate(m model.Message) (chat model.Chat, isNew bool) {
 			sort.Slice(h.Messages, func(i, j int) bool { return h.Messages[i].Key.MessageID < h.Messages[j].Key.MessageID })
 		}
 	}
-	c.mergeThreads(m)
+	c.mergeThreads(m, isNew)
 	refreshTopics := c.noteTopic(m, isNew)
 	p := c.peers[m.Key.ChatID]
 	c.mu.Unlock()
@@ -1288,6 +1319,11 @@ func (s *Store) deleteMessages(ctx context.Context, chat int64, ids []int) (map[
 		for _, m := range h.Messages {
 			if removed[int(m.Key.MessageID)] {
 				c.deleted[m.Key] = true
+				// A thread counts one fewer; a deletion of a message it has
+				// not loaded is not known to be in it.
+				if h.Counted && id != chat {
+					h.Count = max(0, h.Count-1)
+				}
 			} else {
 				out = append(out, m)
 			}
@@ -1429,6 +1465,9 @@ func setPreview(chat *model.Chat, m model.Message) {
 }
 
 func messageKindName(m model.Message) string {
+	if m.Rich != nil && strings.TrimSpace(m.Text) == "" {
+		return richFallbackName(*m.Rich)
+	}
 	switch m.Kind {
 	case model.MessagePhoto:
 		return "Фото"
@@ -1444,6 +1483,28 @@ func messageKindName(m model.Message) string {
 		return "GIF"
 	case model.MessageService:
 		return "Служебное сообщение"
+	}
+	return ""
+}
+
+// richFallbackName names what a rich message without text shows, as
+// Telegram Desktop's summary does.
+func richFallbackName(p model.RichPage) string {
+	switch p.Fallback() {
+	case "photo":
+		return "Фото"
+	case "video":
+		return "Видео"
+	case "album":
+		return "Альбом"
+	case "audio":
+		return "Аудиофайл"
+	case "file":
+		return "Файл"
+	case "map":
+		return "Геопозиция"
+	case "table":
+		return "Таблица"
 	}
 	return ""
 }
@@ -1563,7 +1624,7 @@ func (s *Store) HistorySince(chat int64, revision uint64) (model.History, bool) 
 	out := *h
 	changed := revision == 0 || revision != h.Revision
 	if changed {
-		out.Messages = append([]model.Message(nil), h.Messages...)
+		out.Messages = append(append([]model.Message(nil), h.Messages...), c.draftMessages(chat)...)
 	} else {
 		out.Messages = nil
 	}

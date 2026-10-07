@@ -3,7 +3,11 @@
 package mockstore
 
 import (
+	"context"
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"komarugram/internal/messenger/model"
@@ -89,6 +93,47 @@ func (s *Store) OpenTopic(chat int64, topic model.Topic) model.Chat {
 		}
 		messages = append(messages, m)
 	}
-	s.histories[id] = model.History{Messages: messages, Revision: 1, ThreadRoot: model.MessageID(topic.ID)}
+	// Telegram counts a topic's messages with the one that made it.
+	s.histories[id] = model.History{Messages: messages, Revision: 1, ThreadRoot: model.MessageID(topic.ID), Count: len(messages), Counted: true}
+	return out
+}
+
+// SearchForum implements model.ForumSearcher over the demo's topics, each
+// opened for its messages.
+func (s *Store) SearchForum(ctx context.Context, forum int64, text, next string, limit int) (model.ForumSearchPage, error) {
+	text = strings.ToLower(strings.TrimSpace(text))
+	if forum != DemoForum || text == "" {
+		return model.ForumSearchPage{}, ctx.Err()
+	}
+	var found []model.FoundInTopic
+	for _, t := range demoTopics(s.created) {
+		for _, m := range s.History(s.OpenTopic(forum, t).ID).Messages {
+			if strings.Contains(strings.ToLower(m.Text), text) {
+				found = append(found, model.FoundInTopic{Message: m, Topic: t})
+			}
+		}
+	}
+	sort.SliceStable(found, func(i, j int) bool { return found[i].Message.Date.After(found[j].Message.Date) })
+	offset, _ := strconv.Atoi(next)
+	page := model.ForumSearchPage{Count: len(found)}
+	if offset < len(found) {
+		page.Found = found[offset:min(offset+limit, len(found))]
+	}
+	if offset+limit < len(found) {
+		page.Next = strconv.Itoa(offset + limit)
+	}
+	return page, ctx.Err()
+}
+
+// OpenTopicAt implements model.ForumSearcher: the demo's topics are loaded
+// whole, and the page opens at the message.
+func (s *Store) OpenTopicAt(chat int64, topic model.Topic, at model.MessageID) model.Chat {
+	out := s.OpenTopic(chat, topic)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.views == nil {
+		s.views = map[int64]model.Viewport{}
+	}
+	s.views[out.ID] = model.Viewport{AccountID: "demo", ChatID: out.ID, AnchorMessageID: at}
 	return out
 }

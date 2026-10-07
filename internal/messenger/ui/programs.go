@@ -23,6 +23,7 @@ import (
 // was picked as — any file can be picked, and running it would do whatever
 // it does.
 type programSetting struct {
+	height heightTransition
 	// title names the program in the settings.
 	title string
 	// custom is the path the user gave, "" for none; save keeps a new one.
@@ -198,7 +199,7 @@ func (s *programSetting) Layout(gtx layout.Context, l localization.Catalog) layo
 		}
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx, buttons...)
 	}))
-	return card(gtx, func(gtx layout.Context) layout.Dimensions {
+	return s.height.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, rows...)
 	}, defaultCardPadding)
 }

@@ -107,6 +107,7 @@ func (s *Store) BotInfo(chat int64) model.BotInfo {
 		{Command: "help", Description: "Что умеет бот"},
 		{Command: "settings", Description: "Настройки"},
 		{Command: "stop", Description: "Остановить уведомления"},
+		{Command: "stream", Description: "Ответить статьёй, которую видно, пока бот её пишет"},
 	}}
 	if chat == DemoWeatherBot {
 		info.Menu = &model.BotMenu{Text: "Открыть", URL: DemoMiniAppURL}

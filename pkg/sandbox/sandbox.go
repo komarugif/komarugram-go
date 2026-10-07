@@ -17,6 +17,12 @@
 // frame rather than every frame after it. An operation that never finishes is
 // not caught; memory caps bound how much work libvpx can be given, but not
 // what a Lottie file can ask of tlottie.
+//
+// Runtimes share compiled code through a Cache: in memory, so that two
+// decoders of one kind compile their module once, and on disk when the
+// program sets a NewDiskCache, so that the next start does not compile it
+// again. See cache.go for how the disk cache keeps out code it did not
+// write.
 package sandbox
 
 import (
@@ -59,6 +65,9 @@ var ErrSlow = errors.New("sandbox: operation too slow")
 type Runtime struct {
 	wazero wazero.Runtime
 	limits Limits
+
+	mu       sync.Mutex
+	compiled []wazero.CompiledModule
 }
 
 // NewRuntime creates a wazero runtime that enforces l.
@@ -73,17 +82,45 @@ func NewRuntime(ctx context.Context, l Limits) (*Runtime, error) {
 	if l.Budget == nil {
 		l.Budget = NewBudget(DefaultBudget)
 	}
-	config := wazero.NewRuntimeConfig().WithMemoryLimitPages(uint32(pages))
+	// Every runtime has the same features, so they can share one cache:
+	// wazero sets up a cache's compiler with the features of the first
+	// runtime to use it.
+	config := wazero.NewRuntimeConfig().WithMemoryLimitPages(uint32(pages)).WithCompilationCache(currentCache().wazero)
 	return &Runtime{wazero: wazero.NewRuntimeWithConfig(ctx, config), limits: l}, nil
 }
 
-// Wazero returns the underlying runtime, for compiling modules and setting up
-// host modules. Sandboxes must be started with Instantiate, which is what
-// charges them to the budget.
+// Wazero returns the underlying runtime, for setting up host modules.
+// Modules must be compiled with CompileModule and sandboxes started with
+// Instantiate, which is what charges them to the budget.
 func (r *Runtime) Wazero() wazero.Runtime { return r.wazero }
 
-// Close tears down every sandbox of this runtime.
-func (r *Runtime) Close(ctx context.Context) error { return r.wazero.Close(ctx) }
+// CompileModule compiles a module, or takes it from the cache. Close lets it
+// go: with a shared cache, closing the runtime alone would keep its code in
+// memory for the rest of the process.
+func (r *Runtime) CompileModule(ctx context.Context, binary []byte) (wazero.CompiledModule, error) {
+	compiled, err := r.wazero.CompileModule(ctx, binary)
+	if err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	r.compiled = append(r.compiled, compiled)
+	r.mu.Unlock()
+	return compiled, nil
+}
+
+// Close tears down every sandbox of this runtime and lets its compiled
+// modules go.
+func (r *Runtime) Close(ctx context.Context) error {
+	err := r.wazero.Close(ctx)
+	r.mu.Lock()
+	compiled := r.compiled
+	r.compiled = nil
+	r.mu.Unlock()
+	for _, c := range compiled {
+		_ = c.Close(ctx)
+	}
+	return err
+}
 
 // Instantiate starts a sandbox from compiled once the budget has room for the
 // memory the module starts with.

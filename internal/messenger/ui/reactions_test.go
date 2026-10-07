@@ -107,7 +107,7 @@ func TestMenuReactionStrip(t *testing.T) {
 	}
 	h.openMenu(5)
 	h.press(pointer.ButtonPrimary, cellAt(reactionsPerRow-1))
-	h.frames(2)
+	h.frames(24) // let the height transition expose the second row
 	if !m.open || !m.reactions.expanded {
 		t.Fatal("the expand button did not expand the strip")
 	}

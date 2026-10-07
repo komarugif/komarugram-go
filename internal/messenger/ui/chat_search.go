@@ -73,10 +73,11 @@ type chatSearchResult struct {
 	err  error
 }
 
-// canSearchChat reports whether the store can search the open chat.
+// canSearchChat reports whether the store can search the open chat: a
+// topic and a post's comments too, as Telegram Desktop searches them.
 func (p *chatPage) canSearchChat() bool {
 	_, ok := p.source.(model.ChatSearcher)
-	return ok && p.threadRoot == 0
+	return ok
 }
 
 // openChatSearch shows the field over the header, focused.
@@ -313,6 +314,17 @@ func (p *chatPage) layoutChatSearch(gtx layout.Context, size image.Point, l loca
 // layoutField draws the field, a pill with the search icon, across the
 // middle of gtx.
 func (s *chatSearch) layoutField(gtx layout.Context, l localization.Catalog) layout.Dimensions {
+	return layoutSearchField(gtx, &s.field, l)
+}
+
+// layoutSearchField draws field as a pill with the search icon, across
+// the middle of gtx, as a search over a chat's header has it.
+func layoutSearchField(gtx layout.Context, field *widget.Editor, l localization.Catalog) layout.Dimensions {
+	return layoutSearchFieldHint(gtx, field, l.T("chat_search.hint"))
+}
+
+// layoutSearchFieldHint is layoutSearchField with hint in the empty field.
+func layoutSearchFieldHint(gtx layout.Context, field *widget.Editor, hint string) layout.Dimensions {
 	sc := scheme(gtx)
 	theme := wdk.GetMaterialTheme(gtx)
 	size := gtx.Constraints.Max
@@ -329,14 +341,14 @@ func (s *chatSearch) layoutField(gtx layout.Context, l localization.Catalog) lay
 		})
 	})
 	style := theme.Typescale[token.TypestyleBodyLarge]
-	s.field.LineHeight = style.LineHeight
+	field.LineHeight = style.LineHeight
 	textX := gtx.Dp(12) + px + gtx.Dp(10)
 	line := gtx.Sp(style.LineHeight)
 	fieldGtx := gtx
 	fieldGtx.Constraints = layout.Exact(image.Pt(max(size.X-textX-gtx.Dp(12), 0), line))
 	offset(fieldGtx, image.Pt(textX, (size.Y-line)/2), func(gtx layout.Context) layout.Dimensions {
-		if s.field.Len() == 0 {
-			label(gtx, l.T("chat_search.hint"), token.TypestyleBodyLarge, sc.SurfaceVariant.OnColor, 1)
+		if field.Len() == 0 {
+			label(gtx, hint, token.TypestyleBodyLarge, sc.SurfaceVariant.OnColor, 1)
 		}
 		color := op.Record(gtx.Ops)
 		paint.ColorOp{Color: sc.Surface.OnColor.AsNRGBA()}.Add(gtx.Ops)
@@ -344,7 +356,7 @@ func (s *chatSearch) layoutField(gtx layout.Context, l localization.Catalog) lay
 		color = op.Record(gtx.Ops)
 		paint.ColorOp{Color: sc.Primary.Color.SetOpacity(token.OpacityLevel3).AsNRGBA()}.Add(gtx.Ops)
 		selection := color.Stop()
-		return s.field.Layout(gtx, theme.TextShaper, style.AsRegularFont(), style.Size, text, selection)
+		return field.Layout(gtx, theme.TextShaper, style.AsRegularFont(), style.Size, text, selection)
 	})
 	return layout.Dimensions{Size: size}
 }

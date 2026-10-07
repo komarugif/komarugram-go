@@ -176,7 +176,7 @@ func (p *chatPage) membershipDialog(gtx layout.Context, l localization.Catalog) 
 	}
 	d.modal.Layout(gtx, d.busy, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(440))
-		return card(gtx, func(gtx layout.Context) layout.Dimensions {
+		return d.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 			key := "membership.sure_group"
 			if d.broadcast {
 				key = "membership.sure_channel"

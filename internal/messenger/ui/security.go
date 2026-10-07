@@ -27,6 +27,7 @@ import (
 )
 
 type securityView struct {
+	height         heightTransition
 	manager        *security.Manager
 	invalidate     func()
 	preferences    *preferences.Store
@@ -516,7 +517,7 @@ func (v *securityView) UnlockLayout(gtx layout.Context, l localization.Catalog) 
 		gtx.Constraints.Min = layout.Constraints{}.Min
 		return layout.UniformInset(16).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(420)))
-			return card(gtx, func(gtx layout.Context) layout.Dimensions {
+			return v.height.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 				rows := []layout.FlexChild{
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return label(gtx, l.T("security.unlock_title"), token.TypestyleHeadlineSmall, sc.Surface.OnColor, 0)

@@ -1,0 +1,70 @@
+[
+ [
+  "javascript",
+  "const приветствие = (имя) => `Привет, ${имя}!`;\n// комментарий\nlet re = /a+b/g, n = 0x1F;"
+ ],
+ [
+  "typescript",
+  "interface Box<T> { value: T }\nfunction unbox<T>(b: Box<T>): T { return b.value }"
+ ],
+ [
+  "go",
+  "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"Привет, мир! 👋\") // greet\n}"
+ ],
+ [
+  "python",
+  "def greet(name: str) -> str:\n    \"\"\"Doc.\"\"\"\n    return f\"Hi {name!r}\"  # ok\n"
+ ],
+ [
+  "c",
+  "#include <stdio.h>\nint main(void) { printf(\"%d\\n\", 42); return 0; }"
+ ],
+ [
+  "cpp",
+  "template <typename T>\nstd::vector<T> v{1, 2, 3}; // c++"
+ ],
+ [
+  "rust",
+  "fn main() { let s: &str = \"r#raw\"; println!(\"{}\", s); }"
+ ],
+ [
+  "bash",
+  "#!/bin/bash\ncat <<EOF\n$HOME and ${PATH}\nEOF\necho \"$(date)\" | grep -v x"
+ ],
+ [
+  "json",
+  "{\"a\": [1, 2.5e3, true, null], \"ключ\": \"значение\"}"
+ ],
+ [
+  "markup",
+  "<style>p { color: red; }</style>\n<script>let x = '<b>';</script>\n<p class=\"a\">&amp; text</p>"
+ ],
+ [
+  "css",
+  "@media (max-width: 600px) { .a > b::after { content: '→'; } }"
+ ],
+ [
+  "sql",
+  "SELECT name, COUNT(*) FROM users WHERE id > 10 GROUP BY name; -- end"
+ ],
+ [
+  "php",
+  "<?php\n$x = ['a' => 1];\necho \"Value: {$x['a']}\";\n?>"
+ ],
+ [
+  "git",
+  "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new"
+ ],
+ [
+  "bsl",
+  "Процедура Привет(Имя) Экспорт\n\tСообщить(\"Привет, \" + Имя); // комментарий\nКонецПроцедуры"
+ ],
+ [
+  "bqn",
+  "Avg ← +´÷≠\n𝕨 F 𝕩"
+ ],
+ [
+  "kotlin",
+  "data class User(val name: String)\nfun main() = println(\"${User(\"A\").name}\")"
+ ]
+]

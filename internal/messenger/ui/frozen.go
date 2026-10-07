@@ -154,7 +154,7 @@ func (f *frozenView) Layout(gtx layout.Context, l localization.Catalog) {
 	}
 	f.modal.Layout(gtx, false, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(440))
-		return card(gtx, func(gtx layout.Context) layout.Dimensions {
+		return f.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return centeredLabel(gtx, l.T("frozen.title"), token.TypestyleTitleLarge, sc.Surface.OnColor, 2)

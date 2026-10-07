@@ -74,7 +74,7 @@ func NewRuntimeWithLimits(ctx context.Context, limits Limits) (*Runtime, error) 
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("wasi: %w", err)
 	}
-	compiled, err := rt.Wazero().CompileModule(ctx, vpxWasm)
+	compiled, err := rt.CompileModule(ctx, vpxWasm)
 	if err != nil {
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("compile libvpx: %w", err)

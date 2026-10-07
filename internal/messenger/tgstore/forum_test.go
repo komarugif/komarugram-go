@@ -30,8 +30,15 @@ type forumServer struct {
 	replies  []*tg.MessagesGetRepliesRequest
 	sent     []*tg.MessagesSendMessageRequest
 	reads    []*tg.MessagesReadDiscussionRequest
-	// replyPage, if set, answers the requests for replies.
-	replyPage func(*tg.MessagesGetRepliesRequest) []tg.MessageClass
+	// replyPage, if set, answers the requests for replies; replyCount is
+	// how many replies they count in all.
+	replyPage  func(*tg.MessagesGetRepliesRequest) []tg.MessageClass
+	replyCount int
+	// searches are the searches asked for, found what they find, with
+	// foundTopics, the topics of what they found.
+	searches    []*tg.MessagesSearchRequest
+	found       []tg.MessageClass
+	foundTopics []tg.ForumTopicClass
 }
 
 func topicMessage(id, topic int, out bool, text string) tg.MessageClass {
@@ -82,6 +89,15 @@ func (f *forumServer) client() *tg.Client {
 			}
 			out.(*tg.MessagesMessagesBox).Messages = &tg.MessagesChannelMessages{
 				Messages: page,
+				Count:    max(f.replyCount, len(page)),
+				Users:    []tg.UserClass{&tg.User{ID: 5, FirstName: "Анна"}},
+			}
+		case *tg.MessagesSearchRequest:
+			f.searches = append(f.searches, req)
+			out.(*tg.MessagesMessagesBox).Messages = &tg.MessagesChannelMessages{
+				Messages: f.found,
+				Count:    len(f.found),
+				Topics:   f.foundTopics,
 				Users:    []tg.UserClass{&tg.User{ID: 5, FirstName: "Анна"}},
 			}
 		case *tg.MessagesSendMessageRequest:

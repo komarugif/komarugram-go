@@ -119,6 +119,20 @@ func TestQueueProcessWriteClipboard(t *testing.T) {
 	assertClipboardWriteCmd(t, r, mime, "Write 2")
 }
 
+// A write's HTML comes with its text, and a later write without one has
+// none.
+func TestQueueProcessWriteClipboardHTML(t *testing.T) {
+	r := new(Router)
+	r.Source().Execute(clipboard.WriteCmd{Type: clipboard.TypeText, Data: io.NopCloser(strings.NewReader("bold")), HTML: []byte("<b>bold</b>")})
+	if _, text, html, ok := r.WriteClipboardHTML(); !ok || string(text) != "bold" || string(html) != "<b>bold</b>" {
+		t.Fatalf("%q %q %v", text, html, ok)
+	}
+	r.Source().Execute(clipboard.WriteCmd{Type: clipboard.TypeText, Data: io.NopCloser(strings.NewReader("plain"))})
+	if _, text, html, ok := r.WriteClipboardHTML(); !ok || string(text) != "plain" || html != nil {
+		t.Fatalf("%q %q %v", text, html, ok)
+	}
+}
+
 func assertClipboardReadCmd(t *testing.T, router *Router, expected int) {
 	t.Helper()
 	if got := len(router.state().receivers); got != expected {

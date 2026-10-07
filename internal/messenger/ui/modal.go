@@ -15,6 +15,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/unit"
 	"gioui.org/widget"
 )
 
@@ -33,6 +34,7 @@ const (
 // A dialog's owner keeps what the dialog shows until Layout reports that
 // the dialog closed, so that it can animate out.
 type modal struct {
+	height         heightTransition
 	shown, closing bool
 	// focus takes the keyboard focus on the next frame, from whatever is
 	// under the dialog.
@@ -176,4 +178,9 @@ func (m *modal) animate(gtx layout.Context) float32 {
 		m.visibility.Easing = &token.EasingEmphasizedAccelerate
 	}
 	return m.visibility.Animate(gtx, target)
+}
+
+// Card animates content-driven changes independently of the dialog's entrance.
+func (m *modal) Card(gtx layout.Context, content layout.Widget, padding unit.Dp) layout.Dimensions {
+	return m.height.Card(gtx, content, padding)
 }

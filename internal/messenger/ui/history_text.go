@@ -5,7 +5,6 @@ package ui
 import (
 	"image"
 	"image/color"
-	"io"
 	"math"
 	"sort"
 	"strings"
@@ -15,10 +14,10 @@ import (
 	"gioui.org/gesture"
 	"github.com/go-text/typesetting/segmenter"
 
+	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/styledtext"
 
 	"gioui.org/f32"
-	"gioui.org/io/clipboard"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
@@ -75,9 +74,7 @@ func (s spoilerReveal) radius(now time.Time, size image.Point) float32 {
 }
 
 type textInteraction struct {
-	fragments []styledtext.Fragment
-	// clusters backs fragments[i].Clusters and is reused by every layout.
-	clusters           []styledtext.Cluster
+	fragments          []styledtext.Fragment
 	size               image.Point
 	anchor, caret      int
 	pressed, dragged   bool
@@ -207,8 +204,8 @@ func (p *chatPage) textEvents(gtx layout.Context, r *messageRow, animate bool) {
 				if !animate {
 					r.revealed = true
 				}
-			} else if run.URL != "" {
-				p.askLink(run.URL)
+			} else if run.URL != "" || run.Action != "" {
+				p.activateRun(gtx, r, run)
 			}
 		}
 	}
@@ -226,6 +223,10 @@ func (p *chatPage) textEvents(gtx layout.Context, r *messageRow, animate bool) {
 }
 
 func (r *messageRow) selectedText() string {
+	if r.noCopy {
+		return ""
+	}
+
 	lo, hi := min(r.text.anchor, r.text.caret), max(r.text.anchor, r.text.caret)
 	var result strings.Builder
 	offset := 0
@@ -268,7 +269,7 @@ func (p *chatPage) keyboardEvents(gtx layout.Context) {
 			continue
 		}
 		if e.Name == key.NameEscape {
-			if p.messageMenu.open {
+			if p.messageMenu.open || p.entityMenu.open {
 				// Escape closes the menu first, as it does in Telegram Desktop.
 				p.closeMenu()
 				continue
@@ -283,9 +284,7 @@ func (p *chatPage) keyboardEvents(gtx layout.Context) {
 		r := p.activeText
 		switch e.Name {
 		case "C", "С":
-			if text := r.selectedText(); text != "" {
-				gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(text))})
-			}
+			copySelection(gtx, r)
 		case "A", "Ф":
 			r.text.anchor, r.text.caret = 0, 0
 			for _, run := range r.runs {
@@ -549,5 +548,26 @@ func (r *messageRow) moveSelection(e key.Event) {
 	s.caret = caret
 	if !e.Modifiers.Contain(key.ModShift) {
 		s.anchor = caret
+	}
+}
+
+// actsOn reports whether a click on run does something, as textEvents
+// acts on it: a link, an entity's action, an inline button, a spoiler not
+// revealed.
+func (r *messageRow) actsOn(run model.TextRun) bool {
+	return run.URL != "" || run.Action != "" || run.Spoiler && !r.revealed
+}
+
+// entityCursors shows a hand over what a click acts on in r's text, laid
+// out last, as over a button; the rest of the text keeps the text cursor.
+// The areas take no events: the text's own area handles them.
+func entityCursors(gtx layout.Context, r *messageRow) {
+	for _, f := range r.text.fragments {
+		if f.Index < 0 || f.Index >= len(r.runs) || !r.actsOn(r.runs[f.Index]) || f.Bounds.Empty() {
+			continue
+		}
+		area := clip.Rect(f.Bounds).Push(gtx.Ops)
+		pointer.CursorPointer.Add(gtx.Ops)
+		area.Pop()
 	}
 }

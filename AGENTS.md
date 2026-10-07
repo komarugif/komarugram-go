@@ -111,6 +111,9 @@ modules are not in this repository, and the client fetches them
 - **The README files in the root (`README.md`, `README_RU.md`) change only
   with the maintainer's consent.** Propose the text instead; when a change
   is agreed, make it in both languages.
+- **Third-party licenses are in `docs/THIRD_PARTY_LICENSES.md`**, not in
+  the READMEs: a dependency, embedded file or downloaded module gets its
+  row there when it comes in.
 - **Dependencies are the maintainer's choice.** Do not add a Go module, a
   library or a tool the build or the app needs on your own. Propose the
   options with their trade-offs — for a decoder of media from strangers,
@@ -154,6 +157,10 @@ modules are not in this repository, and the client fetches them
   must be safe for concurrent use.
 - On X11, `Window.Run`/`Option` run on the caller's goroutine: anything a
   driver method uses must be set before `SetDriver`.
+- Never call another window's `Option`, `Perform` or `Run` from a window's
+  goroutine and wait: on macOS one main thread serves every window, and
+  while it hands an event to one it runs only that window's calls, so both
+  hang. Use `appwindow`'s `SetTitle` and `PerformLater`.
 
 The full list, with the story behind each item, is README "Pitfalls met while
 working on this code".

@@ -61,7 +61,7 @@ func NewRuntime(ctx context.Context) (*Runtime, error) {
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("wasi: %w", err)
 	}
-	compiled, err := rt.Wazero().CompileModule(ctx, opusWasm)
+	compiled, err := rt.CompileModule(ctx, opusWasm)
 	if err != nil {
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("compile libopus: %w", err)

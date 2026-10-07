@@ -313,7 +313,7 @@ func (p *chatPage) forwardDialog(gtx layout.Context, l localization.Catalog) {
 		width := min(gtx.Constraints.Max.X, gtx.Dp(420))
 		height := min(gtx.Constraints.Max.Y-gtx.Dp(48), gtx.Dp(560))
 		gtx.Constraints = layout.Exact(image.Pt(width, max(height, 0)))
-		return card(gtx, func(gtx layout.Context) layout.Dimensions {
+		return f.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = gtx.Constraints.Max
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -428,6 +428,19 @@ func saveSnapshot(png []byte, name string) (string, error) {
 // picturesDir is the user's pictures directory: XDG_PICTURES_DIR on Linux,
 // Pictures in the home directory elsewhere, or the home directory itself.
 func picturesDir() string {
+	return userDir("XDG_PICTURES_DIR", "Pictures")
+}
+
+// downloadsDir is the user's downloads directory: XDG_DOWNLOAD_DIR on
+// Linux, Downloads in the home directory elsewhere, or the home directory
+// itself.
+func downloadsDir() string {
+	return userDir("XDG_DOWNLOAD_DIR", "Downloads")
+}
+
+// userDir is the user's directory that xdg names in user-dirs.dirs on
+// Linux, and name in the home directory elsewhere, when there is one.
+func userDir(xdg, name string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return os.TempDir()
@@ -437,7 +450,7 @@ func picturesDir() string {
 		if err == nil {
 			if b, err := os.ReadFile(filepath.Join(config, "user-dirs.dirs")); err == nil {
 				for _, line := range strings.Split(string(b), "\n") {
-					value, ok := strings.CutPrefix(strings.TrimSpace(line), "XDG_PICTURES_DIR=")
+					value, ok := strings.CutPrefix(strings.TrimSpace(line), xdg+"=")
 					if !ok {
 						continue
 					}
@@ -450,7 +463,7 @@ func picturesDir() string {
 			}
 		}
 	}
-	dir := filepath.Join(home, "Pictures")
+	dir := filepath.Join(home, name)
 	if _, err := os.Stat(dir); err == nil {
 		return dir
 	}

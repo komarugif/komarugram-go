@@ -62,7 +62,7 @@ func (c *messageComposer) layoutConfirm(gtx layout.Context, p *chatPage, l local
 	s.modal.Layout(gtx, false, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(360))
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-		return card(gtx, func(gtx layout.Context) layout.Dimensions {
+		return s.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 			sc := scheme(gtx)
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {

@@ -4,6 +4,7 @@ package ui
 
 import (
 	"image"
+	"time"
 
 	"gio-mw/token"
 	"gio-mw/widget/button"
@@ -151,6 +152,19 @@ func (a *App) openTopic(forum model.Chat, topic model.Topic) {
 	a.thread = &commentsView{chat: store.OpenTopic(forum.ID, topic), from: a.selected, title: forum.Title, topic: true, name: topic.Title, back: button.Text()}
 }
 
+// openTopicAt shows the topic of the forum, which is open, at message at,
+// tinted for a moment as a search's jump tints it.
+func (a *App) openTopicAt(forum model.Chat, topic model.Topic, at model.MessageID) {
+	store, ok := a.store.(model.ForumSearcher)
+	if !ok || a.comments == nil {
+		a.openTopic(forum, topic)
+		return
+	}
+	a.closeComments()
+	a.thread = &commentsView{chat: store.OpenTopicAt(forum.ID, topic, at), from: a.selected, title: forum.Title, topic: true, name: topic.Title, back: button.Text()}
+	a.comments.highlight, a.comments.highlightUntil = at, time.Now().Add(highlightTime)
+}
+
 // closeComments goes back from the comments to their channel.
 func (a *App) closeComments() {
 	if a.thread == nil {
@@ -186,9 +200,13 @@ func (a *App) layoutComments(gtx layout.Context, l localization.Catalog) layout.
 	h.topic = t.topic
 	history := a.store.(model.ConversationStore).History(t.chat.ID)
 	// The first message is the post; the rest are the comments, of which
-	// a new one may have come since the post counted them.
+	// a new one may have come since the post counted them. Telegram counts
+	// them with each page.
 	count := t.count
-	if !history.HasOlder {
+	switch {
+	case history.Counted:
+		count = history.Count
+	case !history.HasOlder:
 		count = max(count, len(history.Messages)-1)
 	}
 	title := l.T("comments.header_none")
@@ -199,7 +217,7 @@ func (a *App) layoutComments(gtx layout.Context, l localization.Catalog) layout.
 	head := chatHead{back: t.back, title: title, subtitle: t.title}
 	if t.topic {
 		empty = !history.LoadingOlder && history.Err == nil && len(history.Messages) == 0
-		head.title = t.name
+		head.title, head.subtitle = t.name, topicCount(history, l)
 	}
 	return layoutChatPageHead(gtx, t.chat, l, a.layoutAvatar, nil, &head, func(gtx layout.Context) layout.Dimensions {
 		dims := h.Layout(gtx, t.chat, l, a.window.Motion.AnimationsEnabled())
@@ -214,4 +232,16 @@ func (a *App) layoutComments(gtx layout.Context, l localization.Catalog) layout.
 		}
 		return dims
 	}, h)
+}
+
+// topicCount is what a topic's header says under its name, as Telegram
+// Desktop's: how many messages it has, the one that made it not counted.
+func topicCount(h model.History, l localization.Catalog) string {
+	switch {
+	case !h.Counted:
+		return l.T("forum.loading")
+	case h.Count > 1:
+		return l.Count("forum.messages", h.Count-1, nil)
+	}
+	return l.T("forum.messages_none")
 }

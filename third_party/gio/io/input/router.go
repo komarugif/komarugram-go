@@ -738,6 +738,12 @@ func (q *Router) WriteClipboard() (mime string, content []byte, ok bool) {
 	return q.cqueue.WriteClipboard()
 }
 
+// WriteClipboardHTML is WriteClipboard with the content's HTML, nil if
+// it has none.
+func (q *Router) WriteClipboardHTML() (mime string, content, html []byte, ok bool) {
+	return q.cqueue.WriteClipboardHTML()
+}
+
 // ClipboardRequested reports if any new handler is waiting
 // to read the clipboard, and the types of content wanted, the most wanted
 // first (see clipboard.ReadCmd).

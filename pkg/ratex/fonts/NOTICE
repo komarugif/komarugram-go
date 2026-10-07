@@ -1,0 +1,5 @@
+KaTeX_*.ttf.gz are KaTeX's fonts (https://github.com/KaTeX/KaTeX), gzipped,
+as RaTeX ships them (crates/ratex-katex-fonts at the commit pkg/ratex/build
+pins). They are licensed under the SIL Open Font License, Version 1.1, in
+OFL.txt beside them; KaTeX's MIT license covers its software, not these
+fonts.

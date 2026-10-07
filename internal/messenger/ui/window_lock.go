@@ -20,6 +20,7 @@ import (
 // visualLockView covers only the window. It does not clear the root key or
 // interrupt the account's Telegram connection.
 type visualLockView struct {
+	height     heightTransition
 	security   *security.Manager
 	invalidate func()
 	password   *textField
@@ -81,7 +82,7 @@ func (v *visualLockView) Layout(gtx layout.Context, l localization.Catalog) layo
 		gtx.Constraints.Min = layout.Constraints{}.Min
 		return layout.UniformInset(16).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(420)))
-			return card(gtx, func(gtx layout.Context) layout.Dimensions {
+			return v.height.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 				rows := []layout.FlexChild{
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return label(gtx, l.T("security.window_locked"), token.TypestyleHeadlineSmall, sc.Surface.OnColor, 0)

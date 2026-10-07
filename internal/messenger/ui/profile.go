@@ -29,6 +29,7 @@ const profileSaveTimeout = 30 * time.Second
 // the pencil makes the name, username and bio editable in place, as the
 // official clients do; the phone number, ID and data center are shown only.
 type profilePage struct {
+	infoHeight heightTransition
 	scrollPage
 	// editor saves edits; nil when the store cannot.
 	editor model.ProfileEditor
@@ -189,9 +190,9 @@ func (p *profilePage) Layout(gtx layout.Context, me model.Profile, l localizatio
 			vspace(20),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				if p.editing {
-					return card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutForm(gtx, l) }, defaultCardPadding)
+					return p.infoHeight.Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutForm(gtx, l) }, defaultCardPadding)
 				}
-				return card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutInfo(gtx, me, l, private, animate) }, defaultCardPadding)
+				return p.infoHeight.Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutInfo(gtx, me, l, private, animate) }, defaultCardPadding)
 			}),
 		)
 		gtx.Constraints.Min = header.Size

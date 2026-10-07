@@ -2,7 +2,10 @@
 
 package model
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // Topic is one of the topics of a forum: a group whose messages are sorted
 // into threads that members open and name.
@@ -49,4 +52,31 @@ type ForumSource interface {
 	// CommentsStore.OpenComments does for the comments to a post: it loads
 	// as any chat's history does, and what is sent to it goes into the topic.
 	OpenTopic(chat int64, topic Topic) Chat
+}
+
+// ForumSearcher searches all the topics of a forum, as Telegram Desktop
+// searches a forum from its list of topics, and opens a topic at a message
+// found.
+type ForumSearcher interface {
+	// SearchForum returns a page of the messages of forum that match text,
+	// newest first, each with its topic; next continues it.
+	SearchForum(ctx context.Context, forum int64, text, next string, limit int) (ForumSearchPage, error)
+	// OpenTopicAt is OpenTopic, loading the topic around message at and
+	// opening it there.
+	OpenTopicAt(chat int64, topic Topic, at MessageID) Chat
+}
+
+// ForumSearchPage is a page of what a forum's search found.
+type ForumSearchPage struct {
+	Found []FoundInTopic
+	// Count is how many messages match in all; Next asks for the next
+	// page, "" when there is none.
+	Count int
+	Next  string
+}
+
+// FoundInTopic is a message a forum's search found, with its topic.
+type FoundInTopic struct {
+	Message Message
+	Topic   Topic
 }

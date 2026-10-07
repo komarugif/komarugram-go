@@ -64,6 +64,10 @@ func (p *chatPage) pruneSelection(alive map[model.MessageID]bool) {
 }
 func (p *chatPage) rangeSelection(end model.MessageID) {
 	s := &p.selection
+	if end < 0 {
+		// A draft a bot streams is no message to select, nor its range.
+		return
+	}
 	s.selected = make(map[model.MessageID]bool, len(s.before))
 	for id, selected := range s.before {
 		if selected {
@@ -109,7 +113,7 @@ func (p *chatPage) selectionEvents(gtx layout.Context) {
 				continue
 			}
 			i := p.rowAt(e.Position.Y)
-			if i < 0 || p.messages[i].Kind == model.MessageService {
+			if i < 0 || p.messages[i].Kind == model.MessageService || p.messages[i].Streaming {
 				continue
 			}
 			s.before = make(map[model.MessageID]bool, len(s.selected))

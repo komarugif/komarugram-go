@@ -389,3 +389,9 @@ func walkActions(actions system.Action, do func(system.Action)) {
 
 func (wakeupEvent) ImplementsEvent() {}
 func (ConfigEvent) ImplementsEvent() {}
+
+// htmlClipboardWriter is a driver that puts HTML on the clipboard beside
+// text (clipboard.WriteCmd.HTML).
+type htmlClipboardWriter interface {
+	WriteClipboardHTML(text, html []byte)
+}

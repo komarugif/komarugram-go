@@ -672,6 +672,10 @@ func (v *photoViewer) layoutPhoto(gtx layout.Context, item model.Message, stage,
 	}
 	offset(gtx, origin, func(gtx layout.Context) layout.Dimensions {
 		return v.picture.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			if video && v.play != nil || status.Err != nil || status.Cancelled {
+				// A press plays the video, or loads the photo again.
+				pointer.CursorPointer.Add(gtx.Ops)
+			}
 			gtx.Constraints = layout.Exact(shown)
 			if im == nil {
 				fillRect(gtx, token.NewMatColorFromHexRGB(0x1d2127), shown)
@@ -773,6 +777,7 @@ func sideZone(gtx layout.Context, c *widget.Clickable, r image.Rectangle, icon w
 		size := r.Size()
 		gtx.Constraints = layout.Exact(size)
 		return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			pointer.CursorPointer.Add(gtx.Ops)
 			if c.Hovered() {
 				paint.FillShape(gtx.Ops, color.NRGBA{R: 255, G: 255, B: 255, A: 10}, clip.Rect{Max: size}.Op())
 			}
@@ -804,6 +809,7 @@ func viewerIcon(gtx layout.Context, hovered bool, icon wdk.IconWidget, d int) la
 
 func viewerButton(gtx layout.Context, c *widget.Clickable, icon wdk.IconWidget, d int) layout.Dimensions {
 	return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		pointer.CursorPointer.Add(gtx.Ops)
 		return viewerIcon(gtx, c.Hovered(), icon, d)
 	})
 }
@@ -940,6 +946,7 @@ func (v *photoViewer) layoutStrip(gtx layout.Context, items []model.Message, cur
 			st := v.thumbState[m.Key.MessageID]
 			return layout.Inset{Right: unit.Dp(float32(gap) / gtx.Metric.PxPerDp)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return st.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					pointer.CursorPointer.Add(gtx.Ops)
 					size := image.Pt(side, side)
 					gtx.Constraints = layout.Exact(size)
 					defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(6)).Push(gtx.Ops).Pop()

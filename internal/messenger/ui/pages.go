@@ -74,7 +74,7 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 		})
 		if selection != nil {
 			// The buttons at the end: search and the chat's menu.
-			infoPx = selection.headActionsWidth(gtx) - pad + gtx.Dp(8)
+			infoPx = selection.headActionsWidth(gtx, false) - pad + gtx.Dp(8)
 		} else {
 			// The info mark at the end tells that the header opens the chat's info.
 			infoPx = gtx.Dp(24)
@@ -89,6 +89,9 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 		// The back button takes the avatar's place; it is laid out last,
 		// over the header's own click.
 		pad = gtx.Dp(8)
+		if selection != nil {
+			infoPx = max(0, selection.headActionsWidth(gtx, true)-pad)
+		}
 	}
 	textX := pad + imagePx + gtx.Dp(12)
 	textGtx := gtx
@@ -113,11 +116,17 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 	if selection != nil && head == nil {
 		hgtx := gtx
 		hgtx.Constraints = layout.Exact(header)
-		selection.header.Layout(hgtx, func(layout.Context) layout.Dimensions { return layout.Dimensions{Size: header} })
+		selection.header.Layout(hgtx, func(gtx layout.Context) layout.Dimensions {
+			pointer.CursorPointer.Add(gtx.Ops)
+			return layout.Dimensions{Size: header}
+		})
 		if c.Kind != model.KindSaved {
 			layoutAvatarTarget(gtx, &selection.headAvatar)
 		}
-		selection.layoutHeadActions(gtx, header, size.X-gtx.Dp(8), l)
+		selection.layoutHeadActions(gtx, header, size.X-gtx.Dp(8), false, l)
+	}
+	if selection != nil && head != nil {
+		selection.layoutHeadActions(gtx, header, size.X-gtx.Dp(8), true, l)
 	}
 	if head != nil {
 		// The button's target is 48 dp, around where the avatar would be.
@@ -140,14 +149,14 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 	headerGtx := gtx
 	headerGtx.Constraints = layout.Exact(header)
 	active := selection != nil && selection.chat == c.ID
-	if active && head == nil && selection.chatSearch.open {
+	if active && selection.chatSearch.open {
 		selection.chatSearchUpdate(headerGtx)
 	}
 	switch {
 	case active && selection.selectionCount() > 0:
 		fillWindowSurface(headerGtx, sc.Surface.Color, header)
 		selection.selectionHeader(headerGtx, l)
-	case active && head == nil && selection.chatSearch.open:
+	case active && selection.chatSearch.open:
 		selection.layoutChatSearch(headerGtx, header, l)
 	default:
 		headerCall.Add(gtx.Ops)

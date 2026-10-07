@@ -29,11 +29,11 @@ func convertOne(t *testing.T, m *tg.Message) model.Message {
 
 // The buttons under a message keep what pressing them needs.
 func TestInlineKeyboardConverted(t *testing.T) {
-	callback := &tg.KeyboardButtonCallback{Text: "Refresh", Data: []byte{1, 2, 3}}
-	secret := &tg.KeyboardButtonCallback{Text: "Pay", Data: []byte{9}, RequiresPassword: true}
-	m := convertOne(t, &tg.Message{ID: 7, PeerID: &tg.PeerUser{UserID: 5}, Message: "menu", Date: 10, ReplyMarkup: &tg.ReplyInlineMarkup{Rows: []tg.KeyboardButtonRow{
-		{Buttons: []tg.KeyboardButtonClass{&tg.KeyboardButtonURL{Text: "Site", URL: "https://example.org"}, callback}},
-		{Buttons: []tg.KeyboardButtonClass{&tg.KeyboardButtonCopy{Text: "Code", CopyText: "123456"}, secret, &tg.KeyboardButtonBuy{Text: "Buy"}}},
+	callback := tg.KeyboardInlineButton{Text: "Refresh", Type: &tg.InlineButtonTypeCallback{Data: []byte{1, 2, 3}}}
+	secret := tg.KeyboardInlineButton{Text: "Pay", Type: &tg.InlineButtonTypeCallback{Data: []byte{9}, RequiresPassword: true}}
+	m := convertOne(t, &tg.Message{ID: 7, PeerID: &tg.PeerUser{UserID: 5}, Message: "menu", Date: 10, ReplyMarkup: &tg.ReplyInlineMarkup{Rows: []tg.KeyboardInlineButtonRow{
+		{Buttons: []tg.KeyboardInlineButton{{Text: "Site", Type: &tg.InlineButtonTypeURL{URL: "https://example.org"}}, callback}},
+		{Buttons: []tg.KeyboardInlineButton{{Text: "Code", Type: &tg.InlineButtonTypeCopy{CopyText: "123456"}}, secret, {Text: "Buy", Type: &tg.InlineButtonTypeBuy{}}}},
 	}}})
 	want := [][]model.MessageButton{
 		{{Text: "Site", Kind: "url", URL: "https://example.org"}, {Text: "Refresh", Kind: "callback", Data: []byte{1, 2, 3}}},
@@ -60,7 +60,7 @@ func TestInlineKeyboardConverted(t *testing.T) {
 func TestReplyKeyboardConverted(t *testing.T) {
 	m := convertOne(t, &tg.Message{ID: 8, PeerID: &tg.PeerUser{UserID: 5}, Message: "pick", Date: 10, ReplyMarkup: &tg.ReplyKeyboardMarkup{
 		SingleUse: true, Placeholder: "Choose",
-		Rows: []tg.KeyboardButtonRow{{Buttons: []tg.KeyboardButtonClass{&tg.KeyboardButton{Text: "Yes"}, &tg.KeyboardButtonRequestPhone{Text: "Share"}}}},
+		Rows: []tg.KeyboardButtonRow{{Buttons: []tg.KeyboardButton{{Text: "Yes", Type: &tg.ButtonTypeDefault{}}, {Text: "Share", Type: &tg.ButtonTypeRequestPhone{}}}}},
 	}})
 	if len(m.Buttons) != 0 || m.Keyboard == nil || !m.Keyboard.SingleUse || m.Keyboard.Placeholder != "Choose" {
 		t.Fatalf("message %+v", m)
@@ -214,13 +214,19 @@ func TestMatchCommands(t *testing.T) {
 	}
 }
 
-// The WebView buttons of a keyboard keep their link.
+// The WebView buttons of a keyboard keep their link: a message's buttons
+// open a Mini App, a reply keyboard's a simple one.
 func TestWebViewKeyboardConverted(t *testing.T) {
-	m := convertOne(t, &tg.Message{ID: 30, PeerID: &tg.PeerUser{UserID: 5}, Message: "shop", Date: 10, ReplyMarkup: &tg.ReplyInlineMarkup{Rows: []tg.KeyboardButtonRow{
-		{Buttons: []tg.KeyboardButtonClass{&tg.KeyboardButtonWebView{Text: "Shop", URL: "https://shop.example/a"}, &tg.KeyboardButtonSimpleWebView{Text: "Simple", URL: "https://shop.example/b"}}},
+	m := convertOne(t, &tg.Message{ID: 30, PeerID: &tg.PeerUser{UserID: 5}, Message: "shop", Date: 10, ReplyMarkup: &tg.ReplyInlineMarkup{Rows: []tg.KeyboardInlineButtonRow{
+		{Buttons: []tg.KeyboardInlineButton{{Text: "Shop", Type: &tg.InlineButtonTypeWebView{URL: "https://shop.example/a"}}}},
 	}}})
-	row := m.Buttons[0]
-	if row[0].Kind != "webview" || row[0].URL != "https://shop.example/a" || row[1].Kind != "simple_webview" || row[1].URL != "https://shop.example/b" {
+	if row := m.Buttons[0]; row[0].Kind != "webview" || row[0].URL != "https://shop.example/a" {
+		t.Fatalf("row %+v", row)
+	}
+	m = convertOne(t, &tg.Message{ID: 31, PeerID: &tg.PeerUser{UserID: 5}, Message: "app", Date: 11, ReplyMarkup: &tg.ReplyKeyboardMarkup{Rows: []tg.KeyboardButtonRow{
+		{Buttons: []tg.KeyboardButton{{Text: "Simple", Type: &tg.ButtonTypeSimpleWebView{URL: "https://shop.example/b"}}}},
+	}}})
+	if row := m.Keyboard.Rows[0]; row[0].Kind != "simple_webview" || row[0].URL != "https://shop.example/b" {
 		t.Fatalf("row %+v", row)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"gio-mw/widget/scroll"
 
 	"gioui.org/f32"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -45,8 +46,11 @@ type forumPage struct {
 	spinner loadingIndicator
 	// emoji draws a custom emoji, for a topic's icon.
 	emoji func(gtx layout.Context, id int64, size unit.Dp) layout.Dimensions
-	// open shows a topic.
-	open func(forum model.Chat, topic model.Topic)
+	// open shows a topic; openAt shows it at a message.
+	open   func(forum model.Chat, topic model.Topic)
+	openAt func(forum model.Chat, topic model.Topic, at model.MessageID)
+	// search searches the whole forum.
+	search forumSearch
 	// chat is the forum the page was last drawn for.
 	chat int64
 }
@@ -77,17 +81,39 @@ func (a *App) layoutForum(gtx layout.Context, c model.Chat, l localization.Catal
 		f.chat = c.ID
 		f.list.Position = layout.Position{}
 		f.rows = map[int]*surface{}
+		f.search.reset()
+		f.search.chat = c.ID
 		source.OpenForum(c.ID)
 	}
+	searcher, canSearch := a.store.(model.ForumSearcher)
+	invalidate := a.window.Invalidate
+	if canSearch {
+		f.search.update(gtx, searcher, invalidate)
+	}
+	searching := canSearch && f.search.open
 	dims := layoutChatPage(gtx, c, l, a.layoutAvatar, a.badges, func(gtx layout.Context) layout.Dimensions {
+		if searching {
+			return f.layoutResults(gtx, c, searcher, invalidate, l)
+		}
 		return f.layout(gtx, c, source, l)
 	}, nil)
-	// The header opens the forum's info: the click is taken over it.
 	header := image.Pt(gtx.Constraints.Max.X, gtx.Dp(chatHeaderSize))
 	hgtx := gtx
 	hgtx.Constraints = layout.Exact(header)
-	f.header.Layout(hgtx, func(layout.Context) layout.Dimensions { return layout.Dimensions{Size: header} })
+	if searching {
+		// The search's field takes the header's place.
+		f.search.layoutHeader(hgtx, header, l)
+		return dims
+	}
+	// The header opens the forum's info: the click is taken over it.
+	f.header.Layout(hgtx, func(gtx layout.Context) layout.Dimensions {
+		pointer.CursorPointer.Add(gtx.Ops)
+		return layout.Dimensions{Size: header}
+	})
 	layoutAvatarTarget(gtx, &f.avatar)
+	if canSearch {
+		f.search.layoutSearchButton(hgtx, header, c.ID, l)
+	}
 	return dims
 }
 

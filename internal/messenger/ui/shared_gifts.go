@@ -18,6 +18,7 @@ import (
 	"gio-mw/widget/scroll"
 
 	"gioui.org/f32"
+	"gioui.org/io/pointer"
 	"gioui.org/io/semantic"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -116,6 +117,7 @@ func (p *chatInfo) giftCard(gtx layout.Context, m model.Message, l localization.
 		p.gift = newGiftDialog(m)
 	}
 	return r.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		pointer.CursorPointer.Add(gtx.Ops)
 		size := gtx.Constraints.Max
 		bounds := image.Rectangle{Max: size}
 		defer clip.UniformRRect(bounds, gtx.Dp(12)).Push(gtx.Ops).Pop()
@@ -309,6 +311,7 @@ func (p *chatInfo) giftDetails(gtx layout.Context, d *giftDialog, l localization
 		rows = append(rows, vspace(16), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			text := l.Format("gift.terms", map[string]string{"link": l.T("gift.terms_link")})
 			return d.terms.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				pointer.CursorPointer.Add(gtx.Ops)
 				return centeredLabel(gtx, text, token.TypestyleBodySmall, scheme(gtx).Primary.Color, 0)
 			})
 		}), layout.Rigid(func(gtx layout.Context) layout.Dimensions {

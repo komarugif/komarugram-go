@@ -146,10 +146,16 @@ type Message struct {
 	// ForumTopic is set when the message's reply header marks it as part of
 	// a forum topic: it replies to the topic's root, or to a message in it.
 	ForumTopic bool `json:",omitempty"`
+	// Rich is a rich message's article; Text is its summary then.
+	Rich *RichPage `json:",omitempty"`
 	// MediaUnread is Telegram's mark of a voice message nobody listened to
 	// yet: the account, for one that came, or who it was sent to. Telegram
 	// sets it on an unread mention as well; only voice messages show it.
 	MediaUnread bool `json:",omitempty"`
+	// Streaming marks a message a bot streams as it writes it, not one yet:
+	// see StreamedDrafts. Stoppable is set when the account may stop it.
+	Streaming bool `json:"-"`
+	Stoppable bool `json:"-"`
 }
 
 // GeneralTopic is the id of the topic every forum has, whose messages have
@@ -242,6 +248,11 @@ type History struct {
 	// ThreadRoot is the root of a thread chat, such as a post's comments:
 	// replies to it quote nothing, since every message there replies to it.
 	ThreadRoot MessageID
+	// Count is how many messages Telegram counts in a thread chat, a
+	// topic's first message included, once Counted is set: a topic's
+	// header tells it, as Telegram Desktop's does.
+	Count   int
+	Counted bool
 }
 
 // RenderEnvironment identifies every external input that can change a
@@ -312,7 +323,28 @@ type Entity struct {
 	Offset, Length int
 	URL            string
 	DocumentID     int64
+	Language       string `json:",omitempty"`
+	Collapsed      bool   `json:",omitempty"`
+	// Date and DateFormat are a formatted date's: Unix seconds, and how it
+	// is written.
+	Date       int64      `json:",omitempty"`
+	DateFormat DateFormat `json:",omitempty"`
+	// Button is an inline button's, in a rich message's text.
+	Button *MessageButton `json:",omitempty"`
 }
+
+// DateFormat is how a formatted date entity is written, as Telegram's
+// flags say.
+type DateFormat uint8
+
+const (
+	DateRelative DateFormat = 1 << iota
+	DateShortTime
+	DateLongTime
+	DateShortDate
+	DateLongDate
+	DateDayOfWeek
+)
 
 // MessageButton is a button of a bot's keyboard, under a message or in a
 // reply keyboard. Kind is "url" (opens URL), "callback" (asks the bot,

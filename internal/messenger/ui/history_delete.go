@@ -131,7 +131,7 @@ func (p *chatPage) deleteDialog(gtx layout.Context, l localization.Catalog) {
 	sc := scheme(gtx)
 	d.modal.Layout(gtx, d.busy, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(440))
-		return card(gtx, func(gtx layout.Context) layout.Dimensions {
+		return d.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 			hint := ""
 			switch {
 			case d.rights.Everyone:

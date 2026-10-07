@@ -827,7 +827,16 @@ func (r *renderer) packStencils(pops *[]*pathOp) {
 func (r *renderer) packLayers(layers []opacityLayer) []opacityLayer {
 	// Make every layer bounds contain nested layers; cull empty layers.
 	for i, l := range slices.Backward(layers) {
-
+		if l.blur > 0 && !l.clip.Empty() {
+			// Downsampling is anchored at the capture's origin. When the
+			// capture itself moves (an expanding bottom-anchored menu), keep
+			// every pyramid level on the same screen-pixel grid. Extend only
+			// the capture, never the visible composite or its clip.
+			mask := (1 << blurLevels(l.blur)) - 1
+			l.clip.Min.X &^= mask
+			l.clip.Min.Y &^= mask
+			layers[i].clip = l.clip
+		}
 		if l.parent != -1 {
 			b := layers[l.parent].clip
 			layers[l.parent].clip = b.Union(l.clip)
@@ -954,7 +963,7 @@ func (r *renderer) drawLayers(layers []opacityLayer, ops []imageOp) {
 // image by a fraction of a pixel. Otherwise the blurred image would swim as
 // the size of a layer changes, as that of a menu opening does.
 func (r *renderer) blur(set *fboSet, src FBO, v image.Rectangle, radius float32, clip image.Rectangle) material {
-	levels := max(1, min(6, int(math.Round(math.Log2(float64(radius))))))
+	levels := blurLevels(radius)
 	sizes := make([]image.Point, levels)
 	size := v.Size()
 	for i := range sizes {
@@ -985,6 +994,11 @@ func (r *renderer) blur(set *fboSet, src FBO, v image.Rectangle, radius float32,
 		uvTrans:  f32.AffineId().Scale(f32.Point{}, uvScale).Offset(uvOffset),
 		opacity:  1,
 	}
+}
+
+// blurLevels is shared by capture alignment and the downsampling pyramid.
+func blurLevels(radius float32) int {
+	return max(1, min(6, int(math.Round(math.Log2(float64(radius))))))
 }
 
 // resample draws the area of src scaled to dst, which is of size.

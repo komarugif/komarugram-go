@@ -50,6 +50,7 @@ const (
 	actionFilter
 	actionTranslate
 	actionRepeat
+	actionSaveHTML
 	menuActions
 )
 
@@ -112,11 +113,12 @@ func (p *chatPage) openMenu(gtx layout.Context, pos f32.Point, top int) {
 	m := &p.messageMenu
 	m.open = false
 	i := p.rowAt(pos.Y)
-	if i < 0 || i >= len(p.messages) || p.messages[i].Kind == model.MessageService {
+	if i < 0 || i >= len(p.messages) || p.messages[i].Kind == model.MessageService || p.messages[i].Streaming {
 		return
 	}
 	msg := p.messages[i]
 	m.open, m.id, m.top = true, msg.Key.MessageID, top
+	m.menu = contextMenu{}
 	m.reactions.expanded = false
 	m.at = image.Pt(int(pos.X), int(pos.Y)+top)
 	m.packs.start(p, msg)
@@ -126,6 +128,7 @@ func (p *chatPage) openMenu(gtx layout.Context, pos f32.Point, top int) {
 func (p *chatPage) closeMenu() {
 	p.messageMenu.open = false
 	p.messageMenu.packs.stop()
+	p.entityMenu.close()
 }
 
 // menuMessage is the message whose menu is open.
@@ -152,19 +155,28 @@ func menuText(m model.Message) string {
 
 // menuSelectedText is the text selected in m, when some is.
 func (p *chatPage) menuSelectedText(m model.Message) string {
+	if r := p.menuSelectedRow(m); r != nil {
+		return r.selectedText()
+	}
+	return ""
+}
+
+// menuSelectedRow is the row of m, or of a part of it, text is selected
+// in, nil for none.
+func (p *chatPage) menuSelectedRow(m model.Message) *messageRow {
 	r := p.rows[m.Key.MessageID]
 	if r == nil || p.activeText == nil {
-		return ""
+		return nil
 	}
 	if p.activeText == r {
-		return r.selectedText()
+		return r
 	}
 	for _, child := range r.album {
 		if p.activeText == child {
-			return child.selectedText()
+			return child
 		}
 	}
-	return ""
+	return nil
 }
 
 // canReply reports whether what is sent to the open chat may reply to m.
@@ -226,6 +238,11 @@ func (p *chatPage) menuActions(m model.Message) []menuAction {
 	}
 	if !selected && p.canRepeat(m) {
 		out = append(out, actionRepeat)
+	}
+	// Telegram Desktop offers it for the only message selected; it is
+	// offered for a message alone too.
+	if canSaveHTML(m) && (!selected || len(p.selection.selected) == 1) {
+		out = append(out, actionSaveHTML)
 	}
 	if p.messageMenu.packs.id == m.Key.MessageID && len(p.messageMenu.packs.found.refs) > 0 {
 		out = append(out, actionEmojiPacks)
@@ -290,7 +307,9 @@ func (p *chatPage) menuDo(gtx layout.Context, a menuAction, m model.Message, l l
 	case actionReply:
 		p.composer.replyTo(gtx, p.chat, m)
 	case actionCopySelected:
-		copyText(p.menuSelectedText(m))
+		if r := p.menuSelectedRow(m); r != nil {
+			copySelection(gtx, r)
+		}
 	case actionCopyText:
 		copyText(menuText(m))
 	case actionCopyLink:
@@ -326,6 +345,8 @@ func (p *chatPage) menuDo(gtx layout.Context, a menuAction, m model.Message, l l
 		p.translation.open(p, m, p.menuSelectedText(m), string(l.Language()))
 	case actionRepeat:
 		p.repeat(m)
+	case actionSaveHTML:
+		p.saveHTML(m, l)
 	case actionFilter:
 		// A filter of the words selected, in every chat, as AyuGram's
 		// quick filter.
@@ -383,6 +404,8 @@ func (p *chatPage) menuLabel(a menuAction, l localization.Catalog) string {
 		return l.T("menu.filter")
 	case actionRepeat:
 		return l.T("menu.repeat")
+	case actionSaveHTML:
+		return l.T("rich.save_html")
 	case actionTranslate:
 		if m, ok := p.menuMessage(); ok && p.menuSelectedText(m) != "" {
 			return l.T("menu.translate_selected")
@@ -432,6 +455,8 @@ func menuIcon(a menuAction) wdk.IconWidget {
 		return iconTranslate
 	case actionRepeat:
 		return iconRepeat
+	case actionSaveHTML:
+		return iconDownload
 	}
 	return iconEmoji
 }
@@ -476,7 +501,7 @@ func (p *chatPage) menuLayout(gtx layout.Context, l localization.Catalog) {
 			m.shown = p.menuActions(msg)
 			m.reactions.shown = p.menuReactions(msg)
 			m.reactedOf = msg.Reactions
-			m.rect, m.corner = menuRect(gtx, m.at, size, m.shown, m.reactions.height(gtx))
+			m.rect, m.corner = menuRect(gtx, &m.menu, m.at, size, m.shown, m.reactions.height(gtx))
 		}
 	}
 	if m.open {
@@ -495,11 +520,12 @@ func (p *chatPage) menuLayout(gtx layout.Context, l localization.Catalog) {
 		sc := scheme(gtx)
 		menuSize := gtx.Constraints.Max
 		defer clip.UniformRRect(image.Rectangle{Max: menuSize}, radius).Push(gtx.Ops).Pop()
-		overlayFill(gtx, p.menuBackdrop(), menuSize, m.rect.Min, sc.SurfaceContainerHigh, radius)
+		overlayFill(gtx, p.menuBackdrop(), menuSize, m.menu.bounds.Min, sc.SurfaceContainerHigh, radius)
 		event.Op(gtx.Ops, &m.panel)
 		y := gtx.Dp(menuPadding)
-		if strip := m.reactions.height(gtx); strip > 0 {
-			m.reactions.layout(gtx, p, menuSize.X, p.animate)
+		if targetStrip := m.reactions.height(gtx); targetStrip > 0 {
+			strip := max(0, targetStrip+menuSize.Y-m.rect.Dy())
+			m.reactions.layoutHeight(gtx, p, menuSize.X, strip, p.animate)
 			y = strip
 		}
 		for _, a := range shown {
@@ -543,7 +569,7 @@ func (p *chatPage) menuLayout(gtx layout.Context, l localization.Catalog) {
 // menuRect is where a menu with actions, under a strip of reactions strip
 // high, opens from at in a page of size: below and after it, or on the sides
 // where there is room.
-func menuRect(gtx layout.Context, at, size image.Point, actions []menuAction, strip int) (image.Rectangle, menuCorner) {
+func menuRect(gtx layout.Context, menu *contextMenu, at, size image.Point, actions []menuAction, strip int) (image.Rectangle, menuCorner) {
 	margin := gtx.Dp(8)
 	w := min(gtx.Dp(menuWidth), max(0, size.X-2*margin))
 	h := 2*gtx.Dp(menuPadding) + strip
@@ -559,21 +585,7 @@ func menuRect(gtx layout.Context, at, size image.Point, actions []menuAction, st
 		}
 	}
 	h = min(h, max(0, size.Y-2*margin))
-	x, y, corner := at.X, at.Y, menuFromTopLeft
-	if x+w > size.X-margin {
-		x, corner = x-w, menuFromTopRight
-	}
-	if y+h > size.Y-margin {
-		y = y - h
-		if corner == menuFromTopLeft {
-			corner = menuFromBottomLeft
-		} else {
-			corner = menuFromBottomRight
-		}
-	}
-	x = max(margin, min(x, size.X-margin-w))
-	y = max(margin, min(y, size.Y-margin-h))
-	return image.Rect(x, y, x+w, y+h), corner
+	return menu.Place(gtx, at, size, image.Pt(w, h))
 }
 
 // customEmojiSource is a store that finds custom emoji documents, and so

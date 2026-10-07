@@ -119,9 +119,13 @@ func chatMenuIcon(a chatMenuAction) wdk.IconWidget {
 	return iconToTop
 }
 
-// headActionsWidth is how much of the header's end its buttons take.
-func (p *chatPage) headActionsWidth(gtx layout.Context) int {
+// headActionsWidth is how much of the header's end its buttons take; a
+// thread's header has search only.
+func (p *chatPage) headActionsWidth(gtx layout.Context, thread bool) int {
 	n := 1
+	if thread {
+		n = 0
+	}
 	if p.canSearchChat() {
 		n++
 	}
@@ -129,13 +133,14 @@ func (p *chatPage) headActionsWidth(gtx layout.Context) int {
 }
 
 // layoutHeadActions draws the header's buttons, search and the menu, at
-// its end, right to x, and takes their clicks.
-func (p *chatPage) layoutHeadActions(gtx layout.Context, header image.Point, x int, l localization.Catalog) {
+// its end, right to x, and takes their clicks. A thread's header, a topic's
+// or a post's comments', has search only: the menu is its chat's.
+func (p *chatPage) layoutHeadActions(gtx layout.Context, header image.Point, x int, thread bool, l localization.Catalog) {
 	m := &p.chatMenu
 	if m.search.Clicked(gtx) {
 		p.openChatSearch(gtx)
 	}
-	if m.more.Clicked(gtx) {
+	if m.more.Clicked(gtx) && !thread {
 		m.open = !m.open
 	}
 	sc := scheme(gtx)
@@ -155,9 +160,14 @@ func (p *chatPage) layoutHeadActions(gtx layout.Context, header image.Point, x i
 			})
 		})
 	}
-	draw(&m.more, iconMore, l.T("chat_menu.more"))
+	if !thread {
+		draw(&m.more, iconMore, l.T("chat_menu.more"))
+	}
 	if p.canSearchChat() {
 		draw(&m.search, iconSearch, l.T("chat_menu.search"))
+	}
+	if thread {
+		return
 	}
 	// The menu opens under its button.
 	actions := p.chatMenuActions()
@@ -251,7 +261,7 @@ func (p *chatPage) layoutChatMenu(gtx layout.Context, l localization.Catalog) {
 		defer clip.UniformRRect(image.Rectangle{Max: size}, radius).Push(gtx.Ops).Pop()
 		// The menu is drawn over the whole page, the history recorded is of
 		// its body under the header.
-		overlayFill(gtx, p.menuBackdrop().shifted(image.Pt(0, gtx.Dp(chatHeaderSize))), size, m.rect.Min, sc.SurfaceContainerHigh, radius)
+		overlayFill(gtx, p.menuBackdrop().shifted(image.Pt(0, gtx.Dp(chatHeaderSize))), size, m.menu.bounds.Min, sc.SurfaceContainerHigh, radius)
 		// Clicks on the menu itself do not close it.
 		event.Op(gtx.Ops, &m.menu)
 		y := gtx.Dp(menuPadding)

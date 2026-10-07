@@ -93,7 +93,9 @@ type Window struct {
 	profileName string
 	titleMu     sync.Mutex
 	title       string
-	suspended   atomic.Bool
+	// titleDirty is whether the system has yet to get title.
+	titleDirty bool
+	suspended  atomic.Bool
 	// transparent and blurred are what the platform granted of
 	// Options.Transparent and Options.BlurBehind.
 	transparent, blurred    bool
@@ -125,18 +127,59 @@ func (w *Window) CanBeTransparent() bool {
 	return runtime.GOOS == "darwin" || w.transparent
 }
 
-// SetTitle changes the window title. Setting the title it has does nothing:
-// callers may repeat it on every update, and on Windows each change
-// reconfigures the whole window.
+// SetTitle changes the window title, from any goroutine. Setting the title
+// it has does nothing: callers may repeat it on every update, and on
+// Windows each change reconfigures the whole window.
+//
+// The window's own goroutine gives the title to the system, at its next
+// event: an Option waits for the main thread, which, while it hands an
+// event to another window, serves only that window's calls. A setting
+// changed in one window, which tells every window's title, locked both
+// windows so (the zoom of the article window, on macOS).
 func (w *Window) SetTitle(title string) {
 	w.titleMu.Lock()
 	same := w.title == title
 	w.title = title
-	w.titleMu.Unlock()
 	if !same {
-		w.Option(app.Title(title))
+		w.titleDirty = true
+	}
+	w.titleMu.Unlock()
+	if !same && w.Window != nil {
+		// Not w.Invalidate, which a suspended window ignores: the title
+		// waits for its next event, which a hidden window may only have
+		// once it is shown.
+		w.Window.Invalidate()
 	}
 }
+
+// applyTitle gives the system the title SetTitle was given last, if it has
+// not had it. It runs on the window's goroutine.
+func (w *Window) applyTitle() {
+	w.titleMu.Lock()
+	dirty, title := w.titleDirty, w.title
+	w.titleDirty = false
+	w.titleMu.Unlock()
+	if dirty {
+		setOption(w, app.Title(title))
+	}
+}
+
+// setOption is w.Option, for the tests to see what is asked of the window.
+var setOption = func(w *Window, opts ...app.Option) { w.Option(opts...) }
+
+// PerformLater performs actions on w without waiting for them, from any
+// goroutine; one window raising or closing another does so. Perform waits
+// for the main thread, which, while it hands an event to the window
+// calling, serves only that window: on macOS the two would wait for each
+// other, as SetTitle's comment tells. The actions are not queued for w's
+// own goroutine as the title is, since a minimized window may have no
+// event to take them with, and a raise must reach it.
+func (w *Window) PerformLater(actions system.Action) {
+	go perform(w, actions)
+}
+
+// perform is w.Perform, for the tests to hold it.
+var perform = func(w *Window, actions system.Action) { w.Perform(actions) }
 
 // SetFrameDark picks the dark or the light look of the system's window frame
 // (macOS), which otherwise follows the system, not the theme of the program.
@@ -482,6 +525,7 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 	focused := false
 	for {
 		ev := w.Event()
+		w.applyTitle()
 		if handle, ok := viewHandle(ev); ok {
 			w.view, w.captureApplied = handle, false
 		}
@@ -645,13 +689,17 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 	}
 }
 
-// handleKeys processes the window keys and reports whether to quit.
+// handleKeys processes the window keys and reports whether to quit. It
+// reads them before the content, and a key it reads the content never
+// sees: Escape is the window's only when it closes the window, and the
+// content's menus and dialogs take it otherwise.
 func (w *Window) handleKeys(gtx layout.Context, opts Options) bool {
+	filters := []event.Filter{key.Filter{Name: key.NameF11}}
+	if opts.QuitOnEscape {
+		filters = append(filters, key.Filter{Name: key.NameEscape})
+	}
 	for {
-		ev, ok := gtx.Event(
-			key.Filter{Name: key.NameEscape},
-			key.Filter{Name: key.NameF11},
-		)
+		ev, ok := gtx.Event(filters...)
 		if !ok {
 			return false
 		}
