@@ -93,7 +93,9 @@ type Window struct {
 	profileName string
 	titleMu     sync.Mutex
 	title       string
-	suspended   atomic.Bool
+	// titleDirty is whether the system has yet to get title.
+	titleDirty bool
+	suspended  atomic.Bool
 	// transparent and blurred are what the platform granted of
 	// Options.Transparent and Options.BlurBehind.
 	transparent, blurred    bool
@@ -125,18 +127,43 @@ func (w *Window) CanBeTransparent() bool {
 	return runtime.GOOS == "darwin" || w.transparent
 }
 
-// SetTitle changes the window title. Setting the title it has does nothing:
-// callers may repeat it on every update, and on Windows each change
-// reconfigures the whole window.
+// SetTitle changes the window title, from any goroutine. Setting the title
+// it has does nothing: callers may repeat it on every update, and on
+// Windows each change reconfigures the whole window.
+//
+// The window's own goroutine gives the title to the system, at its next
+// event: an Option waits for the main thread, which, while it hands an
+// event to another window, serves only that window's calls. A setting
+// changed in one window, which tells every window's title, locked both
+// windows so (the zoom of the article window, on macOS).
 func (w *Window) SetTitle(title string) {
 	w.titleMu.Lock()
 	same := w.title == title
 	w.title = title
-	w.titleMu.Unlock()
 	if !same {
-		w.Option(app.Title(title))
+		w.titleDirty = true
+	}
+	w.titleMu.Unlock()
+	if !same && w.Window != nil {
+		// Not w.Invalidate: a hidden window takes its title too.
+		w.Window.Invalidate()
 	}
 }
+
+// applyTitle gives the system the title SetTitle was given last, if it has
+// not had it. It runs on the window's goroutine.
+func (w *Window) applyTitle() {
+	w.titleMu.Lock()
+	dirty, title := w.titleDirty, w.title
+	w.titleDirty = false
+	w.titleMu.Unlock()
+	if dirty {
+		setOption(w, app.Title(title))
+	}
+}
+
+// setOption is w.Option, for the tests to see what is asked of the window.
+var setOption = func(w *Window, opts ...app.Option) { w.Option(opts...) }
 
 // SetFrameDark picks the dark or the light look of the system's window frame
 // (macOS), which otherwise follows the system, not the theme of the program.
@@ -482,6 +509,7 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 	focused := false
 	for {
 		ev := w.Event()
+		w.applyTitle()
 		if handle, ok := viewHandle(ev); ok {
 			w.view, w.captureApplied = handle, false
 		}
