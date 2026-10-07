@@ -17,7 +17,7 @@ import (
 	"komarugram/pkg/webm"
 )
 
-const stickerPath = "../../stickers/circle.webm"
+const stickerPath = "../../assets/stickers/circle.webm"
 
 func newRuntime(t *testing.T) (*vp9.Runtime, context.Context) {
 	t.Helper()
@@ -34,7 +34,7 @@ func readSticker(t *testing.T) []byte {
 	t.Helper()
 	data, err := os.ReadFile(stickerPath)
 	if err != nil {
-		t.Skip("no ../../stickers/circle.webm to decode")
+		t.Skip("no ../../assets/stickers/circle.webm to decode")
 	}
 	return data
 }
