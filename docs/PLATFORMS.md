@@ -374,7 +374,8 @@ ffmpeg is the package `ffmpeg6_tools` (`pkgman install ffmpeg6_tools`);
   (`B_WILL_ACCEPT_FIRST_CLICK`), and activates it: the app_server leaves
   that to a window with the flag, and before, a window clicked after
   another had the focus stayed inactive, its keys going elsewhere (found
-  by the maintainer, 2026-10-08). Haiku's wheel message has no position:
+  by the maintainer, 2026-10-08; fixed, checked by the maintainer the
+  same day). Haiku's wheel message has no position:
   the wheel scrolls at the pointer's last, a notch 100 pixels, as on
   Wayland and Windows.
 - **The window** keeps within the screen, less the Deskbar when it lies
