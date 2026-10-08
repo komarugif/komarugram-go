@@ -580,6 +580,17 @@ with upstream Go.
   Classic themes nothing is composed, and the window is opaque.
 - **Emoji typed** (Gio, every Windows): a character beyond the BMP comes as
   two `WM_CHAR`, and each half was dropped.
+- **One instance** (`cmd/messenger/instance.go`): the running client
+  listens on a Unix socket, which Windows has only from 10 1803, and a
+  second start, or a click on a balloon that starts the client, opened
+  another window beside the first; the account's key itself stayed safe,
+  as `LockFileEx` on its lock file refuses a second client. Where the socket
+  cannot be made the client listens on the loopback, writes the address and
+  a random token to `komarugram-go.port` in its cache directory (the user's
+  own), and takes only messages that start with the token.
+- **The demo's tray**: with `-demo-notify` the demo has a tray icon, as
+  notifications on Windows are its balloons; it had none, and showed none
+  there, on Windows 10 too.
 
 ### Checked on Windows 7
 
@@ -595,13 +606,14 @@ KB3125574 and later ones):
 | `messenger -demo` | the window opens, drawn by WARP, which it turned to on its own; the chat list and chats draw; clicks, the wheel, typing Cyrillic and emoji (with `SendInput`), maximizing |
 | Mini Apps | Supermium 150 (Chromium 150) found among the registered browsers, at `C:\Program Files\Supermium\chrome.exe`; the demo's app opens from the bot's menu button with its init data and theme, keeps its local storage between launches, and Close inside it closes the browser |
 | Aero's glass | the main window's transparency at 35% in the demo: the sidebar blurs the wallpaper, under the system's glass frame, maximized and not. Switched to "Windows 7 Basic" while it ran, the window turned opaque (light, not black); back to the Landscapes theme, the glass came back without a restart |
-| Tray | a program of the tray package alone shows the icon and a balloon (`Notify`). The demo makes no tray, so it shows no notifications on Windows; and Windows 7 holds back balloons with `NIIF_RESPECT_QUIET_TIME`, which the client sets, for the first hour after a user first signs in |
+| Tray | `-demo -demo-notify 15s`: the icon shows, and balloons of the messages that come, with the client's icon; a click on a balloon opened its chat, bringing back the minimized window; a right click on the icon opens its menu, Open and Quit. Windows 7 hides a new icon among the hidden ones but while a balloon shows. It holds back balloons with `NIIF_RESPECT_QUIET_TIME`, which the client sets, for the first hour after a user first signs in |
+| A real account | the maintainer's, moved from Linux (its local data, 439 files, 540 MB; no paths of Linux in the settings): the chat list loads and new messages come, read-only. A second start with the window minimized brought it back and ended ("the messenger is already running"), the instance on the loopback |
 
 ### Not done
 
 | What | On Windows 7 |
 |---|---|
-| A real account | not run there; protection without a TPM (by the master password) is what a machine of Windows 7 will be offered |
+| Protection without a TPM | the master password, which a machine of Windows 7 will be offered: not tried there |
 | FFmpeg | the usual builds of FFmpeg no longer start on Windows 7; one that does is to be chosen. Without it the client runs with fewer features |
 | Real hardware | only the VM, whose driver fails Direct3D 11 |
 

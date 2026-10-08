@@ -286,7 +286,49 @@ func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive
 	store := mockstore.New(time.Now(), chats)
 	var window atomic.Pointer[appwindow.Window]
 	var app atomic.Pointer[ui.App]
-	notifier := notify.New(localization.For(prefs.Global().Language).T("app.title"), nil)
+	catalog := localization.For(prefs.Global().Language)
+	// Windows shows notifications as balloons of the tray's icon: with
+	// -demo-notify the demo has one, so that they can be tried there too.
+	var balloon notify.Balloon
+	if receive > 0 {
+		balloon = &trayBalloon{}
+	}
+	notifier := notify.New(catalog.T("app.title"), balloon)
+	if b, ok := balloon.(*trayBalloon); ok {
+		activate := func(token string) {
+			if w := window.Load(); w != nil {
+				w.Activate(token)
+			}
+		}
+		icon, err := tray.Start(tray.Options{
+			ID:       "komarugram-go-demo",
+			Title:    catalog.T("app.title"),
+			Activate: activate,
+			Notified: notifier.Clicked,
+			Items: []tray.Item{
+				{Label: catalog.T("tray.open"), Action: activate},
+				{Separator: true},
+				{Label: catalog.T("tray.quit"), Action: func(string) {
+					if w := window.Load(); w != nil {
+						w.PerformLater(system.ActionClose)
+					}
+				}},
+			},
+		})
+		switch {
+		case err == nil:
+			b.icon.Store(icon)
+			flush := process.BeforeExit
+			process.BeforeExit = func() {
+				icon.Close()
+				if flush != nil {
+					flush()
+				}
+			}
+		case !errors.Is(err, tray.ErrUnsupported):
+			log.Print(err)
+		}
+	}
 	store.SetNotices(func(n model.MessageNotice) {
 		chat := n.Chat.ID
 		showNotice(notifier, prefs.Global(), "demo", viewOf(app.Load(), false), n, func(token string) {
