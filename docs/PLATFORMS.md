@@ -323,6 +323,7 @@ From 2026-10-07 to 2026-10-08, in the VM above:
 | Speed | first frame 1.3 s, then 30–50 ms a frame at 1014×713 with `LP_NUM_THREADS=3`; a chat opened about 2.5 s after the click on an older install, which stalled often |
 | Resources | the icon of the rdef shows for the program (seen by the maintainer, 2026-10-08); with the file's signature taken, the demo prints nothing on the terminal |
 | Mini Apps | in Firefox 157 (`pkgman install firefox`), over WebDriver BiDi: the demo's app opens from the bot's menu button without the browser's toolbars, with its init data and theme, and Firefox closes with the client (2026-10-08). Clicks inside Firefox were not tried: `GIO_HAIKU_INPUT` reaches Gio's windows only |
+| Choosing files | Haiku's own panel, `filepanel` (in the system): opening a file for the attachment menu leads to the box for sending it; saving prints its path the same way (2026-10-08). The Open button was pressed by the maintainer once and then by `~/haiku-tools/tests/sendrefs`, which sends the panel's messages |
 | Editing | typing, Backspace, the arrows and Delete in an editor of a Gio test program |
 
 `LP_NUM_THREADS` limits llvmpipe's threads (one a core otherwise): with
@@ -341,6 +342,16 @@ drawn.
 | Other windows | the photo viewer's transparent window, drag and drop, opening links in a browser: not tried |
 | The clipboard, shortcuts | written, not tried |
 | 3D acceleration | none in practice: the drivers for AMD and Intel set modes only, and an accelerated one for NVIDIA Turing and Ampere is an alpha of January 2026 ([OSnews](https://www.osnews.com/story/144097/haiku-gets-accelerated-nvidia-graphics-driver/)) |
+
+### Choosing files
+
+The client asks the system's own chooser for files (`chooseFiles`,
+`chooseStickerArchive` in `internal/messenger/ui`); on Haiku that is
+`filepanel`, a command of the system that shows a `BFilePanel` and prints the
+paths chosen. It ends with status 1 after a choice as well as after Cancel: the
+panel sends `B_CANCEL` as it closes, after the files. So on Haiku what it
+printed is the choice, whatever its status. It has no filter by type: every
+file shows, where Linux's choosers show only images for "Photo or video".
 
 ### Browsers for Mini Apps
 
