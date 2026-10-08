@@ -5,8 +5,11 @@ package main
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync/atomic"
 	"testing"
+	"time"
+	"weak"
 
 	"github.com/gotd/td/tgerr"
 
@@ -114,5 +117,32 @@ func TestSessionStopsOnce(t *testing.T) {
 	s.stop()
 	if holds != 1 {
 		t.Fatalf("hold released %d times", holds)
+	}
+}
+
+// handOff lets the worker that hands the session on end, and what it held
+// with it: the first window's sign-in worker held that window, which stayed
+// in memory, closed to the tray, for as long as the account ran.
+func TestHandOffLetsTheWorkerGo(t *testing.T) {
+	s := newSession(func() {}, func(*accountSession) {})
+	defer s.stop()
+	var gone weak.Pointer[[1 << 16]byte]
+	running := make(chan struct{})
+	s.start(func(ctx context.Context) {
+		window := new([1 << 16]byte)
+		gone = weak.Make(window)
+		s.handOff(func(ctx context.Context) {
+			close(running)
+			<-ctx.Done()
+		})
+		runtime.KeepAlive(window)
+	})
+	<-running
+	for i := 0; i < 100 && gone.Value() != nil; i++ {
+		runtime.GC()
+		time.Sleep(10 * time.Millisecond)
+	}
+	if gone.Value() != nil {
+		t.Fatal("what the handing worker held outlives it")
 	}
 }

@@ -141,7 +141,7 @@ Windows, `~/.config/komarugram-go` on Linux):
 
 | Path | What it is |
 |------|------------|
-| `security.json` | TPM-sealed root key and Argon2id salt, when protection is on |
+| `security.json` | the root key sealed by the TPM, or by the password alone (`"sealer": "password"`), and the Argon2id salt, when protection is on |
 | `accounts.db.plain` / `accounts.db.secure` | The registry: one row per account — user id, home DC, auth key fingerprint, order, name, username, phone and the 160 px profile photo as a BLOB |
 | `accounts/<id>/session.json` | The account's gotd session, mode 0600 |
 | `accounts/<id>/history.db.*` | The account's history, media and update-state cache |
@@ -170,6 +170,21 @@ A migration that was interrupted is completed on the next unlock. The TPM object
 dictionary-attack protection and cannot be loaded under another TPM's storage
 root, so a copied config directory cannot be opened on another machine even
 when the password is weak or known.
+
+Where the TPM cannot be used (no device, no access to it, Haiku), protection
+is offered all the same, sealed by the master password alone
+(`security/password.go`): the root key is encrypted with XChaCha20-Poly1305
+under a key of the password's Argon2id, at a higher cost there (4 passes,
+128 MiB: about 0.2 s on a desktop, 1.6 s on Haiku in a virtual machine,
+against 3 passes and 64 MiB with the TPM). The texts say that the password
+is then all the protection: whoever copies the files can try passwords on
+their own computer, with nothing to slow them but Argon2id, so it has to be
+long. Where the TPM could be had, they say how, as below. Telegram Desktop
+protects its `tdata` no better with a local passcode (PBKDF2-HMAC-SHA512,
+100 000 iterations, `storage_file_utilities.cpp`), and only formally without
+one (a single iteration over an empty passcode). A key sealed by the
+password stays so when a TPM comes; one the TPM sealed cannot be opened
+once the TPM is gone.
 
 The root key exists unsealed only in process memory. Clearing or replacing
 the TPM, or forgetting the master password, makes protected data
@@ -590,18 +605,28 @@ paints the same picture as RGBA.
 
 ## Kitchen: Mini Apps
 
-**Mini Apps** opens a bundled Mini App in whatever Chromium-based browser the
-user already has, and talks to it over the Chrome DevTools Protocol. There is
-no embedded webview here and no plan for one.
+**Mini Apps** opens a bundled Mini App in whatever Chromium-based browser or
+Firefox the user already has, and talks to it over the browser's automation
+protocol: the Chrome DevTools Protocol (`pkg/miniapp/cdp.go`) or WebDriver
+BiDi, which Firefox serves itself (`bidi.go`). There is no embedded webview here
+and no plan for one.
 
 The transport Telegram's SDK expects turns out to be small enough to provide
 from outside the browser:
 
 - the page reaches the client through `TelegramWebviewProxy.postEvent`, which
-  is installed by a shim injected with `Page.addScriptToEvaluateOnNewDocument`
-  and backed by a CDP binding, so every call arrives as `Runtime.bindingCalled`;
+  is installed by a shim that runs before the page's own scripts — the window
+  opens blank and the app is opened only once the shim is in place, so it
+  loads once, with the bridge, and its address, which carries the user's
+  signed init data, stays off the command line, where any user of the
+  machine can read it (Chromium opens an empty `data:` page: `--app` on
+  `about:blank` gives a browser's window with tabs and an address bar): in Chromium
+  injected with `Page.addScriptToEvaluateOnNewDocument` and backed by a CDP
+  binding, so every call arrives as `Runtime.bindingCalled`; in Firefox a
+  preload script (`script.addPreloadScript`) handed a channel, so every call
+  arrives as `script.message`;
 - the client reaches the page through `Telegram.WebView.receiveEvent`, called
-  with `Runtime.evaluate`;
+  with `Runtime.evaluate` or `script.evaluate`;
 - the launch parameters — init data, version, platform, theme — travel in the
   URL fragment, exactly as they would into a webview.
 
@@ -621,9 +646,13 @@ and flushes them to disk. A Mini App is an ordinary web application, so on a
 kept profile it finds its sessions and caches where it left them; on a throwaway
 one it starts from nothing every time.
 
-Any Chromium-based browser will do. Chromium, Chrome and Brave are looked for
-on `PATH` and among installed flatpaks, each one is asked for `--version`, and
-the one built on the newest Chromium is driven. The browser engine is what a
+Any Chromium-based browser will do, and Firefox 140 or later, or a browser
+built from it: LibreWolf and Waterfox. Chromium, Chrome, Brave, Firefox,
+LibreWolf and Waterfox are looked for on `PATH` and among installed flatpaks,
+each one is asked for `--version`, and the one built on the newest Chromium is
+driven; Firefox only where there is no Chromium-based browser, as on Haiku,
+since its window cannot be told to drop the browser's controls as `--app` does
+(below). The browser engine is what a
 Mini App — a page from a stranger — runs inside, and whether the flatpak or the
 distribution's package is ahead cannot be told from how it was installed, so
 the version decides; Brave reveals only its Chromium major, so it ties with
@@ -631,18 +660,61 @@ every Chromium of that major, and ties go to native programs first.
 `KITCHEN_MINIAPP_BROWSER` names one directly, by program or by application id,
 which is how the same suite is run against each of them; in the messenger, the
 user can pick one in the settings, which is kept only when it answers
-`--version` as a Chromium-based browser. Two of them need
+`--version` as a Chromium-based browser. A snap sees a `/tmp` of its own and no hidden directory of the home, the
+cache and the configuration among them: for a browser run by snap (a command
+in `/snap/bin`, or a script that runs one, as Ubuntu's `/usr/bin/firefox`),
+profiles go under `~/snap/<name>/common/komarugram-go/miniapp`, one directory
+for each root the client asks for; otherwise the browser opens a profile of its
+own nobody can read, and the bridge never finds its port. Two of them need
 something of their own: Brave shows a notice about its analytics, which is a
 browser-level setting rather than a profile one, and a flatpak sees nothing
 outside `/tmp` unless the profile directory is granted to it by name — without
 that it keeps its own copy inside the sandbox, where the client cannot find it.
 Both are handled where the profile is prepared.
 
-Two things make a kept profile work. The browser is asked to shut down over the
-DevTools protocol rather than killed, or it never writes out what the app
-stored; and a profile already in use is refused, because a second browser on one
-profile hands its window to the first and both pages then answer on a single
-debugging endpoint.
+Firefox differs in a few places. It has no `--app` window: the client writes
+a `userChrome.css` into the profile that hides the tab bar and the toolbars and
+lets the window be narrower than Firefox's own minimum of about 500 pixels, and
+the window's first size into `xulstore.json`, where Firefox keeps it. Its
+preferences go into `user.js`, written at every start: no first-run pages or
+notices, no offer to translate, links opened by the app in a window of their
+own (with the tab bar hidden, a tab would cover the app), and
+`remote.prefs.recommended` off — under remote control Firefox otherwise sets
+preferences meant for tests, among them Safe Browsing, the popup blocker and
+tracking protection off. The forks need a few more: the window manager's title
+bar (`browser.tabs.inTitlebar`), since Waterfox draws its own, which would go
+with the toolbars and leave a window that cannot be moved or closed; and
+LibreWolf's resistance to fingerprinting off, along with its clearing of what
+pages stored at every quit — it asks in a dialog that holds up the page whether
+to request pages in English and sizes the window itself, and a Mini App gets the
+user's Telegram id and name in its launch parameters anyway, while what an app
+keeps is the client's setting. The style sheet also hides the robot Firefox
+shows while remote-controlled, which sits in the URL bar and is drawn over the
+page even with its toolbar hidden, the browser's own notices over the page
+(LibreWolf's that the default search engine changed; a page's own notices
+stay), and the lines and margins the forks put around the page. Waterfox numbers its versions on its own (6.7.5 runs on
+Firefox 153), so the version of the engine of a browser built from Firefox is
+read from `platform.ini` beside the program or in the flatpak's files
+(`Milestone=153.4.0`). Beside a launcher script, as distributions install
+browsers, it cannot be found; such a browser is started all the same, and turned
+down if the version it gives for its BiDi session (`browserVersion`, the
+engine's: 153.4.0 for Waterfox) is older than 140. The page is opened only once the preload script is in
+place, so nothing is reloaded. The BiDi session leaves the app's own dialogs
+(`alert`, `confirm`) for the user rather than dismissing them. Firefox writes the
+endpoint's port into `WebDriverBiDiServer.json` in the profile, as Chromium
+writes `DevToolsActivePort`. Moving a window that is open
+(`Bridge.SetWindowBounds`, which the external player uses) needs Firefox 151,
+which added `browser.setClientWindowState`; Firefox 153 fixed preload scripts
+that stopped working after several navigations. A BiDi session also outlives
+its connection, and a browser takes one session only, so the bridge keeps its
+one connection for as long as the browser runs.
+
+Two things make a kept profile work. The browser is asked to shut down over its
+protocol (`Browser.close`, `browser.close`) rather than killed, or it never
+writes out what the app stored; and a profile already in use is refused,
+because a second Chromium on one profile hands its window to the first and both
+pages then answer on a single debugging endpoint; Firefox, which locks its
+profile, allows one process on it too.
 
 What this approach does not solve is the native chrome around the app — the
 main button, the header, popups. Those belong to the client in official
@@ -680,7 +752,7 @@ The user can point the messenger at a player, or at the browser for Mini Apps,
 in Settings → External integrations. Any file can be picked there, so a program
 is kept only after it answered `--version` as what it was picked as
 (`player.Check`, `miniapp.CheckBrowser`): mpv 0.17 or later, VLC 3, a browser
-printing a four-part Chromium version. The question runs in the C locale, with
+printing a four-part Chromium version, or Firefox 140 or later. The question runs in the C locale, with
 nothing on its input, a 10-second limit and the first 64 KiB of its answer
 kept (`program.Banner`). `player.Open` asks again, once for each size and
 modification time of the file, so a path written into `settings.json` by hand
@@ -827,6 +899,33 @@ bug, a failed test or a wrong first guess at least once.
   RssAnon over several open/close cycles, not one: a single cycle can't show
   a trend. Name the `smaps` mappings (Go's are `[anon: Go: …]`) to see which
   side grows.
+- *A method value holds its receiver.* `formula.SetRelease(w.ReleaseMemoryLater)`
+  put a window's method into a cache of the whole process, and the cache
+  kept that window, its view, ops, theme and shaper, after it closed, until
+  the next window replaced it. With the case below it was half the Go
+  heap of a client closed to the tray: 31–35 MB, 14–16 MB without them.
+  Give what outlives a window something bound to the process
+  (`appwindow.Window.MemoryReleaser`), never a closure or method of the
+  window.
+- *A goroutine that goes on to other work keeps what its frame holds.* The
+  sign-in worker of the first window ran the account on after sign-in, as
+  long as the account lived, and held that window and its sign-in form all
+  the while; it now hands the account to a goroutine of the session
+  (`accountSession.handOff`) and ends.
+- *Finding who holds an object.* Heap profiles name where memory was
+  allocated, not what keeps it. Count windows or apps alive with
+  `weak.Pointer`s, not finalizers: a finalizer on an object in a cycle keeps
+  the whole cycle forever, and the experiment then leaks by itself.
+  `debug.WriteHeapDump` after a GC holds every object with its pointers and
+  the roots (globals, goroutine frames); a breadth-first search from the
+  roots to an object of the type that should be gone gives the path that
+  keeps it. A root in `.bss`/`.data` is named by its address with
+  `go tool nm -n -size <binary>`, a frame by its function. Nothing in the
+  repository parses the dump: the format is in the Go wiki's
+  `heapdump15-through-heapdump17`, and a short script does it. Measure over
+  a dozen cycles of closing and opening (`-profile-export`, see
+  `docs/PROFILING.md`): a second connection of `dcpool`, made once, is
+  not a leak.
 - *`#ifdef __GLIBC__` in a cgo preamble needs a libc header included first.*
   Without one the macro is undefined, and the fallback stub compiles without a
   word: `malloc_trim` was never called, and an experiment measured on the stub

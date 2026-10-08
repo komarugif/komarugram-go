@@ -16,10 +16,10 @@ import (
 )
 
 // TestCheckBrowser checks that CheckBrowser takes the Chromium-based
-// browsers installed here and turns down other programs.
+// browsers and Firefox installed here and turns down other programs.
 func TestCheckBrowser(t *testing.T) {
 	ctx := context.Background()
-	for _, name := range []string{"chromium", "chromium-browser", "google-chrome", "brave-browser"} {
+	for _, name := range []string{"chromium", "chromium-browser", "google-chrome", "brave-browser", "firefox"} {
 		if path, err := exec.LookPath(name); err == nil {
 			banner, err := miniapp.CheckBrowser(ctx, path)
 			if err != nil {
@@ -28,7 +28,7 @@ func TestCheckBrowser(t *testing.T) {
 			t.Logf("%s: %s", path, banner)
 		}
 	}
-	for _, name := range []string{"firefox", "ls", "vlc"} {
+	for _, name := range []string{"ls", "vlc"} {
 		if path, err := exec.LookPath(name); err == nil {
 			if banner, err := miniapp.CheckBrowser(ctx, path); err == nil {
 				t.Errorf("%s was taken for a browser: %q", path, banner)

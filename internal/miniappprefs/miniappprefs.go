@@ -83,7 +83,7 @@ var English = Strings{
 		miniapp.Shared:    "All Mini Apps of the account share one profile, as Telegram Desktop does.",
 	},
 	Browser:  "Mini Apps open in: ",
-	NoneSeen: "no Chromium-based browser found",
+	NoneSeen: "no Chromium-based browser or Firefox found",
 }
 
 var Russian = Strings{

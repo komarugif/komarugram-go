@@ -56,9 +56,6 @@ func openVLC(ctx context.Context, path, source string, extra []string) (*vlc, er
 		"--extraintf=oldrc", control,
 		// Without a terminal the interface does not start on a socket.
 		"--rc-fake-tty",
-		// A second VLC would otherwise hand the file to the first one and
-		// exit, which reads as the window being closed.
-		"--no-one-instance", "--no-playlist-enqueue",
 		// Stay on the last frame, as mpv's --keep-open does.
 		"--play-and-pause",
 		// The source is named after the kind of media, not the file:
@@ -68,6 +65,11 @@ func openVLC(ctx context.Context, path, source string, extra []string) (*vlc, er
 	if runtime.GOOS == "windows" {
 		// Otherwise the interface opens a console window of its own.
 		args = append(args, "--rc-quiet")
+	}
+	if hasOneInstance() {
+		// A second VLC would otherwise hand the file to the first one and
+		// exit, which reads as the window being closed.
+		args = append(args, "--no-one-instance", "--no-playlist-enqueue")
 	}
 	args = append(args, extra...)
 	args = append(args, source)
@@ -253,4 +255,16 @@ func (p *vlc) removeSocket() {
 	if p.socket != "" {
 		_ = os.Remove(p.socket)
 	}
+}
+
+// hasOneInstance reports whether VLC knows --one-instance here: it has it
+// only on Windows and where it is built with D-Bus (src/libvlc-module.c),
+// and it refuses to start on an option it does not know. VLC for Haiku
+// and for macOS has no D-Bus.
+func hasOneInstance() bool {
+	switch runtime.GOOS {
+	case "darwin", "haiku":
+		return false
+	}
+	return true
 }

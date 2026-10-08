@@ -16,6 +16,7 @@ Russian; code, comments and docs are in English.
 |---|---|
 | `cmd/messenger` | Entry point; `account_host.go` runs accounts, windows and their stores |
 | `cmd/render-all` | Renders every screen of the render tests into one directory |
+| `cmd/haiku-build` | Builds the messenger on Haiku itself, patching the modules that need it (`docs/BUILD_HAIKU.md`) |
 | `cmd/emoji-pack` | Makes the catalog of emoji packs built into the client (`official`: Telegram Desktop's emoji sets, pinned to commits), and catalogs of a directory |
 | `internal/messenger/ui` | All messenger UI. Components: `docs/UI_COMPONENTS.md` |
 | `internal/messenger/tgstore` | `model.Store` backed by Telegram (gotd): chats, history, search, updates |
@@ -186,7 +187,8 @@ On Linux under X11 (XFCE here):
 - Stop the client with `pkill -x messenger`: `pkill -f <path>` also
   matches, and kills, the shell that runs it.
 - Drive a window with `xdotool mousemove --window <id> x y click 1` (client
-  coordinates) and `xdotool type`; find it with `wmctrl -l`; screenshot the
+  coordinates) and `xdotool type`; find it by its title with `wmctrl -l`
+  (Gio's windows carry no PID there, `wmctrl -lp` shows 0); screenshot the
   active window with `xfce4-screenshooter -w -s file.png`.
 - Close windows with `wmctrl -i -c <id>`, not `xdotool windowclose`: Gio never
   sees a `DestroyEvent` then.

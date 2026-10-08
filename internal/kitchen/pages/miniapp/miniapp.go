@@ -159,7 +159,7 @@ func (p *Page) View(gtx layout.Context) layout.Dimensions {
 				return exp.HeadlineL(gtx, txt)
 			}),
 			block.NewSegment(func(gtx layout.Context) layout.Dimensions {
-				txt := "Telegram's own SDK, running in the user's browser, bridged over CDP"
+				txt := "Telegram's own SDK, running in the user's browser, bridged over CDP or WebDriver BiDi"
 				return exp.BodyL(gtx, txt)
 			}),
 			block.NewVerticalSpacer(examples.SpacingSmall),
@@ -184,7 +184,7 @@ func (p *Page) statusText(gtx layout.Context) string {
 		if choice := os.Getenv(miniapp.BrowserEnv); choice != "" {
 			return miniapp.BrowserEnv + " names " + choice + ", which was not found"
 		}
-		return "no Chromium-based browser found"
+		return "no Chromium-based browser or Firefox found"
 	case p.err != nil:
 		return "error: " + p.err.Error()
 	case p.bridge == nil:

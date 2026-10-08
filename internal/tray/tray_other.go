@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Unlicense OR MIT
 
-//go:build !windows && !((linux && !android) || freebsd)
+//go:build !haiku && !windows && !((linux && !android) || freebsd)
 
 package tray
 

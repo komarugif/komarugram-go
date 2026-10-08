@@ -195,11 +195,12 @@ func chatStatus(c model.Chat, l localization.Catalog) string {
 }
 
 // openBrowser opens target in the user's browser. It blocks until the
-// system has taken the link.
+// system has taken the link. macOS and Haiku both have open, which takes a
+// link or a file to the program the system names for it.
 func openBrowser(target string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
-	case "darwin":
+	case "darwin", "haiku":
 		cmd = exec.Command("open", target)
 	case "windows":
 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", target)

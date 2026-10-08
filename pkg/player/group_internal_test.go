@@ -31,7 +31,10 @@ func TestCloseLeavesNothing(t *testing.T) {
 	}
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
-			p, err := openVLC(context.Background(), path, "", []string{"--intf=dummy", "--vout=dummy", "--aout=dummy", "--ignore-config"})
+			// vlc://pause keeps VLC waiting with nothing to play. With no
+			// item ("") VLC for Haiku 3.0.23 crashes within seconds, and
+			// the system shows its crash dialog for each run.
+			p, err := openVLC(context.Background(), path, "vlc://pause:60", []string{"--intf=dummy", "--vout=dummy", "--aout=dummy", "--ignore-config"})
 			if err != nil {
 				t.Fatal(err)
 			}

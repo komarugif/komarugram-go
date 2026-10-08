@@ -4,6 +4,7 @@ package main
 
 import (
 	"strconv"
+	"strings"
 
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
@@ -65,8 +66,29 @@ func noticeFor(g preferences.Global, account string, view noticeView, n model.Me
 	return notify.Notification{
 		Title: title, Body: body,
 		Sound: p.Sound && !n.Silent,
-		Tag:   account + "/" + strconv.FormatInt(n.Chat.ID, 10),
+		Tag:   noticeTag(account, n.Chat.ID),
 	}, true
+}
+
+// noticeTag names a notification by its account and chat; openNotice reads
+// it back.
+func noticeTag(account string, chat int64) string {
+	return account + "/" + strconv.FormatInt(chat, 10)
+}
+
+// openNotice opens the chat of the notification tagged tag, for a
+// notification clicked outside the process: on Haiku a click starts the
+// messenger again, with -notified, and that start hands the tag over.
+func (h *accountWindows) openNotice(tag string) {
+	i := strings.LastIndexByte(tag, '/')
+	if i < 0 {
+		return
+	}
+	chat, err := strconv.ParseInt(tag[i+1:], 10, 64)
+	if err != nil {
+		return
+	}
+	h.openChat(tag[:i], chat, "")
 }
 
 func noticeKind(p preferences.Notify, kind model.ChatKind) bool {

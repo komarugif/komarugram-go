@@ -1,0 +1,456 @@
+diff --git a/driver_haiku.go b/driver_haiku.go
+new file mode 100644
+index 0000000..039a21b
+--- /dev/null
++++ b/driver_haiku.go
+@@ -0,0 +1,149 @@
++// Copyright 2026 The Oto Authors
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//     http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++//go:build haiku
++
++package oto
++
++// The Haiku driver: a BSoundPlayer of the Media Kit, in C++, in
++// libotohaiku (internal/haiku), which Go's linker cannot take into a
++// Haiku program; it is built apart and loaded with dlopen. The player's
++// thread asks for each buffer through a callback, which the mux fills.
++
++/*
++#cgo CFLAGS: -Werror
++
++#include <dlfcn.h>
++#include <stdint.h>
++#include <stdlib.h>
++#include "internal/haiku/otohaiku.h"
++
++static void *oh_lib;
++
++#define OH_FUNCS(X) \
++	X(int32_t, oh_abi, (void), ()) \
++	X(void *, oh_open, (int32_t a, int32_t b, int32_t c, oh_read d, char *e, size_t f), (a, b, c, d, e, f)) \
++	X(int32_t, oh_start, (void *a), (a)) \
++	X(int32_t, oh_stop, (void *a), (a))
++
++#define OH_PTR(ret, name, params, args) static ret (*name##_ptr) params;
++OH_FUNCS(OH_PTR)
++#define OH_CALL(ret, name, params, args) static ret p##name params { return name##_ptr args; }
++OH_FUNCS(OH_CALL)
++
++// oh_load opens the library at path and finds its functions. It returns
++// NULL, or what went wrong.
++static const char *oh_load(const char *path) {
++	oh_lib = dlopen(path, RTLD_NOW | RTLD_LOCAL);
++	if (oh_lib == NULL)
++		return dlerror();
++#define OH_SYM(ret, name, params, args) \
++	if ((name##_ptr = (ret (*) params)dlsym(oh_lib, #name)) == NULL) \
++		return "missing " #name;
++	OH_FUNCS(OH_SYM)
++	return NULL;
++}
++
++void oto_haikuRead(float *buf, size_t n);
++
++static void *oh_open_go(int32_t rate, int32_t channels, int32_t buffer_bytes, char *err, size_t errlen) {
++	return poh_open(rate, channels, buffer_bytes, oto_haikuRead, err, errlen);
++}
++*/
++import "C"
++
++import (
++	"fmt"
++	"os"
++	"path/filepath"
++	"strings"
++	"unsafe"
++
++	"github.com/ebitengine/oto/v3/internal/mux"
++)
++
++type context struct {
++	mux    *mux.Mux
++	player unsafe.Pointer
++}
++
++func newContext(sampleRate int, channelCount int, format mux.Format, bufferSizeInBytes int, _ string) (*context, chan struct{}, error) {
++	if err := loadHaiku(); err != nil {
++		return nil, nil, err
++	}
++	c := &context{mux: mux.New(sampleRate, channelCount, format)}
++	theMux = c.mux
++	// The buffer the caller asked for is of its format; the player's
++	// samples are float32.
++	floatBytes := 0
++	if bufferSizeInBytes > 0 {
++		floatBytes = bufferSizeInBytes / format.ByteLength() * 4
++	}
++	var msg [256]C.char
++	c.player = C.oh_open_go(C.int32_t(sampleRate), C.int32_t(channelCount), C.int32_t(floatBytes), &msg[0], C.size_t(len(msg)))
++	if c.player == nil {
++		return nil, nil, fmt.Errorf("oto: %s", C.GoString(&msg[0]))
++	}
++	if st := C.poh_start(c.player); st != 0 {
++		return nil, nil, fmt.Errorf("oto: BSoundPlayer.Start: %d", st)
++	}
++	ready := make(chan struct{})
++	close(ready)
++	return c, ready, nil
++}
++
++// loadHaiku loads libotohaiku from $OTO_HAIKU_LIB, from beside the
++// program or from lib beside it, or where Haiku looks for libraries.
++func loadHaiku() error {
++	var candidates, tried []string
++	if p := os.Getenv("OTO_HAIKU_LIB"); p != "" {
++		candidates = append(candidates, p)
++	}
++	if exe, err := os.Executable(); err == nil {
++		dir := filepath.Dir(exe)
++		candidates = append(candidates, filepath.Join(dir, "libotohaiku.so"), filepath.Join(dir, "lib", "libotohaiku.so"))
++	}
++	candidates = append(candidates, "libotohaiku.so")
++	for _, p := range candidates {
++		cp := C.CString(p)
++		msg := C.oh_load(cp)
++		C.free(unsafe.Pointer(cp))
++		if msg == nil {
++			if abi := C.poh_abi(); abi != C.OH_ABI {
++				return fmt.Errorf("oto: libotohaiku is of interface %d, not %d", abi, C.OH_ABI)
++			}
++			return nil
++		}
++		tried = append(tried, C.GoString(msg))
++	}
++	return fmt.Errorf("oto: cannot load libotohaiku: %s", strings.Join(tried, "; "))
++}
++
++func (c *context) Suspend() error {
++	if st := C.poh_stop(c.player); st != 0 {
++		return fmt.Errorf("oto: BSoundPlayer.Stop: %d", st)
++	}
++	return nil
++}
++
++func (c *context) Resume() error {
++	if st := C.poh_start(c.player); st != 0 {
++		return fmt.Errorf("oto: BSoundPlayer.Start: %d", st)
++	}
++	return nil
++}
++
++func (c *context) Err() error {
++	return nil
++}
+diff --git a/driver_haiku_read.go b/driver_haiku_read.go
+new file mode 100644
+index 0000000..42c7962
+--- /dev/null
++++ b/driver_haiku_read.go
+@@ -0,0 +1,36 @@
++// Copyright 2026 The Oto Authors
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//     http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++//go:build haiku
++
++package oto
++
++// #include <stddef.h>
++import "C"
++
++import (
++	"unsafe"
++
++	"github.com/ebitengine/oto/v3/internal/mux"
++)
++
++// theMux is the mux of the one context, which the player's callback reads.
++// The callback is in a file of its own: cgo allows a file with //export
++// only declarations in its preamble.
++var theMux *mux.Mux
++
++//export oto_haikuRead
++func oto_haikuRead(buf *C.float, n C.size_t) {
++	theMux.ReadFloat32s(unsafe.Slice((*float32)(unsafe.Pointer(buf)), n))
++}
+diff --git a/driver_unix.go b/driver_unix.go
+index 19879f4..c57dfbe 100644
+--- a/driver_unix.go
++++ b/driver_unix.go
+@@ -12,7 +12,7 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
+-//go:build !android && !darwin && !js && !windows && !nintendosdk && !playstation5
++//go:build !android && !darwin && !haiku && !js && !windows && !nintendosdk && !playstation5
+ 
+ package oto
+ 
+diff --git a/internal/haiku/build.go b/internal/haiku/build.go
+new file mode 100644
+index 0000000..ada397b
+--- /dev/null
++++ b/internal/haiku/build.go
+@@ -0,0 +1,67 @@
++// Copyright 2026 The Oto Authors
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//     http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++//go:build ignore
++
++// build builds libotohaiku.so, the Media Kit half of oto's Haiku driver, which
++// a program playing sound with oto on Haiku loads from beside itself
++// (driver_haiku.go).
++//
++// On Haiku:
++//
++//	go run build.go -o /path/to/libotohaiku.so
++//
++// From another system, with a C++ compiler for Haiku, such as clang with
++// --target=x86_64-unknown-haiku and a sysroot copied from Haiku:
++//
++//	go run build.go -cxx "clang++ --target=x86_64-unknown-haiku --sysroot=/haiku -fuse-ld=lld" -o libotohaiku.so
++package main
++
++import (
++	"flag"
++	"fmt"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"runtime"
++	"strings"
++)
++
++func main() {
++	out := flag.String("o", "libotohaiku.so", "the library to write")
++	cxx := flag.String("cxx", "", `the C++ compiler and its flags (default "g++" on Haiku)`)
++	flag.Parse()
++	compiler := strings.Fields(*cxx)
++	if len(compiler) == 0 {
++		if runtime.GOOS != "haiku" {
++			fmt.Fprintln(os.Stderr, "build: give -cxx, a C++ compiler for Haiku")
++			os.Exit(2)
++		}
++		compiler = []string{"g++"}
++	}
++	_, self, _, _ := runtime.Caller(0)
++	dir := filepath.Dir(self)
++	args := append(compiler[1:],
++		"-O2", "-Wall", "-std=c++17", "-fPIC", "-shared",
++		"-o", *out,
++		filepath.Join(dir, "otohaiku.cpp"),
++		"-lmedia", "-lbe",
++	)
++	cmd := exec.Command(compiler[0], args...)
++	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
++	if err := cmd.Run(); err != nil {
++		fmt.Fprintln(os.Stderr, "build:", err)
++		os.Exit(1)
++	}
++}
+diff --git a/internal/haiku/otohaiku.cpp b/internal/haiku/otohaiku.cpp
+new file mode 100644
+index 0000000..7770398
+--- /dev/null
++++ b/internal/haiku/otohaiku.cpp
+@@ -0,0 +1,109 @@
++// Copyright 2026 The Oto Authors
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//     http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++// libotohaiku: oto's output on Haiku, a BSoundPlayer of the Media Kit
++// whose buffers oto's mux fills through a callback into Go.
++
++#include "otohaiku.h"
++
++#include <MediaDefs.h>
++#include <SoundPlayer.h>
++
++#include <stdio.h>
++#include <string.h>
++#include <vector>
++
++namespace {
++
++struct Player {
++	BSoundPlayer *sound = nullptr;
++	oh_read read = nullptr;
++	// scratch takes the float samples of a buffer of another format.
++	std::vector<float> scratch;
++};
++
++// Fill is BSoundPlayer's callback: it asks for one buffer of the format
++// the player was given, which may not be the one asked for.
++void Fill(void *cookie, void *buffer, size_t size, const media_raw_audio_format &format) {
++	Player *p = static_cast<Player *>(cookie);
++	switch (format.format) {
++	case media_raw_audio_format::B_AUDIO_FLOAT:
++		p->read(static_cast<float *>(buffer), size / sizeof(float));
++		return;
++	case media_raw_audio_format::B_AUDIO_SHORT: {
++		size_t n = size / sizeof(int16);
++		p->scratch.resize(n);
++		p->read(p->scratch.data(), n);
++		int16 *out = static_cast<int16 *>(buffer);
++		for (size_t i = 0; i < n; i++) {
++			float v = p->scratch[i];
++			v = v > 1 ? 1 : v < -1 ? -1 : v;
++			out[i] = (int16)(v * 32767);
++		}
++		return;
++	}
++	case media_raw_audio_format::B_AUDIO_INT: {
++		size_t n = size / sizeof(int32);
++		p->scratch.resize(n);
++		p->read(p->scratch.data(), n);
++		int32 *out = static_cast<int32 *>(buffer);
++		for (size_t i = 0; i < n; i++) {
++			double v = p->scratch[i];
++			v = v > 1 ? 1 : v < -1 ? -1 : v;
++			out[i] = (int32)(v * 2147483647.0);
++		}
++		return;
++	}
++	default:
++		memset(buffer, 0, size);
++	}
++}
++
++} // namespace
++
++extern "C" {
++
++int32_t oh_abi(void) { return OH_ABI; }
++
++void *oh_open(int32_t rate, int32_t channels, int32_t buffer_bytes, oh_read read, char *err, size_t errlen) {
++	media_raw_audio_format format = media_raw_audio_format::wildcard;
++	format.frame_rate = rate;
++	format.channel_count = channels;
++	format.format = media_raw_audio_format::B_AUDIO_FLOAT;
++	format.byte_order = B_MEDIA_HOST_ENDIAN;
++	if (buffer_bytes > 0)
++		format.buffer_size = buffer_bytes;
++
++	Player *p = new Player;
++	p->read = read;
++	p->sound = new BSoundPlayer(&format, "oto", Fill, nullptr, p);
++	status_t st = p->sound->InitCheck();
++	if (st != B_OK) {
++		snprintf(err, errlen, "BSoundPlayer: %s", strerror(st));
++		delete p->sound;
++		delete p;
++		return nullptr;
++	}
++	p->sound->SetHasData(true);
++	return p;
++}
++
++int32_t oh_start(void *p) { return static_cast<Player *>(p)->sound->Start(); }
++
++int32_t oh_stop(void *p) {
++	static_cast<Player *>(p)->sound->Stop();
++	return B_OK;
++}
++
++} // extern "C"
+diff --git a/internal/haiku/otohaiku.h b/internal/haiku/otohaiku.h
+new file mode 100644
+index 0000000..53dd444
+--- /dev/null
++++ b/internal/haiku/otohaiku.h
+@@ -0,0 +1,52 @@
++// Copyright 2026 The Oto Authors
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//     http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++// The C interface of libotohaiku, the Media Kit half of oto's Haiku
++// driver (driver_haiku.go), which loads it with dlopen: Go's linker cannot
++// take C++ objects into a Haiku program.
++
++#ifndef OTOHAIKU_H
++#define OTOHAIKU_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++// OH_ABI changes with the interface: the driver checks oh_abi against it.
++#define OH_ABI 1
++
++// oh_read fills buf with n samples, channels interleaved, from -1 to 1.
++// It is called on the sound player's thread.
++typedef void (*oh_read)(float *buf, size_t n);
++
++int32_t oh_abi(void);
++
++// oh_open makes a sound player for float samples at rate, of channels,
++// with buffers of about buffer_bytes (0: the Media Kit's choice), stopped.
++// It returns NULL and writes why in err, of size errlen, if it cannot.
++void *oh_open(int32_t rate, int32_t channels, int32_t buffer_bytes, oh_read read, char *err, size_t errlen);
++
++// oh_start and oh_stop start and stop the player; they return 0, or a
++// Haiku status_t.
++int32_t oh_start(void *p);
++int32_t oh_stop(void *p);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif

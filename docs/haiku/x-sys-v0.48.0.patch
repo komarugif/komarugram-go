@@ -1,0 +1,208 @@
+diff -ruN a/unix/aliases.go b/unix/aliases.go
+--- a/unix/aliases.go
++++ b/unix/aliases.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build aix || darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris || zos
++//go:build aix || darwin || dragonfly || freebsd || haiku || linux || netbsd || openbsd || solaris || zos
+ 
+ package unix
+ 
+diff -ruN a/unix/constants.go b/unix/constants.go
+--- a/unix/constants.go
++++ b/unix/constants.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build aix || darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris || zos
++//go:build aix || darwin || dragonfly || freebsd || haiku || linux || netbsd || openbsd || solaris || zos
+ 
+ package unix
+ 
+diff -ruN a/unix/dirent.go b/unix/dirent.go
+--- a/unix/dirent.go
++++ b/unix/dirent.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build aix || darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris || zos
++//go:build aix || darwin || dragonfly || freebsd || haiku || linux || netbsd || openbsd || solaris || zos
+ 
+ package unix
+ 
+diff -ruN a/unix/env_unix.go b/unix/env_unix.go
+--- a/unix/env_unix.go
++++ b/unix/env_unix.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build aix || darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris || zos
++//go:build aix || darwin || dragonfly || freebsd || haiku || linux || netbsd || openbsd || solaris || zos
+ 
+ // Unix environment variables.
+ 
+diff -ruN a/unix/fdset.go b/unix/fdset.go
+--- a/unix/fdset.go
++++ b/unix/fdset.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build aix || darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris || zos
++//go:build aix || darwin || dragonfly || freebsd || haiku || linux || netbsd || openbsd || solaris || zos
+ 
+ package unix
+ 
+diff -ruN a/unix/ioctl_unsigned.go b/unix/ioctl_unsigned.go
+--- a/unix/ioctl_unsigned.go
++++ b/unix/ioctl_unsigned.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build darwin || dragonfly || freebsd || hurd || linux || netbsd || openbsd
++//go:build darwin || dragonfly || freebsd || haiku || hurd || linux || netbsd || openbsd
+ 
+ package unix
+ 
+diff -ruN a/unix/mmap_nomremap.go b/unix/mmap_nomremap.go
+--- a/unix/mmap_nomremap.go
++++ b/unix/mmap_nomremap.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build aix || darwin || dragonfly || freebsd || openbsd || solaris || zos
++//go:build aix || darwin || dragonfly || freebsd || haiku || openbsd || solaris || zos
+ 
+ package unix
+ 
+diff -ruN a/unix/mprotect_haiku.go b/unix/mprotect_haiku.go
+--- a/unix/mprotect_haiku.go
++++ b/unix/mprotect_haiku.go
+@@ -0,0 +1,24 @@
++// Experimental: mprotect for Haiku, missing from the go-haiku fork's x/sys.
++
++//go:build haiku
++
++package unix
++
++import "unsafe"
++
++//go:cgo_import_dynamic libc_Mprotect mprotect "libroot.so"
++//go:linkname libc_Mprotect libc_Mprotect
++
++var libc_Mprotect syscallFunc
++
++func Mprotect(b []byte, prot int) (err error) {
++	var p unsafe.Pointer
++	if len(b) > 0 {
++		p = unsafe.Pointer(&b[0])
++	}
++	_, _, e1 := sysvicall6(uintptr(unsafe.Pointer(&libc_Mprotect)), 3, uintptr(p), uintptr(len(b)), uintptr(prot), 0, 0, 0)
++	if e1 != 0 {
++		err = errnoErr(e1)
++	}
++	return
++}
+diff -ruN a/unix/pagesize_unix.go b/unix/pagesize_unix.go
+--- a/unix/pagesize_unix.go
++++ b/unix/pagesize_unix.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build aix || darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris || zos
++//go:build aix || darwin || dragonfly || freebsd || haiku || linux || netbsd || openbsd || solaris || zos
+ 
+ // For Unix, get the pagesize from the runtime.
+ 
+diff -ruN a/unix/race0.go b/unix/race0.go
+--- a/unix/race0.go
++++ b/unix/race0.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build aix || (darwin && !race) || (linux && !race) || (freebsd && !race) || netbsd || openbsd || solaris || dragonfly || zos
++//go:build aix || (darwin && !race) || (linux && !race) || (freebsd && !race) || netbsd || openbsd || solaris || dragonfly || zos || haiku
+ 
+ package unix
+ 
+diff -ruN a/unix/sockcmsg_unix.go b/unix/sockcmsg_unix.go
+--- a/unix/sockcmsg_unix.go
++++ b/unix/sockcmsg_unix.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build aix || darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris || zos
++//go:build aix || darwin || dragonfly || freebsd || haiku || linux || netbsd || openbsd || solaris || zos
+ 
+ // Socket control messages
+ 
+diff -ruN a/unix/sockcmsg_unix_other.go b/unix/sockcmsg_unix_other.go
+--- a/unix/sockcmsg_unix_other.go
++++ b/unix/sockcmsg_unix_other.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build aix || darwin || freebsd || linux || netbsd || openbsd || solaris || zos
++//go:build aix || darwin || freebsd || haiku || linux || netbsd || openbsd || solaris || zos
+ 
+ package unix
+ 
+diff -ruN a/unix/syscall.go b/unix/syscall.go
+--- a/unix/syscall.go
++++ b/unix/syscall.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build aix || darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris || zos
++//go:build aix || darwin || dragonfly || freebsd || haiku || linux || netbsd || openbsd || solaris || zos
+ 
+ // Package unix contains an interface to the low-level operating system
+ // primitives. OS details vary depending on the underlying system, and
+diff -ruN a/unix/syscall_unix_gc.go b/unix/syscall_unix_gc.go
+--- a/unix/syscall_unix_gc.go
++++ b/unix/syscall_unix_gc.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build (darwin || dragonfly || freebsd || (linux && !ppc64 && !ppc64le) || netbsd || openbsd || solaris) && gc
++//go:build (darwin || dragonfly || freebsd || haiku || (linux && !ppc64 && !ppc64le) || netbsd || openbsd || solaris) && gc
+ 
+ package unix
+ 
+diff -ruN a/unix/syscall_unix.go b/unix/syscall_unix.go
+--- a/unix/syscall_unix.go
++++ b/unix/syscall_unix.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build aix || darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris
++//go:build aix || darwin || dragonfly || freebsd || haiku || linux || netbsd || openbsd || solaris
+ 
+ package unix
+ 
+diff -ruN a/unix/timestruct.go b/unix/timestruct.go
+--- a/unix/timestruct.go
++++ b/unix/timestruct.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build aix || darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris || zos
++//go:build aix || darwin || dragonfly || freebsd || haiku || linux || netbsd || openbsd || solaris || zos
+ 
+ package unix
+ 

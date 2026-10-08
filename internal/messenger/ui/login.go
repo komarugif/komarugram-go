@@ -238,7 +238,11 @@ func (p *loginPage) layoutProtect(gtx layout.Context, l localization.Catalog) la
 		}),
 		vspace(8),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, l.T("protect.body"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
+			body := "protect.body"
+			if p.security != nil && p.security.manager != nil {
+				body = passwordOnly(p.security.manager.State(), body)
+			}
+			return label(gtx, l.T(body), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
 		}),
 		vspace(20),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
