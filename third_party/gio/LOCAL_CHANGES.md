@@ -498,7 +498,10 @@ Run the focused check from the project root:
     are `DropEvent`s: the view takes a drag whose message has `refs` from
     its moves, keeps the files' paths for `gh_window_drop_paths`, and tells
     of the drop from the dropped message. Shortcuts name keys by the US
-    layout's character, punctuation too.
+    layout's character, punctuation too. `HaikuLaunchArgs` returns the
+    arguments the roster gave in a `B_ARGV_RECEIVED` message
+    (`gh_launch_args`, `GH_ABI` 5), as it does to a program it starts for a
+    click on a notification.
   - `app/gl_haiku.go`: OpenGL 3.3 core through OSMesa into memory, drawn
     into an `SRGB8_ALPHA8` texture and blitted to OSMesa's linear
     framebuffer undecoded; the context is `Shared` and keeps a vertex array

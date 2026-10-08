@@ -20,7 +20,7 @@ extern "C" {
 
 // GH_ABI changes whenever this interface does; gh_abi returns it, and Gio
 // refuses a library of another version.
-#define GH_ABI 4
+#define GH_ABI 5
 
 enum {
 	GH_EV_NONE = 0,
@@ -111,6 +111,12 @@ int32_t gh_init(const char *signature);
 // gh_ui_scale is the user's scale for the interface: the size of the
 // plain font over 12.
 float gh_ui_scale(void);
+
+// gh_launch_args returns the arguments the roster gave the program in a
+// B_ARGV_RECEIVED message, as a launch by BRoster::Launch with messages
+// does (a click on a notification), each ended by a NUL, in memory gh_free
+// frees, or NULL. They came by the time gh_init returns.
+void *gh_launch_args(int32_t *len);
 
 void *gh_window_create(int32_t width, int32_t height, const char *title, int32_t decorated);
 // gh_window_destroy closes the window and frees it; the handle is invalid after.

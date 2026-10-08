@@ -148,7 +148,11 @@ func main() {
 	releaseInstance := func() {}
 	if !*check {
 		var err error
-		releaseInstance, err = claimInstance(*notified, func(token string) {
+		notice := *notified
+		if notice == "" {
+			notice = launchNotice()
+		}
+		releaseInstance, err = claimInstance(notice, func(token string) {
 			if w := windows.Load(); w != nil {
 				w.ShowAll(token)
 			}

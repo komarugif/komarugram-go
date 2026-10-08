@@ -25,6 +25,7 @@ static void *gh_lib;
 	X(int32_t, gh_abi, (void), ()) \
 	X(int32_t, gh_init, (const char *a), (a)) \
 	X(float, gh_ui_scale, (void), ()) \
+	X(void *, gh_launch_args, (int32_t *a), (a)) \
 	X(void *, gh_window_create, (int32_t a, int32_t b, const char *c, int32_t d), (a, b, c, d)) \
 	X(void, gh_window_destroy, (void *a), (a)) \
 	X(int32_t, gh_window_next_event, (void *a, gh_event *b, int64_t c), (a, b, c)) \
@@ -174,6 +175,24 @@ func loadHaiku() error {
 		}
 	})
 	return haikuLib.err
+}
+
+// HaikuLaunchArgs returns the arguments Haiku's roster gave the program in
+// a message rather than on its command line, as it does to a program it
+// starts for a click on a notification (BRoster::Launch with messages). It
+// starts the BApplication to receive them, if it has not started.
+func HaikuLaunchArgs() ([]string, error) {
+	if err := loadHaiku(); err != nil {
+		return nil, err
+	}
+	var n C.int32_t
+	p := C.pgh_launch_args(&n)
+	if p == nil {
+		return nil, nil
+	}
+	args := C.GoStringN((*C.char)(p), C.int(n))
+	C.pgh_free(p)
+	return strings.Split(strings.TrimSuffix(args, "\x00"), "\x00"), nil
 }
 
 // haikuSignature makes a MIME subtype of the program's ID.

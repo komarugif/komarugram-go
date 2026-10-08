@@ -485,12 +485,29 @@ public:
 	BRect fWindowed;
 };
 
+// The arguments of launches by message (GioApp::ArgvReceived).
+BLocker gLaunchArgsLock;
+std::string gLaunchArgs;
+
 class GioApp : public BApplication {
 public:
 	GioApp(const char *signature, sem_id ready)
 		: BApplication(signature), fReady(ready) {}
 
 	void ReadyToRun() override { release_sem(fReady); }
+
+	// ArgvReceived keeps the arguments of a launch by message, which come
+	// before ReadyToRun, for gh_launch_args.
+	void ArgvReceived(int32 argc, char **argv) override {
+		std::string args;
+		for (int32 i = 1; i < argc; i++) {
+			args.append(argv[i]);
+			args.push_back('\0');
+		}
+		gLaunchArgsLock.Lock();
+		gLaunchArgs.append(args);
+		gLaunchArgsLock.Unlock();
+	}
 
 	// Command+Q and the Deskbar's Quit ask every window, as the user
 	// closing it would.
@@ -769,6 +786,18 @@ int32_t gh_init(const char *signature) {
 		gSignature = strdup(signature != NULL && signature[0] ? signature : "application/x-vnd.gio-app");
 	pthread_once(&gInitOnce, InitOnce);
 	return gInitStatus;
+}
+
+void *gh_launch_args(int32_t *len) {
+	gLaunchArgsLock.Lock();
+	void *out = NULL;
+	*len = 0;
+	if (!gLaunchArgs.empty() && (out = malloc(gLaunchArgs.size())) != NULL) {
+		memcpy(out, gLaunchArgs.data(), gLaunchArgs.size());
+		*len = (int32_t)gLaunchArgs.size();
+	}
+	gLaunchArgsLock.Unlock();
+	return out;
 }
 
 float gh_ui_scale(void) {

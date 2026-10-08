@@ -21,7 +21,8 @@ import (
 // notify command of the system. A notification with a tag takes the place
 // of the last one with it, as its message ID. notify can only start a
 // program on a click, by its signature: it starts the client with
-// -notified and the tag, and that start hands the tag over to the running
+// -notified and the tag, given in a B_ARGV_RECEIVED message rather than on
+// the command line, and that start hands the tag over to the running
 // client, which opens the chat (cmd/messenger).
 func New(app string, tray Balloon) Notifier {
 	h := &haikuNotifier{app: app, queue: make(chan Notification, 64)}
