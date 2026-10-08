@@ -543,6 +543,10 @@ Run the focused check from the project root:
     (`DXGI_ERROR_DRIVER_INTERNAL_ERROR`). `GIO_D3D11_WARP=1` turns to WARP
     from the start, for a driver that draws wrong without failing.
     `TestDeviceLostBeforePresentTurnsToWARP`.
+  - `app/d3d11_windows.go`, `app/gpufailed_other.go`: `GPUFailed` reports
+    whether windows are drawn by WARP because the driver failed (or
+    `GIO_D3D11_WARP=1`); false elsewhere. The messenger runs the browsers it
+    drives without the GPU then.
   - `app/window.go`: a device lost on `Present` is let go and the next frame
     drawn with a new one, as a device lost while drawing is; the window used
     to close with "GPU device lost". `TestDeviceLostOnPresentDrawsAgain`.

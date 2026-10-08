@@ -434,6 +434,12 @@ func candidates() []browser {
 			found = append(found, browser{ref: path, found: true})
 		}
 	}
+	for _, path := range registeredBrowsers() {
+		if !seen[path] {
+			seen[path] = true
+			found = append(found, browser{ref: path, found: true})
+		}
+	}
 	flatpakAt := len(found)
 	found = append(found, make([]browser, len(flatpakBrowsers))...)
 

@@ -45,6 +45,10 @@ func init() {
 	}
 }
 
+// GPUFailed reports whether the GPU's driver failed to draw, and windows are
+// drawn by WARP instead; or WARP was asked for with GIO_D3D11_WARP=1.
+func GPUFailed() bool { return useWARP.Load() }
+
 func init() {
 	drivers = append(drivers, gpuAPI{
 		priority: 1,
