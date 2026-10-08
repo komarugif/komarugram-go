@@ -141,7 +141,7 @@ Windows, `~/.config/komarugram-go` on Linux):
 
 | Path | What it is |
 |------|------------|
-| `security.json` | TPM-sealed root key and Argon2id salt, when protection is on |
+| `security.json` | the root key sealed by the TPM, or by the password alone (`"sealer": "password"`), and the Argon2id salt, when protection is on |
 | `accounts.db.plain` / `accounts.db.secure` | The registry: one row per account — user id, home DC, auth key fingerprint, order, name, username, phone and the 160 px profile photo as a BLOB |
 | `accounts/<id>/session.json` | The account's gotd session, mode 0600 |
 | `accounts/<id>/history.db.*` | The account's history, media and update-state cache |
@@ -170,6 +170,21 @@ A migration that was interrupted is completed on the next unlock. The TPM object
 dictionary-attack protection and cannot be loaded under another TPM's storage
 root, so a copied config directory cannot be opened on another machine even
 when the password is weak or known.
+
+Where the TPM cannot be used (no device, no access to it, Haiku), protection
+is offered all the same, sealed by the master password alone
+(`security/password.go`): the root key is encrypted with XChaCha20-Poly1305
+under a key of the password's Argon2id, at a higher cost there (4 passes,
+128 MiB: about 0.2 s on a desktop, 1.6 s on Haiku in a virtual machine,
+against 3 passes and 64 MiB with the TPM). The texts say that the password
+is then all the protection: whoever copies the files can try passwords on
+their own computer, with nothing to slow them but Argon2id, so it has to be
+long. Where the TPM could be had, they say how, as below. Telegram Desktop
+protects its `tdata` no better with a local passcode (PBKDF2-HMAC-SHA512,
+100 000 iterations, `storage_file_utilities.cpp`), and only formally without
+one (a single iteration over an empty passcode). A key sealed by the
+password stays so when a TPM comes; one the TPM sealed cannot be opened
+once the TPM is gone.
 
 The root key exists unsealed only in process memory. Clearing or replacing
 the TPM, or forgetting the master password, makes protected data
