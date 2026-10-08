@@ -572,6 +572,12 @@ with upstream Go.
   like Chromium's. Where Gio turned to WARP, Chromium-based browsers start
   with `--disable-gpu`: on the same driver Supermium's window stayed white.
   This reaches every Windows.
+- **Aero's glass** (Gio): the blur behind the window was acrylic only,
+  which Windows 7 lacks, and the window was seen through unblurred. It is
+  Aero's glass there, with the system's frame kept: the glass is drawn
+  behind the content of a framed window too, unlike acrylic, for which
+  the window draws its own frame on Windows 10 and 11. Under the Basic and
+  Classic themes nothing is composed, and the window is opaque.
 - **Emoji typed** (Gio, every Windows): a character beyond the BMP comes as
   two `WM_CHAR`, and each half was dropped.
 
@@ -588,6 +594,7 @@ KB3125574 and later ones):
 | Gio's tests, built with go-legacy-win7 and run there | pass, `TestWithoutPointerInput` and the WARP and surrogate ones among them; each of the new ones fails without its fix |
 | `messenger -demo` | the window opens, drawn by WARP, which it turned to on its own; the chat list and chats draw; clicks, the wheel, typing Cyrillic and emoji (with `SendInput`), maximizing |
 | Mini Apps | Supermium 150 (Chromium 150) found among the registered browsers, at `C:\Program Files\Supermium\chrome.exe`; the demo's app opens from the bot's menu button with its init data and theme, keeps its local storage between launches, and Close inside it closes the browser |
+| Aero's glass | the main window's transparency at 35% in the demo: the sidebar blurs the wallpaper, under the system's glass frame, maximized and not. Switched to "Windows 7 Basic" while it ran, the window turned opaque (light, not black); back to the Landscapes theme, the glass came back without a restart |
 | Tray | a program of the tray package alone shows the icon and a balloon (`Notify`). The demo makes no tray, so it shows no notifications on Windows; and Windows 7 holds back balloons with `NIIF_RESPECT_QUIET_TIME`, which the client sets, for the first hour after a user first signs in |
 
 ### Not done
@@ -596,7 +603,6 @@ KB3125574 and later ones):
 |---|---|
 | A real account | not run there; protection without a TPM (by the master password) is what a machine of Windows 7 will be offered |
 | FFmpeg | the usual builds of FFmpeg no longer start on Windows 7; one that does is to be chosen. Without it the client runs with fewer features |
-| Aero's glass behind the window | not tried: the window keeps the system's frame there. `DwmEnableBlurBehindWindow`, which only makes the window see-through since Windows 8, blurs on Windows 7 |
 | Real hardware | only the VM, whose driver fails Direct3D 11 |
 
 ### Things met on the way

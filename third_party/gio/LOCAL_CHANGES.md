@@ -550,6 +550,19 @@ Run the focused check from the project root:
   - `app/window.go`: a device lost on `Present` is let go and the next frame
     drawn with a new one, as a device lost while drawing is; the window used
     to close with "GPU device lost". `TestDeviceLostOnPresentDrawsAgain`.
+  - `app/os_windows.go`, `app/internal/windows/translucency.go`,
+    `app/glass_windows.go`, `app/glass_other.go`: `BlurBehind` is Aero's
+    glass on Windows 7, where there is no acrylic: `DwmEnableBlurBehindWindow` over all of the window,
+    the region named (the system keeps the one given before, the empty one
+    of a transparent window). The glass is drawn behind the content of a
+    window with the system's frame too, so it is granted to one, and
+    `FrameBlurs` tells the application, which keeps the frame. Transparency
+    is granted only while the desktop is composed (`DwmIsCompositionEnabled`):
+    under Windows 7's Basic and Classic themes a window is opaque, and what
+    it leaves transparent would be black; `WM_DWMCOMPOSITIONCHANGED` grants
+    or takes it as the theme changes. `Transparent` is now kept as wanted
+    and granted, as `BlurBehind` was. `TestGlassBlursWithTheFrame`, which
+    needs the desktop's session (over SSH it sees no composition and skips).
 
 - `app/os_windows.go`: a character beyond the Basic Multilingual Plane, an
   emoji say, which comes as two `WM_CHAR` of a surrogate pair from

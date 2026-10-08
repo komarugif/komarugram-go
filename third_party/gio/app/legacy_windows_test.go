@@ -78,3 +78,17 @@ func TestCharOfSurrogatePair(t *testing.T) {
 		t.Errorf("text %q, want %q", got, want)
 	}
 }
+
+// Aero's glass of Windows 7 blurs behind a window with the system's frame
+// too, where acrylic does not.
+func TestGlassBlursWithTheFrame(t *testing.T) {
+	if !windows.GlassBlur() || !windows.Composition() {
+		t.Skip("no Aero's glass here")
+	}
+	w := &window{transparentWanted: true, blurWanted: true}
+	for _, decorated := range []bool{true, false} {
+		if transparent, blur := w.effects(decorated); !transparent || !blur {
+			t.Errorf("decorated %v: transparent %v, blur %v", decorated, transparent, blur)
+		}
+	}
+}

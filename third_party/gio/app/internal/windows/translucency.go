@@ -6,6 +6,7 @@ package windows
 
 import (
 	"fmt"
+	"sync"
 	"unsafe"
 
 	syscall "golang.org/x/sys/windows"
@@ -69,12 +70,18 @@ type dwmBlurBehind struct {
 	transition int32
 }
 
-// DwmEnableTransparency makes the system take the alpha of what the window
-// draws, without blurring what shows through: DwmEnableBlurBehindWindow with
-// an empty region, which has not blurred since Windows 8.
-func DwmEnableTransparency(hwnd syscall.Handle, enable bool) error {
+// DwmBlurBehind makes the system take the alpha of what the window draws,
+// or stop: with blur, Aero's glass blurs what shows through, which only
+// Windows Vista and 7 draw (GlassBlur); without, DwmEnableBlurBehindWindow is
+// given an empty region, which blurs nothing on any Windows.
+func DwmBlurBehind(hwnd syscall.Handle, enable, blur bool) error {
 	bb := dwmBlurBehind{flags: dwmBBEnable}
-	if enable {
+	switch {
+	case enable && blur:
+		// No region is all of the window; the region is named, as the
+		// system keeps the one a call before gave.
+		bb.flags, bb.enable = dwmBBEnable|dwmBBBlurRegion, 1
+	case enable:
 		region, _, _ := _CreateRectRgn.Call(0, 0, ^uintptr(0), ^uintptr(0))
 		defer _DeleteObject.Call(region)
 		bb.flags, bb.enable, bb.region = dwmBBEnable|dwmBBBlurRegion, 1, syscall.Handle(region)
@@ -85,6 +92,27 @@ func DwmEnableTransparency(hwnd syscall.Handle, enable bool) error {
 	}
 	return nil
 }
+
+var _DwmIsCompositionEnabled = dwmapi.NewProc("DwmIsCompositionEnabled")
+
+// Composition reports whether the desktop is composed, which a window needs
+// to be seen through: always from Windows 8; on Windows 7 not with the Basic
+// and Classic themes, under which a window is opaque whatever it draws.
+func Composition() bool {
+	var on int32
+	if hr, _, _ := _DwmIsCompositionEnabled.Call(uintptr(unsafe.Pointer(&on))); hr != 0 {
+		return false
+	}
+	return on != 0
+}
+
+// GlassBlur reports whether DwmEnableBlurBehindWindow blurs, as Aero's glass
+// of Windows Vista and 7 does, where there is no acrylic: behind the content
+// of any window, with the system's frame or without.
+var GlassBlur = sync.OnceValue(func() bool {
+	v := syscall.RtlGetVersion()
+	return v.MajorVersion < 6 || v.MajorVersion == 6 && v.MinorVersion < 2
+})
 
 // TransparencyEffects reports whether the user has the transparency effects
 // of the system on: with them off it draws its own acrylic surfaces solid.

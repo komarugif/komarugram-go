@@ -59,9 +59,10 @@ type window struct {
 	frameDims image.Point
 	loop      *eventLoop
 
-	// blurWanted is the BlurBehind option; config.BlurBehind is what was
+	// blurWanted and transparentWanted are the BlurBehind and Transparent
+	// options; config.BlurBehind and config.Transparent are what was
 	// granted.
-	blurWanted bool
+	blurWanted, transparentWanted bool
 	// accent is set once the window has an accent policy, which is then to
 	// be taken off it.
 	accent bool
@@ -297,6 +298,15 @@ func windowProc(hwnd syscall.Handle, msg uint32, wParam, lParam uintptr) uintptr
 		}
 		// The message is processed.
 		return windows.TRUE
+	case windows.WM_DWMCOMPOSITIONCHANGED:
+		// The Basic and Classic themes of Windows 7 compose nothing: the
+		// window cannot be seen through under them.
+		if t, b := w.effects(w.config.Decorated); t != w.config.Transparent || b != w.config.BlurBehind {
+			w.config.Transparent, w.config.BlurBehind = t, b
+			w.applyEffects()
+			windows.SetWindowPos(w.hwnd, 0, 0, 0, 0, 0, windows.SWP_NOMOVE|windows.SWP_NOSIZE|windows.SWP_NOZORDER|windows.SWP_FRAMECHANGED)
+			w.update()
+		}
 	case windows.WM_DPICHANGED:
 		// Let Windows know we're prepared for runtime DPI changes.
 		return windows.TRUE
@@ -438,7 +448,7 @@ func windowProc(hwnd syscall.Handle, msg uint32, wParam, lParam uintptr) uintptr
 		// not of the work area.
 		fullscreen := windows.GetWindowLong(w.hwnd, windows.GWL_STYLE)&windows.WS_OVERLAPPEDWINDOW == 0
 		if !place.IsMaximized() || fullscreen {
-			if w.config.BlurBehind {
+			if w.acrylic() {
 				// With a client area that is all of the window, acrylic is
 				// drawn over the content instead of behind it.
 				szp := (*windows.NCCalcSizeParams)(unsafe.Pointer(lParam))
@@ -962,18 +972,16 @@ func (w *window) Configure(options []Option) {
 	metric := configForDPI(dpi)
 	prev := w.config
 	cnf := w.config
-	cnf.BlurBehind = w.blurWanted
+	cnf.BlurBehind, cnf.Transparent = w.blurWanted, w.transparentWanted
 	cnf.apply(metric, options)
-	w.blurWanted = cnf.BlurBehind
+	w.blurWanted, w.transparentWanted = cnf.BlurBehind, cnf.Transparent
+	cnf.Transparent, cnf.BlurBehind = w.effects(cnf.Decorated)
 	w.config.Title = cnf.Title
 	w.config.Decorated = cnf.Decorated
 	w.config.MinSize = cnf.MinSize
 	w.config.MaxSize = cnf.MaxSize
 	windows.SetWindowText(w.hwnd, cnf.Title)
-	w.config.Transparent = cnf.Transparent
-	// Acrylic is drawn behind the content of a window without the system's
-	// frame, and around the one with it.
-	w.config.BlurBehind = cnf.Transparent && cnf.BlurBehind && !cnf.Decorated && windows.TransparencyEffects()
+	w.config.Transparent, w.config.BlurBehind = cnf.Transparent, cnf.BlurBehind
 	effects := w.config.Transparent != prev.Transparent || w.config.BlurBehind != prev.BlurBehind
 	if w.placed && cnf.Mode == prev.Mode && cnf.Size == prev.Size && cnf.Decorated == prev.Decorated &&
 		cnf.TopMost == prev.TopMost && cnf.MinSize == prev.MinSize && cnf.MaxSize == prev.MaxSize {
@@ -1043,7 +1051,7 @@ func (w *window) Configure(options []Option) {
 			width = r.Right - r.Left
 			height = r.Bottom - r.Top
 		} else {
-			if w.config.BlurBehind {
+			if w.acrylic() {
 				// The client area is a pixel shorter than the window: see
 				// WM_NCCALCSIZE.
 				height++
@@ -1118,24 +1126,39 @@ func reframed(seen windows.Rect, decorated bool, unseen windows.Rect) windows.Re
 // that is wholly transparent.
 const acrylicTint = 0x01000000
 
+// effects returns what is granted of the transparency and the blur wanted
+// for a window with the system's frame or without: nothing where the desktop
+// is not composed. Acrylic is drawn behind the content of a window without
+// the system's frame, and around the one with it; Aero's glass, on Windows
+// 7, behind the content of either.
+func (w *window) effects(decorated bool) (transparent, blur bool) {
+	transparent = w.transparentWanted && windows.Composition()
+	blur = transparent && w.blurWanted && windows.TransparencyEffects() && (!decorated || windows.GlassBlur())
+	return transparent, blur
+}
+
+// acrylic reports whether the blur behind the window is acrylic.
+func (w *window) acrylic() bool { return w.config.BlurBehind && !windows.GlassBlur() }
+
 // applyEffects makes the system show what is behind the window where its
 // content is not opaque, as config.Transparent and config.BlurBehind say:
-// blurred, with acrylic, or as it is. config.BlurBehind is cleared when the
-// system has no acrylic.
+// blurred, with acrylic or Aero's glass, or as it is. config.BlurBehind is
+// cleared when the system has no acrylic.
 func (w *window) applyEffects() {
-	if w.config.BlurBehind {
+	if w.acrylic() {
 		if err := windows.SetWindowAccent(w.hwnd, windows.AccentAcrylic, acrylicTint); err != nil {
 			w.config.BlurBehind = false
 		} else {
 			w.accent = true
 		}
 	}
-	if !w.config.BlurBehind && w.accent {
+	if !w.acrylic() && w.accent {
 		windows.SetWindowAccent(w.hwnd, windows.AccentDisabled, 0)
 		w.accent = false
 	}
-	// Acrylic takes the alpha of the content itself.
-	windows.DwmEnableTransparency(w.hwnd, w.config.Transparent && !w.config.BlurBehind)
+	// Acrylic takes the alpha of the content itself; the glass is drawn
+	// where DwmEnableBlurBehindWindow lets the desktop through.
+	windows.DwmBlurBehind(w.hwnd, w.config.Transparent && !w.acrylic(), w.config.BlurBehind && !w.acrylic())
 	if w.config.Transparent || w.config.Decorated {
 		windows.DwmExtendFrameIntoClientArea(w.hwnd, windows.Margins{})
 	}
