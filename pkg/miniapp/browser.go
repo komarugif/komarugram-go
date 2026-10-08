@@ -5,6 +5,7 @@ package miniapp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,11 +25,12 @@ import (
 const BrowserEnv = "KITCHEN_MINIAPP_BROWSER"
 
 // nativeBrowsers are the programs looked for on PATH. Among browsers of the
-// same version, the one listed first wins.
+// same engine and version, the one listed first wins.
 var nativeBrowsers = []string{
 	"chromium", "chromium-browser",
 	"google-chrome", "google-chrome-stable",
 	"brave-browser", "brave",
+	"firefox", "firefox-esr", "librewolf", "waterfox",
 }
 
 // flatpakBrowsers are the Chromium-based flatpaks looked for. They rank after
@@ -39,7 +41,27 @@ var flatpakBrowsers = []string{
 	"org.chromium.Chromium",
 	"com.google.Chrome",
 	"com.brave.Browser",
+	"org.mozilla.firefox",
+	"io.gitlab.librewolf-community",
+	"net.waterfox.waterfox",
 }
+
+// engine is what a browser is built on, which decides how it is driven.
+type engine int
+
+const (
+	// engineChromium is driven over the Chrome DevTools Protocol (cdp.go).
+	engineChromium engine = iota
+	// engineFirefox is driven over WebDriver BiDi (bidi.go): Firefox and the
+	// browsers built from it, LibreWolf and Waterfox.
+	engineFirefox
+)
+
+// minFirefox is the oldest Firefox driven: the extended support release
+// of 2025, whose BiDi has every command the bridge needs but
+// browser.setClientWindowState (Firefox 151), which moves and resizes a
+// window once it is open.
+const minFirefox = 140
 
 // browser is the browser this client drives: either a program on this machine
 // or a flatpak to run one from.
@@ -47,8 +69,9 @@ type browser struct {
 	ref     string // a path, or an application id
 	flatpak bool
 	found   bool
-	// version is the Chromium the browser is built on, as far as it tells;
-	// nil when it could not be read.
+	engine  engine
+	// version is the Chromium the browser is built on, or the Firefox, as far
+	// as it tells; nil when it could not be read.
 	version version
 	// banner is what the browser printed for --version.
 	banner string
@@ -103,7 +126,7 @@ var (
 // SetBrowser makes launches run the browser at path, which CheckBrowser
 // accepted, instead of the one found; "" goes back to finding one.
 // BrowserEnv still wins over it. A path that no longer answers as a
-// Chromium-based browser is passed over for the one found.
+// browser that can be driven is passed over for the one found.
 func SetBrowser(path string) {
 	customMu.Lock()
 	custom = path
@@ -111,7 +134,7 @@ func SetBrowser(path string) {
 }
 
 // customBrowser returns the browser the user picked, found only while it
-// still answers as a Chromium-based one.
+// still answers as a browser that can be driven.
 func customBrowser() browser {
 	customMu.Lock()
 	defer customMu.Unlock()
@@ -123,8 +146,7 @@ func customBrowser() browser {
 		customFound = browser{}
 		if banner, err := CheckBrowser(context.Background(), custom); err == nil {
 			customFound = browserAt(custom)
-			customFound.banner = banner
-			customFound.version = parseVersion(banner)
+			customFound.identify(banner)
 		}
 	}
 	return customFound
@@ -142,17 +164,95 @@ func browserAt(path string) browser {
 var (
 	// ErrNotExecutable means the path is not a program that can be run.
 	ErrNotExecutable = errors.New("not an executable file")
-	// ErrNotChromium means the program is not a Chromium-based browser.
-	ErrNotChromium = errors.New("not a Chromium-based browser")
+	// ErrNotBrowser means the program is neither a Chromium-based browser
+	// nor Firefox.
+	ErrNotBrowser = errors.New("not a Chromium-based browser or Firefox")
+	// ErrOldFirefox means the program is a Firefox older than minFirefox.
+	ErrOldFirefox = fmt.Errorf("Firefox %d or later is needed", minFirefox)
 )
 
 // chromiumVersion is the four-part version every Chromium-based browser
 // prints: Chromium, Chrome, Brave, Edge. Firefox prints two or three parts.
 var chromiumVersion = regexp.MustCompile(`(^|\s)\d+\.\d+\.\d+\.\d+(\s|$)`)
 
-// CheckBrowser makes sure the program at path is a Chromium-based browser,
-// which Mini Apps are driven in over the DevTools protocol, and returns what
-// it is, such as "Chromium 152.0.7977.82".
+// firefoxBanner is what Firefox and the browsers built from it print for
+// --version: "Mozilla Firefox 157.0.1", "LibreWolf 157.0-1", "BrowserWorks
+// Waterfox 6.7.5", or, on Windows, what their version resource reads,
+// "Firefox 157.0.1".
+var firefoxBanner = regexp.MustCompile(`^(?:Mozilla |BrowserWorks )?(Firefox|LibreWolf|Waterfox) \d+\.\d+`)
+
+// identify sets what b is from what it printed for --version: its engine,
+// and the version of the engine. Firefox's own version is its engine's, and
+// LibreWolf follows it; Waterfox numbers its versions on its own, 6.7.5 on
+// Firefox 153, so a browser built from Firefox is asked the version of its
+// engine in platform.ini, beside the program, where it can be found. Beside
+// a launcher script it cannot, and the version stays unknown until the
+// browser tells it itself (checkGecko).
+func (b *browser) identify(banner string) {
+	b.banner = banner
+	m := firefoxBanner.FindStringSubmatch(banner)
+	if m == nil {
+		b.engine = engineChromium
+		b.version = parseVersion(banner)
+		return
+	}
+	b.engine = engineFirefox
+	b.version = geckoVersion(*b)
+	if b.version == nil && m[1] != "Waterfox" {
+		b.version = parseVersion(banner)
+	}
+}
+
+// usable says whether a browser identified as Firefox can be driven, as far
+// as its version is known: one whose version is not is asked once it runs.
+func (b browser) usable() error {
+	if b.engine == engineFirefox && len(b.version) > 0 && b.version[0] < minFirefox {
+		return ErrOldFirefox
+	}
+	return nil
+}
+
+// geckoVersion reads the version of the engine a browser built from Firefox
+// runs on out of its platform.ini (Milestone=153.4.0): beside the program,
+// or, in a flatpak, in the application's files. It is nil where there is
+// none, as beside a launcher script.
+func geckoVersion(b browser) version {
+	var paths []string
+	if b.flatpak {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		out, err := exec.CommandContext(ctx, "flatpak", "info", "--show-location", b.ref).Output()
+		cancel()
+		if err != nil {
+			return nil
+		}
+		files := filepath.Join(strings.TrimSpace(string(out)), "files")
+		for _, pattern := range []string{"*/platform.ini", "*/*/platform.ini"} {
+			found, _ := filepath.Glob(filepath.Join(files, pattern))
+			paths = append(paths, found...)
+		}
+	} else if real, err := filepath.EvalSymlinks(b.ref); err == nil {
+		paths = append(paths, filepath.Join(filepath.Dir(real), "platform.ini"))
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			if milestone, ok := strings.CutPrefix(strings.TrimSpace(line), "Milestone="); ok {
+				if v := parseVersion(milestone); v != nil {
+					return v
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// CheckBrowser makes sure the program at path is a browser Mini Apps can be
+// driven in — a Chromium-based one, over the DevTools protocol, or Firefox,
+// over WebDriver BiDi — and returns what it is, such as "Chromium
+// 152.0.7977.82" or "Mozilla Firefox 157.0.1".
 //
 // It runs the program with --version, so it is for a path the user picked
 // and trusts to be a program, not for any file. On Windows, where a browser
@@ -221,10 +321,12 @@ func checkBrowser(ctx context.Context, path string) (string, error) {
 			return "", err
 		}
 	}
-	if !chromiumVersion.MatchString(banner) {
-		return "", ErrNotChromium
+	b := browserAt(path)
+	b.identify(banner)
+	if b.engine == engineChromium && !chromiumVersion.MatchString(banner) {
+		return "", ErrNotBrowser
 	}
-	return banner, nil
+	return banner, b.usable()
 }
 
 // findBrowser picks the browser to launch, once: the answer is asked for on
@@ -235,7 +337,10 @@ func checkBrowser(ctx context.Context, path string) (string, error) {
 // sandbox it runs in, and the newest engine has the fewest known holes. Which
 // install is newest cannot be guessed from how it was installed — a flatpak
 // may be ahead of the distribution's package or behind it — so every browser
-// found is asked for its version and the newest one wins.
+// found is asked for its version and the newest one wins. A Chromium-based
+// browser is taken before Firefox: it opens a window without the browser's
+// controls of its own, and Firefox, whose versions cannot be compared with
+// Chromium's, is driven only where no Chromium is, as on Haiku.
 func findBrowser() browser {
 	if os.Getenv(BrowserEnv) == "" {
 		if b := customBrowser(); b.found {
@@ -264,6 +369,10 @@ func autoBrowser() browser {
 				browserFound = probe(browser{ref: choice, flatpak: true, found: true})
 			} else if path, err := exec.LookPath(choice); err == nil {
 				browserFound = probe(browser{ref: path, found: true})
+			}
+			// A Firefox too old to drive is no browser at all.
+			if browserFound.usable() != nil {
+				browserFound = browser{}
 			}
 			return
 		}
@@ -314,15 +423,20 @@ func candidates() []browser {
 }
 
 // newest returns the browser built on the latest Chromium, the earliest in
-// the list among equals. A browser that would not tell its version is chosen
-// only when no other is found.
+// the list among equals, and the latest Firefox when there is no
+// Chromium-based browser. A browser that would not tell its version is chosen
+// only when no other of its engine is found; a Firefox too old to drive,
+// never.
 func newest(found []browser) browser {
 	var best browser
 	for _, b := range found {
-		if !b.found {
+		if !b.found || b.usable() != nil {
 			continue
 		}
-		if !best.found || b.version.newer(best.version) {
+		switch {
+		case !best.found, b.engine < best.engine:
+			best = b
+		case b.engine == best.engine && b.version.newer(best.version):
 			best = b
 		}
 	}
@@ -347,8 +461,7 @@ func probe(b browser) browser {
 			return b
 		}
 	}
-	b.banner = banner
-	b.version = parseVersion(b.banner)
+	b.identify(banner)
 	return b
 }
 
@@ -361,7 +474,8 @@ func flatpakInstalled(id string) bool {
 	return exec.CommandContext(ctx, "flatpak", "info", id).Run() == nil
 }
 
-// version is a Chromium version, as many of its numbers as are known.
+// version is a Chromium or Firefox version, as many of its numbers as are
+// known.
 type version []int
 
 // parseVersion reads the Chromium version from what a browser printed for
@@ -375,10 +489,17 @@ func parseVersion(banner string) version {
 			continue
 		}
 		v := make(version, 0, len(parts))
-		for _, part := range parts {
-			n, err := strconv.Atoi(part)
+		for i, part := range parts {
+			// A part may end in letters or more: 140.3.0esr, 157.0-1.
+			digits := part
+			if end := strings.IndexFunc(part, func(r rune) bool { return r < '0' || r > '9' }); end >= 0 {
+				digits = part[:end]
+			}
+			n, err := strconv.Atoi(digits)
 			if err != nil {
-				v = nil
+				if i == 0 {
+					v = nil
+				}
 				break
 			}
 			v = append(v, n)
@@ -394,7 +515,7 @@ func parseVersion(banner string) version {
 	return nil
 }
 
-// newer reports whether v is a later Chromium than other. Only the numbers
+// newer reports whether v is a later version than other, both of one engine. Only the numbers
 // both know are compared, so a Brave build, which tells only its Chromium
 // major, ties with every Chromium of that major. Any version is newer than an
 // unknown one.

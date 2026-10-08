@@ -109,7 +109,7 @@ func TestChromiumOpensAtSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer p.Close()
-	answer, err := p.page.Eval(context.Background(), `outerWidth + 'x' + outerHeight`)
+	answer, err := p.page.Eval(context.Background(), `innerWidth + "x" + innerHeight`)
 	if err != nil {
 		t.Fatal(err)
 	}

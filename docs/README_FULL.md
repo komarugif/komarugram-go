@@ -590,18 +590,23 @@ paints the same picture as RGBA.
 
 ## Kitchen: Mini Apps
 
-**Mini Apps** opens a bundled Mini App in whatever Chromium-based browser the
-user already has, and talks to it over the Chrome DevTools Protocol. There is
-no embedded webview here and no plan for one.
+**Mini Apps** opens a bundled Mini App in whatever Chromium-based browser or
+Firefox the user already has, and talks to it over the browser's automation
+protocol: the Chrome DevTools Protocol (`pkg/miniapp/cdp.go`) or WebDriver
+BiDi, which Firefox serves itself (`bidi.go`). There is no embedded webview here
+and no plan for one.
 
 The transport Telegram's SDK expects turns out to be small enough to provide
 from outside the browser:
 
 - the page reaches the client through `TelegramWebviewProxy.postEvent`, which
-  is installed by a shim injected with `Page.addScriptToEvaluateOnNewDocument`
-  and backed by a CDP binding, so every call arrives as `Runtime.bindingCalled`;
+  is installed by a shim that runs before the page's own scripts: in Chromium
+  injected with `Page.addScriptToEvaluateOnNewDocument` and backed by a CDP
+  binding, so every call arrives as `Runtime.bindingCalled`; in Firefox a
+  preload script (`script.addPreloadScript`) handed a channel, so every call
+  arrives as `script.message`;
 - the client reaches the page through `Telegram.WebView.receiveEvent`, called
-  with `Runtime.evaluate`;
+  with `Runtime.evaluate` or `script.evaluate`;
 - the launch parameters — init data, version, platform, theme — travel in the
   URL fragment, exactly as they would into a webview.
 
@@ -621,9 +626,13 @@ and flushes them to disk. A Mini App is an ordinary web application, so on a
 kept profile it finds its sessions and caches where it left them; on a throwaway
 one it starts from nothing every time.
 
-Any Chromium-based browser will do. Chromium, Chrome and Brave are looked for
-on `PATH` and among installed flatpaks, each one is asked for `--version`, and
-the one built on the newest Chromium is driven. The browser engine is what a
+Any Chromium-based browser will do, and Firefox 140 or later, or a browser
+built from it: LibreWolf and Waterfox. Chromium, Chrome, Brave, Firefox,
+LibreWolf and Waterfox are looked for on `PATH` and among installed flatpaks,
+each one is asked for `--version`, and the one built on the newest Chromium is
+driven; Firefox only where there is no Chromium-based browser, as on Haiku,
+since its window cannot be told to drop the browser's controls as `--app` does
+(below). The browser engine is what a
 Mini App — a page from a stranger — runs inside, and whether the flatpak or the
 distribution's package is ahead cannot be told from how it was installed, so
 the version decides; Brave reveals only its Chromium major, so it ties with
@@ -638,11 +647,49 @@ outside `/tmp` unless the profile directory is granted to it by name — without
 that it keeps its own copy inside the sandbox, where the client cannot find it.
 Both are handled where the profile is prepared.
 
-Two things make a kept profile work. The browser is asked to shut down over the
-DevTools protocol rather than killed, or it never writes out what the app
-stored; and a profile already in use is refused, because a second browser on one
-profile hands its window to the first and both pages then answer on a single
-debugging endpoint.
+Firefox differs in a few places. It has no `--app` window: the client writes
+a `userChrome.css` into the profile that hides the tab bar and the toolbars and
+lets the window be narrower than Firefox's own minimum of about 500 pixels, and
+the window's first size into `xulstore.json`, where Firefox keeps it. Its
+preferences go into `user.js`, written at every start: no first-run pages or
+notices, no offer to translate, links opened by the app in a window of their
+own (with the tab bar hidden, a tab would cover the app), and
+`remote.prefs.recommended` off — under remote control Firefox otherwise sets
+preferences meant for tests, among them Safe Browsing, the popup blocker and
+tracking protection off. The forks need a few more: the window manager's title
+bar (`browser.tabs.inTitlebar`), since Waterfox draws its own, which would go
+with the toolbars and leave a window that cannot be moved or closed; and
+LibreWolf's resistance to fingerprinting off, along with its clearing of what
+pages stored at every quit — it asks in a dialog that holds up the page whether
+to request pages in English and sizes the window itself, and a Mini App gets the
+user's Telegram id and name in its launch parameters anyway, while what an app
+keeps is the client's setting. The style sheet also hides the robot Firefox
+shows while remote-controlled, which sits in the URL bar and is drawn over the
+page even with its toolbar hidden, the browser's own notices over the page
+(LibreWolf's that the default search engine changed; a page's own notices
+stay), and the lines and margins the forks put around the page. Waterfox numbers its versions on its own (6.7.5 runs on
+Firefox 153), so the version of the engine of a browser built from Firefox is
+read from `platform.ini` beside the program or in the flatpak's files
+(`Milestone=153.4.0`). Beside a launcher script, as distributions install
+browsers, it cannot be found; such a browser is started all the same, and turned
+down if the version it gives for its BiDi session (`browserVersion`, the
+engine's: 153.4.0 for Waterfox) is older than 140. The page is opened only once the preload script is in
+place, so nothing is reloaded. The BiDi session leaves the app's own dialogs
+(`alert`, `confirm`) for the user rather than dismissing them. Firefox writes the
+endpoint's port into `WebDriverBiDiServer.json` in the profile, as Chromium
+writes `DevToolsActivePort`. Moving a window that is open
+(`Bridge.SetWindowBounds`, which the external player uses) needs Firefox 151,
+which added `browser.setClientWindowState`; Firefox 153 fixed preload scripts
+that stopped working after several navigations. A BiDi session also outlives
+its connection, and a browser takes one session only, so the bridge keeps its
+one connection for as long as the browser runs.
+
+Two things make a kept profile work. The browser is asked to shut down over its
+protocol (`Browser.close`, `browser.close`) rather than killed, or it never
+writes out what the app stored; and a profile already in use is refused,
+because a second Chromium on one profile hands its window to the first and both
+pages then answer on a single debugging endpoint; Firefox, which locks its
+profile, allows one process on it too.
 
 What this approach does not solve is the native chrome around the app — the
 main button, the header, popups. Those belong to the client in official
@@ -680,7 +727,7 @@ The user can point the messenger at a player, or at the browser for Mini Apps,
 in Settings → External integrations. Any file can be picked there, so a program
 is kept only after it answered `--version` as what it was picked as
 (`player.Check`, `miniapp.CheckBrowser`): mpv 0.17 or later, VLC 3, a browser
-printing a four-part Chromium version. The question runs in the C locale, with
+printing a four-part Chromium version, or Firefox 140 or later. The question runs in the C locale, with
 nothing on its input, a 10-second limit and the first 64 KiB of its answer
 kept (`program.Banner`). `player.Open` asks again, once for each size and
 modification time of the file, so a path written into `settings.json` by hand

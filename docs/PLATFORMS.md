@@ -322,6 +322,7 @@ From 2026-10-07 to 2026-10-08, in the VM above:
 | `messenger -demo` | the chat list and chats draw, colors right; clicks, scrolling with the wheel, hover, resizing, minimizing; 8 starts of a Gio test program and 3 of the client without a crash |
 | Speed | first frame 1.3 s, then 30–50 ms a frame at 1014×713 with `LP_NUM_THREADS=3`; a chat opened about 2.5 s after the click on an older install, which stalled often |
 | Resources | the icon of the rdef shows for the program (seen by the maintainer, 2026-10-08); with the file's signature taken, the demo prints nothing on the terminal |
+| Mini Apps | in Firefox 157 (`pkgman install firefox`), over WebDriver BiDi: the demo's app opens from the bot's menu button without the browser's toolbars, with its init data and theme, and Firefox closes with the client (2026-10-08). Clicks inside Firefox were not tried: `GIO_HAIKU_INPUT` reaches Gio's windows only |
 | Editing | typing, Backspace, the arrows and Delete in an editor of a Gio test program |
 
 `LP_NUM_THREADS` limits llvmpipe's threads (one a core otherwise): with
@@ -340,6 +341,21 @@ drawn.
 | Other windows | the photo viewer's transparent window, drag and drop, opening links in a browser: not tried |
 | The clipboard, shortcuts | written, not tried |
 | 3D acceleration | none in practice: the drivers for AMD and Intel set modes only, and an accelerated one for NVIDIA Turing and Ampere is an alpha of January 2026 ([OSnews](https://www.osnews.com/story/144097/haiku-gets-accelerated-nvidia-graphics-driver/)) |
+
+### Browsers for Mini Apps
+
+Haiku has no Chromium-based browser, so Mini Apps and the browser player run in
+Firefox, which HaikuPorts builds with its WebDriver BiDi (`pkg/miniapp/bidi.go`).
+It prints `Error parsing B_ARGV_RECEIVED message` on the terminal at every
+start, which changes nothing. A Firefox started on a profile while another
+Firefox on it is still quitting fails: the bridge waits for the browser to exit.
+
+Ladybird would not do, as of October 2026: it has no WebDriver BiDi and no
+DevTools protocol of Chromium's, only WebDriver classic, through a server of
+its own (`Services/WebDriver`) that starts the browser itself — no events and
+no script that runs before the page's, so the page's half of the transport
+would be a queue the client polls. HaikuPorts' `ladybird` is a build of July
+2022.
 
 ### Things met on the way
 

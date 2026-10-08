@@ -15,7 +15,7 @@ import (
 // that both directions of the bridge work.
 func TestBridge(t *testing.T) {
 	if !miniapp.Available() {
-		t.Skip("no Chromium-based browser found")
+		t.Skip("no Chromium-based browser or Firefox found")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -70,7 +70,7 @@ func TestBridge(t *testing.T) {
 // throwaway profile does not.
 func TestStorageModes(t *testing.T) {
 	if !miniapp.Available() {
-		t.Skip("no Chromium-based browser found")
+		t.Skip("no Chromium-based browser or Firefox found")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
@@ -112,7 +112,7 @@ func TestStorageModes(t *testing.T) {
 // profile is refused rather than silently attaching to the first window.
 func TestProfileInUse(t *testing.T) {
 	if !miniapp.Available() {
-		t.Skip("no Chromium-based browser found")
+		t.Skip("no Chromium-based browser or Firefox found")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
