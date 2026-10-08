@@ -411,7 +411,7 @@ drawn.
 | Emoji | no emoji font on the system, nor in HaikuPorts: the boxes go once an emoji pack is chosen in Settings → Appearance (Apple, downloaded from Telegram Desktop's repository; checked 2026-10-08) |
 | Other windows | the photo viewer's transparent window, drag and drop: not tried |
 | The clipboard, shortcuts | pasting and the shortcuts not tried (`hinput` sends no modifiers) |
-| Notifications | a click starts the client by its signature (`notify --onClickApp`), which should hand over to the running one and bring it to the front: not tried. It cannot open the chat, as `notify` runs no callback |
+| Notifications | a real click on a notification: not tried. It starts the client with the notification's tag (`notify --onClickApp … --onClickArgv -notified=<tag>`); a start so, made by hand, opened the chat in the running client |
 | 3D acceleration | none in practice: the drivers for AMD and Intel set modes only, and an accelerated one for NVIDIA Turing and Ampere is an alpha of January 2026 ([OSnews](https://www.osnews.com/story/144097/haiku-gets-accelerated-nvidia-graphics-driver/)) |
 
 ### Choosing files

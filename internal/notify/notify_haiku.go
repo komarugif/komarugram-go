@@ -19,10 +19,10 @@ import (
 
 // New returns the notifier of Haiku: its notification_server, through the
 // notify command of the system. A notification with a tag takes the place
-// of the last one with it, as its message ID. A click brings the client to
-// the front: notify can only start a program by its signature, and a second
-// start hands over to the running client, so the chat it was about does
-// not open.
+// of the last one with it, as its message ID. notify can only start a
+// program on a click, by its signature: it starts the client with
+// -notified and the tag, and that start hands the tag over to the running
+// client, which opens the chat (cmd/messenger).
 func New(app string, tray Balloon) Notifier {
 	h := &haikuNotifier{app: app, queue: make(chan Notification, 64)}
 	go h.run()
@@ -56,7 +56,7 @@ func (h *haikuNotifier) run() {
 func (h *haikuNotifier) show(n Notification) {
 	args := []string{"--type", "information", "--group", h.app, "--title", clip(n.Title, 200), "--onClickApp", signature}
 	if n.Tag != "" {
-		args = append(args, "--messageID", n.Tag)
+		args = append(args, "--messageID", n.Tag, "--onClickArgv", "-notified="+n.Tag)
 	}
 	if h.icon != "" {
 		args = append(args, "--icon", h.icon)
