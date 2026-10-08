@@ -219,6 +219,14 @@ and then.
      CJK, Thai or most symbols, and not Haiku's own Noto Sans. The patch
      names the four of `finddir` (`B_SYSTEM_FONTS_DIRECTORY`, the user's
      and the non-packaged ones).
+   - `github.com/ebitengine/oto/v3` v3.5.1,
+     [`haiku/oto-v3.5.1.patch`](haiku/oto-v3.5.1.patch): oto has no
+     output for Haiku, and its Unix driver, PulseAudio's protocol or ALSA,
+     finds neither there. The patch adds one on the Media Kit: a
+     `BSoundPlayer` in `libotohaiku.so` (C++, built apart as Gio's library
+     is, from `internal/haiku`) asks for each buffer of float samples
+     through a callback into Go, which oto's mixer fills, as its drivers
+     for game consoles do. It needs no `BApplication`.
 
    ```
    go 1.27.1
@@ -229,6 +237,7 @@ and then.
    replace github.com/tetratelabs/wazero => /path/to/wazero
    replace gioui.org/shader => /path/to/shader
    replace github.com/go-text/typesetting => /path/to/typesetting
+   replace github.com/ebitengine/oto/v3 => /path/to/oto
    ```
 4. **Tags.** `sqlite3_flock`: without a tag `go-sqlite3` knows no file
    locks on Haiku and fails every lock, `disk I/O error`
@@ -253,8 +262,16 @@ and then.
    ```
 
    On Haiku itself, `go run build.go -o libgiohaiku.so` uses g++.
+7. **libotohaiku.so**, the Media Kit half of oto's driver, from the patched
+   copy of oto, loaded the same way (or from `OTO_HAIKU_LIB`):
 
-Copy `messenger`, `libgiohaiku.so` and, for `-demo`, `assets` to Haiku.
+   ```sh
+   go run /path/to/oto/internal/haiku/build.go \
+     -cxx "clang++ --target=x86_64-unknown-haiku --sysroot=$ROOT -fuse-ld=lld" \
+     -o libotohaiku.so
+   ```
+
+Copy `messenger`, `libgiohaiku.so`, `libotohaiku.so` and, for `-demo`, `assets` to Haiku.
 Then, on Haiku, give `messenger` its resources: its signature, flags,
 version and icon, from `cmd/messenger/messenger.rdef`:
 
@@ -344,6 +361,7 @@ From 2026-10-07 to 2026-10-08, in the VM above:
 | System fonts | Noto Sans for text and Noto Sans Mono for code, from `/boot/system/data/fonts`, with the patch of `go-text/typesetting` above |
 | Notifications | through the system's `notify` (`internal/notify/notify_haiku.go`), with the client's icon, one at a time for a chat (`--messageID`): `-demo -demo-notify 20s` (2026-10-08) |
 | Copying | the copy button of a code block puts its text, Cyrillic and emoji too, on Haiku's clipboard (`clipboard -p`, 2026-10-08) |
+| Sound | through the Media Kit, with the patch of oto above: `pkg/audio`'s tests pass there, the live `TestPlaybackEndsAndReplays` among them, and three seconds of a 440 Hz tone took 3.29 s and were heard by the maintainer (2026-10-08) |
 | Choosing files | Haiku's own panel, `filepanel` (in the system): opening a file for the attachment menu leads to the box for sending it; saving prints its path the same way (2026-10-08). The Open button was pressed by the maintainer once and then by `~/haiku-tools/tests/sendrefs`, which sends the panel's messages |
 | Editing | typing, Backspace, the arrows and Delete in an editor of a Gio test program |
 
@@ -355,7 +373,6 @@ drawn.
 
 | What | On Haiku |
 |---|---|
-| Sound (`oto`) | no backend for the Media Kit; `oto` falls to PulseAudio's protocol, which Haiku has no server for |
 | Voice messages | ffmpeg's only input device there is `lavfi`: no microphone; recording would be the Media Kit's |
 | Tray | the Deskbar's replicants, not written; SNI over D-Bus does not apply |
 | TPM | none; how the key is kept without one was not tried |
