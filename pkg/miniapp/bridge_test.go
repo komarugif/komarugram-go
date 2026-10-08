@@ -4,7 +4,11 @@ package miniapp_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -105,6 +109,57 @@ func TestStorageModes(t *testing.T) {
 		if visits := launchAndCount(ctx, t, demo, miniapp.Profile{}); visits != "1" {
 			t.Errorf("a throwaway profile reported %q launches, want 1", visits)
 		}
+	}
+}
+
+// TestLoadsOnce checks that a Mini App is loaded once, with the bridge
+// already in place: loaded before it, as Chromium was when opened on the
+// app's address, it ran without the shim and then again after a reload.
+func TestLoadsOnce(t *testing.T) {
+	if !miniapp.Available() {
+		t.Skip("no Chromium-based browser or Firefox found")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	var loads atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		loads.Add(1)
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<!doctype html><title>t</title><script>
+document.title = typeof TelegramWebviewProxy === 'object' ? 'bridged' : 'alone';
+</script>`))
+	}))
+	defer server.Close()
+
+	bridge, err := miniapp.Open(ctx, server.URL+"/", miniapp.Params{}, miniapp.Profile{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bridge.Close()
+	waitFor(t, func() bool {
+		title, _ := bridge.Eval(ctx, "document.readyState == 'complete' ? document.title : ''")
+		return title != ""
+	}, "the page to load")
+	// A reload may come a moment after the first load completes.
+	time.Sleep(time.Second)
+	if title, _ := bridge.Eval(ctx, "document.title"); title != "bridged" {
+		t.Errorf("the page ran without the bridge: %q", title)
+	}
+	if n := loads.Load(); n != 1 {
+		t.Errorf("the page was loaded %d times, want 1", n)
+	}
+	// The app's window has no browser's controls: a Chromium-based browser
+	// keeps the window of an app only when it opens on a page, and on
+	// about:blank gives a browser's window, tabs and an address bar, some 80
+	// pixels over the page. Firefox's own are hidden by the style sheet.
+	answer, _ := bridge.Eval(ctx, "String(outerHeight - innerHeight)")
+	if chrome, err := strconv.Atoi(answer); err != nil || chrome >= 40 {
+		t.Errorf("the app's window has %q pixels of the browser's own over the page", answer)
 	}
 }
 

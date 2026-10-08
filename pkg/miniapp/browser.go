@@ -3,9 +3,11 @@
 package miniapp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -159,6 +161,34 @@ func browserAt(path string) browser {
 		return browser{ref: id, flatpak: true, found: true}
 	}
 	return browser{ref: path, found: true}
+}
+
+// snapLauncher is a snap's command in a launcher script, as Ubuntu's
+// /usr/bin/firefox runs /snap/bin/firefox.
+var snapLauncher = regexp.MustCompile(`/snap/bin/([A-Za-z0-9-]+)`)
+
+// snapName returns the name of the snap the program at path runs, or "":
+// the commands in /snap/bin are links to the snap launcher, and a script
+// may run one of them.
+func snapName(path string) string {
+	if real, err := filepath.EvalSymlinks(path); err == nil && filepath.Base(real) == "snap" {
+		name, _, _ := strings.Cut(filepath.Base(path), ".")
+		return name
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	head := make([]byte, 4096)
+	n, _ := io.ReadFull(f, head)
+	if !bytes.HasPrefix(head[:n], []byte("#!")) {
+		return ""
+	}
+	if m := snapLauncher.FindSubmatch(head[:n]); m != nil {
+		return string(m[1])
+	}
+	return ""
 }
 
 var (

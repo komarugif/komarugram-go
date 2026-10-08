@@ -115,20 +115,30 @@ type Profile struct {
 	Account string
 }
 
+// root is where persistent profiles are kept: Root, or a directory under
+// the user's cache directory.
+func (p Profile) root() (string, error) {
+	if p.Root != "" {
+		return p.Root, nil
+	}
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(cache, "gio-kitchen", "miniapp"), nil
+}
+
 // resolve returns the directory to launch the browser on and whether that
-// directory is this launch's alone.
-func (p Profile) resolve() (dir string, ephemeral bool, err error) {
+// directory is this launch's alone. A throwaway profile is made in tmp, the
+// system's temporary directory when it is "".
+func (p Profile) resolve(tmp string) (dir string, ephemeral bool, err error) {
 	if p.Storage == Ephemeral {
-		dir, err = os.MkdirTemp("", "kitchen-miniapp-")
+		dir, err = os.MkdirTemp(tmp, "kitchen-miniapp-")
 		return dir, true, err
 	}
-	root := p.Root
-	if root == "" {
-		cache, err := os.UserCacheDir()
-		if err != nil {
-			return "", false, err
-		}
-		root = filepath.Join(cache, "gio-kitchen", "miniapp")
+	root, err := p.root()
+	if err != nil {
+		return "", false, err
 	}
 	switch p.Storage {
 	case PerApp:
@@ -234,7 +244,29 @@ func launch(ctx context.Context, url string, profile Profile, page Page, telegra
 		}
 		return nil, fmt.Errorf("no Chromium-based browser or Firefox found")
 	}
-	dir, ephemeral, err := profile.resolve()
+	// A snap sees a /tmp of its own and no hidden directory of the home, the
+	// cache and the configuration among them: the profile goes where the
+	// snap keeps its own files, ~/snap/<name>/common, or the browser would
+	// open one of its own nobody here can read.
+	tmp := ""
+	if name := snapName(chosen.ref); !chosen.flatpak && name != "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		snapRoot := filepath.Join(home, "snap", name, "common", "komarugram-go", "miniapp")
+		tmp = filepath.Join(snapRoot, "tmp")
+		// Each root the caller asks for gets one of its own there.
+		root, err := profile.root()
+		if err != nil {
+			return nil, err
+		}
+		profile.Root = filepath.Join(snapRoot, profileKey(root))
+		if err := os.MkdirAll(tmp, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	dir, ephemeral, err := profile.resolve(tmp)
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +289,7 @@ func launch(ctx context.Context, url string, profile Profile, page Page, telegra
 		if err == nil {
 			err = checkNotRunning(dir)
 		}
-		args = chromiumArgs(url, dir, page)
+		args = chromiumArgs(url, dir, page, telegram)
 	}
 	if err != nil {
 		discard()
@@ -288,7 +320,7 @@ func launch(ctx context.Context, url string, profile Profile, page Page, telegra
 	if firefox {
 		bridge.proto, err = connectBiDi(ctx, bridge, url, telegram)
 	} else {
-		bridge.proto, err = connectCDP(ctx, bridge, telegram)
+		bridge.proto, err = connectCDP(ctx, bridge, url, telegram)
 	}
 	if err != nil {
 		bridge.Close()

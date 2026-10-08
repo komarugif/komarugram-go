@@ -17,11 +17,20 @@ import (
 // A Chromium-based browser is driven over the Chrome DevTools Protocol: a
 // binding the shim calls for the page's half of the transport, an
 // evaluation for the client's, and the page opened with --app, in a window
-// without the browser's own controls.
+// without the browser's own controls. A Mini App's window opens blank, and
+// the app is navigated to once the shim is in place: opened at once, it
+// would run a first time without the shim, and again after a reload.
 
 // chromiumArgs are the switches that open url in a window of its own on
-// profile dir.
-func chromiumArgs(url, dir string, page Page) []string {
+// profile dir; a Mini App's window, with telegram set, opens blank. Its
+// address stays off the command line, where any user of the machine can
+// read it, and it carries the user's signed init data. Blank is an empty
+// data: page, not about:blank, on which --app gives a browser's window with
+// tabs and an address bar.
+func chromiumArgs(url, dir string, page Page, telegram bool) []string {
+	if telegram {
+		url = "data:text/html,"
+	}
 	return append([]string{
 		"--app=" + url,
 		"--user-data-dir=" + dir,
@@ -105,8 +114,8 @@ type cdp struct {
 }
 
 // connectCDP waits for the debugging endpoint and attaches to the page, and
-// installs both halves of the bridge when telegram is set.
-func connectCDP(ctx context.Context, b *Bridge, telegram bool) (protocol, error) {
+// installs both halves of the bridge and opens url when telegram is set.
+func connectCDP(ctx context.Context, b *Bridge, url string, telegram bool) (protocol, error) {
 	port, err := waitForPort(ctx, b, filepath.Join(b.profile, "DevToolsActivePort"), func(data []byte) (string, bool) {
 		port, _, ok := strings.Cut(string(data), "\n")
 		return port, ok
@@ -145,9 +154,7 @@ func connectCDP(ctx context.Context, b *Bridge, telegram bool) (protocol, error)
 		steps = append(steps,
 			step{"Runtime.addBinding", map[string]any{"name": bindingName}},
 			step{"Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": shim}},
-			// The page loaded before the shim existed, so it is loaded again
-			// with the bridge in place.
-			step{"Page.reload", map[string]any{"ignoreCache": true}},
+			step{"Page.navigate", map[string]any{"url": url}},
 		)
 	}
 	for _, step := range steps {

@@ -169,3 +169,50 @@ func TestSeedFirefoxProfile(t *testing.T) {
 		t.Error("the client's own page does not play by itself")
 	}
 }
+
+// TestSnapName checks that a browser run by snap is told: a command in
+// /snap/bin, a link to the snap launcher, or a script that runs one, as
+// Ubuntu's /usr/bin/firefox.
+func TestSnapName(t *testing.T) {
+	dir := t.TempDir()
+	launcher := filepath.Join(dir, "snap")
+	if err := os.WriteFile(launcher, []byte("\x7fELF"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := filepath.Join(dir, "chromium.chromedriver")
+	if err := os.Symlink(launcher, command); err != nil {
+		t.Skip(err)
+	}
+	script := filepath.Join(dir, "firefox")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec /snap/bin/firefox \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plain := filepath.Join(dir, "waterfox")
+	if err := os.WriteFile(plain, []byte("#!/bin/sh\nexec /opt/waterfox/waterfox \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{command: "chromium", script: "firefox", plain: ""} {
+		if got := snapName(path); got != want {
+			t.Errorf("%s: got %q, want %q", filepath.Base(path), got, want)
+		}
+	}
+}
+
+// TestArgsKeepAddressOff checks that a Mini App's address, which carries the
+// user's signed init data, is on neither browser's command line: the app is
+// opened once the bridge is in place.
+func TestArgsKeepAddressOff(t *testing.T) {
+	url := "https://example.com/app#tgWebAppData=query_id%3DAAH%26hash%3Dsecret"
+	page := Page{Width: 420, Height: 720}
+	for name, args := range map[string][]string{
+		"Chromium": chromiumArgs(url, "/profile", page, true),
+		"Firefox":  firefoxArgs("/profile"),
+	} {
+		if strings.Contains(strings.Join(args, " "), "secret") {
+			t.Errorf("%s gets the app's address on its command line: %q", name, args)
+		}
+	}
+	if args := strings.Join(chromiumArgs("http://127.0.0.1/player", "/profile", page, false), " "); !strings.Contains(args, "--app=http://127.0.0.1/player") {
+		t.Errorf("a page of the client's own is not opened directly: %q", args)
+	}
+}

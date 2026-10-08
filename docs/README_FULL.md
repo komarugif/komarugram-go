@@ -600,7 +600,12 @@ The transport Telegram's SDK expects turns out to be small enough to provide
 from outside the browser:
 
 - the page reaches the client through `TelegramWebviewProxy.postEvent`, which
-  is installed by a shim that runs before the page's own scripts: in Chromium
+  is installed by a shim that runs before the page's own scripts — the window
+  opens blank and the app is opened only once the shim is in place, so it
+  loads once, with the bridge, and its address, which carries the user's
+  signed init data, stays off the command line, where any user of the
+  machine can read it (Chromium opens an empty `data:` page: `--app` on
+  `about:blank` gives a browser's window with tabs and an address bar): in Chromium
   injected with `Page.addScriptToEvaluateOnNewDocument` and backed by a CDP
   binding, so every call arrives as `Runtime.bindingCalled`; in Firefox a
   preload script (`script.addPreloadScript`) handed a channel, so every call
@@ -640,7 +645,12 @@ every Chromium of that major, and ties go to native programs first.
 `KITCHEN_MINIAPP_BROWSER` names one directly, by program or by application id,
 which is how the same suite is run against each of them; in the messenger, the
 user can pick one in the settings, which is kept only when it answers
-`--version` as a Chromium-based browser. Two of them need
+`--version` as a Chromium-based browser. A snap sees a `/tmp` of its own and no hidden directory of the home, the
+cache and the configuration among them: for a browser run by snap (a command
+in `/snap/bin`, or a script that runs one, as Ubuntu's `/usr/bin/firefox`),
+profiles go under `~/snap/<name>/common/komarugram-go/miniapp`, one directory
+for each root the client asks for; otherwise the browser opens a profile of its
+own nobody can read, and the bridge never finds its port. Two of them need
 something of their own: Brave shows a notice about its analytics, which is a
 browser-level setting rather than a profile one, and a flatpak sees nothing
 outside `/tmp` unless the profile directory is granted to it by name — without
