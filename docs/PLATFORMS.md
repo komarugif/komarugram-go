@@ -149,24 +149,31 @@ Everything is built on Linux; Haiku only runs the program. Compiling
 own `go` needs too, and the `go` command on Haiku crashed and stalled now
 and then.
 
-1. **Go.** [go-haiku](https://github.com/Quad4-Software/go-haiku), a
-   fork of Go for `haiku/amd64` and `haiku/386`, at commit `6f78c909`
-   (Go 1.27.1, the version `go.mod` needs), with
-   [`haiku/go-haiku-6f78c909.patch`](haiku/go-haiku-6f78c909.patch), built
-   on Linux with `src/make.bash` (2 minutes). The patch fixes two things of
-   the runtime's:
-   - `_SS_DISABLE` is Haiku's 2, not Solaris's 4: with cgo, the runtime
-     asked `sigaltstack` whether C had set a signal stack, read Haiku's
-     "none" as "one", and ran signal handlers on goroutines' stacks.
-     Programs died at random with `unexpected return pc`, `traceback did
-     not unwind completely` or `morestack on gsignal`; after it, none did.
-   - The process ends with `_exit`, as on Solaris, not `exit`: `exit` ran
+1. **Go.** [komarugif/go-haiku](https://github.com/komarugif/go-haiku),
+   branch `golang-1.27-haiku`, built on Linux with `src/make.bash`
+   (2 minutes): Go 1.27.1 (the version `go.mod` needs) with the Haiku port
+   of Jérôme Duval, [korli/go](https://github.com/korli/go), brought onto
+   it, and fixes found running the client, each a commit (its `HAIKU.md`
+   lists them). The ones that showed:
+   - the runtime's `_SS_DISABLE` was Solaris's 4, not Haiku's 2: with cgo,
+     the runtime asked `sigaltstack` whether C had set a signal stack, read
+     Haiku's "none" as "one", and ran signal handlers on goroutines'
+     stacks. Programs died at random with `unexpected return pc`,
+     `traceback did not unwind completely` or `morestack on gsignal`;
+   - the process ended with `exit`, not `_exit` as on Solaris: `exit` ran
      the C++ destructors of every library (libbe, OSMesa's LLVM) while the
      windows' threads still ran, and closing two windows at once ended in
-     `Segmentation violation` five times out of five; with `_exit`, none
-     of five.
-2. **cgo.** The fork says `CgoSupported: false`, but cgo works when asked
-   for (`CGO_ENABLED=1`), with Go's internal linker only
+     `Segmentation violation` five times out of five;
+   - sockets were made nonblocking with `SOCK_NONBLOCK` in `socket()`,
+     which Haiku does not honor in `accept` (below): the client's
+     single-instance socket held a thread in `accept`, and the process never
+     ended after its windows closed.
+
+   [Quad4-Software/go-haiku](https://github.com/Quad4-Software/go-haiku),
+   another Go 1.27.1 from korli's port, whose commits are an LLM agent's,
+   has the first two, makes sockets as above, and turns cgo off; the
+   client was first built with it.
+2. **cgo** works (`CGO_ENABLED=1`), with Go's internal linker only
    (`-ldflags=-linkmode=internal`): Haiku links programs as shared objects
    (gcc's spec passes `-shared`), and the external linker fails on Go's
    local-exec TLS (`R_X86_64_TPOFF32 against runtime.tlsg`); the fork has
@@ -182,7 +189,7 @@ and then.
 3. **Modules**, patched outside the repository and taken in with a
    `go.work` beside it, not with `go.mod`:
    - `golang.org/x/sys` v0.48.0, which knows no Haiku: copy the `*_haiku*`
-     files of go-haiku's own copy, `src/cmd/vendor/golang.org/x/sys/unix`,
+     files of the toolchain's own copy, `src/cmd/vendor/golang.org/x/sys/unix`,
      into `unix`, and apply
      [`haiku/x-sys-v0.48.0.patch`](haiku/x-sys-v0.48.0.patch) (`haiku`
      in 15 files' build tags, as go-haiku has them, and `Mprotect`, which
@@ -326,6 +333,9 @@ drawn.
   minutes, and files written just before a hard reset came back as
   zeros. VirtualBox's host I/O cache helped; the VM was then reinstalled
   on a disk of a fixed size.
+- A socket made with `SOCK_NONBLOCK` in `socket()` reports `O_NONBLOCK`
+  on Haiku R1/beta6, but `accept` on it blocks; set by `fcntl`, the flag
+  works (a C test, 2026-10-08). The Go fork above makes sockets so.
 - Haiku's `ps` puts a command's arguments in its first column: the team's
   ID is `$(NF-3)`, not `$2`.
 - `hey` drives a window by scripting:
