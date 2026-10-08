@@ -63,6 +63,12 @@ func openVLC(ctx context.Context, path, source string, extra []string) (*vlc, er
 	if runtime.GOOS == "windows" {
 		// Otherwise the interface opens a console window of its own.
 		args = append(args, "--rc-quiet")
+		if GPUFailed != nil && GPUFailed() {
+			// VLC's Direct3D outputs show black on a driver that failed
+			// the client's windows, as VirtualBox's for Windows 7 does;
+			// DirectDraw draws.
+			args = append(args, "--vout=directdraw")
+		}
 	} else {
 		// Without a terminal the interface does not start on a socket. VLC
 		// for Windows has no such option, and refuses to start with it.
@@ -270,3 +276,8 @@ func hasOneInstance() bool {
 	}
 	return true
 }
+
+// GPUFailed, when set, reports whether the system's GPU driver failed to
+// draw the client's windows: VLC for Windows then draws its video with
+// DirectDraw.
+var GPUFailed func() bool

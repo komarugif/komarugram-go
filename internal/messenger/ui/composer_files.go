@@ -158,8 +158,11 @@ func chooserOutput(cmd *exec.Cmd) (string, error) {
 	return string(out), err
 }
 
-// splitPaths reads the paths a chooser printed, one to a line.
+// splitPaths reads the paths a chooser printed, one to a line. PowerShell
+// 2.0, Windows 7's, starts its output with a byte order mark once it is
+// told to print UTF-8, which would be taken for the start of the path.
 func splitPaths(out string) []string {
+	out = strings.TrimPrefix(out, "\ufeff")
 	var paths []string
 	for _, line := range strings.Split(out, "\n") {
 		if line = strings.TrimRight(line, "\r"); strings.TrimSpace(line) != "" {
