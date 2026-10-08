@@ -54,8 +54,6 @@ func openVLC(ctx context.Context, path, source string, extra []string) (*vlc, er
 	}
 	args := []string{
 		"--extraintf=oldrc", control,
-		// Without a terminal the interface does not start on a socket.
-		"--rc-fake-tty",
 		// Stay on the last frame, as mpv's --keep-open does.
 		"--play-and-pause",
 		// The source is named after the kind of media, not the file:
@@ -65,6 +63,10 @@ func openVLC(ctx context.Context, path, source string, extra []string) (*vlc, er
 	if runtime.GOOS == "windows" {
 		// Otherwise the interface opens a console window of its own.
 		args = append(args, "--rc-quiet")
+	} else {
+		// Without a terminal the interface does not start on a socket. VLC
+		// for Windows has no such option, and refuses to start with it.
+		args = append(args, "--rc-fake-tty")
 	}
 	if hasOneInstance() {
 		// A second VLC would otherwise hand the file to the first one and

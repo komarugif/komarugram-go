@@ -46,5 +46,5 @@ func FileVersion(ctx context.Context, path string) (product, version string, err
 	if len(lines) < 2 {
 		return "", "", ErrNoBanner
 	}
-	return strings.TrimSpace(lines[0]), strings.TrimSpace(lines[1]), nil
+	return strings.TrimSpace(lines[0]), dottedVersion(lines[1]), nil
 }

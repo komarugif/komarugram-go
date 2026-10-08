@@ -6,7 +6,6 @@ import (
 	"context"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -53,10 +52,11 @@ func eachPlayer(t *testing.T, test func(t *testing.T, kind player.Kind, path str
 	}
 }
 
-// playerPaths lists the installations of kind.
+// playerPaths lists the installations of kind, found as the client finds
+// them: on Windows in the App Paths too, where VLC's installer puts it.
 func playerPaths(kind player.Kind) []string {
 	var paths []string
-	if path, err := exec.LookPath(string(kind)); err == nil {
+	if path, err := program.LookPath(string(kind)); err == nil {
 		paths = append(paths, path)
 	}
 	if path := program.FindFlatpak(kind.FlatpakID()); path != "" {
