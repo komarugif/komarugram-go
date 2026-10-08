@@ -20,7 +20,7 @@ extern "C" {
 
 // GH_ABI changes whenever this interface does; gh_abi returns it, and Gio
 // refuses a library of another version.
-#define GH_ABI 3
+#define GH_ABI 4
 
 enum {
 	GH_EV_NONE = 0,
@@ -40,6 +40,16 @@ enum {
 	GH_EV_KEY_UP,       // key, raw_char, modifiers, text
 	GH_EV_MODIFIERS,    // modifiers changed
 	GH_EV_INPUT_METHOD, // text: the composed string; x: 1 when confirmed
+	GH_EV_DROP,         // files dragged over the content: x: a GH_DROP_*; fx, fy
+};
+
+// The stages of a drag of files, GH_EV_DROP's x. The files are
+// gh_window_drop_paths' from GH_DROP_ENTER on.
+enum {
+	GH_DROP_ENTER = 0,
+	GH_DROP_MOVE,
+	GH_DROP_LEAVE,
+	GH_DROP_DROP,
 };
 
 typedef struct {
@@ -121,6 +131,9 @@ void gh_window_center(void *w);
 void gh_window_raise(void *w);
 void gh_window_show(void *w);
 void gh_window_set_cursor(void *w, int32_t cursor);
+// gh_window_drop_paths returns the paths of the files of the last drag over
+// the window, each ended by a NUL, in memory gh_free frees, or NULL.
+void *gh_window_drop_paths(void *w, int32_t *len);
 
 int32_t gh_gl_lock(void *w, int32_t width, int32_t height);
 void gh_gl_unlock(void *w);

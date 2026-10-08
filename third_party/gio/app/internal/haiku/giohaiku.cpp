@@ -16,6 +16,8 @@
 #include <Input.h>
 #include <Locker.h>
 #include <Message.h>
+#include <Path.h>
+#include <Entry.h>
 #include <OS.h>
 #include <Screen.h>
 #include <View.h>
@@ -23,6 +25,7 @@
 #include <Window.h>
 
 #include <deque>
+#include <string>
 #include <fcntl.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -178,6 +181,10 @@ public:
 	}
 
 	void MouseMoved(BPoint where, uint32 transit, const BMessage *drag) override {
+		if (drag != NULL && drag->HasRef("refs")) {
+			DragFiles(where, transit, drag);
+			return;
+		}
 		if (transit == B_EXITED_VIEW && fButtons == 0) {
 			fQueue->Push(NewEvent(GH_EV_MOUSE_EXIT));
 			return;
@@ -196,6 +203,18 @@ public:
 	}
 
 	void MessageReceived(BMessage *msg) override {
+		if (msg->WasDropped() && msg->HasRef("refs")) {
+			// Files let go over the view, as Tracker drops them.
+			KeepPaths(msg);
+			fDragging = false;
+			gh_event ev = NewEvent(GH_EV_DROP);
+			ev.x = GH_DROP_DROP;
+			BPoint where = ConvertFromScreen(msg->DropPoint());
+			ev.fx = where.x;
+			ev.fy = where.y;
+			fQueue->Push(ev);
+			return;
+		}
 		switch (msg->what) {
 		case B_MOUSE_WHEEL_CHANGED: {
 			gh_event ev = NewEvent(GH_EV_WHEEL);
@@ -231,6 +250,19 @@ public:
 		}
 		}
 		BView::MessageReceived(msg);
+	}
+
+	// DropPaths copies the files of the last drag, each ended by a NUL.
+	void *DropPaths(int32_t *len) {
+		fPathsLock.Lock();
+		void *out = NULL;
+		*len = 0;
+		if (!fPaths.empty() && (out = malloc(fPaths.size())) != NULL) {
+			memcpy(out, fPaths.data(), fPaths.size());
+			*len = (int32_t)fPaths.size();
+		}
+		fPathsLock.Unlock();
+		return out;
 	}
 
 	void SetCursorShape(int32 cursor) {
@@ -282,6 +314,44 @@ private:
 		fQueue->Push(ev);
 	}
 
+	// DragFiles tells of files dragged over the view, instead of the
+	// pointer's moves. A drag that starts over the view comes in with
+	// B_INSIDE_VIEW, not B_ENTERED_VIEW.
+	void DragFiles(BPoint where, uint32 transit, const BMessage *drag) {
+		int32 stage = GH_DROP_MOVE;
+		if (transit == B_EXITED_VIEW || transit == B_OUTSIDE_VIEW) {
+			if (!fDragging)
+				return;
+			fDragging = false;
+			stage = GH_DROP_LEAVE;
+		} else if (!fDragging) {
+			KeepPaths(drag);
+			fDragging = true;
+			stage = GH_DROP_ENTER;
+		}
+		gh_event ev = NewEvent(GH_EV_DROP);
+		ev.x = stage;
+		ev.fx = where.x;
+		ev.fy = where.y;
+		fQueue->Push(ev);
+	}
+
+	// KeepPaths keeps the paths of the files of msg for DropPaths.
+	void KeepPaths(const BMessage *msg) {
+		std::string paths;
+		entry_ref ref;
+		for (int32 i = 0; msg->FindRef("refs", i, &ref) == B_OK; i++) {
+			BPath path(&ref);
+			if (path.InitCheck() != B_OK)
+				continue;
+			paths.append(path.Path());
+			paths.push_back('\0');
+		}
+		fPathsLock.Lock();
+		fPaths = paths;
+		fPathsLock.Unlock();
+	}
+
 	void ApplyCursor() {
 		BCursorID id;
 		switch (fCursor) {
@@ -320,6 +390,11 @@ private:
 	ShownFrame *fFrame;
 	uint32 fButtons;
 	int32 fCursor;
+	// fDragging is set while files are dragged over the view; fPaths are
+	// theirs, under fPathsLock, as Gio's thread reads them.
+	bool fDragging = false;
+	BLocker fPathsLock;
+	std::string fPaths;
 };
 
 class GioWindow : public BWindow {
@@ -530,6 +605,8 @@ template <typename F> void Locked(void *w, F f) {
 //
 //	move X Y | down X Y [BUTTONS] | up X Y | click X Y | wheel DX DY
 //	key TEXT  (UTF-8 typed as is; "\b" backspace, "\n" return)
+//	raw CODE MODIFIERS [TEXT]  (one key by its code, with Haiku's modifiers:
+//	                            "raw 0x4f 0x2 v" is Command+V)
 struct Injector {
 	GioWindow *win;
 	char path[B_PATH_NAME_LENGTH];
@@ -557,11 +634,11 @@ void PostMouse(GioWindow *win, uint32 what, float x, float y, int32 buttons, int
 	win->PostMessage(&msg, win->fView);
 }
 
-void PostKey(GioWindow *win, const char *bytes, int32 raw) {
+void PostKey(GioWindow *win, const char *bytes, int32 raw, int32 modifiers = 0) {
 	for (uint32 what : {(uint32)B_KEY_DOWN, (uint32)B_KEY_UP}) {
 		BMessage msg(what);
 		msg.AddInt64("when", system_time());
-		msg.AddInt32("modifiers", 0);
+		msg.AddInt32("modifiers", modifiers);
 		msg.AddInt32("key", raw);
 		msg.AddInt32("raw_char", (uint8)bytes[0]);
 		msg.AddString("bytes", bytes);
@@ -600,8 +677,8 @@ int32 RunInjector(void *data) {
 		char line[256];
 		while (fgets(line, sizeof(line), f) != NULL) {
 			float x = 0, y = 0;
-			int32 b = 1;
-			char text[200];
+			int32 b = 1, code = 0, mods = 0;
+			char text[200] = "";
 			if (sscanf(line, "move %f %f", &x, &y) == 2) {
 				PostMouse(in->win, B_MOUSE_MOVED, x, y, 0, 0);
 			} else if (sscanf(line, "down %f %f %d", &x, &y, &b) >= 2) {
@@ -619,6 +696,8 @@ int32 RunInjector(void *data) {
 				msg.AddFloat("be:wheel_delta_x", x);
 				msg.AddFloat("be:wheel_delta_y", y);
 				in->win->PostMessage(&msg, in->win->fView);
+			} else if (sscanf(line, "raw %i %i %199s", &code, &mods, text) >= 2) {
+				PostKey(in->win, text, code, mods);
 			} else if (sscanf(line, "key %199[^\n]", text) == 1) {
 				if (strcmp(text, "\\b") == 0)
 					PostKey(in->win, "\b", 0x1e);
@@ -814,6 +893,10 @@ void gh_window_show(void *w) {
 
 void gh_window_set_cursor(void *w, int32_t cursor) {
 	Locked(w, [&](GioWindow *win) { win->fView->SetCursorShape(cursor); });
+}
+
+void *gh_window_drop_paths(void *w, int32_t *len) {
+	return Win(w)->fView->DropPaths(len);
 }
 
 int32_t gh_gl_lock(void *w, int32_t width, int32_t height) {

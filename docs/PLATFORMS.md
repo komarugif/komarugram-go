@@ -391,6 +391,8 @@ From 2026-10-07 to 2026-10-08, in the VM above:
 | System fonts | Noto Sans for text and Noto Sans Mono for code, from `/boot/system/data/fonts`, with the patch of `go-text/typesetting` above |
 | Notifications | through the system's `notify` (`internal/notify/notify_haiku.go`), with the client's icon, one at a time for a chat (`--messageID`): `-demo -demo-notify 20s` (2026-10-08) |
 | Copying | the copy button of a code block puts its text, Cyrillic and emoji too, on Haiku's clipboard (`clipboard -p`, 2026-10-08) |
+| The clipboard, shortcuts | in the demo, with keys sent as the app_server sends them (`GIO_HAIKU_INPUT`'s `raw`): Command+V and Control+V paste the text `clipboard -c` put there into the composer, Cyrillic and emoji too; Command+A and Command+X cut it all to Haiku's clipboard; in the photo viewer, Command+C puts the photo there as `image/png` with its toast, Command+= zooms, and Escape closes it (2026-10-08) |
+| The photo viewer | opens over the chat, on a dark backdrop, the desktop not showing through: the app_server composes no windows, and the driver makes none transparent (2026-10-08) |
 | Sound | through the Media Kit, with the patch of oto above: `pkg/audio`'s tests pass there, the live `TestPlaybackEndsAndReplays` among them, and three seconds of a 440 Hz tone took 3.29 s and were heard by the maintainer (2026-10-08) |
 | Tray | an item of the Deskbar (`libtrayhaiku.so`, below): the client's icon shows; closing the window leaves the client running; a click on the icon brings the window back, and its menu opens (both by the maintainer); Quit ends the client and the item goes; after `kill -9` the item removed itself within 4 s and left nothing in the Deskbar's settings (2026-10-08) |
 | Memory | measured as the RAM of the team's areas (`area_info.ram_size`; `listarea`'s columns do not show it). The demo, shown and minimized: 149 and 149 MB before the `madvise` fix of the runtime above, 109 and 89 MB after it; destroying the OSMesa context on minimize too, 104 and 71 MB. Over seven cycles of minimizing the minimized window reached 110 MB and stayed there, against 121 MB and still growing without destroying the context: Haiku's malloc heap does not shrink, and a context made anew takes more of it (2026-10-08) |
@@ -409,8 +411,7 @@ drawn.
 | Voice messages | ffmpeg's only input device there is `lavfi`: no microphone; recording would be the Media Kit's |
 | TPM | none; how the key is kept without one was not tried |
 | Emoji | no emoji font on the system, nor in HaikuPorts: the boxes go once an emoji pack is chosen in Settings → Appearance (Apple, downloaded from Telegram Desktop's repository; checked 2026-10-08) |
-| Other windows | the photo viewer's transparent window, drag and drop: not tried |
-| The clipboard, shortcuts | pasting and the shortcuts not tried (`hinput` sends no modifiers) |
+| Drag and drop | files dragged from Tracker reach the driver as `DropEvent`s (the view takes a drag with `refs`), not tried with a real drag: `GIO_HAIKU_INPUT` cannot make one, and the app_server marks only its own drops as dropped |
 | Notifications | a real click on a notification: not tried. It starts the client with the notification's tag (`notify --onClickApp … --onClickArgv -notified=<tag>`); a start so, made by hand, opened the chat in the running client |
 | 3D acceleration | none in practice: the drivers for AMD and Intel set modes only, and an accelerated one for NVIDIA Turing and Ampere is an alpha of January 2026 ([OSnews](https://www.osnews.com/story/144097/haiku-gets-accelerated-nvidia-graphics-driver/)) |
 

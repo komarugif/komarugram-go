@@ -39,6 +39,7 @@ static void *gh_lib;
 	X(void, gh_window_raise, (void *a), (a)) \
 	X(void, gh_window_show, (void *a), (a)) \
 	X(void, gh_window_set_cursor, (void *a, int32_t b), (a, b)) \
+	X(void *, gh_window_drop_paths, (void *a, int32_t *b), (a, b)) \
 	X(int32_t, gh_gl_lock, (void *a, int32_t b, int32_t c), (a, b, c)) \
 	X(void, gh_gl_unlock, (void *a), (a)) \
 	X(void, gh_gl_swap, (void *a), (a)) \
@@ -119,7 +120,9 @@ type haikuWindow struct {
 	// carry no position, and Gio scrolls what is under the pointer.
 	pointerPos f32.Point
 	modifiers  key.Modifiers
-	cursor     pointer.Cursor
+	// dropPaths are the files of the drag over the window, if any.
+	dropPaths []string
+	cursor    pointer.Cursor
 	// closing is set by Perform(ActionClose), for the event loop to end
 	// the window.
 	closing bool
@@ -389,8 +392,41 @@ func (w *haikuWindow) handle(ev *C.gh_event) (redraw, done bool) {
 				w.w.EditorInsert(s)
 			}
 		}
+	case C.GH_EV_DROP:
+		w.drop(ev)
 	}
 	return redraw, false
+}
+
+// drop tells of files dragged over the window, as Tracker drags them: a
+// message with their entry_refs, whose paths the view keeps from the
+// drag's start.
+func (w *haikuWindow) drop(ev *C.gh_event) {
+	e := DropEvent{Position: f32.Pt(float32(ev.fx), float32(ev.fy))}
+	switch ev.x {
+	case C.GH_DROP_ENTER:
+		e.Kind = DropEnter
+	case C.GH_DROP_MOVE:
+		e.Kind = DropMove
+	case C.GH_DROP_LEAVE:
+		e.Kind = DropLeave
+	case C.GH_DROP_DROP:
+		e.Kind = Drop
+	}
+	switch e.Kind {
+	case DropEnter, Drop:
+		w.dropPaths = nil
+		var n C.int32_t
+		if p := C.pgh_window_drop_paths(w.win, &n); p != nil {
+			paths := C.GoStringN((*C.char)(p), C.int(n))
+			C.pgh_free(p)
+			w.dropPaths = strings.Split(strings.TrimSuffix(paths, "\x00"), "\x00")
+		}
+	case DropLeave:
+		w.dropPaths = nil
+	}
+	e.Paths = w.dropPaths
+	w.ProcessEvent(e)
 }
 
 // Haiku's mouse buttons.
@@ -512,10 +548,15 @@ var haikuKeys = map[int32]key.Name{
 	0x66: key.NameAlt, 0x67: key.NameAlt, // Option: the Windows keys
 }
 
-// haikuLatinKeys is the US layout's letter or digit of each key, the name
-// of a key in a shortcut whatever the layout: Ctrl+C is Ctrl+C with a
-// Russian layout as well.
+// haikuLatinKeys is the US layout's character of each key, the name of a
+// key in a shortcut whatever the layout: Ctrl+C is Ctrl+C with a Russian
+// layout as well, and Ctrl+[ too, where the key types "х".
 var haikuLatinKeys = map[int32]key.Name{
+	0x11: "`",
+	0x1c: "-", 0x1d: "=",
+	0x31: "[", 0x32: "]", 0x33: "\\",
+	0x45: ";", 0x46: "'",
+	0x53: ",", 0x54: ".", 0x55: "/",
 	0x12: "1", 0x13: "2", 0x14: "3", 0x15: "4", 0x16: "5",
 	0x17: "6", 0x18: "7", 0x19: "8", 0x1a: "9", 0x1b: "0",
 	0x27: "Q", 0x28: "W", 0x29: "E", 0x2a: "R", 0x2b: "T",

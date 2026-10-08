@@ -493,7 +493,12 @@ Run the focused check from the project root:
     queue in the library, which the window's goroutine reads.
     `HaikuViewEvent` carries the `BWindow`. `GIO_HAIKU_TRACE=1` prints the
     events given to Gio and slow frames; `GIO_HAIKU_INPUT` names a file of
-    input commands, for tests without a screen.
+    input commands, for tests without a screen (`raw CODE MODIFIERS TEXT`
+    for a key with modifiers, as shortcuts are). Files dragged from Tracker
+    are `DropEvent`s: the view takes a drag whose message has `refs` from
+    its moves, keeps the files' paths for `gh_window_drop_paths`, and tells
+    of the drop from the dropped message. Shortcuts name keys by the US
+    layout's character, punctuation too.
   - `app/gl_haiku.go`: OpenGL 3.3 core through OSMesa into memory, drawn
     into an `SRGB8_ALPHA8` texture and blitted to OSMesa's linear
     framebuffer undecoded; the context is `Shared` and keeps a vertex array
