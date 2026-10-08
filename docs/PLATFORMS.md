@@ -1,8 +1,9 @@
-# Platforms: the graphics stack, and Unix systems other than Linux
+# Platforms: the graphics stack, other systems, and Windows 7
 
 How Gio draws on each platform, and what building KomaruGram for other
-Unix-like systems takes, from a FreeBSD build tried in October 2026; and
-how it is built and run on Haiku, from the port of October 2026.
+Unix-like systems takes, from a FreeBSD build tried in October 2026; how
+it is built and run on Haiku, from the port of October 2026; and how it
+is built for Windows 7, which Go itself no longer runs on.
 
 **What is checked stays Linux, Windows and macOS.** A native build for FreeBSD,
 and likely OpenBSD, is possible and cheap to port, but nobody runs it;
@@ -21,7 +22,7 @@ under it are the graphics APIs of each:
 |---|---|---|---|
 | Linux, Wayland | `app/os_wayland.go` | OpenGL ES 3 through EGL; Vulkan if that fails | `NewContext`: EGL first |
 | Linux, X11 | `app/os_x11.go`, `os_x11_xi2.go` | OpenGL ES 3 through EGL | Vulkan is there but off: `vulkanBuggy = true` |
-| Windows | `app/os_windows.go` | Direct3D 11; EGL (ANGLE's `libEGL.dll`) if that fails | priority: D3D11 1, EGL 2 |
+| Windows | `app/os_windows.go` | Direct3D 11, WARP (its software rasterizer) once the GPU's device was lost before its first frame; EGL (ANGLE's `libEGL.dll`) if that fails | priority: D3D11 1, EGL 2 |
 | macOS | `app/os_macos.go` | Metal; OpenGL with the `nometal` tag | — |
 | Haiku | `app/os_haiku.go`, `app/internal/haiku` | OpenGL 3.3 core through OSMesa (llvmpipe), into memory; the window shows the frames | the only one (see Haiku below) |
 | Android, iOS, js | their own | GLES or Vulkan, Metal or GLES, WebGL | — |
@@ -533,3 +534,84 @@ answer, so its own thread may send it).
   ID is `$(NF-3)`, not `$2`.
 - `hey` drives a window by scripting:
   `hey messenger set Minimize of Window 0 to true`.
+
+## Windows 7
+
+Windows 7 SP1, 64-bit. Go has not run there since 1.21: a program built
+by Go 1.27 calls a function Windows 7 lacks before `main` and dies with
+`Exception 0xc0000005` at `PC=0x0`. It is built with the Go of
+[go-legacy-win7](https://github.com/thongtech/go-legacy-win7), Go with
+what Windows 7 needs put back, released for each Go version (1.27.1-1 of
+2026-09-04 here, the toolchain the maintainer chose):
+
+```sh
+# the release's archive for the system that builds, unpacked to ~/go-win7
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 GOTOOLCHAIN=local ~/go-win7/bin/go build -o messenger.exe ./cmd/messenger
+```
+
+`GOTOOLCHAIN=local` keeps it from fetching upstream Go for the `go` line
+of `go.mod`. Nothing else changes: the same tree builds for Windows 10
+with upstream Go.
+
+### What was changed for it
+
+- **The mouse** (Gio): `EnableMouseInPointer` is Windows 8's, and the
+  window panicked as it was made. Without it the mouse comes as
+  `WM_MOUSEMOVE`, `WM_LBUTTONDOWN` and the like, handled as upstream Gio
+  did before it took up the pointer input.
+- **Direct3D** (Gio): the Direct3D 11 of VirtualBox's driver (7.2.14) makes
+  a device of feature level 11_0 and loses it on the first `Present`, with
+  `DXGI_ERROR_DRIVER_INTERNAL_ERROR`; the window closed with "GPU device
+  lost". A device lost before its first frame turns Gio to WARP for good,
+  and a device lost on `Present` is made anew instead of closing the
+  window. `GIO_D3D11_WARP=1` turns to WARP from the start.
+- **Mini Apps**: browsers on Windows are rarely on `PATH`. The ones
+  registered under `Clients\StartMenuInternet` (for the user and for the
+  machine) are looked at too, by the name of their program: Chromium- and
+  Firefox-based only, as Internet Explorer is there and its version reads
+  like Chromium's. Where Gio turned to WARP, Chromium-based browsers start
+  with `--disable-gpu`: on the same driver Supermium's window stayed white.
+  This reaches every Windows.
+- **Emoji typed** (Gio, every Windows): a character beyond the BMP comes as
+  two `WM_CHAR`, and each half was dropped.
+
+### Checked on Windows 7
+
+On 2026-10-08, in VirtualBox 7.2.14 with its WDDM driver and Aero on, 4
+cores and 6 GB, Windows 7 SP1 with the updates the maintainer installed
+by hand (servicing stack KB4490628, SHA-2 KB4474419, the platform update
+KB2670838, the Universal C Runtime KB2999226, the convenience rollup
+KB3125574 and later ones):
+
+| What | Result |
+|---|---|
+| Gio's tests, built with go-legacy-win7 and run there | pass, `TestWithoutPointerInput` and the WARP and surrogate ones among them; each of the new ones fails without its fix |
+| `messenger -demo` | the window opens, drawn by WARP, which it turned to on its own; the chat list and chats draw; clicks, the wheel, typing Cyrillic and emoji (with `SendInput`), maximizing |
+| Mini Apps | Supermium 150 (Chromium 150) found among the registered browsers, at `C:\Program Files\Supermium\chrome.exe`; the demo's app opens from the bot's menu button with its init data and theme, keeps its local storage between launches, and Close inside it closes the browser |
+| Tray | a program of the tray package alone shows the icon and a balloon (`Notify`). The demo makes no tray, so it shows no notifications on Windows; and Windows 7 holds back balloons with `NIIF_RESPECT_QUIET_TIME`, which the client sets, for the first hour after a user first signs in |
+
+### Not done
+
+| What | On Windows 7 |
+|---|---|
+| A real account | not run there; protection without a TPM (by the master password) is what a machine of Windows 7 will be offered |
+| FFmpeg | the usual builds of FFmpeg no longer start on Windows 7; one that does is to be chosen. Without it the client runs with fewer features |
+| Aero's glass behind the window | not tried: the window keeps the system's frame there. `DwmEnableBlurBehindWindow`, which only makes the window see-through since Windows 8, blurs on Windows 7 |
+| Real hardware | only the VM, whose driver fails Direct3D 11 |
+
+### Things met on the way
+
+- Supermium in this VM: with the Guest Additions' driver its windows
+  showed artifacts, and with Aero it hung (as in
+  [supermium#1448](https://github.com/win32ss/supermium/issues/1448), where
+  its author names VM versions with broken DWM). With `--disable-gpu` it
+  works.
+- Updates: Windows Update no longer serves Windows 7. The Guest
+  Additions' drivers are signed with SHA-2 only, which Windows 7 takes after
+  KB4490628 and KB4474419.
+- Over SSH (Bitvise SSH Server), commands run in a session that does not
+  see the desktop: programs with windows were started by a scheduled task
+  in the user's session (`schtasks /it`), with their command line in a
+  batch file, which cmd reads in the OEM code page (866): text with
+  Cyrillic in it went as hex. A test binary that panicked stayed running
+  after the panic until killed.
