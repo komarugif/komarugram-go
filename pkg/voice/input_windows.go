@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"os/exec"
 	"time"
 
 	"komarugram/pkg/program"
@@ -16,7 +15,7 @@ import (
 func inputs(ctx context.Context, ffmpeg string) ([][]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, ffmpeg, "-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy")
+	cmd := program.CommandContext(ctx, ffmpeg, "-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy")
 	program.Group(cmd)
 	var out bytes.Buffer
 	cmd.Stderr = &out

@@ -8,7 +8,7 @@ import (
 	"image"
 	"image/draw"
 	"io"
-	"os/exec"
+	"komarugram/pkg/program"
 	"strings"
 	"time"
 )
@@ -92,7 +92,7 @@ func DecodeClip(path string, maxHeight int, fps float64, maxFrames int, format F
 		return nil, errors.New("ffmpeg is not installed")
 	}
 	// No -re here: the clip is read as fast as ffmpeg can decode it.
-	cmd := exec.Command(ffmpeg,
+	cmd := program.Command(ffmpeg,
 		"-hide_banner", "-loglevel", "error",
 		"-threads", "1",
 		"-i", path,

@@ -5,6 +5,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"komarugram/pkg/program"
 	"os"
 	"os/exec"
 	"runtime"
@@ -72,7 +73,7 @@ func chooseFiles(ctx context.Context, filter *fileFilter, several bool) fileChoi
 			script += `$dialog.Multiselect = $true; `
 		}
 		script += `if ($dialog.ShowDialog() -eq 'OK') { $dialog.FileNames }`
-		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-STA", "-Command", script)
+		cmd = program.CommandContext(ctx, "powershell", "-NoProfile", "-STA", "-Command", script)
 	case "darwin":
 		var script string
 		if several {
@@ -96,7 +97,7 @@ repeat with one in chosen
 set output to output & POSIX path of one & linefeed
 end repeat
 output`
-		cmd = exec.CommandContext(ctx, "osascript", "-e", script)
+		cmd = program.CommandContext(ctx, "osascript", "-e", script)
 	case "haiku":
 		args := []string{"--load", "--kind", "f"}
 		if home, err := os.UserHomeDir(); err == nil {
@@ -105,7 +106,7 @@ output`
 		if !several {
 			args = append(args, "--single")
 		}
-		cmd = exec.CommandContext(ctx, "filepanel", args...)
+		cmd = program.CommandContext(ctx, "filepanel", args...)
 	default:
 		if _, err := exec.LookPath("kdialog"); err == nil {
 			args := []string{"--getopenfilename", "."}
@@ -115,7 +116,7 @@ output`
 			if several {
 				args = append(args, "--multiple", "--separate-output")
 			}
-			cmd = exec.CommandContext(ctx, "kdialog", args...)
+			cmd = program.CommandContext(ctx, "kdialog", args...)
 		} else if _, err := exec.LookPath("zenity"); err == nil {
 			args := []string{"--file-selection"}
 			if filter != nil {
@@ -124,7 +125,7 @@ output`
 			if several {
 				args = append(args, "--multiple", "--separator=\n")
 			}
-			cmd = exec.CommandContext(ctx, "zenity", args...)
+			cmd = program.CommandContext(ctx, "zenity", args...)
 		} else {
 			return fileChoice{err: errNoChooser}
 		}

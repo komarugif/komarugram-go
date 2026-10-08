@@ -8,7 +8,19 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
+
+	"golang.org/x/sys/windows"
 )
+
+// noWindow keeps a console program from opening a console window. A
+// program with windows of its own, a player or a browser, still shows them.
+func noWindow(cmd *exec.Cmd) {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = new(syscall.SysProcAttr)
+	}
+	cmd.SysProcAttr.CreationFlags |= windows.CREATE_NO_WINDOW
+}
 
 // Group does nothing on Windows: there is no flatpak to leave a program
 // behind, and killing the process is enough.
@@ -34,7 +46,7 @@ func FileVersion(ctx context.Context, path string) (product, version string, err
 	ctx, cancel := context.WithTimeout(ctx, bannerTimeout)
 	defer cancel()
 	// The path goes in through the environment, never into the script.
-	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command",
+	cmd := CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command",
 		`$v = (Get-Item -LiteralPath $env:KITCHEN_PROGRAM).VersionInfo; $v.ProductName; $v.ProductVersion`)
 	cmd.Env = append(cmd.Environ(), "KITCHEN_PROGRAM="+path)
 	out := &limitedBuffer{limit: bannerLimit}

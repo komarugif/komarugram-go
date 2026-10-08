@@ -600,6 +600,15 @@ with upstream Go.
   which the check for 3.x refused. Where Gio turned to WARP, VLC is given
   `--vout=directdraw`: its Direct3D 11 and 9 outputs showed black on the
   same driver.
+- **Console windows** (every Windows): the client, a program with windows
+  only (`gogio` builds it so), started console programs, ffmpeg, ffprobe
+  and powershell, and Windows opened a console window for each: they
+  flashed up on every probe of a file and every animation decoded by
+  FFmpeg (seen by the maintainer on Windows 7). Every program the client
+  starts goes through `program.Command`, which gives it
+  `CREATE_NO_WINDOW`; `TestEveryStartGoesThroughCommand` finds a start
+  through `os/exec` anywhere else. A windowed probe on Windows 7 saw the
+  console window with `os/exec` and none with `program.Command`.
 - **A program picked in the settings** (every Windows): PowerShell 2.0,
   Windows 7's, starts its output with a byte order mark once told to print
   UTF-8, and the path the file dialog returned began with U+FEFF: every

@@ -148,6 +148,8 @@ modules are not in this repository, and the client fetches them
   FTS5 is registered for every connection in `historycache` (`AutoExtension`);
   its triggers need it.
 - **A new test must fail without the fix.** Break the code, run, restore.
+- **Programs are started with `program.Command`**, not `os/exec`: on
+  Windows a console program started otherwise flashes a console window.
 
 ## Gio in short
 

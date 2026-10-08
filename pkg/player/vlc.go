@@ -82,7 +82,7 @@ func openVLC(ctx context.Context, path, source string, extra []string) (*vlc, er
 	args = append(args, extra...)
 	args = append(args, source)
 
-	cmd := exec.CommandContext(ctx, path, args...)
+	cmd := program.CommandContext(ctx, path, args...)
 	program.Group(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start vlc: %w", err)

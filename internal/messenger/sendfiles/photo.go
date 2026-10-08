@@ -12,7 +12,6 @@ import (
 	"image/jpeg"
 	_ "image/png" // registers PNG for image.Decode
 	"os"
-	"os/exec"
 
 	// GIF's first frame is a preview and a photo; the others are what people
 	// have in their folders.
@@ -22,6 +21,7 @@ import (
 	xdraw "golang.org/x/image/draw"
 	_ "golang.org/x/image/tiff"
 	_ "golang.org/x/image/webp"
+	"komarugram/pkg/program"
 )
 
 // jpegQuality is Telegram Desktop's, for the photos it recompresses.
@@ -131,7 +131,7 @@ func VideoThumbnail(ctx context.Context, ffmpeg, path string, side int) (*image.
 	if ffmpeg == "" {
 		return nil, errors.New("no ffmpeg")
 	}
-	cmd := exec.CommandContext(ctx, ffmpeg, "-v", "error", "-i", path, "-frames:v", "1",
+	cmd := program.CommandContext(ctx, ffmpeg, "-v", "error", "-i", path, "-frames:v", "1",
 		"-vf", "scale='min("+itoa(side)+",iw)':-2", "-f", "image2pipe", "-c:v", "png", "-")
 	out, err := cmd.Output()
 	if err != nil {

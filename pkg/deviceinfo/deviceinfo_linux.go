@@ -4,8 +4,8 @@ package deviceinfo
 
 import (
 	"context"
+	"komarugram/pkg/program"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 )
@@ -26,7 +26,7 @@ func model() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	// It exits with 1 when it prints "none".
-	out, _ := exec.CommandContext(ctx, "systemd-detect-virt").Output()
+	out, _ := program.CommandContext(ctx, "systemd-detect-virt").Output()
 	if m := virtualizationModel(string(out)); m != "" {
 		return m
 	}

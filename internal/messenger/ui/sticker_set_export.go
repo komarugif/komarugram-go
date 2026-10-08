@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	"komarugram/internal/messenger/model"
+	"komarugram/pkg/program"
 )
 
 const maxStickerArchiveBytes = 512 << 20
@@ -185,17 +186,17 @@ func chooseStickerArchive(ctx context.Context, title string) (string, error) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-STA", "-Command", `Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.SaveFileDialog; $dialog.Filter = 'ZIP archive (*.zip)|*.zip'; $dialog.DefaultExt = 'zip'; $dialog.FileName = $env:KOMARUGRAM_ZIP_NAME; if ($dialog.ShowDialog() -eq 'OK') { $dialog.FileName }`)
+		cmd = program.CommandContext(ctx, "powershell", "-NoProfile", "-STA", "-Command", `Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.SaveFileDialog; $dialog.Filter = 'ZIP archive (*.zip)|*.zip'; $dialog.DefaultExt = 'zip'; $dialog.FileName = $env:KOMARUGRAM_ZIP_NAME; if ($dialog.ShowDialog() -eq 'OK') { $dialog.FileName }`)
 		cmd.Env = append(os.Environ(), "KOMARUGRAM_ZIP_NAME="+suggested)
 	case "darwin":
-		cmd = exec.CommandContext(ctx, "osascript", "-e", `on run argv`, "-e", `POSIX path of (choose file name with default name (item 1 of argv))`, "-e", `end run`, name)
+		cmd = program.CommandContext(ctx, "osascript", "-e", `on run argv`, "-e", `POSIX path of (choose file name with default name (item 1 of argv))`, "-e", `end run`, name)
 	case "haiku":
-		cmd = exec.CommandContext(ctx, "filepanel", "--save", "--directory", dir, "--name", name)
+		cmd = program.CommandContext(ctx, "filepanel", "--save", "--directory", dir, "--name", name)
 	default:
 		if _, err := exec.LookPath("kdialog"); err == nil {
-			cmd = exec.CommandContext(ctx, "kdialog", "--getsavefilename", suggested, "*.zip|ZIP archives")
+			cmd = program.CommandContext(ctx, "kdialog", "--getsavefilename", suggested, "*.zip|ZIP archives")
 		} else if _, err := exec.LookPath("zenity"); err == nil {
-			cmd = exec.CommandContext(ctx, "zenity", "--file-selection", "--save", "--confirm-overwrite", "--filename="+suggested, "--file-filter=ZIP archives | *.zip")
+			cmd = program.CommandContext(ctx, "zenity", "--file-selection", "--save", "--confirm-overwrite", "--filename="+suggested, "--file-filter=ZIP archives | *.zip")
 		} else {
 			return "", errors.New("file chooser unavailable")
 		}

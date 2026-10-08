@@ -133,7 +133,7 @@ func (r *Recorder) finish(err error) {
 func (r *Recorder) record(input []string) (bool, error) {
 	args := append([]string{"-hide_banner", "-loglevel", "error"}, input...)
 	args = append(args, "-ac", "1", "-ar", fmt.Sprint(Rate), "-f", "s16le", "-flush_packets", "1", "-")
-	cmd := exec.CommandContext(r.ctx, r.ffmpeg, args...)
+	cmd := program.CommandContext(r.ctx, r.ffmpeg, args...)
 	program.Group(cmd)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -291,7 +291,7 @@ func Encode(ctx context.Context, ffmpeg string, pcm []int16, path string) error 
 	for i, s := range pcm {
 		binary.LittleEndian.PutUint16(data[2*i:], uint16(s))
 	}
-	cmd := exec.CommandContext(ctx, ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+	cmd := program.CommandContext(ctx, ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
 		"-f", "s16le", "-ar", fmt.Sprint(Rate), "-ac", "1", "-i", "-",
 		"-c:a", "libopus", "-b:a", "32k", "-application", "voip", "-f", "ogg", path)
 	program.Group(cmd)

@@ -10,11 +10,11 @@ import (
 	"image/png"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
 	"komarugram/internal/appicon"
+	"komarugram/pkg/program"
 )
 
 // New returns the notifier of Haiku: its notification_server, through the
@@ -65,7 +65,7 @@ func (h *haikuNotifier) show(n Notification) {
 	args = append(args, clip(n.Body, 1000))
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if out, err := exec.CommandContext(ctx, "notify", args...).CombinedOutput(); err != nil {
+	if out, err := program.CommandContext(ctx, "notify", args...).CombinedOutput(); err != nil {
 		log.Printf("notify: %v: %s", err, out)
 	}
 }

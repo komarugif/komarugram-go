@@ -67,7 +67,7 @@ var ErrNoBanner = errors.New("the program did not print its version")
 func Banner(ctx context.Context, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, bannerTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := CommandContext(ctx, name, args...)
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANGUAGE=C")
 	out := &limitedBuffer{limit: bannerLimit}
 	cmd.Stdout = out

@@ -6,6 +6,7 @@ package alert
 
 import (
 	"errors"
+	"komarugram/pkg/program"
 	"os/exec"
 	"runtime"
 )
@@ -31,7 +32,7 @@ func show(title, text string) bool {
 		}
 		// The dialog's exit status tells how it was closed, not whether it
 		// was shown: a program that ran has shown it.
-		err = exec.Command(path, c[1:]...).Run()
+		err = program.Command(path, c[1:]...).Run()
 		if exited := new(exec.ExitError); err == nil || errors.As(err, &exited) {
 			return true
 		}
