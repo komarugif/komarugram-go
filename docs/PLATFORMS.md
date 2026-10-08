@@ -416,10 +416,11 @@ would be a queue the client polls. HaikuPorts' `ladybird` is a build of July
   300 s behind or 30 s ahead of the local clock (`bad message id …
   created too far` at the debug level, then `Retry limit reached` and a
   new connection every minute): the client shows its cache and toasts
-  network errors. VirtualBox gives the guest its clock in local time
-  unless told otherwise, and Haiku took it as GMT: 3 hours off. Telegram
-  Desktop keeps working with a wrong clock, correcting by the server's
-  time; gotd does not.
+  network errors. Here the hardware clock was taken as local time, as
+  VirtualBox gives it, but the time zone was left at GMT, so UTC came out
+  3 hours ahead; choosing the time zone in the Time preferences fixed it
+  (2026-10-08). Telegram Desktop keeps working with a wrong clock,
+  correcting by the server's time; gotd does not.
 - Haiku's `ps` puts a command's arguments in its first column: the team's
   ID is `$(NF-3)`, not `$2`.
 - `hey` drives a window by scripting:
