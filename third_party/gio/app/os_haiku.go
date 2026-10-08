@@ -76,6 +76,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -222,6 +223,13 @@ func newHaikuWindow(gioWin *callbacks, options []Option) error {
 	if cnf.Decorated {
 		dec = 1
 	}
+	// A BWindow is made locked by the thread that makes it, until Show
+	// runs its looper; LockLooper on another thread waits until then. The
+	// calls up to Show lock it, so they must all come from this thread:
+	// a goroutine moved to another one by the scheduler hung the window
+	// before it was ever shown.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	w.win = C.pgh_window_create(C.int32_t(size.X), C.int32_t(size.Y), title, dec)
 	if w.win == nil {
 		return errors.New("haiku: cannot create the window")

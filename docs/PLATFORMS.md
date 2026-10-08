@@ -168,6 +168,15 @@ and then.
      which Haiku does not honor in `accept` (below): the client's
      single-instance socket held a thread in `accept`, and the process never
      ended after its windows closed.
+   - `netpoll(0)`, the scheduler's look at the sockets without waiting,
+     returned at once without looking (a `TODO` taken from AIX). While
+     every P is busy, as the client's are while it draws, a socket's data
+     was then noticed only when a P had nothing else to run: a probe with
+     four busy goroutines on four Ps never finished even its `Dial`, and
+     reads now return in 35–55 ms. It does not wait on the `netpoll` that
+     blocks, which holds the descriptors' lock as long as it waits; waking
+     that one instead made the two wake each other and kept a core busy
+     (2026-10-08).
 
    [Quad4-Software/go-haiku](https://github.com/Quad4-Software/go-haiku),
    another Go 1.27.1 from korli's port, whose commits are an LLM agent's,
@@ -395,6 +404,22 @@ would be a queue the client polls. HaikuPorts' `ladybird` is a build of July
 - A socket made with `SOCK_NONBLOCK` in `socket()` reports `O_NONBLOCK`
   on Haiku R1/beta6, but `accept` on it blocks; set by `fcntl`, the flag
   works (a C test, 2026-10-08). The Go fork above makes sockets so.
+- A BWindow is made locked by the thread that makes it, and only `Show`,
+  running its looper, unlocks it: `LockLooper` from another thread waits
+  until then. The driver locks the window between making and showing it
+  (its size, `Configure`), so that goroutine is held on its thread
+  (`runtime.LockOSThread`). Without it, whenever the scheduler moved the
+  goroutine, the window never showed and nothing ended: 3 starts of 3 of
+  the client after the change of `netpoll` above, 1 of 4 in a control
+  run; with it, 12 of 12 (2026-10-08).
+- gotd rejects every message from Telegram whose ID, a time, is more than
+  300 s behind or 30 s ahead of the local clock (`bad message id …
+  created too far` at the debug level, then `Retry limit reached` and a
+  new connection every minute): the client shows its cache and toasts
+  network errors. VirtualBox gives the guest its clock in local time
+  unless told otherwise, and Haiku took it as GMT: 3 hours off. Telegram
+  Desktop keeps working with a wrong clock, correcting by the server's
+  time; gotd does not.
 - Haiku's `ps` puts a command's arguments in its first column: the team's
   ID is `$(NF-3)`, not `$2`.
 - `hey` drives a window by scripting:
