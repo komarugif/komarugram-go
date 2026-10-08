@@ -881,6 +881,22 @@ void gh_gl_swap(void *w) {
 		win->PostMessage(kShowFrame);
 }
 
+void gh_gl_release(void *w) {
+	GioWindow *win = Win(w);
+	if (win->fContext != NULL) {
+		OSMesaDestroyContext(win->fContext);
+		win->fContext = NULL;
+	}
+	free(win->fBuffer);
+	win->fBuffer = NULL;
+	win->fWidth = win->fHeight = 0;
+	// Without a frame, the view asks Gio for one when it is shown.
+	win->fFrame.lock.Lock();
+	delete win->fFrame.bitmap;
+	win->fFrame.bitmap = NULL;
+	win->fFrame.lock.Unlock();
+}
+
 int32_t gh_clipboard_write(const char *mime, const void *data, int32_t len) {
 	if (!be_clipboard->Lock())
 		return B_ERROR;

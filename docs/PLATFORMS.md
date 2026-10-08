@@ -192,6 +192,12 @@ and then.
      the client's crash report of a `SIGQUIT` held one line. Secure mode
      is now told by the IDs, as on AIX, and `SIGQUIT` dumps the
      goroutines (2026-10-08).
+   - `madvise` was commented out in `sysUnusedOS` (`mem_bsd.go`), so the
+     heap the scavenger and `debug.FreeOSMemory` released stayed the
+     process's. Haiku's `MADV_DONTNEED` keeps the pages and their contents,
+     its `MADV_FREE` gives them back at once (a C test); the runtime now
+     uses `MADV_FREE` there. A Go program that held 200 MB came back to
+     2 MB after `FreeOSMemory` (2026-10-08).
 
    [Quad4-Software/go-haiku](https://github.com/Quad4-Software/go-haiku),
    another Go 1.27.1 from korli's port, whose commits are an LLM agent's,
@@ -387,6 +393,7 @@ From 2026-10-07 to 2026-10-08, in the VM above:
 | Copying | the copy button of a code block puts its text, Cyrillic and emoji too, on Haiku's clipboard (`clipboard -p`, 2026-10-08) |
 | Sound | through the Media Kit, with the patch of oto above: `pkg/audio`'s tests pass there, the live `TestPlaybackEndsAndReplays` among them, and three seconds of a 440 Hz tone took 3.29 s and were heard by the maintainer (2026-10-08) |
 | Tray | an item of the Deskbar (`libtrayhaiku.so`, below): the client's icon shows; closing the window leaves the client running; a click on the icon brings the window back, and its menu opens (both by the maintainer); Quit ends the client and the item goes; after `kill -9` the item removed itself within 4 s and left nothing in the Deskbar's settings (2026-10-08) |
+| Memory | measured as the RAM of the team's areas (`area_info.ram_size`; `listarea`'s columns do not show it). The demo, shown and minimized: 149 and 149 MB before the `madvise` fix of the runtime above, 109 and 89 MB after it; destroying the OSMesa context on minimize too, 104 and 71 MB. Over seven cycles of minimizing the minimized window reached 110 MB and stayed there, against 121 MB and still growing without destroying the context: Haiku's malloc heap does not shrink, and a context made anew takes more of it (2026-10-08) |
 | Players | mpv 0.41.0 and VLC 3.0.23 from HaikuPorts (`pkgman install mpv vlc`): `pkg/player`'s tests pass for both, control, seeking a stream, closing (2026-10-08). VLC for Haiku has no `--one-instance`, built only with D-Bus or for Windows, and refused to start on it; it is no longer passed there (nor on macOS, whose VLC has no D-Bus either: not checked there). Given no item (`""`, which only `TestCloseLeavesNothing` gave it) VLC for Haiku crashes within seconds, and the system's crash dialog came up for each run; the test now gives it `vlc://pause:60`. Saving a report of a VLC crash crashed the Debugger itself. Told to `quit` while it played an HTTP stream, VLC once kept running, a core busy; the client kills it after `quit` anyway. Firefox's `TestChromiumOpensAtSize` fails only because the VM's screen, 768 pixels high, is lower than the window it asks for |
 | Choosing files | Haiku's own panel, `filepanel` (in the system): opening a file for the attachment menu leads to the box for sending it; saving prints its path the same way (2026-10-08). The Open button was pressed by the maintainer once and then by `~/haiku-tools/tests/sendrefs`, which sends the panel's messages |
 | Editing | typing, Backspace, the arrows and Delete in an editor of a Gio test program |

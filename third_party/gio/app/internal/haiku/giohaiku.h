@@ -20,7 +20,7 @@ extern "C" {
 
 // GH_ABI changes whenever this interface does; gh_abi returns it, and Gio
 // refuses a library of another version.
-#define GH_ABI 2
+#define GH_ABI 3
 
 enum {
 	GH_EV_NONE = 0,
@@ -125,6 +125,10 @@ void gh_window_set_cursor(void *w, int32_t cursor);
 int32_t gh_gl_lock(void *w, int32_t width, int32_t height);
 void gh_gl_unlock(void *w);
 void gh_gl_swap(void *w);
+// gh_gl_release destroys the OSMesa context with its buffer, and the shown
+// frame: a hidden window gives them back, and gh_gl_lock makes them anew.
+// The context must not be current.
+void gh_gl_release(void *w);
 
 // gh_clipboard_write replaces the clipboard with data of the MIME type mime.
 int32_t gh_clipboard_write(const char *mime, const void *data, int32_t len);

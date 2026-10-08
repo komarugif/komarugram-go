@@ -499,6 +499,12 @@ Run the focused check from the project root:
     framebuffer undecoded; the context is `Shared` and keeps a vertex array
     bound. `BGLView` and Haiku's EGL were tried first and do not work for
     this (see `docs/PLATFORMS.md`).
+    `Release`, which a minimized window's `destroyGPU` calls too, destroys
+    the OSMesa context with its window-sized buffer and the shown frame
+    (`gh_gl_release`); `Lock` makes them anew.
+  - `newHaikuWindow` holds its goroutine on its thread from making the
+    `BWindow` to `Show`: a `BWindow` is locked by the thread that makes it
+    until it runs, and the calls in between lock it.
   - `app/internal/haiku/{giohaiku.h,giohaiku.cpp,build.go}`: the library, in
     C++ on the Be API: a `BApplication` thread, a `BWindow` and `BView` for
     each window, frames shown by the window's thread from a `BBitmap`;

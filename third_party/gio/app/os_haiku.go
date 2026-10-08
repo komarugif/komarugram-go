@@ -42,6 +42,7 @@ static void *gh_lib;
 	X(int32_t, gh_gl_lock, (void *a, int32_t b, int32_t c), (a, b, c)) \
 	X(void, gh_gl_unlock, (void *a), (a)) \
 	X(void, gh_gl_swap, (void *a), (a)) \
+	X(void, gh_gl_release, (void *a), (a)) \
 	X(int32_t, gh_clipboard_write, (const char *a, const void *b, int32_t c), (a, b, c)) \
 	X(void *, gh_clipboard_read, (const char *a, int32_t *b), (a, b)) \
 	X(void, gh_free, (void *a), (a))
@@ -562,8 +563,9 @@ func haikuGLLock(win unsafe.Pointer, size image.Point) error {
 	}
 	return nil
 }
-func haikuGLUnlock(win unsafe.Pointer) { C.pgh_gl_unlock(win) }
-func haikuGLSwap(win unsafe.Pointer)   { C.pgh_gl_swap(win) }
+func haikuGLUnlock(win unsafe.Pointer)  { C.pgh_gl_unlock(win) }
+func haikuGLSwap(win unsafe.Pointer)    { C.pgh_gl_swap(win) }
+func haikuGLRelease(win unsafe.Pointer) { C.pgh_gl_release(win) }
 
 func (w *haikuWindow) Invalidate() {
 	if w.win != nil {

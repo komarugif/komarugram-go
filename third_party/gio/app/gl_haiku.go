@@ -112,6 +112,10 @@ func (c *haikuGLContext) Refresh() error {
 	return nil
 }
 
+// Release gives back the context with its buffers: Gio calls it when the
+// window is hidden (minimized) too, and Lock makes them anew when it is
+// shown. OSMesa's context, llvmpipe's, and the window-sized buffers stayed
+// otherwise.
 func (c *haikuGLContext) Release() {
 	if c.w.win == nil {
 		return
@@ -120,6 +124,10 @@ func (c *haikuGLContext) Release() {
 		c.release()
 		c.Unlock()
 	}
+	// The objects were the destroyed context's.
+	c.vao = gl.VertexArray{}
+	c.size = image.Point{}
+	haikuGLRelease(c.w.win)
 }
 
 func (c *haikuGLContext) Lock() error {
