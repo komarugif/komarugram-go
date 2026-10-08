@@ -57,6 +57,10 @@ go install gioui.org/cmd/gogio@latest
 gogio -ldflags="-s -w" -icon=./assets/logo_round.png -target=windows -o komarugram.exe ./cmd/messenger
 ```
 
+### **Haiku:**
+
+Haiku needs a Go of its own and a few patched modules; the steps, all on Haiku itself, are in [BUILD_HAIKU.md](./docs/BUILD_HAIKU.md).
+
 The build process can consume up to 4 GB of RAM. Keep this in mind and close unnecessary applications during the initial build. All subsequent builds should run instantly.
 
 ## Portability
@@ -67,9 +71,9 @@ KomaruGram Go can be ported to a wide range of operating systems thanks to its a
 |---|---|
 | Windows 10/11 | ✅ First-class support |
 | Linux (Wayland) | ✅ First-class support |
-| Linux (X11) | ✅ Supported, within X11 limitations |
+| Linux (X11) | ✅ Supported |
 | MacOS | ✅ First-class support |
-| Haiku OS | ✅ Builds and runs the demo |
+| Haiku OS | ✅ Supported |
 | FreeBSD | ⚠️ Should build; not tested in practice |
 | OpenBSD | ⚠️ Should build in theory; not tested |
 | NetBSD | ❓ Porting possible, with some caveats |

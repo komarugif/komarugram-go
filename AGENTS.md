@@ -16,6 +16,7 @@ Russian; code, comments and docs are in English.
 |---|---|
 | `cmd/messenger` | Entry point; `account_host.go` runs accounts, windows and their stores |
 | `cmd/render-all` | Renders every screen of the render tests into one directory |
+| `cmd/haiku-build` | Builds the messenger on Haiku itself, patching the modules that need it (`docs/BUILD_HAIKU.md`) |
 | `cmd/emoji-pack` | Makes the catalog of emoji packs built into the client (`official`: Telegram Desktop's emoji sets, pinned to commits), and catalogs of a directory |
 | `internal/messenger/ui` | All messenger UI. Components: `docs/UI_COMPONENTS.md` |
 | `internal/messenger/tgstore` | `model.Store` backed by Telegram (gotd): chats, history, search, updates |

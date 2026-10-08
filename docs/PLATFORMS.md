@@ -144,10 +144,20 @@ Wayland server. Gio had no backend for it; the one here is new
 
 ### Building
 
-Everything is built on Linux; Haiku only runs the program. Compiling
-`github.com/gotd/td/tg` for a new target peaks at 4.8 GB, which Haiku's
-own `go` needs too, and the `go` command on Haiku crashed and stalled now
-and then.
+The steps below build from Linux. On Haiku itself, `cmd/haiku-build`
+does steps 3 to 9, with the fork built there from HaikuPorts' `golang`:
+[BUILD_HAIKU.md](BUILD_HAIKU.md), the guide for users. Tried on
+2026-10-08 in the VM above: the fork in 10 minutes, the client in 5, at a
+peak of 4.5 GB, and the client it built ran with a real account.
+HaikuPorts' `golang` 1.26.8 has the bugs of the runtime the fork fixes
+(`_SS_DISABLE` 4, `exit`, `netpoll(0)`): building the fork with it broke at
+random, an archive whose first 40 bytes were zeros (`not the start of an
+archive file`) or `asm` ending with 255: three runs of three, the third
+with `GODEBUG=asyncpreemptoff=1` alone. With `GOMAXPROCS=1` too, from
+clean, it built, once tried.
+Quad4-Software/go-haiku met the same, and builds with `GOMAXPROCS=1`,
+from clean, and once more when that fails (`haiku/scripts/haiku-build.sh`),
+from korli's `go1.26.1-haiku1` release; it took the cause for the VM's I/O.
 
 1. **Go.** [komarugif/go-haiku](https://github.com/komarugif/go-haiku),
    branch `golang-1.27-haiku`, built on Linux with `src/make.bash`
