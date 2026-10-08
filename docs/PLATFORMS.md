@@ -270,8 +270,17 @@ and then.
      -cxx "clang++ --target=x86_64-unknown-haiku --sysroot=$ROOT -fuse-ld=lld" \
      -o libotohaiku.so
    ```
+8. **libtrayhaiku.so**, the client's item in the Deskbar
+   (`internal/tray/haiku`), found beside the client or in `lib` beside it
+   (or at `KOMARUGRAM_TRAY_LIB`):
 
-Copy `messenger`, `libgiohaiku.so`, `libotohaiku.so` and, for `-demo`, `assets` to Haiku.
+   ```sh
+   go run internal/tray/haiku/build.go \
+     -cxx "clang++ --target=x86_64-unknown-haiku --sysroot=$ROOT -fuse-ld=lld" \
+     -o libtrayhaiku.so
+   ```
+
+Copy `messenger`, `libgiohaiku.so`, `libotohaiku.so`, `libtrayhaiku.so` and, for `-demo`, `assets` to Haiku.
 Then, on Haiku, give `messenger` its resources: its signature, flags,
 version and icon, from `cmd/messenger/messenger.rdef`:
 
@@ -362,6 +371,7 @@ From 2026-10-07 to 2026-10-08, in the VM above:
 | Notifications | through the system's `notify` (`internal/notify/notify_haiku.go`), with the client's icon, one at a time for a chat (`--messageID`): `-demo -demo-notify 20s` (2026-10-08) |
 | Copying | the copy button of a code block puts its text, Cyrillic and emoji too, on Haiku's clipboard (`clipboard -p`, 2026-10-08) |
 | Sound | through the Media Kit, with the patch of oto above: `pkg/audio`'s tests pass there, the live `TestPlaybackEndsAndReplays` among them, and three seconds of a 440 Hz tone took 3.29 s and were heard by the maintainer (2026-10-08) |
+| Tray | an item of the Deskbar (`libtrayhaiku.so`, below): the client's icon shows; closing the window leaves the client running; a click on the icon brings the window back, and its menu opens (both by the maintainer); Quit ends the client and the item goes; after `kill -9` the item removed itself within 4 s and left nothing in the Deskbar's settings (2026-10-08) |
 | Choosing files | Haiku's own panel, `filepanel` (in the system): opening a file for the attachment menu leads to the box for sending it; saving prints its path the same way (2026-10-08). The Open button was pressed by the maintainer once and then by `~/haiku-tools/tests/sendrefs`, which sends the panel's messages |
 | Editing | typing, Backspace, the arrows and Delete in an editor of a Gio test program |
 
@@ -374,7 +384,6 @@ drawn.
 | What | On Haiku |
 |---|---|
 | Voice messages | ffmpeg's only input device there is `lavfi`: no microphone; recording would be the Media Kit's |
-| Tray | the Deskbar's replicants, not written; SNI over D-Bus does not apply |
 | TPM | none; how the key is kept without one was not tried |
 | Emoji | no emoji font on the system, nor in HaikuPorts: the boxes go once an emoji pack is chosen in Settings → Appearance (Apple, downloaded from Telegram Desktop's repository; checked 2026-10-08) |
 | Other windows | the photo viewer's transparent window, drag and drop: not tried |
@@ -406,6 +415,26 @@ its own (`Services/WebDriver`) that starts the browser itself — no events and
 no script that runs before the page's, so the page's half of the transport
 would be a queue the client polls. HaikuPorts' `ladybird` is a build of July
 2022.
+
+### The Deskbar
+
+The tray of Haiku is the Deskbar's: an item there is a view in the
+Deskbar's own process. `libtrayhaiku.so` is a Deskbar add-on
+(`instantiate_deskbar_item`), which the client adds with
+`BDeskbar::AddItem(entry_ref*)`; the Deskbar loads it, archives the view
+it makes and makes it anew from the archive, finding the class,
+`KomaruGramTrayView`, by the symbol of its `Instantiate` in the images it
+has loaded. The item knows the client only by a port the client makes,
+`komarugram-go tray`: it writes a click and a chosen item there, and asks
+there for its tooltip and menu, which the client answers on a port of the
+item's, so that a change of language shows at once. Its icon is the
+client's, from the file of its signature.
+
+The Deskbar keeps the path of an add-on in its settings and loads it
+again when it starts. An item whose client is gone, crashed or killed,
+would stay: the item looks for the port every two seconds and, when it is
+gone, removes itself (`BDeskbar::RemoveItem`, which the Deskbar does not
+answer, so its own thread may send it).
 
 ### Things met on the way
 
