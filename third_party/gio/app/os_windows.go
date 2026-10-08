@@ -69,6 +69,11 @@ type window struct {
 	unseen windows.Rect
 	// drop takes the files dragged over the window; nil if it cannot.
 	drop *dropTarget
+	// legacyMouse is set where the system has no pointer input, before
+	// Windows 8: the mouse comes as WM_MOUSEMOVE, WM_LBUTTONDOWN and the
+	// like, and mouseBtns are the buttons held.
+	legacyMouse bool
+	mouseBtns   pointer.Buttons
 }
 
 const _WM_WAKEUP = windows.WM_USER + iota
@@ -216,7 +221,9 @@ func (w *window) init() error {
 	if err := windows.RegisterTouchWindow(hwnd, 0); err != nil {
 		return err
 	}
-	if err := windows.EnableMouseInPointer(1); err != nil {
+	if err := windows.EnableMouseInPointer(1); err == windows.ErrNoPointerInput {
+		w.legacyMouse = true
+	} else if err != nil {
 		return err
 	}
 	w.hdc, err = windows.GetDC(hwnd)
@@ -337,6 +344,43 @@ func windowProc(hwnd syscall.Handle, msg uint32, wParam, lParam uintptr) uintptr
 		}
 
 		w.pointerUpdate(pi, pid, kind, lParam)
+	case windows.WM_LBUTTONDOWN, windows.WM_LBUTTONUP, windows.WM_RBUTTONDOWN, windows.WM_RBUTTONUP,
+		windows.WM_MBUTTONDOWN, windows.WM_MBUTTONUP, windows.WM_XBUTTONDOWN, windows.WM_XBUTTONUP:
+		if !w.legacyMouse {
+			break
+		}
+		btn, press := mouseButton(msg, wParam)
+		w.mouseButton(btn, press, lParam)
+		if msg == windows.WM_XBUTTONDOWN || msg == windows.WM_XBUTTONUP {
+			return 1
+		}
+		return 0
+	case windows.WM_MOUSEMOVE:
+		if !w.legacyMouse {
+			break
+		}
+		x, y := coordsFromlParam(lParam)
+		w.ProcessEvent(pointer.Event{
+			Kind:      pointer.Move,
+			Source:    pointer.Mouse,
+			Position:  f32.Pt(float32(x), float32(y)),
+			Buttons:   w.mouseBtns,
+			Time:      windows.GetMessageTime(),
+			Modifiers: getModifiers(),
+		})
+		return 0
+	case windows.WM_MOUSEWHEEL, windows.WM_MOUSEHWHEEL:
+		if !w.legacyMouse {
+			break
+		}
+		w.scrollEvent(wParam, lParam, msg == windows.WM_MOUSEHWHEEL, getModifiers(), w.mouseBtns)
+		return 0
+	case windows.WM_CAPTURECHANGED:
+		// Another window took the mouse while buttons were held.
+		if w.legacyMouse && w.mouseBtns != 0 {
+			w.mouseBtns = 0
+			w.ProcessEvent(pointer.Event{Kind: pointer.Cancel, Source: pointer.Mouse})
+		}
 	case windows.WM_CANCELMODE:
 		w.ProcessEvent(pointer.Event{
 			Kind: pointer.Cancel,
@@ -356,10 +400,12 @@ func windowProc(hwnd syscall.Handle, msg uint32, wParam, lParam uintptr) uintptr
 		np := windows.Point{X: int32(x), Y: int32(y)}
 		windows.ScreenToClient(w.hwnd, &np)
 		return w.hitTest(int(np.X), int(np.Y))
-	case windows.WM_POINTERWHEEL:
-		w.scrollEvent(wParam, lParam, false, getModifiers())
-	case windows.WM_POINTERHWHEEL:
-		w.scrollEvent(wParam, lParam, true, getModifiers())
+	case windows.WM_POINTERWHEEL, windows.WM_POINTERHWHEEL:
+		pi, err := windows.GetPointerInfo(uint32(getPointerIDwParam(wParam)))
+		if err != nil {
+			panic(err)
+		}
+		w.scrollEvent(wParam, lParam, msg == windows.WM_POINTERHWHEEL, getModifiers(), getPointerButtons(pi))
 	case windows.WM_DESTROY:
 		w.revokeDropTarget()
 		w.ProcessEvent(Win32ViewEvent{})
@@ -679,13 +725,64 @@ func coordsFromlParam(lParam uintptr) (int, int) {
 	return x, y
 }
 
-func (w *window) scrollEvent(wParam, lParam uintptr, horizontal bool, kmods key.Modifiers) {
-	pid := getPointerIDwParam(wParam)
-	pi, err := windows.GetPointerInfo(uint32(pid))
-	if err != nil {
-		panic(err)
+// mouseButton returns the button of a button message of the mouse, and
+// whether it went down.
+func mouseButton(msg uint32, wParam uintptr) (pointer.Buttons, bool) {
+	switch msg {
+	case windows.WM_LBUTTONDOWN:
+		return pointer.ButtonPrimary, true
+	case windows.WM_LBUTTONUP:
+		return pointer.ButtonPrimary, false
+	case windows.WM_RBUTTONDOWN:
+		return pointer.ButtonSecondary, true
+	case windows.WM_RBUTTONUP:
+		return pointer.ButtonSecondary, false
+	case windows.WM_MBUTTONDOWN:
+		return pointer.ButtonTertiary, true
+	case windows.WM_MBUTTONUP:
+		return pointer.ButtonTertiary, false
 	}
+	// WM_XBUTTONDOWN and WM_XBUTTONUP: GET_XBUTTON_WPARAM says which.
+	btn := pointer.ButtonQuaternary
+	if (wParam>>16)&0xffff == windows.XBUTTON2 {
+		btn = pointer.ButtonQuinary
+	}
+	return btn, msg == windows.WM_XBUTTONDOWN
+}
 
+// mouseButton handles a button of the mouse where there is no pointer
+// input: the window holds the mouse while any button is down, as with
+// pointer input.
+func (w *window) mouseButton(btn pointer.Buttons, press bool, lParam uintptr) {
+	if !w.config.Focused {
+		windows.SetFocus(w.hwnd)
+	}
+	kind := pointer.Release
+	if press {
+		kind = pointer.Press
+		if w.mouseBtns == 0 {
+			windows.SetCapture(w.hwnd)
+		}
+		w.mouseBtns |= btn
+	} else {
+		w.mouseBtns &^= btn
+		if w.mouseBtns == 0 {
+			windows.ReleaseCapture()
+		}
+	}
+	// Unlike the pointer's, these coordinates are the client area's.
+	x, y := coordsFromlParam(lParam)
+	w.ProcessEvent(pointer.Event{
+		Kind:      kind,
+		Source:    pointer.Mouse,
+		Position:  f32.Pt(float32(x), float32(y)),
+		Buttons:   w.mouseBtns,
+		Time:      windows.GetMessageTime(),
+		Modifiers: getModifiers(),
+	})
+}
+
+func (w *window) scrollEvent(wParam, lParam uintptr, horizontal bool, kmods key.Modifiers, btns pointer.Buttons) {
 	x, y := coordsFromlParam(lParam)
 	// The WM_MOUSEWHEEL coordinates are in screen coordinates, in contrast
 	// to other mouse events.
@@ -708,7 +805,7 @@ func (w *window) scrollEvent(wParam, lParam uintptr, horizontal bool, kmods key.
 		Kind:      pointer.Scroll,
 		Source:    pointer.Mouse,
 		Position:  p,
-		Buttons:   getPointerButtons(pi),
+		Buttons:   btns,
 		Scroll:    sp,
 		Wheel:     isWheelDelta(dist),
 		Modifiers: kmods,
