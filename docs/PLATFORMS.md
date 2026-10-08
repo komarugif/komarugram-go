@@ -333,6 +333,8 @@ From 2026-10-07 to 2026-10-08, in the VM above:
 | Mini Apps | in Firefox 157 (`pkgman install firefox`), over WebDriver BiDi: the demo's app opens from the bot's menu button without the browser's toolbars, with its init data and theme, and Firefox closes with the client (2026-10-08). Clicks inside Firefox were not tried: `GIO_HAIKU_INPUT` reaches Gio's windows only |
 | Links | opened with Haiku's `open`, as on macOS, in the browser the system names (WebPositive here): a bot's URL button, after the confirmation (2026-10-08) |
 | System fonts | Noto Sans for text and Noto Sans Mono for code, from `/boot/system/data/fonts`, with the patch of `go-text/typesetting` above |
+| Notifications | through the system's `notify` (`internal/notify/notify_haiku.go`), with the client's icon, one at a time for a chat (`--messageID`): `-demo -demo-notify 20s` (2026-10-08) |
+| Copying | the copy button of a code block puts its text, Cyrillic and emoji too, on Haiku's clipboard (`clipboard -p`, 2026-10-08) |
 | Choosing files | Haiku's own panel, `filepanel` (in the system): opening a file for the attachment menu leads to the box for sending it; saving prints its path the same way (2026-10-08). The Open button was pressed by the maintainer once and then by `~/haiku-tools/tests/sendrefs`, which sends the panel's messages |
 | Editing | typing, Backspace, the arrows and Delete in an editor of a Gio test program |
 
@@ -346,11 +348,12 @@ drawn.
 |---|---|
 | Sound (`oto`) | no backend for the Media Kit; `oto` falls to PulseAudio's protocol, which Haiku has no server for |
 | Voice messages | ffmpeg's only input device there is `lavfi`: no microphone; recording would be the Media Kit's |
-| Tray, notifications | the Deskbar's replicants and Haiku's `BNotification`, not written; SNI over D-Bus does not apply |
+| Tray | the Deskbar's replicants, not written; SNI over D-Bus does not apply |
 | TPM | none; how the key is kept without one was not tried |
 | Emoji | no emoji font on the system, nor in HaikuPorts: the boxes go once an emoji pack is chosen in Settings → Appearance (Apple, downloaded from Telegram Desktop's repository; checked 2026-10-08) |
 | Other windows | the photo viewer's transparent window, drag and drop: not tried |
-| The clipboard, shortcuts | written, not tried |
+| The clipboard, shortcuts | pasting and the shortcuts not tried (`hinput` sends no modifiers) |
+| Notifications | a click starts the client by its signature (`notify --onClickApp`), which should hand over to the running one and bring it to the front: not tried. It cannot open the chat, as `notify` runs no callback |
 | 3D acceleration | none in practice: the drivers for AMD and Intel set modes only, and an accelerated one for NVIDIA Turing and Ampere is an alpha of January 2026 ([OSnews](https://www.osnews.com/story/144097/haiku-gets-accelerated-nvidia-graphics-driver/)) |
 
 ### Choosing files
