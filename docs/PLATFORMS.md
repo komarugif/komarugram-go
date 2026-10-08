@@ -447,7 +447,10 @@ Deskbar's own process. `libtrayhaiku.so` is a Deskbar add-on
 `BDeskbar::AddItem(entry_ref*)`; the Deskbar loads it, archives the view
 it makes and makes it anew from the archive, finding the class,
 `KomaruGramTrayView`, by the symbol of its `Instantiate` in the images it
-has loaded. The item knows the client only by a port the client makes,
+has loaded. `Instantiate` is defined outside the class: defined in it,
+it is inline, nothing in the library calls it, and the symbol is not
+there for the Deskbar to make the item from its archive. The item knows
+the client only by a port the client makes,
 `komarugram-go tray`: it writes a click and a chosen item there, and asks
 there for its tooltip and menu, which the client answers on a port of the
 item's, so that a change of language shows at once. Its icon is the
@@ -490,6 +493,17 @@ answer, so its own thread may send it).
   3 hours ahead; choosing the time zone in the Time preferences fixed it
   (2026-10-08). Telegram Desktop keeps working with a wrong clock,
   correcting by the server's time; gotd does not.
+- The Desktop sets `XDG_CONFIG_HOME=/boot/home/config/settings` and
+  `XDG_CACHE_HOME=/boot/home/config/cache`; a shell over SSH sets
+  neither, and Go's `os.UserConfigDir` is then `~/.config`. The client
+  started from SSH sees none of the accounts it has when started from the
+  Desktop, and makes a new, empty configuration: set both variables
+  first.
+- In a shell on Haiku, `$!` after a command started with `&` within a
+  `&&` chain gave the subshell's ID, not the command's; start it on a
+  line of its own.
+  `pkill -f` kills the shell that runs it, as on Linux: find the team
+  with `ps` and `kill` it by ID.
 - Haiku's `ps` puts a command's arguments in its first column: the team's
   ID is `$(NF-3)`, not `$2`.
 - `hey` drives a window by scripting:

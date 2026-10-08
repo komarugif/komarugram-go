@@ -186,7 +186,8 @@ On Linux under X11 (XFCE here):
 - Stop the client with `pkill -x messenger`: `pkill -f <path>` also
   matches, and kills, the shell that runs it.
 - Drive a window with `xdotool mousemove --window <id> x y click 1` (client
-  coordinates) and `xdotool type`; find it with `wmctrl -l`; screenshot the
+  coordinates) and `xdotool type`; find it by its title with `wmctrl -l`
+  (Gio's windows carry no PID there, `wmctrl -lp` shows 0); screenshot the
   active window with `xfce4-screenshooter -w -s file.png`.
 - Close windows with `wmctrl -i -c <id>`, not `xdotool windowclose`: Gio never
   sees a `DestroyEvent` then.

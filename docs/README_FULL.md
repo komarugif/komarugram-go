@@ -884,6 +884,33 @@ bug, a failed test or a wrong first guess at least once.
   RssAnon over several open/close cycles, not one: a single cycle can't show
   a trend. Name the `smaps` mappings (Go's are `[anon: Go: …]`) to see which
   side grows.
+- *A method value holds its receiver.* `formula.SetRelease(w.ReleaseMemoryLater)`
+  put a window's method into a cache of the whole process, and the cache
+  kept that window, its view, ops, theme and shaper, after it closed, until
+  the next window replaced it. With the case below it was half the Go
+  heap of a client closed to the tray: 31–35 MB, 14–16 MB without them.
+  Give what outlives a window something bound to the process
+  (`appwindow.Window.MemoryReleaser`), never a closure or method of the
+  window.
+- *A goroutine that goes on to other work keeps what its frame holds.* The
+  sign-in worker of the first window ran the account on after sign-in, as
+  long as the account lived, and held that window and its sign-in form all
+  the while; it now hands the account to a goroutine of the session
+  (`accountSession.handOff`) and ends.
+- *Finding who holds an object.* Heap profiles name where memory was
+  allocated, not what keeps it. Count windows or apps alive with
+  `weak.Pointer`s, not finalizers: a finalizer on an object in a cycle keeps
+  the whole cycle forever, and the experiment then leaks by itself.
+  `debug.WriteHeapDump` after a GC holds every object with its pointers and
+  the roots (globals, goroutine frames); a breadth-first search from the
+  roots to an object of the type that should be gone gives the path that
+  keeps it. A root in `.bss`/`.data` is named by its address with
+  `go tool nm -n -size <binary>`, a frame by its function. Nothing in the
+  repository parses the dump: the format is in the Go wiki's
+  `heapdump15-through-heapdump17`, and a short script does it. Measure over
+  a dozen cycles of closing and opening (`-profile-export`, see
+  `docs/PROFILING.md`): a second connection of `dcpool`, made once, is
+  not a leak.
 - *`#ifdef __GLIBC__` in a cgo preamble needs a libc header included first.*
   Without one the macro is undefined, and the fallback stub compiles without a
   word: `malloc_trim` was never called, and an experiment measured on the stub
