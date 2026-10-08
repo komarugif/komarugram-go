@@ -591,6 +591,19 @@ with upstream Go.
 - **The demo's tray**: with `-demo-notify` the demo has a tray icon, as
   notifications on Windows are its balloons; it had none, and showed none
   there, on Windows 10 too.
+- **VLC** (every Windows): it never ran from the client on Windows.
+  `--rc-fake-tty`, an option of its builds for other systems, made VLC for
+  Windows refuse to start ("the command line options were invalid"); its
+  installer registers it in the App Paths, not on `PATH`, where
+  `program.LookPath` now looks too, as Windows does for a program by name;
+  and VLC 3.0.24 writes its version resource with commas ("3,0,24,0"),
+  which the check for 3.x refused. Where Gio turned to WARP, VLC is given
+  `--vout=directdraw`: its Direct3D 11 and 9 outputs showed black on the
+  same driver.
+- **A program picked in the settings** (every Windows): PowerShell 2.0,
+  Windows 7's, starts its output with a byte order mark once told to print
+  UTF-8, and the path the file dialog returned began with U+FEFF: every
+  file was refused as not executable.
 
 ### Checked on Windows 7
 
@@ -607,14 +620,18 @@ KB3125574 and later ones):
 | Mini Apps | Supermium 150 (Chromium 150) found among the registered browsers, at `C:\Program Files\Supermium\chrome.exe`; the demo's app opens from the bot's menu button with its init data and theme, keeps its local storage between launches, and Close inside it closes the browser |
 | Aero's glass | the main window's transparency at 35% in the demo: the sidebar blurs the wallpaper, under the system's glass frame, maximized and not. Switched to "Windows 7 Basic" while it ran, the window turned opaque (light, not black); back to the Landscapes theme, the glass came back without a restart |
 | Tray | `-demo -demo-notify 15s`: the icon shows, and balloons of the messages that come, with the client's icon; a click on a balloon opened its chat, bringing back the minimized window; a right click on the icon opens its menu, Open and Quit. Windows 7 hides a new icon among the hidden ones but while a balloon shows. It holds back balloons with `NIIF_RESPECT_QUIET_TIME`, which the client sets, for the first hour after a user first signs in |
-| A real account | the maintainer's, moved from Linux (its local data, 439 files, 540 MB; no paths of Linux in the settings): the chat list loads and new messages come, read-only. A second start with the window minimized brought it back and ended ("the messenger is already running"), the instance on the loopback |
+| A real account | the maintainer's, moved from Linux (its local data, 439 files, 540 MB; no paths of Linux in the settings): the chat list loads and new messages come, read-only; channels' photos load. A second start with the window minimized brought it back and ended ("the messenger is already running"), the instance on the loopback |
+| FFmpeg | the essentials build 9.0.2 of [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) (2026-09-19), whose page says Windows 10 but that it may work on 7 with the Universal C Runtime, does: Opus and H.264 encode, a frame decodes, ffprobe reads; picked in the settings ("Указан вручную … ffmpeg version 9.0.2"); `pkg/voice`'s tests pass with it, `TestRecordAndEncode` among them, and DirectShow lists the VM's microphone. Recording from it was not tried: the host's microphone was off |
+| VLC | 3.0.24 (`vlc-3.0.24-win64.exe /S`): found in the App Paths; `pkg/player`'s `TestControl` and `TestStreamSeek` pass; a channel's video of the real account opened from the client in VLC and played, with DirectDraw |
+| HTTPS | from Go, to github.com, raw.githubusercontent.com (the wasm modules), telegram.org and gyan.dev: the system's roots were enough |
 
 ### Not done
 
 | What | On Windows 7 |
 |---|---|
 | Protection without a TPM | the master password, which a machine of Windows 7 will be offered: not tried there |
-| FFmpeg | the usual builds of FFmpeg no longer start on Windows 7; one that does is to be chosen. Without it the client runs with fewer features |
+| mpv | its builds for Windows were not tried there; the client does not drive mpv on Windows at all (`ErrUnsupportedSystem`) |
+| Recording a voice message | the host's microphone was off |
 | Real hardware | only the VM, whose driver fails Direct3D 11 |
 
 ### Things met on the way
