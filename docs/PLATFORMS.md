@@ -177,6 +177,21 @@ and then.
      blocks, which holds the descriptors' lock as long as it waits; waking
      that one instead made the two wake each other and kept a core busy
      (2026-10-08).
+   - Haiku's `sigtramp` was Solaris's of before `sigtrampgo`, calling
+     `sighandler` itself, so no signal went through `sigfwdgo`. A fatal
+     signal the program did not catch (`SIGTERM` from `kill` or
+     `timeout`) went to `dieFromSignal`, whose `raise` came back to
+     `sighandler` instead of to the default action, again and again until
+     the signal stack ran out: `fatal: morestack on gsignal`, and the
+     debug server's dialog. With Solaris's `sigtramp` and its `sigfwd`,
+     `SIGTERM` and `SIGHUP` end a program with 143 and 129, with cgo or
+     without, the client too (2026-10-08).
+   - Haiku's `issetugid` always returns 1 (libbsd: "as long as we're
+     effectively a single user system"), so every program ran in Go's
+     secure mode, and a fatal signal printed its name and no traceback:
+     the client's crash report of a `SIGQUIT` held one line. Secure mode
+     is now told by the IDs, as on AIX, and `SIGQUIT` dumps the
+     goroutines (2026-10-08).
 
    [Quad4-Software/go-haiku](https://github.com/Quad4-Software/go-haiku),
    another Go 1.27.1 from korli's port, whose commits are an LLM agent's,
