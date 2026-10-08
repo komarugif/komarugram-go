@@ -3,6 +3,7 @@
 package app
 
 import (
+	"slices"
 	"testing"
 
 	"gioui.org/app/internal/windows"
@@ -58,5 +59,22 @@ func TestDeviceLostBeforePresentTurnsToWARP(t *testing.T) {
 		if got := useWARP.Load(); got != c.want {
 			t.Errorf("%s: WARP %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// A character beyond the Basic Multilingual Plane comes as two WM_CHAR,
+// a surrogate pair, as an emoji from SendInput or an on-screen keyboard.
+func TestCharOfSurrogatePair(t *testing.T) {
+	w := new(window)
+	var got []string
+	for _, c := range []uint16{'a', 0xd83d, 0xdc4b, 0x7, 0xdc4b, 0xd83d, 'b'} {
+		if text := w.char(c); text != "" {
+			got = append(got, text)
+		}
+	}
+	// The wave, then nothing for the bell and a lone low half, and a high
+	// half followed by no low one is dropped.
+	if want := []string{"a", "👋", "b"}; !slices.Equal(got, want) {
+		t.Errorf("text %q, want %q", got, want)
 	}
 }

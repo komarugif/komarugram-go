@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf16"
 	"unicode/utf8"
 	"unsafe"
 
@@ -74,6 +75,9 @@ type window struct {
 	// like, and mouseBtns are the buttons held.
 	legacyMouse bool
 	mouseBtns   pointer.Buttons
+	// highSurrogate is the first half of a character beyond the Basic
+	// Multilingual Plane, an emoji say, which comes as two WM_CHAR.
+	highSurrogate uint16
 }
 
 const _WM_WAKEUP = windows.WM_USER + iota
@@ -288,8 +292,8 @@ func windowProc(hwnd syscall.Handle, msg uint32, wParam, lParam uintptr) uintptr
 		}
 		fallthrough
 	case windows.WM_CHAR:
-		if r := rune(wParam); unicode.IsPrint(r) {
-			w.w.EditorInsert(string(r))
+		if text := w.char(uint16(wParam)); text != "" {
+			w.w.EditorInsert(text)
 		}
 		// The message is processed.
 		return windows.TRUE
@@ -723,6 +727,28 @@ func coordsFromlParam(lParam uintptr) (int, int) {
 	x := int(int16(lParam & 0xffff))
 	y := int(int16((lParam >> 16) & 0xffff))
 	return x, y
+}
+
+// char returns the text of a WM_CHAR: nothing for what does not print, and
+// for the first half of a surrogate pair, kept until the second comes.
+func (w *window) char(c uint16) string {
+	high := w.highSurrogate
+	w.highSurrogate = 0
+	switch {
+	case utf16.IsSurrogate(rune(c)) && c < 0xdc00:
+		w.highSurrogate = c
+		return ""
+	case utf16.IsSurrogate(rune(c)):
+		r := utf16.DecodeRune(rune(high), rune(c))
+		if r == unicode.ReplacementChar || !unicode.IsPrint(r) {
+			return ""
+		}
+		return string(r)
+	}
+	if r := rune(c); unicode.IsPrint(r) {
+		return string(r)
+	}
+	return ""
 }
 
 // mouseButton returns the button of a button message of the mouse, and

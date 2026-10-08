@@ -546,3 +546,9 @@ Run the focused check from the project root:
   - `app/window.go`: a device lost on `Present` is let go and the next frame
     drawn with a new one, as a device lost while drawing is; the window used
     to close with "GPU device lost". `TestDeviceLostOnPresentDrawsAgain`.
+
+- `app/os_windows.go`: a character beyond the Basic Multilingual Plane, an
+  emoji say, which comes as two `WM_CHAR` of a surrogate pair from
+  `SendInput`, on-screen keyboards and the like, is put together and
+  inserted. Each half failed `unicode.IsPrint` and was dropped. Found on
+  Windows 7; the code is the same on every Windows. `TestCharOfSurrogatePair`.
