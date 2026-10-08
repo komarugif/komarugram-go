@@ -735,12 +735,15 @@ VLC runs with `--no-one-instance`, or a running VLC takes the file and the new
 process exits at once, and with `--ignore-config --no-qt-recentplay
 --qt-continue=0`, so that the loopback URL and its token are not written to its
 recent media (`player.Kind.PrivateArgs`). On Windows the interface listens on
-loopback TCP instead of a Unix socket. mpv is not offered on Windows yet: its
-IPC there is a named pipe. Players installed as snaps are neither looked for nor
+loopback TCP instead of a Unix socket, and mpv's IPC is a named pipe, opened
+for asynchronous I/O: on a synchronous handle a write waits for the read that
+waits for mpv's next event. mpv carries no version resource there, so it is
+asked for `--version` as elsewhere. Players are found on Windows in the App
+Paths too, where installers put them. Players installed as snaps are neither looked for nor
 accepted: a snap has a `/tmp` of its own and no directory shared with this
 process for a socket.
 
-Players are looked for on `PATH`, then as flatpaks (`org.videolan.VLC`,
+Players are looked for on `PATH` (and Windows' App Paths), then as flatpaks (`org.videolan.VLC`,
 `io.mpv.Mpv`, through the launchers in `exports/bin`). A flatpak has a `/tmp` of
 its own, so its socket goes to `$XDG_RUNTIME_DIR/app/<id>`, which flatpak
 shares with the sandbox under the same path. A flatpak player is bwrap running

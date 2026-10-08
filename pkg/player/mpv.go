@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
@@ -20,10 +21,9 @@ import (
 // mpv is one running mpv process, driven over its JSON IPC socket, which
 // pushes property changes instead of being polled.
 //
-// The IPC channel is a Unix domain socket, which covers Linux and macOS. On
-// Windows mpv exposes the same JSON protocol over a named pipe
-// (--input-ipc-server=\\.\pipe\name), which dial does not open yet, so
-// Kind.Path does not offer mpv there.
+// The IPC channel is a Unix domain socket on Linux, macOS and Haiku, and a
+// named pipe on Windows (--input-ipc-server=\\.\pipe\name), with the same
+// JSON protocol over it.
 type mpv struct {
 	cmd    *exec.Cmd
 	socket string
@@ -38,7 +38,10 @@ type mpv struct {
 }
 
 func openMPV(ctx context.Context, path, source string, extra []string) (*mpv, error) {
-	socket := socketPath(MPV, path)
+	network, socket := "unix", socketPath(MPV, path)
+	if runtime.GOOS == "windows" {
+		network, socket = "pipe", pipePath(MPV)
+	}
 	if socket == "" {
 		return nil, fmt.Errorf("no directory for the socket of %s", path)
 	}
@@ -66,7 +69,7 @@ func openMPV(ctx context.Context, path, source string, extra []string) (*mpv, er
 		status:  Status{Running: true, File: source},
 	}
 
-	conn, err := dial(ctx, "unix", socket)
+	conn, err := dial(ctx, network, socket)
 	if err != nil {
 		_ = program.KillGroup(cmd)
 		_ = cmd.Wait()
@@ -210,6 +213,8 @@ func (p *mpv) Close() error {
 		_ = conn.Close()
 	}
 	_ = program.KillGroup(p.cmd)
-	_ = os.Remove(p.socket)
+	if runtime.GOOS != "windows" {
+		_ = os.Remove(p.socket)
+	}
 	return nil
 }

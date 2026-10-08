@@ -630,7 +630,7 @@ KB3125574 and later ones):
 | What | On Windows 7 |
 |---|---|
 | Protection without a TPM | the master password, which a machine of Windows 7 will be offered: not tried there |
-| mpv | its builds for Windows were not tried there; the client does not drive mpv on Windows at all (`ErrUnsupportedSystem`) |
+| mpv | does not start there: mpv 0.41.0 for Windows (the official build, x86_64-w64-mingw32) needs `api-ms-win-core-path-l1-1-0.dll`, and with that one's stand-in beside it `SHCORE.dll`, Windows 8.1's. The client drives mpv on Windows now, over its named pipe (`pkg/player/pipe_windows.go`); `TestPipeWritesWhileReading` passes on Windows 7 and fails with a synchronous handle, but mpv itself was driven on no Windows: Windows 10 and 11 are to be checked |
 | Recording a voice message | the host's microphone was off |
 | Real hardware | only the VM, whose driver fails Direct3D 11 |
 
