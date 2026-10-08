@@ -503,6 +503,8 @@ Run the focused check from the project root:
     C++ on the Be API: a `BApplication` thread, a `BWindow` and `BView` for
     each window, frames shown by the window's thread from a `BBitmap`;
     `build.go` builds it (`go run build.go -cxx ... -o libgiohaiku.so`).
+    The `BApplication`'s signature is the one in the program file's
+    resources when it has one, else `application/x-vnd.<ID>`.
   - `internal/gl/gl_unix.go`: built for Haiku too, loading GL from
     `libOSMesa.so.8`; Haiku reads the extensions with `glGetStringi`, as
     macOS, its core profile having no `glGetString(GL_EXTENSIONS)`.

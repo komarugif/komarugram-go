@@ -3,9 +3,11 @@
 // libgiohaiku: windows, input and OpenGL for Gio on the Be API. The C
 // interface is in giohaiku.h; build.go builds the library.
 
+#include <AppFileInfo.h>
 #include <Application.h>
 #include <Clipboard.h>
 #include <Deskbar.h>
+#include <File.h>
 #include <Cursor.h>
 #include <Font.h>
 #include <Bitmap.h>
@@ -17,6 +19,7 @@
 #include <OS.h>
 #include <Screen.h>
 #include <View.h>
+#include <image.h>
 #include <Window.h>
 
 #include <deque>
@@ -660,7 +663,29 @@ extern "C" {
 
 int32_t gh_abi(void) { return GH_ABI; }
 
+// OwnSignature reads the signature the program's file carries in its
+// resources (an rdef's app_signature, put there by xres), into sig, which
+// holds B_MIME_TYPE_LENGTH bytes.
+static bool OwnSignature(char *sig) {
+	image_info info;
+	int32 cookie = 0;
+	while (get_next_image_info(B_CURRENT_TEAM, &cookie, &info) == B_OK) {
+		if (info.type != B_APP_IMAGE)
+			continue;
+		BFile file(info.name, B_READ_ONLY);
+		BAppFileInfo appInfo(&file);
+		return appInfo.InitCheck() == B_OK && appInfo.GetSignature(sig) == B_OK && sig[0] != 0;
+	}
+	return false;
+}
+
 int32_t gh_init(const char *signature) {
+	// The file's own signature comes first: a BApplication of another one
+	// than its file's is told of on the terminal, and the roster keeps the
+	// file's icon and flags under the file's signature.
+	char own[B_MIME_TYPE_LENGTH];
+	if (gSignature == NULL && OwnSignature(own))
+		gSignature = strdup(own);
 	if (gSignature == NULL)
 		gSignature = strdup(signature != NULL && signature[0] ? signature : "application/x-vnd.gio-app");
 	pthread_once(&gInitOnce, InitOnce);

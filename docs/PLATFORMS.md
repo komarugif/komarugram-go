@@ -238,6 +238,18 @@ and then.
    On Haiku itself, `go run build.go -o libgiohaiku.so` uses g++.
 
 Copy `messenger`, `libgiohaiku.so` and, for `-demo`, `assets` to Haiku.
+Then, on Haiku, give `messenger` its resources: its signature, flags,
+version and icon, from `cmd/messenger/messenger.rdef`:
+
+```sh
+rc -o messenger.rsrc messenger.rdef
+xres -o messenger messenger.rsrc
+```
+
+The icon is `assets/logo_round.hvif`, made from `assets/logo_round.svg` by
+`icon2icon` of the package `hvif_tools`; to make it anew, put the new
+file's bytes into the rdef's `vector_icon` (`xxd -p -c 32`, each line a `$"…"`).
+
 ffmpeg is the package `ffmpeg6_tools` (`pkgman install ffmpeg6_tools`);
 `ffmpeg6` is its libraries only.
 
@@ -270,6 +282,12 @@ ffmpeg is the package `ffmpeg6_tools` (`pkgman install ffmpeg6_tools`);
   otherwise it took `GL_FRAMEBUFFER_SRGB` for on after the blit turned it
   off, and every frame but the first was too dark. It keeps a vertex
   array bound, which the core profile needs.
+- **The signature.** `BApplication` takes the signature the program's
+  file carries in its resources, and Gio's `application/x-vnd.<ID>`
+  (`application/x-vnd.messenger`) only when it has none: a
+  `BApplication` of a signature other than its file's is told of on the
+  terminal, and the roster keeps the file's icon and flags under the
+  file's signature.
 - **Frames** come only when Gio asks, and none while the window is
   minimized.
 - **Keys.** Haiku's Command (Alt on most keyboards) and Control are both
@@ -303,6 +321,7 @@ From 2026-10-07 to 2026-10-08, in the VM above:
 | Tests, built on Linux and run there | `historycache` 11/11 and `securedb` 2/2 (with `sqlite3_flock`); `sandbox`, `aac`, `cmark`, `drdec`, `h264`, `lottie`, `opus`, `ratex` all pass with wazero's compiler; `vp9` passes, but its 250 ms limit for a frame was missed while the VM stalled |
 | `messenger -demo` | the chat list and chats draw, colors right; clicks, scrolling with the wheel, hover, resizing, minimizing; 8 starts of a Gio test program and 3 of the client without a crash |
 | Speed | first frame 1.3 s, then 30–50 ms a frame at 1014×713 with `LP_NUM_THREADS=3`; a chat opened about 2.5 s after the click on an older install, which stalled often |
+| Resources | the icon of the rdef shows for the program (seen by the maintainer, 2026-10-08); with the file's signature taken, the demo prints nothing on the terminal |
 | Editing | typing, Backspace, the arrows and Delete in an editor of a Gio test program |
 
 `LP_NUM_THREADS` limits llvmpipe's threads (one a core otherwise): with
