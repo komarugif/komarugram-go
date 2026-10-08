@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Unlicense OR MIT
 
-//go:build !linux && !darwin && !windows
+//go:build !linux && !darwin && !windows && !haiku
 
 package voice
 
