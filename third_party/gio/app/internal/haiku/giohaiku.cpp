@@ -166,6 +166,11 @@ public:
 	}
 
 	void MouseDown(BPoint where) override {
+		// A window that takes the first click (B_WILL_ACCEPT_FIRST_CLICK)
+		// is not activated by the app_server on a click: it is the
+		// window's to do, or it stays behind and without the keyboard.
+		if (!Window()->IsActive())
+			Window()->Activate();
 		MakeFocus(true);
 		SetMouseEventMask(B_POINTER_EVENTS, B_NO_POINTER_HISTORY);
 		gh_event ev = PointerEvent(GH_EV_MOUSE_DOWN, where);
