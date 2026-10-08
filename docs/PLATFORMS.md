@@ -203,6 +203,13 @@ and then.
      [`haiku/gioui-shader-v1.0.9.patch`](haiku/gioui-shader-v1.0.9.patch):
      it fills in the GLSL 1.50 sources, which Gio's desktop OpenGL uses,
      on macOS only; on Haiku they were empty.
+   - `github.com/go-text/typesetting` v0.3.4,
+     [`haiku/go-text-typesetting-v0.3.4.patch`](haiku/go-text-typesetting-v0.3.4.patch):
+     `fontscan` knows no font directories of Haiku and fails, so Gio found
+     no system font and drew everything with the Go fonts it carries: no
+     CJK, Thai or most symbols, and not Haiku's own Noto Sans. The patch
+     names the four of `finddir` (`B_SYSTEM_FONTS_DIRECTORY`, the user's
+     and the non-packaged ones).
 
    ```
    go 1.27.1
@@ -212,6 +219,7 @@ and then.
    replace golang.org/x/sys => /path/to/x-sys
    replace github.com/tetratelabs/wazero => /path/to/wazero
    replace gioui.org/shader => /path/to/shader
+   replace github.com/go-text/typesetting => /path/to/typesetting
    ```
 4. **Tags.** `sqlite3_flock`: without a tag `go-sqlite3` knows no file
    locks on Haiku and fails every lock, `disk I/O error`
@@ -323,6 +331,8 @@ From 2026-10-07 to 2026-10-08, in the VM above:
 | Speed | first frame 1.3 s, then 30–50 ms a frame at 1014×713 with `LP_NUM_THREADS=3`; a chat opened about 2.5 s after the click on an older install, which stalled often |
 | Resources | the icon of the rdef shows for the program (seen by the maintainer, 2026-10-08); with the file's signature taken, the demo prints nothing on the terminal |
 | Mini Apps | in Firefox 157 (`pkgman install firefox`), over WebDriver BiDi: the demo's app opens from the bot's menu button without the browser's toolbars, with its init data and theme, and Firefox closes with the client (2026-10-08). Clicks inside Firefox were not tried: `GIO_HAIKU_INPUT` reaches Gio's windows only |
+| Links | opened with Haiku's `open`, as on macOS, in the browser the system names (WebPositive here): a bot's URL button, after the confirmation (2026-10-08) |
+| System fonts | Noto Sans for text and Noto Sans Mono for code, from `/boot/system/data/fonts`, with the patch of `go-text/typesetting` above |
 | Choosing files | Haiku's own panel, `filepanel` (in the system): opening a file for the attachment menu leads to the box for sending it; saving prints its path the same way (2026-10-08). The Open button was pressed by the maintainer once and then by `~/haiku-tools/tests/sendrefs`, which sends the panel's messages |
 | Editing | typing, Backspace, the arrows and Delete in an editor of a Gio test program |
 
@@ -338,8 +348,8 @@ drawn.
 | Voice messages | ffmpeg's only input device there is `lavfi`: no microphone; recording would be the Media Kit's |
 | Tray, notifications | the Deskbar's replicants and Haiku's `BNotification`, not written; SNI over D-Bus does not apply |
 | TPM | none; how the key is kept without one was not tried |
-| Emoji | drawn as boxes: no emoji font on the system |
-| Other windows | the photo viewer's transparent window, drag and drop, opening links in a browser: not tried |
+| Emoji | no emoji font on the system, nor in HaikuPorts: the boxes go once an emoji pack is chosen in Settings → Appearance (Apple, downloaded from Telegram Desktop's repository; checked 2026-10-08) |
+| Other windows | the photo viewer's transparent window, drag and drop: not tried |
 | The clipboard, shortcuts | written, not tried |
 | 3D acceleration | none in practice: the drivers for AMD and Intel set modes only, and an accelerated one for NVIDIA Turing and Ampere is an alpha of January 2026 ([OSnews](https://www.osnews.com/story/144097/haiku-gets-accelerated-nvidia-graphics-driver/)) |
 

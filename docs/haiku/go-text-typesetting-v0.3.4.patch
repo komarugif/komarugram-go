@@ -1,0 +1,18 @@
+--- a/fontscan/scan.go
++++ b/fontscan/scan.go
+@@ -72,6 +72,15 @@
+ 			"/system/font",
+ 			"/data/fonts",
+ 		}
++	case "haiku": // haiku: KomaruGram port experiment
++		// The system's, the user's, and the non-packaged ones of each
++		// (finddir B_*_FONTS_DIRECTORY); they hold ttfonts, otfonts, psfonts.
++		dirs = []string{
++			"/boot/system/data/fonts",
++			"/boot/system/non-packaged/data/fonts",
++			"/boot/home/config/data/fonts",
++			"/boot/home/config/non-packaged/data/fonts",
++		}
+ 	case "ios":
+ 		dirs = []string{
+ 			"/System/Library/Fonts",
