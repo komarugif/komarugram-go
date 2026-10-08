@@ -312,6 +312,7 @@ func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive
 			Preferences: prefs,
 			MiniApps:    miniApps(prefs),
 			OpenWindow:  process.Open,
+			OfferEmoji:  true,
 		})
 		window.Store(w)
 		app.Store(content)

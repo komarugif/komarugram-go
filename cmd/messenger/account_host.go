@@ -545,6 +545,7 @@ func (h *accountWindows) windowSpec(a *account.Account, session *accountSession,
 				WindowLocked:   &session.locked,
 				CurrentAccount: session.accountID,
 				OpenWindow:     h.process.Open,
+				OfferEmoji:     true,
 			})
 			app = content
 			session.app.Store(content)
