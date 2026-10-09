@@ -45,16 +45,18 @@ func isExecutable(info fs.FileInfo) bool {
 func FileVersion(ctx context.Context, path string) (product, version string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, bannerTimeout)
 	defer cancel()
-	// The path goes in through the environment, never into the script.
+	// The path goes in through the environment, never into the script;
+	// the names come back as UTF-8, whatever the console's code page.
 	cmd := CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command",
-		`$v = (Get-Item -LiteralPath $env:KITCHEN_PROGRAM).VersionInfo; $v.ProductName; $v.ProductVersion`)
+		`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $v = (Get-Item -LiteralPath $env:KITCHEN_PROGRAM).VersionInfo; $v.ProductName; $v.ProductVersion`)
 	cmd.Env = append(cmd.Environ(), "KITCHEN_PROGRAM="+path)
 	out := &limitedBuffer{limit: bannerLimit}
 	cmd.Stdout = out
 	if err := cmd.Run(); err != nil {
 		return "", "", err
 	}
-	lines := strings.Split(strings.ReplaceAll(out.String(), "\r", ""), "\n")
+	// PowerShell 2.0 starts UTF-8 with a byte order mark.
+	lines := strings.Split(strings.ReplaceAll(strings.TrimPrefix(out.String(), "\ufeff"), "\r", ""), "\n")
 	if len(lines) < 2 {
 		return "", "", ErrNoBanner
 	}

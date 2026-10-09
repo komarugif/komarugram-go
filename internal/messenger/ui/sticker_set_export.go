@@ -186,7 +186,7 @@ func chooseStickerArchive(ctx context.Context, title string) (string, error) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = program.CommandContext(ctx, "powershell", "-NoProfile", "-STA", "-Command", `Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.SaveFileDialog; $dialog.Filter = 'ZIP archive (*.zip)|*.zip'; $dialog.DefaultExt = 'zip'; $dialog.FileName = $env:KOMARUGRAM_ZIP_NAME; if ($dialog.ShowDialog() -eq 'OK') { $dialog.FileName }`)
+		cmd = powershellChooser(ctx, `Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.SaveFileDialog; $dialog.Filter = 'ZIP archive (*.zip)|*.zip'; $dialog.DefaultExt = 'zip'; $dialog.FileName = $env:KOMARUGRAM_ZIP_NAME; if ($dialog.ShowDialog() -eq 'OK') { $dialog.FileName }`)
 		cmd.Env = append(os.Environ(), "KOMARUGRAM_ZIP_NAME="+suggested)
 	case "darwin":
 		cmd = program.CommandContext(ctx, "osascript", "-e", `on run argv`, "-e", `POSIX path of (choose file name with default name (item 1 of argv))`, "-e", `end run`, name)
@@ -208,9 +208,10 @@ func chooseStickerArchive(ctx context.Context, title string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	path := strings.TrimSpace(out)
-	if path == "" {
+	// splitPaths drops the byte order mark PowerShell 2.0 starts UTF-8 with.
+	paths := splitPaths(out)
+	if len(paths) == 0 || strings.TrimSpace(paths[0]) == "" {
 		return "", nil
 	}
-	return stickerArchivePath(path), nil
+	return stickerArchivePath(strings.TrimSpace(paths[0])), nil
 }

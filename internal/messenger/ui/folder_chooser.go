@@ -18,12 +18,12 @@ func chooseFolder(ctx context.Context, start string) (string, error) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		script := `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.FolderBrowserDialog; `
+		script := `Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.FolderBrowserDialog; `
 		if start != "" {
 			script += `$dialog.SelectedPath = '` + strings.ReplaceAll(start, `'`, `''`) + `'; `
 		}
 		script += `if ($dialog.ShowDialog() -eq 'OK') { $dialog.SelectedPath }`
-		cmd = program.CommandContext(ctx, "powershell", "-NoProfile", "-STA", "-Command", script)
+		cmd = powershellChooser(ctx, script)
 	case "linux":
 		if _, err := exec.LookPath("kdialog"); err == nil {
 			cmd = program.CommandContext(ctx, "kdialog", "--getexistingdirectory", start)

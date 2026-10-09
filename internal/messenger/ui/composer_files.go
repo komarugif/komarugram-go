@@ -64,8 +64,7 @@ func chooseFiles(ctx context.Context, filter *fileFilter, several bool) fileChoi
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		// The names come back as UTF-8, whatever the console's code page.
-		script := `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.OpenFileDialog; `
+		script := `Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.OpenFileDialog; `
 		if filter != nil {
 			script += `$dialog.Filter = '` + filter.name + `|` + strings.Join(patterns, ";") + `'; `
 		}
@@ -73,7 +72,7 @@ func chooseFiles(ctx context.Context, filter *fileFilter, several bool) fileChoi
 			script += `$dialog.Multiselect = $true; `
 		}
 		script += `if ($dialog.ShowDialog() -eq 'OK') { $dialog.FileNames }`
-		cmd = program.CommandContext(ctx, "powershell", "-NoProfile", "-STA", "-Command", script)
+		cmd = powershellChooser(ctx, script)
 	case "darwin":
 		var script string
 		if several {
@@ -140,6 +139,16 @@ output`
 		choice.path = paths[0]
 	}
 	return choice
+}
+
+// powershellChooser runs script, a chooser of Windows Forms, in
+// PowerShell. What it prints comes back as UTF-8, whatever the console's
+// code page: in Windows 7's Russian one, cp866, a Cyrillic path came back
+// as question marks. PowerShell 2.0 then starts with a byte order mark,
+// which splitPaths drops.
+func powershellChooser(ctx context.Context, script string) *exec.Cmd {
+	return program.CommandContext(ctx, "powershell", "-NoProfile", "-STA", "-Command",
+		"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "+script)
 }
 
 // chooserOutput runs a chooser and returns what it printed: nothing when it
