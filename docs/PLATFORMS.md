@@ -551,7 +551,9 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 GOTOOLCHAIN=local ~/go-win7/bin/go build
 
 `GOTOOLCHAIN=local` keeps it from fetching upstream Go for the `go` line
 of `go.mod`. Nothing else changes: the same tree builds for Windows 10
-with upstream Go.
+with upstream Go. Building on Windows 7 itself, with Git for Windows
+2.46.2 and the release's Windows archive, is in
+[BUILD_WINDOWS7.md](BUILD_WINDOWS7.md).
 
 ### What was changed for it
 
@@ -637,6 +639,7 @@ KB3125574 and later ones):
 | Protection without a TPM | (2026-10-09, the maintainer) the real account's data encrypted with the master password alone and decrypted again; unlocking at the start and unlocking a window locked in the background. Two things it showed were fixed: the unlock screen came for a moment while the data were being encrypted, and a wrong password in the window's lock spoke of the TPM |
 | Console windows | (2026-10-09, the maintainer) none flashes any more, from ffmpeg's animations to the checks of the programs, since every program is started with `program.Command` |
 | Saving files | (2026-10-09, the maintainer) a sticker set exported to a ZIP with a Cyrillic name: it was saved as question marks, the save dialog's PowerShell printing the path in cp866; with UTF-8 output it keeps its name |
+| Building there | (2026-10-09) the steps of [BUILD_WINDOWS7.md](BUILD_WINDOWS7.md) from a clean profile: go-legacy-win7's Windows archive extracted to `C:\`, the repository cloned with Git for Windows 2.46.2, `gogio` installed and the messenger built with its icon in about 4 minutes, again in 41 s; the program built there runs |
 | Settings' About | "Windows 7 Professional Service Pack 1 (NT 6.1.7601)", GitHub's mark and Augustwise's avatar fetched, the mascot from its repository |
 | HTTPS | from Go, to github.com, raw.githubusercontent.com (the wasm modules), telegram.org and gyan.dev: the system's roots were enough |
 
