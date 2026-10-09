@@ -29,6 +29,7 @@ import (
 	"komarugram/internal/crash"
 	"komarugram/internal/diagnostics"
 	"komarugram/internal/messenger/account"
+	"komarugram/internal/messenger/install"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
@@ -69,7 +70,25 @@ func main() {
 	scrollLog := flag.String("scroll-log", "", "write every scroll event of the lists to this file, for measuring what the wheel and the touchpad send")
 	notified := flag.String("notified", "", "open the chat of the notification with this tag in the running messenger; Haiku's notifications start it so when clicked")
 	noIntegrations := flag.Bool("no-integrations", false, "do not look for FFmpeg, mpv, VLC or a browser on the system; only the paths set in the settings are used, as on a machine without them")
+	uninstall := flag.Bool("uninstall", false, "show the window that uninstalls the program installed into the system; the system's list of programs runs it so")
+	installSystem := flag.String(install.FlagInstallSystem, "", "used by the installation itself, with the administrator's rights: copy the program to this folder and register it for every user")
+	uninstallSystem := flag.String(install.FlagUninstallSystem, "", "used by the uninstallation itself, with the administrator's rights: remove the program registered for every user from this folder")
 	flag.Parse()
+	switch {
+	case *installSystem != "":
+		if err := install.InstallSystem(*installSystem); err != nil {
+			log.Fatal(err)
+		}
+		return
+	case *uninstallSystem != "":
+		if err := install.UninstallSystem(*uninstallSystem); err != nil {
+			log.Fatal(err)
+		}
+		return
+	case *uninstall:
+		runUninstall()
+		return
+	}
 	if *noIntegrations {
 		program.SetSearching(false)
 	}
@@ -254,9 +273,43 @@ func main() {
 		if flush != nil {
 			flush()
 		}
+		// The installed copy starts once this one has let the instance go.
+		if exe := accounts.relaunched(); exe != "" {
+			if err := program.Command(exe).Start(); err != nil {
+				log.Printf("start the installed program: %v", err)
+			}
+		}
 	}
 	windows.Store(accounts)
 	process.Open(accounts.startSpec())
+	process.Main()
+}
+
+// runUninstall shows the window that uninstalls the program. On Windows the
+// installed copy cannot remove itself while it runs: it starts a copy of
+// itself outside its folder to do it, and that copy removes itself after.
+func runUninstall() {
+	catalog := localization.For("")
+	if moved, err := install.Relocate("-uninstall"); moved || err != nil {
+		if err != nil {
+			alert.Error(catalog.T("app.title"), fmt.Sprintf(catalog.T("uninstall.failed"), err))
+		}
+		return
+	}
+	process := new(appwindow.Host)
+	process.EnableCrashDialogs()
+	// The process ends as its window closes, in BeforeExit's wake.
+	process.BeforeExit = func() {
+		if err := install.RemoveLater(); err != nil {
+			log.Print(err)
+		}
+	}
+	process.Open(appwindow.Spec{
+		Options: appwindow.Options{Title: catalog.T("uninstall.title"), Width: 520, Height: 420},
+		Build: func(w *appwindow.Window) appwindow.Content {
+			return ui.NewUninstaller(w, catalog, process.CloseAll)
+		},
+	})
 	process.Main()
 }
 

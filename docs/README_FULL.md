@@ -107,6 +107,55 @@ open its saved text file, or ignore that incident. `-demo-panic` starts on
 demo data and raises one recoverable panic in the first UI frame to preview
 the dialog without touching saved accounts.
 
+## Messenger: installing into the system
+
+Until the program has a digital signature, and with it an installer of its
+own, it installs itself (`internal/messenger/install`), on Windows and
+Linux. Before the first account is added, the sign-in offers it: a folder,
+which the system's chooser can pick (choosing `Program Files` means
+`Program Files\KomaruGram`), and switches for a desktop shortcut and a Start
+menu entry (the applications menu on Linux). "Don't install" goes on with
+the file as it is. Installed, the program quits and the installed copy
+starts, once this one has let go of the single instance. The user's data stay
+where they are: the configuration and cache directories are the same for
+every copy.
+
+| | Windows | Linux |
+|---|---|---|
+| Folder offered | `%LocalAppData%\Programs\KomaruGram`, or the installed copy's | `~/.local/share/KomaruGram` (`$XDG_DATA_HOME`), or the installed copy's |
+| Program | `KomaruGram.exe` | `komarugram`, and its icon `komarugram.png` beside it |
+| Registration | the list of programs: `HKCU\…\Uninstall\komarugram-go`, `HKLM` for a folder only an administrator can write to | `~/.local/share/applications/komarugram-go.desktop`, hidden from the menu (`NoDisplay`) without the menu entry |
+| Name | "KomaruGram Go" in the list of programs and the Start menu, "KomaruGram" on the desktop | the same, in the menu and on the desktop |
+| Shortcuts | `KomaruGram.lnk` on the desktop and `KomaruGram Go.lnk` in the Start menu's Programs, the user's own, made through the shell's ShellLink | `komarugram-go.desktop` on the desktop xdg-user-dirs names, executable, marked trusted for GNOME and Xfce through `gio` |
+| Removal | the list's Uninstall runs `KomaruGram.exe -uninstall` | the menu entry's "Uninstall" action runs `komarugram -uninstall` |
+
+A folder the user cannot write to needs an administrator. On Windows the
+program asks for the rights (UAC) and runs itself with them, with
+`-install-system <folder>`, to copy itself there and register for every user;
+the shortcuts stay the user's. On Linux there is no such request: the screen
+says the folder cannot be used.
+
+`-uninstall` opens a window telling what goes (the settings open it too,
+with "Uninstall KomaruGram" under leaving the account, on Windows and Linux
+only, whether this copy is installed or not; the program quits then, as
+Windows cannot remove a running one), with a switch to remove the
+user's data too (accounts, sessions, history, cache and settings; the
+sessions stay active on Telegram's servers). Windows cannot remove a
+running program: the installed copy copies itself to the temporary folder
+and runs the copy, which removes the installation, and itself, through
+`cmd`, a few seconds after it ends; each of these processes works from the
+temporary folder, as Windows cannot remove a folder that is a process's
+current one. A copy still running is reported, to be quit from the tray.
+Only the files the installation put are removed, and the folder only if the
+installation made it (recorded at installation: `KomaruGramMadeFolder` in
+the key, `X-KomaruGram-Made-Folder` in the desktop file) and nothing else is
+left in it. A folder the user had, even one they made for the program and
+left empty, stays. The removal for every user takes the folder from the
+machine's key, not from its command line.
+
+Not offered: to a program in `/usr`, `/opt`, `/nix`, `/snap` or `/gnu`, in
+a Flatpak, Snap or AppImage, a build of `go run`, or the installed copy.
+
 ## Messenger: accounts
 
 The process starts with one window. If local data is protected, that window

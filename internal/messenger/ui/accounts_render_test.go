@@ -111,9 +111,9 @@ func TestRenderAccountScreens(t *testing.T) {
 		for signIn.State().Step != login.StepProtect {
 			time.Sleep(time.Millisecond)
 		}
-		page := newLoginPage(signIn, newSecurityView(protection, func() {}))
+		page := newLoginPage(signIn, newSecurityView(protection, func() {}), nil)
 		renderPNG(t, filepath.Join(dir, name+".png"), size, 2, func(gtx layout.Context) {
-			page.Update(gtx)
+			page.Update(gtx, localization.For("ru"))
 			page.Layout(gtx, l, false)
 		})
 		cancel()

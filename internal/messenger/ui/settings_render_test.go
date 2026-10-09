@@ -80,7 +80,8 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	p.windowTransparencyAvailable = func() bool { return true }
 	p.overlays = func() preferences.Overlays { return overlays }
 	p.setOverlays = func(o preferences.Overlays) { overlays = o }
-	size := image.Pt(900, 700)
+	p.uninstall = func() {}
+	size := image.Pt(900, 1300)
 	if os.Getenv("SETTINGS_SECTION") == "appearance" {
 		p.section = settingsAppearance
 		// One font is picked and gone since, the others are the system's.

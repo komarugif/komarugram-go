@@ -130,11 +130,15 @@ type settingsPage struct {
 	// logOut asks to leave the window's account; confirmLogOut does it.
 	logOut           settingsItem
 	confirmingLogOut bool
-	confirmLogOut    *button.Button
-	cancelLogOut     *button.Button
-	loggingOut       bool
-	shownAccounts    []model.AccountInfo
-	images           *imageOps
+	// uninstallItem opens the uninstaller through uninstall, which is nil
+	// where the program does not install itself.
+	uninstallItem settingsItem
+	uninstall     func()
+	confirmLogOut *button.Button
+	cancelLogOut  *button.Button
+	loggingOut    bool
+	shownAccounts []model.AccountInfo
+	images        *imageOps
 	// private and setPrivate read and switch visual privacy mode; without
 	// them the mode is off and the switch hidden.
 	private    func() bool
@@ -353,6 +357,9 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 	}
 	if p.addAccount.click.Clicked(gtx) && p.accounts != nil {
 		p.accounts.Add()
+	}
+	if p.uninstallItem.click.Clicked(gtx) && p.uninstall != nil {
+		p.uninstall()
 	}
 	if p.logOut.click.Clicked(gtx) && !p.loggingOut {
 		p.confirmingLogOut = true
@@ -768,6 +775,16 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 			}
 			return layout.Inset{Top: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return p.layoutLogOut(gtx, l)
+			})
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			if p.uninstall == nil {
+				return layout.Dimensions{}
+			}
+			return layout.Inset{Top: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return p.cardHeight("uninstall").Card(gtx, func(gtx layout.Context) layout.Dimensions {
+					return p.uninstallItem.Layout(gtx, iconUninstall, l.T("uninstall.settings"), l.T("uninstall.settings_hint"))
+				}, 6)
 			})
 		}),
 	)

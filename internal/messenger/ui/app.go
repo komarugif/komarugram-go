@@ -152,6 +152,11 @@ type Services struct {
 	// OfferEmoji lets the window offer an emoji pack where no font of the
 	// system has emoji (emoji_offer.go); tests and renders leave it off.
 	OfferEmoji bool
+	// Uninstall opens the window that uninstalls the program and quits
+	// it; the settings offer it beside leaving the account. It is set
+	// where the program installs itself (Windows and Linux), whether or
+	// not this copy was installed.
+	Uninstall func()
 }
 
 // New creates the messenger UI.
@@ -250,6 +255,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		}
 	}
 	a.settings = newSettingsPage(w.Motion, services.MiniApps, services.Security, w.Invalidate, services.Accounts, currentAccount, themeMode(global.Theme), global.Language, a.setThemeMode, a.setLanguage)
+	a.settings.uninstall = services.Uninstall
 	a.settings.security.SetPreferences(services.Preferences)
 	a.settings.images = &a.images
 	a.settings.private = a.private
@@ -598,7 +604,7 @@ func (a *App) Close() {
 // RequireLogin makes the window show the sign-in of l until it is done, and
 // the messenger after that.
 func (a *App) RequireLogin(l *login.Login) {
-	a.signIn = newLoginPage(l, a.security)
+	a.signIn = newLoginPage(l, a.security, a.window.Invalidate)
 }
 
 // signingIn reports whether the sign-in window is what to show.
@@ -702,7 +708,7 @@ func (a *App) Update(gtx layout.Context) {
 		return
 	}
 	if a.signingIn() {
-		a.signIn.Update(gtx)
+		a.signIn.Update(gtx, a.catalog())
 		return
 	}
 	a.sessionEnded.Update(gtx, a.store)

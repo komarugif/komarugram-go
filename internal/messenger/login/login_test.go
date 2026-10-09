@@ -230,3 +230,35 @@ func TestProtectionOfferWaitsForContinue(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The offer to install ends with the installed program, or with nothing
+// when declined; the other steps' answers do not end it.
+func TestInstallOffer(t *testing.T) {
+	for _, exe := range []string{`C:\Users\u\AppData\Local\Programs\KomaruGram\KomaruGram.exe`, ""} {
+		l := New(nil)
+		type result struct {
+			exe string
+			err error
+		}
+		done := make(chan result, 1)
+		go func() {
+			exe, err := l.OfferInstall(context.Background())
+			done <- result{exe, err}
+		}()
+		waitFor(t, l, "offer", atStep(StepInstall))
+		l.Submit("+1 000")
+		select {
+		case r := <-done:
+			t.Fatalf("offer ended by a phone answer: %+v", r)
+		case <-time.After(20 * time.Millisecond):
+		}
+		if exe != "" {
+			l.Installed(exe)
+		} else {
+			l.Continue()
+		}
+		if r := <-done; r.err != nil || r.exe != exe {
+			t.Fatalf("offer: %+v, want %q", r, exe)
+		}
+	}
+}

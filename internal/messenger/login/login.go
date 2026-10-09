@@ -39,6 +39,10 @@ const (
 	StepDone
 	// StepFailed is a failure that is not the user's to fix; Retry tries again.
 	StepFailed
+	// StepInstall offers to install the program into the system before
+	// the first account is added: Installed tells it was, and the program
+	// to start in place of this one, Continue that it was declined.
+	StepInstall
 )
 
 // State is a snapshot of the sign-in for drawing.
@@ -106,9 +110,15 @@ func (l *Login) Submit(text string) {
 	l.give(answer{text: text}, StepPhone, StepCode, StepPassword)
 }
 
-// Continue leaves StepProtect, whether protection was enabled or not.
+// Continue leaves StepProtect, whether protection was enabled or not, or
+// StepInstall, declining the installation.
 func (l *Login) Continue() {
-	l.give(answer{}, StepProtect)
+	l.give(answer{}, StepProtect, StepInstall)
+}
+
+// Installed leaves StepInstall with the program installed at exe.
+func (l *Login) Installed(exe string) {
+	l.give(answer{text: exe}, StepInstall)
 }
 
 // Back leaves the code or password step for the phone number.
@@ -207,6 +217,13 @@ func (l *Login) ask(ctx context.Context, s State) (answer, error) {
 func (l *Login) OfferProtection(ctx context.Context) error {
 	_, err := l.ask(ctx, State{Step: StepProtect})
 	return err
+}
+
+// OfferInstall shows StepInstall and waits until the user installs the
+// program or declines: it returns the installed program, or "".
+func (l *Login) OfferInstall(ctx context.Context) (string, error) {
+	a, err := l.ask(ctx, State{Step: StepInstall})
+	return a.text, err
 }
 
 // Phone implements account.Prompter.
