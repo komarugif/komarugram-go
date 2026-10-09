@@ -359,6 +359,28 @@ func (p *bidi) eval(ctx context.Context, expression string, value bool) (string,
 	return text, nil
 }
 
+func (p *bidi) windowSize(ctx context.Context) (width, height int, err error) {
+	result, err := p.rpc.call(ctx, "browser.getClientWindows", nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	var reply struct {
+		ClientWindows []struct {
+			ClientWindow  string `json:"clientWindow"`
+			Width, Height int
+		} `json:"clientWindows"`
+	}
+	if err := json.Unmarshal(result, &reply); err != nil {
+		return 0, 0, err
+	}
+	for _, window := range reply.ClientWindows {
+		if window.ClientWindow == p.window {
+			return window.Width, window.Height, nil
+		}
+	}
+	return 0, 0, fmt.Errorf("Firefox did not tell the size of the page's window")
+}
+
 // setWindowBounds needs Firefox 151, which added
 // browser.setClientWindowState.
 func (p *bidi) setWindowBounds(ctx context.Context, left, top, width, height int) error {

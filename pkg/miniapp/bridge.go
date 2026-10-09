@@ -203,6 +203,7 @@ type protocol interface {
 	// eval runs an expression in the page. With value set it waits for a
 	// promise and returns the value, when it is a string.
 	eval(ctx context.Context, expression string, value bool) (string, error)
+	windowSize(ctx context.Context) (width, height int, err error)
 	setWindowBounds(ctx context.Context, left, top, width, height int) error
 	// shutdown asks the browser to close; Close waits for it to exit.
 	shutdown(ctx context.Context) error
@@ -372,6 +373,16 @@ func (b *Bridge) Eval(ctx context.Context, expression string) (string, error) {
 		return "", err
 	}
 	return b.proto.eval(ctx, expression, true)
+}
+
+// WindowSize reads the window's size from the browser's protocol, including
+// its frame. Unlike JavaScript's outerWidth and outerHeight, these values
+// are not changed by a browser's fingerprinting protection.
+func (b *Bridge) WindowSize(ctx context.Context) (width, height int, err error) {
+	if err := b.usable(); err != nil {
+		return 0, 0, err
+	}
+	return b.proto.windowSize(ctx)
 }
 
 // SetWindowBounds moves and resizes the window the page is in, in the

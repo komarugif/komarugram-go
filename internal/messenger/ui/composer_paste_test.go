@@ -23,6 +23,15 @@ func pasteData(typ, content string) transfer.DataEvent {
 	return transfer.DataEvent{Type: typ, Open: func() io.ReadCloser { return io.NopCloser(strings.NewReader(content)) }}
 }
 
+// fileURI uses URL slashes and keeps a Windows drive out of the URI scheme.
+func fileURI(path string) *url.URL {
+	path = filepath.ToSlash(path)
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return &url.URL{Scheme: "file", Path: path}
+}
+
 // Ctrl+V in the message field reads files, then a picture, then text from
 // the clipboard; files and pictures open the box for sending files.
 func TestComposerPaste(t *testing.T) {
@@ -48,8 +57,10 @@ func TestComposerPaste(t *testing.T) {
 
 	dir := t.TempDir()
 	file := filepath.Join(dir, "a b.txt")
-	os.WriteFile(file, []byte("x"), 0o600)
-	paste(pasteData(clipboard.TypeURIList, (&url.URL{Scheme: "file", Path: file}).String()+"\r\n"))
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	paste(pasteData(clipboard.TypeURIList, fileURI(file).String()+"\r\n"))
 	if !c.files.Shown() || len(c.files.files) != 1 || c.files.files[0].Path != file {
 		t.Fatalf("pasted files: shown %v, %d", c.files.Shown(), len(c.files.files))
 	}
@@ -91,10 +102,15 @@ func TestComposerPaste(t *testing.T) {
 }
 
 func TestLocalPaths(t *testing.T) {
-	if got := localPaths("# copied\r\nfile:///tmp/a%20b.png\r\nfile://localhost/tmp/c\r\n"); !slices.Equal(got, []string{"/tmp/a b.png", "/tmp/c"}) {
+	dir := t.TempDir()
+	want := []string{filepath.Join(dir, "a b.png"), filepath.Join(dir, "c")}
+	local := fileURI(want[1])
+	local.Host = "localhost"
+	list := "# copied\r\n" + fileURI(want[0]).String() + "\r\n" + local.String() + "\r\n"
+	if got := localPaths(list); !slices.Equal(got, want) {
 		t.Fatalf("got %q", got)
 	}
-	if got := localPaths("file:///tmp/a\r\nhttps://telegram.org\r\n"); got != nil {
+	if got := localPaths(fileURI(want[0]).String() + "\r\nhttps://telegram.org\r\n"); got != nil {
 		t.Fatalf("a list with a link gave %q", got)
 	}
 }
