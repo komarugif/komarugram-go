@@ -4,6 +4,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"gio-mw/exp"
 	"image"
 	"image/color"
@@ -44,7 +45,7 @@ func (staticAccounts) Subscribe(func()) func()    { return func() {} }
 
 // TestRenderSettingsAccounts draws the main settings page with a list of
 // saved accounts and saves a screenshot, for looking at it. SETTINGS_SECTION=appearance,
-// chats, notify, privacy or integrations draws that section instead; wallpapers,
+// chats, notify, privacy, integrations or about draws that section instead; wallpapers,
 // the chats' section under the gallery of wallpapers:
 //
 //	SETTINGS_PNG=/tmp/settings.png go test ./internal/messenger/ui -run RenderSettingsAccounts
@@ -178,6 +179,13 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		p.localPremium = func() bool { return on }
 		p.setLocalPremium = func(v bool) { on = v }
 		size.Y = 1500
+	}
+	if os.Getenv("SETTINGS_SECTION") == "about" {
+		// Offline: the pictures GitHub gives stay the icons in their place.
+		p.section = settingsAbout
+		p.about.fetch = func(context.Context, string) ([]byte, error) { return nil, errors.New("offline") }
+		p.about.openCommunity = func() {}
+		p.about.open()
 	}
 	if os.Getenv("SETTINGS_SECTION") == "integrations" {
 		p.section = settingsIntegrations

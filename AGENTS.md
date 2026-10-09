@@ -89,7 +89,11 @@ client and in the render tests alike (`internal/messenger/fonts`).
 `KOMARUGRAM_EMOJI_SET` names the directory of an emoji pack to draw emoji
 with, there too, and `KOMARUGRAM_EMOJI_PACKS` a catalog of packs for the
 settings to offer in place of the one built in, a directory or a URL
-(`cmd/emoji-pack` makes both). `go run ./cmd/render-all [dir]` renders all of them, every
+(`cmd/emoji-pack` makes both). `KOMARUGRAM_MASCOT` is where the
+settings' About section takes the mascot's scenes, a folder or a URL with
+`index.json`, over their repository
+([clawd-animations](https://github.com/komarugif/clawd-animations)).
+`go run ./cmd/render-all [dir]` renders all of them, every
 variant, into one directory (about a minute; `komarugram-renders` in the
 system's temporary directory by default; `-only composer` for some of
 them). Nothing compares them with references: the project is in active
@@ -115,6 +119,9 @@ modules are not in this repository, and the client fetches them
 - **Third-party licenses are in `docs/THIRD_PARTY_LICENSES.md`**, not in
   the READMEs: a dependency, embedded file or downloaded module gets its
   row there when it comes in.
+- **`assets/dependencies.txt` names the versions the settings' About
+  section shows** (Gio, gotd, wazero): when go.mod changes one of them,
+  change it there too. `go test ./assets` compares the two.
 - **Dependencies are the maintainer's choice.** Do not add a Go module, a
   library or a tool the build or the app needs on your own. Propose the
   options with their trade-offs — for a decoder of media from strangers,
