@@ -37,8 +37,19 @@ const (
 )
 
 // Kinds lists the supported players in the order they are preferred when
-// the user has not chosen one.
-var Kinds = []Kind{MPV, VLC, Chromium}
+// the user has not chosen one: those that run on this system.
+var Kinds = runnable([]Kind{MPV, VLC, Chromium})
+
+// runnable are those of kinds that run on this system.
+func runnable(kinds []Kind) []Kind {
+	var out []Kind
+	for _, k := range kinds {
+		if !unsupported(k) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
 
 // Title is the player's name as its authors write it.
 func (k Kind) Title() string {

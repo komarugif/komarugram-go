@@ -43,6 +43,16 @@ func playerFor(chosen player.Kind, installed []player.Kind) (kind player.Kind, a
 	return "", true
 }
 
+// playerText is key's text, or where mpv does not run (Windows 7) its
+// variant without mpv, key_no_mpv: it would be offered where it cannot be
+// installed.
+func playerText(l localization.Catalog, key string) string {
+	if !slices.Contains(player.Kinds, player.MPV) {
+		return l.T(key + "_no_mpv")
+	}
+	return l.T(key)
+}
+
 // playerTitle names a player in the settings: the browser one, stored as
 // player.Chromium, plays in whatever browser Mini Apps run in, Firefox among
 // them, so it is named after them.
@@ -94,7 +104,7 @@ func (p *chatPage) play(gtx layout.Context, m model.Message, report func(error),
 		c.modal.Open()
 		gtx.Execute(op.InvalidateCmd{})
 	case kind == "":
-		report(errors.New(l.T("player.none")))
+		report(errors.New(playerText(l, "player.none")))
 	default:
 		p.media.Play(m, kind, kind.Resolve(p.customPlayers()[kind]), report)
 	}
@@ -105,7 +115,7 @@ func (p *chatPage) play(gtx layout.Context, m model.Message, report func(error),
 func playerReport(report func(error), l localization.Catalog) func(error) {
 	return func(err error) {
 		if errors.Is(err, player.ErrCannotPlay) {
-			err = errors.New(l.T("player.browser_cannot_play"))
+			err = errors.New(playerText(l, "player.browser_cannot_play"))
 		}
 		report(err)
 	}
@@ -304,13 +314,17 @@ func (s *playerSettings) Layout(gtx layout.Context, l localization.Catalog) layo
 	case ask:
 		hint = l.T("player.undecided")
 	case kind == "":
-		hint = l.T("player.none")
+		hint = playerText(l, "player.none")
 	case kind.Fallback() && len(dedicatedPlayers(s.installed)) == 0:
-		hint = l.T("player.fallback")
+		hint = playerText(l, "player.fallback")
 	case kind.Fallback():
 		hint = l.T("player.browser")
 	case len(dedicatedPlayers(s.installed)) == 1:
-		hint = l.Format("player.only", map[string]string{"player": kind.Title()})
+		key := "player.only"
+		if !slices.Contains(player.Kinds, player.MPV) {
+			key += "_no_mpv"
+		}
+		hint = l.Format(key, map[string]string{"player": kind.Title()})
 	}
 	labels := map[player.Kind]string{"": l.T("player.ask_option")}
 	for _, k := range player.Kinds {
@@ -360,6 +374,10 @@ func (p *settingsPage) layoutIntegrations(gtx layout.Context, l localization.Cat
 		return p.decoders.audio.Layout(gtx, l)
 	})}
 	for _, kind := range []player.Kind{player.VLC, player.MPV} {
+		// Where it does not run, as mpv on Windows 7, it is not offered.
+		if !slices.Contains(player.Kinds, kind) {
+			continue
+		}
 		children = append(children, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return p.players.programs[kind].Layout(gtx, l)
 		}))
