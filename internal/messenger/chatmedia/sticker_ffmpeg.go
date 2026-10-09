@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"image"
 	"io"
-	"os/exec"
 	"time"
 
+	"komarugram/pkg/program"
 	"komarugram/pkg/resample"
 	"komarugram/pkg/video"
 	"komarugram/pkg/webm"
@@ -54,7 +54,7 @@ func decodeFFmpegSticker(ctx context.Context, path string, data []byte, size ima
 	defer cancel()
 	// Force libvpx: FFmpeg's native VP9 decoder does not preserve WebM alpha.
 	// Input stays in memory, with no decrypted files or network protocols.
-	cmd := exec.CommandContext(ctx, path, "-hide_banner", "-loglevel", "error", "-nostdin",
+	cmd := program.CommandContext(ctx, path, "-hide_banner", "-loglevel", "error", "-nostdin",
 		"-threads", "1", "-protocol_whitelist", "pipe", "-f", "webm", "-c:v", "libvpx-vp9", "-i", "pipe:0",
 		"-an", "-sn", "-dn", "-vf", fmt.Sprintf("scale=%d:%d", size.X, size.Y),
 		"-threads", "1", "-filter_threads", "1", "-vsync", "0", "-frames:v", fmt.Sprint(count), "-pix_fmt", "rgba", "-f", "rawvideo", "pipe:1")

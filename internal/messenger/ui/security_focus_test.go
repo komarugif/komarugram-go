@@ -75,9 +75,9 @@ func TestProtectionOfferFocusesMasterPassword(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	v := newSecurityView(protection, func() {})
-	page := newLoginPage(signIn, v)
+	page := newLoginPage(signIn, v, nil)
 	h := &focusHarness{draw: func(gtx layout.Context) {
-		page.Update(gtx)
+		page.Update(gtx, localization.For("ru"))
 		page.Layout(gtx, localization.For("ru"), false)
 	}}
 	h.frame()
@@ -103,9 +103,9 @@ func TestSignInFocusesPhone(t *testing.T) {
 	for signIn.State().Step != login.StepPhone {
 		time.Sleep(time.Millisecond)
 	}
-	page := newLoginPage(signIn, nil)
+	page := newLoginPage(signIn, nil, nil)
 	h := &focusHarness{draw: func(gtx layout.Context) {
-		page.Update(gtx)
+		page.Update(gtx, localization.For("ru"))
 		page.Layout(gtx, localization.For("ru"), false)
 	}}
 	h.frame()

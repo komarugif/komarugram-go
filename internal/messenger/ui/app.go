@@ -4,6 +4,8 @@ package ui
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"image"
 	"komarugram/internal/diagnostics"
 	"log"
@@ -59,6 +61,9 @@ type App struct {
 	shownChat  atomic.Int64
 	shownFocus atomic.Bool
 	openChat   atomic.Int64
+	// usernames are the chats the settings asked for by their usernames,
+	// as Telegram resolved them.
+	usernames chan usernameResult
 	// filter hides messages as the settings ask.
 	filter     *messageFilter
 	lightTheme *token.Theme
@@ -152,6 +157,11 @@ type Services struct {
 	// OfferEmoji lets the window offer an emoji pack where no font of the
 	// system has emoji (emoji_offer.go); tests and renders leave it off.
 	OfferEmoji bool
+	// Uninstall opens the window that uninstalls the program and quits
+	// it; the settings offer it beside leaving the account. It is set
+	// where the program installs itself (Windows and Linux), whether or
+	// not this copy was installed.
+	Uninstall func()
 }
 
 // New creates the messenger UI.
@@ -250,6 +260,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		}
 	}
 	a.settings = newSettingsPage(w.Motion, services.MiniApps, services.Security, w.Invalidate, services.Accounts, currentAccount, themeMode(global.Theme), global.Language, a.setThemeMode, a.setLanguage)
+	a.settings.uninstall = services.Uninstall
 	a.settings.security.SetPreferences(services.Preferences)
 	a.settings.images = &a.images
 	a.settings.private = a.private
@@ -457,6 +468,10 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.viewer.play = func(gtx layout.Context, m model.Message, l localization.Catalog) {
 			a.history.play(gtx, m, a.viewer.reportPlay, l)
 		}
+		if links, ok := source.(model.TelegramLinkSource); ok {
+			a.usernames = make(chan usernameResult, 1)
+			a.settings.about.openCommunity = func() { a.openUsername(links, community) }
+		}
 		if _, ok := store.(model.CommentsStore); ok {
 			a.history.openComments = a.openComments
 			a.comments = a.newChatPage(source, store, w)
@@ -598,7 +613,7 @@ func (a *App) Close() {
 // RequireLogin makes the window show the sign-in of l until it is done, and
 // the messenger after that.
 func (a *App) RequireLogin(l *login.Login) {
-	a.signIn = newLoginPage(l, a.security)
+	a.signIn = newLoginPage(l, a.security, a.window.Invalidate)
 }
 
 // signingIn reports whether the sign-in window is what to show.
@@ -702,7 +717,7 @@ func (a *App) Update(gtx layout.Context) {
 		return
 	}
 	if a.signingIn() {
-		a.signIn.Update(gtx)
+		a.signIn.Update(gtx, a.catalog())
 		return
 	}
 	a.sessionEnded.Update(gtx, a.store)
@@ -714,6 +729,11 @@ func (a *App) Update(gtx layout.Context) {
 	a.frozen.Update(gtx)
 	if id := a.openChat.Swap(0); id != 0 {
 		a.open(chatPick{ID: id})
+	}
+	select {
+	case r := <-a.usernames:
+		a.takeUsername(r)
+	default:
 	}
 	a.shownChat.Store(a.selected)
 	folders := a.store.Folders()
@@ -1313,4 +1333,39 @@ func (a *App) overlayPrefs() overlayPrefs {
 	o := a.preferences.Global().Overlays
 	animations := a.window.Motion.AnimationsEnabled()
 	return overlayPrefs{menus: o.MenusBlur && animations, toasts: o.ToastsBlur && animations, opacity: o.Opacity()}
+}
+
+// usernameResult is the chat of a username, or why there is none.
+type usernameResult struct {
+	name string
+	chat model.Chat
+	err  error
+}
+
+// openUsername opens the chat of a public username in the client, as a
+// t.me link to it does, from where no chat's page takes the link: the
+// settings' About section opens KomaruGram's community so.
+func (a *App) openUsername(links model.TelegramLinkSource, name string) {
+	results, invalidate := a.usernames, a.window.Invalidate
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		chat, err := links.ResolveUsername(ctx, name)
+		results <- usernameResult{name: name, chat: chat, err: err}
+		invalidate()
+	}()
+}
+
+// takeUsername opens the chat that came, or tells the About section why
+// it did not.
+func (a *App) takeUsername(r usernameResult) {
+	l := a.catalog()
+	switch {
+	case errors.Is(r.err, model.ErrLinkNotFound):
+		a.settings.about.communityProblem = l.Format("links.username_not_found", map[string]string{"user": "@" + r.name})
+	case r.err != nil:
+		a.settings.about.communityProblem = fmt.Sprintf(l.T("about.community_failed"), mediaErrorText(r.err))
+	default:
+		a.open(chatPick{ID: r.chat.ID, Chat: &r.chat})
+	}
 }

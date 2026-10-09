@@ -26,6 +26,7 @@ import (
 
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
+	"komarugram/pkg/program"
 )
 
 func scheme(gtx layout.Context) *token.Scheme {
@@ -195,17 +196,21 @@ func chatStatus(c model.Chat, l localization.Catalog) string {
 }
 
 // openBrowser opens target in the user's browser. It blocks until the
-// system has taken the link. macOS and Haiku both have open, which takes a
-// link or a file to the program the system names for it.
-func openBrowser(target string) error {
+// system has taken the link. The tests replace it: a test that clicks
+// would open the user's browser.
+var openBrowser = openSystemBrowser
+
+// openSystemBrowser is openBrowser. macOS and Haiku both have open, which
+// takes a link or a file to the program the system names for it.
+func openSystemBrowser(target string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin", "haiku":
-		cmd = exec.Command("open", target)
+		cmd = program.Command("open", target)
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", target)
+		cmd = program.Command("rundll32", "url.dll,FileProtocolHandler", target)
 	default:
-		cmd = exec.Command("xdg-open", target)
+		cmd = program.Command("xdg-open", target)
 	}
 	return cmd.Run()
 }

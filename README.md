@@ -57,6 +57,10 @@ go install gioui.org/cmd/gogio@latest
 gogio -ldflags="-s -w" -icon=./assets/logo_round.png -target=windows -o komarugram.exe ./cmd/messenger
 ```
 
+### **Windows 7:**
+
+Windows 7 needs [go-legacy-win7](https://github.com/thongtech/go-legacy-win7), a Go that still supports it, in place of the official one; the steps, on Windows 7 itself, are in [BUILD_WINDOWS7.md](./docs/BUILD_WINDOWS7.md).
+
 ### **Haiku:**
 
 Haiku needs a Go of its own and a few patched modules; the steps, all on Haiku itself, are in [BUILD_HAIKU.md](./docs/BUILD_HAIKU.md).
@@ -70,6 +74,7 @@ KomaruGram Go can be ported to a wide range of operating systems thanks to its a
 | OS | Status |
 |---|---|
 | Windows 10/11 | ✅ First-class support |
+| Windows 7 | ✅ Supported |
 | Linux (Wayland) | ✅ First-class support |
 | Linux (X11) | ✅ Supported |
 | MacOS | ✅ First-class support |
@@ -78,7 +83,6 @@ KomaruGram Go can be ported to a wide range of operating systems thanks to its a
 | OpenBSD | ⚠️ Should build in theory; not tested |
 | NetBSD | ❓ Porting possible, with some caveats |
 | Android | ❓ Porting possible, with some caveats |
-| Windows 7 | ❓ Porting possible, with some caveats |
 
 ## Vibecoding
 

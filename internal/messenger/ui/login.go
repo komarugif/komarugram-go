@@ -27,6 +27,8 @@ type loginPage struct {
 	// security draws the offer to protect local data, at StepProtect.
 	security *securityView
 	skip     *button.Button
+	// install draws the offer to install the program, at StepInstall.
+	install *installView
 
 	phone, code, password *textField
 	next, back, retry     *button.Button
@@ -35,10 +37,11 @@ type loginPage struct {
 	seen int
 }
 
-func newLoginPage(l *login.Login, security *securityView) *loginPage {
+func newLoginPage(l *login.Login, security *securityView, invalidate func()) *loginPage {
 	return &loginPage{
 		login:    l,
 		security: security,
+		install:  newInstallView(invalidate),
 		skip:     button.Text(),
 		phone:    newTextField(0, "0123456789+-() "),
 		code:     newTextField(0, "0123456789 "),
@@ -69,8 +72,12 @@ func (p *loginPage) field(step login.Step) *textField {
 }
 
 // Update handles input for the current state.
-func (p *loginPage) Update(gtx layout.Context) {
+func (p *loginPage) Update(gtx layout.Context, l localization.Catalog) {
 	st := p.login.State()
+	if st.Step == login.StepInstall {
+		p.install.Update(gtx, p.login, l)
+		return
+	}
 	field := p.field(st.Step)
 
 	if st.Seq != p.seen {
@@ -135,8 +142,11 @@ func (p *loginPage) Layout(gtx layout.Context, l localization.Catalog, private b
 		return layout.UniformInset(16).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(loginWidth))
 			return p.height.Card(gtx, func(gtx layout.Context) layout.Dimensions {
-				if st.Step == login.StepProtect {
+				switch st.Step {
+				case login.StepProtect:
 					return p.layoutProtect(gtx, l)
+				case login.StepInstall:
+					return p.install.Layout(gtx, l)
 				}
 				if private {
 					st.Phone = ""

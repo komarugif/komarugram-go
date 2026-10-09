@@ -250,7 +250,7 @@ func geckoVersion(b browser) version {
 	var paths []string
 	if b.flatpak {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		out, err := exec.CommandContext(ctx, "flatpak", "info", "--show-location", b.ref).Output()
+		out, err := program.CommandContext(ctx, "flatpak", "info", "--show-location", b.ref).Output()
 		cancel()
 		if err != nil {
 			return nil
@@ -434,6 +434,12 @@ func candidates() []browser {
 			found = append(found, browser{ref: path, found: true})
 		}
 	}
+	for _, path := range registeredBrowsers() {
+		if !seen[path] {
+			seen[path] = true
+			found = append(found, browser{ref: path, found: true})
+		}
+	}
 	flatpakAt := len(found)
 	found = append(found, make([]browser, len(flatpakBrowsers))...)
 
@@ -501,7 +507,7 @@ func flatpakInstalled(id string) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return exec.CommandContext(ctx, "flatpak", "info", id).Run() == nil
+	return program.CommandContext(ctx, "flatpak", "info", id).Run() == nil
 }
 
 // version is a Chromium or Firefox version, as many of its numbers as are

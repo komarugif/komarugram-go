@@ -31,14 +31,24 @@ func chromiumArgs(url, dir string, page Page, telegram bool) []string {
 	if telegram {
 		url = "data:text/html,"
 	}
-	return append([]string{
+	args := []string{
 		"--app=" + url,
 		"--user-data-dir=" + dir,
 		"--remote-debugging-port=0",
 		"--no-first-run", "--no-default-browser-check",
 		fmt.Sprintf("--window-size=%d,%d", page.Width, page.Height),
-	}, page.Args...)
+	}
+	if GPUFailed != nil && GPUFailed() {
+		args = append(args, "--disable-gpu")
+	}
+	return append(args, page.Args...)
 }
+
+// GPUFailed, when set, reports whether the system's GPU driver failed to
+// draw the client's windows. A Chromium-based browser then runs without the
+// GPU: its windows stay white or hang on that driver too, as Supermium's on
+// the Direct3D 11 of VirtualBox's driver for Windows 7.
+var GPUFailed func() bool
 
 // seedProfile writes the preferences the browser is to start with. A Mini App
 // is a client surface rather than a page the user browsed to, so Chromium's

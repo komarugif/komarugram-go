@@ -33,6 +33,7 @@ import (
 	"komarugram/internal/messenger/security"
 	"komarugram/internal/miniappprefs"
 	"komarugram/internal/motion"
+	"komarugram/pkg/deviceinfo"
 	"komarugram/pkg/miniapp"
 )
 
@@ -68,6 +69,8 @@ const (
 	// settingsNotify is how new messages are told of, as Telegram Desktop's
 	// Notifications and Sounds.
 	settingsNotify
+	// settingsAbout is the program, the system it runs on and its links.
+	settingsAbout
 )
 
 func settingsTitles(l localization.Catalog) map[settingsSection]string {
@@ -76,7 +79,7 @@ func settingsTitles(l localization.Catalog) map[settingsSection]string {
 		settingsPrivacy: l.T("settings.privacy"), settingsPower: l.T("settings.power"),
 		settingsPremium: l.T("premium.title"), settingsIntegrations: l.T("settings.integrations"),
 		settingsDevices: l.T("settings.devices"), settingsChats: l.T("settings.chats"),
-		settingsNotify: l.T("settings.notify"),
+		settingsNotify: l.T("settings.notify"), settingsAbout: l.T("settings.about"),
 	}
 }
 
@@ -90,6 +93,7 @@ var settingsIcons = map[settingsSection]wdk.IconWidget{
 	settingsDevices:      iconDevices,
 	settingsChats:        iconChats,
 	settingsNotify:       iconNotifications,
+	settingsAbout:        iconInfo,
 }
 
 func storageShort(l localization.Catalog) map[miniapp.Storage]string {
@@ -130,11 +134,16 @@ type settingsPage struct {
 	// logOut asks to leave the window's account; confirmLogOut does it.
 	logOut           settingsItem
 	confirmingLogOut bool
-	confirmLogOut    *button.Button
-	cancelLogOut     *button.Button
-	loggingOut       bool
-	shownAccounts    []model.AccountInfo
-	images           *imageOps
+	// uninstallItem opens the uninstaller through uninstall, which is nil
+	// where the program does not install itself.
+	uninstallItem settingsItem
+	uninstall     func()
+	about         *aboutView
+	confirmLogOut *button.Button
+	cancelLogOut  *button.Button
+	loggingOut    bool
+	shownAccounts []model.AccountInfo
+	images        *imageOps
 	// private and setPrivate read and switch visual privacy mode; without
 	// them the mode is off and the switch hidden.
 	private    func() bool
@@ -222,12 +231,14 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 	privacy := miniappprefs.NewView(miniapps, miniappprefs.Russian)
 	privacy.TitleStyle = token.TypestyleTitleMedium
 	p := &settingsPage{
+		about: newAboutView(invalidate),
 		items: map[settingsSection]*settingsItem{
 			settingsAppearance:   new(settingsItem),
 			settingsPrivacy:      new(settingsItem),
 			settingsPower:        new(settingsItem),
 			settingsPremium:      new(settingsItem),
 			settingsIntegrations: new(settingsItem),
+			settingsAbout:        new(settingsItem),
 			settingsDevices:      new(settingsItem),
 			settingsChats:        new(settingsItem),
 			settingsNotify:       new(settingsItem),
@@ -325,6 +336,9 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			p.setOverlays(o)
 		}
 	})
+	if m != nil {
+		p.about.animate = m.AnimationsEnabled
+	}
 	return p
 }
 
@@ -354,6 +368,9 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 	if p.addAccount.click.Clicked(gtx) && p.accounts != nil {
 		p.accounts.Add()
 	}
+	if p.uninstallItem.click.Clicked(gtx) && p.uninstall != nil {
+		p.uninstall()
+	}
 	if p.logOut.click.Clicked(gtx) && !p.loggingOut {
 		p.confirmingLogOut = true
 	}
@@ -375,6 +392,9 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 			}
 			if section == settingsDevices {
 				p.sessions.refresh()
+			}
+			if section == settingsAbout {
+				p.about.open()
 			}
 		}
 	}
@@ -485,6 +505,9 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		p.lookView.Update(gtx)
 		p.chats.Update(gtx)
 	}
+	if p.section == settingsAbout {
+		p.about.Update(gtx)
+	}
 }
 
 func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appearance.Scheme, dark bool, l localization.Catalog) layout.Dimensions {
@@ -573,6 +596,8 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 			content = func(gtx layout.Context) layout.Dimensions { return p.sessions.Layout(gtx, l) }
 		case settingsChats:
 			content = func(gtx layout.Context) layout.Dimensions { return p.layoutChats(gtx, l) }
+		case settingsAbout:
+			content = func(gtx layout.Context) layout.Dimensions { return p.about.Layout(gtx, l) }
 		case settingsNotify:
 			// The accounts are as the main page last listed them.
 			content = func(gtx layout.Context) layout.Dimensions { return p.notifyView.Layout(gtx, l, len(p.shownAccounts)) }
@@ -768,6 +793,23 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 			}
 			return layout.Inset{Top: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return p.layoutLogOut(gtx, l)
+			})
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return p.cardHeight("about").Card(gtx, func(gtx layout.Context) layout.Dimensions {
+					return p.items[settingsAbout].Layout(gtx, iconInfo, l.T("settings.about"), deviceinfo.Platform())
+				}, 6)
+			})
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			if p.uninstall == nil {
+				return layout.Dimensions{}
+			}
+			return layout.Inset{Top: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return p.cardHeight("uninstall").Card(gtx, func(gtx layout.Context) layout.Dimensions {
+					return p.uninstallItem.Layout(gtx, iconUninstall, l.T("uninstall.settings"), l.T("uninstall.settings_hint"))
+				}, 6)
 			})
 		}),
 	)

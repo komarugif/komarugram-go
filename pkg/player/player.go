@@ -37,8 +37,19 @@ const (
 )
 
 // Kinds lists the supported players in the order they are preferred when
-// the user has not chosen one.
-var Kinds = []Kind{MPV, VLC, Chromium}
+// the user has not chosen one: those that run on this system.
+var Kinds = runnable([]Kind{MPV, VLC, Chromium})
+
+// runnable are those of kinds that run on this system.
+func runnable(kinds []Kind) []Kind {
+	var out []Kind
+	for _, k := range kinds {
+		if !unsupported(k) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
 
 // Title is the player's name as its authors write it.
 func (k Kind) Title() string {
@@ -90,11 +101,6 @@ func (k Kind) FlatpakID() string { return flatpakIDs[k] }
 func (k Kind) Find() string {
 	if k == Chromium {
 		return miniapp.Browser()
-	}
-	// mpv's IPC on Windows is a named pipe, which dial does not open yet:
-	// offering mpv there would only fail after the timeout.
-	if k == MPV && runtime.GOOS == "windows" {
-		return ""
 	}
 	if !program.Searching() {
 		return ""
@@ -231,12 +237,23 @@ func socketPath(kind Kind, path string) string {
 	return filepath.Join(dir, fmt.Sprintf("kitchen-%s-%d.sock", kind, time.Now().UnixNano()))
 }
 
+// pipePath is a named pipe of its own for a player on Windows.
+func pipePath(kind Kind) string {
+	return fmt.Sprintf(`\\.\pipe\kitchen-%s-%d`, kind, time.Now().UnixNano())
+}
+
 // dial waits for the player to open its IPC endpoint, which takes a moment
-// after start.
+// after start: a network address, or "pipe", a named pipe of Windows.
 func dial(ctx context.Context, network, address string) (net.Conn, error) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		conn, err := net.Dial(network, address)
+		var conn net.Conn
+		var err error
+		if network == "pipe" {
+			conn, err = dialPipe(address)
+		} else {
+			conn, err = net.Dial(network, address)
+		}
 		if err == nil {
 			return conn, nil
 		}

@@ -99,3 +99,28 @@ func TestAutoLockSliderPreservesOlderDelay(t *testing.T) {
 		t.Fatalf("too many stops after selecting a preset: %v", v.autoLockValues)
 	}
 }
+
+// A wrong password over a key sealed by the password alone says no word
+// of a TPM; over one sealed by the TPM, it does.
+func TestVisualLockProblemWithoutTPM(t *testing.T) {
+	for _, c := range []struct {
+		access security.Access
+		want   string
+	}{
+		{security.Access{Kind: security.AccessFailed}, "security.failed_password"},
+		{security.Access{Kind: security.AccessReady}, "security.failed"},
+	} {
+		protection, err := security.OpenPath(filepath.Join(t.TempDir(), "security.json"), &renderTPM{access: c.access})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := protection.Enable(context.Background(), "secret"); err != nil {
+			t.Fatal(err)
+		}
+		v := newVisualLockView(protection, func() {})
+		v.failed = true
+		if got := v.problem(); got != c.want {
+			t.Errorf("access %v: %q, want %q", c.access.Kind, got, c.want)
+		}
+	}
+}

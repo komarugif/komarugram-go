@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"image"
 	"io"
-	"os/exec"
+	"komarugram/pkg/program"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,7 +45,7 @@ func probe(path, ffmpeg string) (Info, error) {
 	if ffprobe == "" {
 		return Info{}, errors.New("ffprobe is not installed")
 	}
-	out, err := exec.CommandContext(ctx, ffprobe,
+	out, err := program.CommandContext(ctx, ffprobe,
 		"-format_whitelist", "mov,matroska,webm,gif",
 		"-v", "error",
 		"-select_streams", "v:0",
@@ -186,7 +186,7 @@ func (p *Player) decode() error {
 	}
 	p.cancelDecode = cancel
 	p.mu.Unlock()
-	cmd := exec.CommandContext(ctx, p.ffmpeg,
+	cmd := program.CommandContext(ctx, p.ffmpeg,
 		"-hide_banner", "-loglevel", "error",
 		"-re",
 		"-threads", "2", "-format_whitelist", "mov,matroska,webm,gif",

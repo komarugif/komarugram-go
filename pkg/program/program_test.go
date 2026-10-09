@@ -53,3 +53,16 @@ func TestBanner(t *testing.T) {
 		t.Errorf("limited buffer kept %q", b.String())
 	}
 }
+
+func TestDottedVersion(t *testing.T) {
+	for in, want := range map[string]string{
+		"3,0,24,0":        "3.0.24.0",
+		"3, 0, 24, 0":     "3.0.24.0",
+		"150.0.7871.255 ": "150.0.7871.255",
+		"3.0.20":          "3.0.20",
+	} {
+		if got := dottedVersion(in); got != want {
+			t.Errorf("%q: %q, want %q", in, got, want)
+		}
+	}
+}

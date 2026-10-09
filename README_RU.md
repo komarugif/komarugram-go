@@ -57,6 +57,10 @@ go install gioui.org/cmd/gogio@latest
 gogio -ldflags="-s -w" -icon=./assets/logo_round.png -target=windows -o komarugram.exe ./cmd/messenger
 ```
 
+### **Windows 7:**
+
+Для Windows 7 нужен [go-legacy-win7](https://github.com/thongtech/go-legacy-win7) — Go, который её всё ещё поддерживает, — вместо официального; все шаги, на самой Windows 7, описаны в [BUILD_WINDOWS7.md](./docs/BUILD_WINDOWS7.md) (на английском).
+
 ### **Haiku:**
 
 Для Haiku нужен свой Go и несколько пропатченных модулей; все шаги, на самой Haiku, описаны в [BUILD_HAIKU.md](./docs/BUILD_HAIKU.md) (на английском).
@@ -70,6 +74,7 @@ KomaruGram Go может быть портирован на множество �
 | OS | Состояние |
 |---|---|
 | Windows 10/11 | ✅ Первоклассная поддержка |
+| Windows 7 | ✅ Поддерживается |
 | Linux (Wayland) | ✅ Первоклассная поддержка |
 | Linux (X11) | ✅ Поддерживается |
 | MacOS | ✅ Первоклассная поддержка |
@@ -78,7 +83,6 @@ KomaruGram Go может быть портирован на множество �
 | OpenBSD | ⚠️ В теории должен собираться, не проверено |
 | NetBSD | ❓ Возможен перенос, с некоторыми оговорками |
 | Android | ❓ Возможен перенос, с некоторыми оговорками |
-| Windows 7 | ❓ Возможен перенос, с некоторыми оговорками |
 
 
 ## Вайбкодинг

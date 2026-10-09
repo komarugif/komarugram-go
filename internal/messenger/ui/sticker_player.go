@@ -105,7 +105,11 @@ func (c *decoderChoice) Layout(gtx layout.Context, l localization.Catalog) layou
 		case "ffmpeg":
 			labels[option] = "FFmpeg"
 		default:
-			labels[option] = l.T("sticker_player." + option)
+			if option == "external" {
+				labels[option] = playerText(l, "sticker_player.external")
+			} else {
+				labels[option] = l.T("sticker_player." + option)
+			}
 		}
 	}
 	hint := ""

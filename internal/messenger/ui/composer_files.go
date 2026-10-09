@@ -5,6 +5,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"komarugram/pkg/program"
 	"os"
 	"os/exec"
 	"runtime"
@@ -63,8 +64,7 @@ func chooseFiles(ctx context.Context, filter *fileFilter, several bool) fileChoi
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		// The names come back as UTF-8, whatever the console's code page.
-		script := `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.OpenFileDialog; `
+		script := `Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.OpenFileDialog; `
 		if filter != nil {
 			script += `$dialog.Filter = '` + filter.name + `|` + strings.Join(patterns, ";") + `'; `
 		}
@@ -72,7 +72,7 @@ func chooseFiles(ctx context.Context, filter *fileFilter, several bool) fileChoi
 			script += `$dialog.Multiselect = $true; `
 		}
 		script += `if ($dialog.ShowDialog() -eq 'OK') { $dialog.FileNames }`
-		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-STA", "-Command", script)
+		cmd = powershellChooser(ctx, script)
 	case "darwin":
 		var script string
 		if several {
@@ -96,7 +96,7 @@ repeat with one in chosen
 set output to output & POSIX path of one & linefeed
 end repeat
 output`
-		cmd = exec.CommandContext(ctx, "osascript", "-e", script)
+		cmd = program.CommandContext(ctx, "osascript", "-e", script)
 	case "haiku":
 		args := []string{"--load", "--kind", "f"}
 		if home, err := os.UserHomeDir(); err == nil {
@@ -105,7 +105,7 @@ output`
 		if !several {
 			args = append(args, "--single")
 		}
-		cmd = exec.CommandContext(ctx, "filepanel", args...)
+		cmd = program.CommandContext(ctx, "filepanel", args...)
 	default:
 		if _, err := exec.LookPath("kdialog"); err == nil {
 			args := []string{"--getopenfilename", "."}
@@ -115,7 +115,7 @@ output`
 			if several {
 				args = append(args, "--multiple", "--separate-output")
 			}
-			cmd = exec.CommandContext(ctx, "kdialog", args...)
+			cmd = program.CommandContext(ctx, "kdialog", args...)
 		} else if _, err := exec.LookPath("zenity"); err == nil {
 			args := []string{"--file-selection"}
 			if filter != nil {
@@ -124,7 +124,7 @@ output`
 			if several {
 				args = append(args, "--multiple", "--separator=\n")
 			}
-			cmd = exec.CommandContext(ctx, "zenity", args...)
+			cmd = program.CommandContext(ctx, "zenity", args...)
 		} else {
 			return fileChoice{err: errNoChooser}
 		}
@@ -139,6 +139,16 @@ output`
 		choice.path = paths[0]
 	}
 	return choice
+}
+
+// powershellChooser runs script, a chooser of Windows Forms, in
+// PowerShell. What it prints comes back as UTF-8, whatever the console's
+// code page: in Windows 7's Russian one, cp866, a Cyrillic path came back
+// as question marks. PowerShell 2.0 then starts with a byte order mark,
+// which splitPaths drops.
+func powershellChooser(ctx context.Context, script string) *exec.Cmd {
+	return program.CommandContext(ctx, "powershell", "-NoProfile", "-STA", "-Command",
+		"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "+script)
 }
 
 // chooserOutput runs a chooser and returns what it printed: nothing when it
@@ -158,8 +168,11 @@ func chooserOutput(cmd *exec.Cmd) (string, error) {
 	return string(out), err
 }
 
-// splitPaths reads the paths a chooser printed, one to a line.
+// splitPaths reads the paths a chooser printed, one to a line. PowerShell
+// 2.0, Windows 7's, starts its output with a byte order mark once it is
+// told to print UTF-8, which would be taken for the start of the path.
 func splitPaths(out string) []string {
+	out = strings.TrimPrefix(out, "\ufeff")
 	var paths []string
 	for _, line := range strings.Split(out, "\n") {
 		if line = strings.TrimRight(line, "\r"); strings.TrimSpace(line) != "" {

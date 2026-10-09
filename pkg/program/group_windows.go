@@ -8,7 +8,19 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
+
+	"golang.org/x/sys/windows"
 )
+
+// noWindow keeps a console program from opening a console window. A
+// program with windows of its own, a player or a browser, still shows them.
+func noWindow(cmd *exec.Cmd) {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = new(syscall.SysProcAttr)
+	}
+	cmd.SysProcAttr.CreationFlags |= windows.CREATE_NO_WINDOW
+}
 
 // Group does nothing on Windows: there is no flatpak to leave a program
 // behind, and killing the process is enough.
@@ -33,18 +45,20 @@ func isExecutable(info fs.FileInfo) bool {
 func FileVersion(ctx context.Context, path string) (product, version string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, bannerTimeout)
 	defer cancel()
-	// The path goes in through the environment, never into the script.
-	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command",
-		`$v = (Get-Item -LiteralPath $env:KITCHEN_PROGRAM).VersionInfo; $v.ProductName; $v.ProductVersion`)
+	// The path goes in through the environment, never into the script;
+	// the names come back as UTF-8, whatever the console's code page.
+	cmd := CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command",
+		`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $v = (Get-Item -LiteralPath $env:KITCHEN_PROGRAM).VersionInfo; $v.ProductName; $v.ProductVersion`)
 	cmd.Env = append(cmd.Environ(), "KITCHEN_PROGRAM="+path)
 	out := &limitedBuffer{limit: bannerLimit}
 	cmd.Stdout = out
 	if err := cmd.Run(); err != nil {
 		return "", "", err
 	}
-	lines := strings.Split(strings.ReplaceAll(out.String(), "\r", ""), "\n")
+	// PowerShell 2.0 starts UTF-8 with a byte order mark.
+	lines := strings.Split(strings.ReplaceAll(strings.TrimPrefix(out.String(), "\ufeff"), "\r", ""), "\n")
 	if len(lines) < 2 {
 		return "", "", ErrNoBanner
 	}
-	return strings.TrimSpace(lines[0]), strings.TrimSpace(lines[1]), nil
+	return strings.TrimSpace(lines[0]), dottedVersion(lines[1]), nil
 }
