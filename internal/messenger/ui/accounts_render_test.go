@@ -98,6 +98,8 @@ func TestRenderAccountScreens(t *testing.T) {
 		"protect-ready":    {Kind: security.AccessReady},
 		"protect-no-group": {Kind: security.AccessNoGroup, Device: "/dev/tpmrm0", Group: "tss"},
 		"protect-missing":  {Kind: security.AccessMissing},
+		// As on Haiku, which has no TPM driver at all.
+		"protect-failed": {Kind: security.AccessFailed, Detail: "open /dev/tpmrm0: no such file"},
 	} {
 		protection, err := security.OpenPath(filepath.Join(t.TempDir(), "security.json"), &renderTPM{access: access})
 		if err != nil {
@@ -134,6 +136,23 @@ func TestRenderAccountScreens(t *testing.T) {
 	view := newSecurityView(locked, func() {})
 	renderPNG(t, filepath.Join(dir, "unlock.png"), size, 1, func(gtx layout.Context) {
 		view.UnlockLayout(gtx, l)
+	})
+	// And of one protected by the password alone.
+	noTPM := &renderTPM{access: security.Access{Kind: security.AccessFailed}}
+	passwordPath := filepath.Join(t.TempDir(), "security.json")
+	byPassword, err := security.OpenPath(passwordPath, noTPM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := byPassword.Enable(context.Background(), "1"); err != nil {
+		t.Fatal(err)
+	}
+	if byPassword, err = security.OpenPath(passwordPath, noTPM); err != nil {
+		t.Fatal(err)
+	}
+	passwordView := newSecurityView(byPassword, func() {})
+	renderPNG(t, filepath.Join(dir, "unlock-password.png"), size, 1, func(gtx layout.Context) {
+		passwordView.UnlockLayout(gtx, l)
 	})
 
 	// The profile as it is, covered by visual privacy, and being edited.

@@ -226,6 +226,9 @@ type Fonts struct {
 	// EmojiPack is the installed emoji pack that draws emoji, before the
 	// font of Emoji: a font of the catalog, or sprites. "" for none.
 	EmojiPack string `json:"emoji_pack,omitempty"`
+	// EmojiOffered is set once the offer of an emoji pack, made where no
+	// font of the system has emoji, was answered.
+	EmojiOffered bool `json:"emoji_offered,omitempty"`
 }
 
 // The bounds of Look, as AyuGram's.

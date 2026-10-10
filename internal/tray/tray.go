@@ -2,7 +2,8 @@
 
 // Package tray shows the application's icon in the system tray: a
 // StatusNotifierItem on Linux and FreeBSD desktops, a notification area icon
-// on Windows. The icon opens the application on a click and offers a menu.
+// on Windows, an item of the Deskbar on Haiku. The icon opens the
+// application on a click and offers a menu.
 package tray
 
 import "errors"

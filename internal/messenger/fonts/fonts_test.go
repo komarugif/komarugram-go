@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-text/typesetting/fontscan"
+
 	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/token"
@@ -286,5 +288,21 @@ func TestEmojiPackFromTheEnvironment(t *testing.T) {
 	}
 	if pictures() {
 		t.Error("pictures without a pack")
+	}
+}
+
+// TestHasEmoji checks that the system has emoji only when a font of it
+// covers them.
+func TestHasEmoji(t *testing.T) {
+	var latin, emoji fontscan.Footprint
+	for r := 'a'; r <= 'z'; r++ {
+		latin.Runes.Add(r)
+	}
+	emoji.Runes.Add(emojiProbe)
+	if hasEmoji([]fontscan.Footprint{latin}) {
+		t.Error("emoji found in a Latin font")
+	}
+	if !hasEmoji([]fontscan.Footprint{latin, emoji}) {
+		t.Error("emoji font not found")
 	}
 }

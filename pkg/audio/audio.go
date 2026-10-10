@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Unlicense OR MIT
 
 // Package audio plays sound on the system's output, through oto: PulseAudio
-// or PipeWire, else ALSA, on Linux, and WASAPI on Windows, all without cgo.
+// or PipeWire, else ALSA, on Linux, and WASAPI on Windows, all without cgo;
+// on Haiku, the Media Kit, with a patch of oto (docs/PLATFORMS.md).
 //
 // The output is opened once, the first time something plays, and suspended
 // while nothing does, so that an idle client keeps no audio stream running.

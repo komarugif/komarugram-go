@@ -5,6 +5,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -50,7 +51,8 @@ func chooseFile(ctx context.Context, filter *fileFilter) fileChoice {
 
 // chooseFiles is chooseFile that may take several files, as the attachment
 // menu does. The chooser is the system's own: kdialog or zenity on Linux,
-// the Windows and macOS dialogs elsewhere.
+// filepanel on Haiku, the Windows and macOS dialogs elsewhere. Haiku's
+// filepanel has no filter, so it shows every file.
 func chooseFiles(ctx context.Context, filter *fileFilter, several bool) fileChoice {
 	var patterns []string
 	if filter != nil {
@@ -95,6 +97,15 @@ set output to output & POSIX path of one & linefeed
 end repeat
 output`
 		cmd = exec.CommandContext(ctx, "osascript", "-e", script)
+	case "haiku":
+		args := []string{"--load", "--kind", "f"}
+		if home, err := os.UserHomeDir(); err == nil {
+			args = append(args, "--directory", home)
+		}
+		if !several {
+			args = append(args, "--single")
+		}
+		cmd = exec.CommandContext(ctx, "filepanel", args...)
 	default:
 		if _, err := exec.LookPath("kdialog"); err == nil {
 			args := []string{"--getopenfilename", "."}
@@ -118,20 +129,33 @@ output`
 			return fileChoice{err: errNoChooser}
 		}
 	}
-	out, err := cmd.Output()
+	out, err := chooserOutput(cmd)
 	if err != nil {
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
-			return fileChoice{}
-		}
 		return fileChoice{err: err}
 	}
-	paths := splitPaths(string(out))
+	paths := splitPaths(out)
 	choice := fileChoice{paths: paths}
 	if len(paths) > 0 {
 		choice.path = paths[0]
 	}
 	return choice
+}
+
+// chooserOutput runs a chooser and returns what it printed: nothing when it
+// ended with an error status, which is how choosers say they were
+// cancelled. Haiku's filepanel ends with 1 after a choice as well, its panel
+// sending B_CANCEL as it closes, after the files; there, what it printed is
+// the choice, and a cancel prints nothing.
+func chooserOutput(cmd *exec.Cmd) (string, error) {
+	out, err := cmd.Output()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		if runtime.GOOS == "haiku" {
+			return string(out), nil
+		}
+		return "", nil
+	}
+	return string(out), err
 }
 
 // splitPaths reads the paths a chooser printed, one to a line.

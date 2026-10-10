@@ -271,6 +271,8 @@ func (v *securityView) SettingsLayout(gtx layout.Context, l localization.Catalog
 	}
 	status, color := l.T("security.off"), sc.SurfaceVariant.OnColor
 	switch {
+	case state.Enabled && state.Unlocked && !state.Hardware:
+		status, color = l.T("security.on_password"), sc.Primary.Color
 	case state.Enabled && state.Unlocked:
 		status, color = l.T("security.on"), sc.Primary.Color
 	case state.Enabled:
@@ -281,7 +283,7 @@ func (v *securityView) SettingsLayout(gtx layout.Context, l localization.Catalog
 	rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 		return label(gtx, status, token.TypestyleBodyLarge, color, 0)
 	}), vspace(8), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, l.T("security.explanation"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
+		return label(gtx, l.T(passwordOnly(state, "security.explanation")), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
 	}))
 	if !state.Enabled {
 		rows = append(rows, vspace(16), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -376,7 +378,11 @@ func (v *securityView) SetupLayout(gtx layout.Context, l localization.Catalog, o
 	}
 	sc := scheme(gtx)
 	invalid := v.localProblem != "" || state.Problem != ""
-	rows := []layout.FlexChild{
+	var rows []layout.FlexChild
+	if !state.Hardware {
+		rows = v.tpmHint(gtx, l)
+	}
+	rows = append(rows,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return v.master.Layout(gtx, l.T("security.password"), invalid)
 		}),
@@ -389,7 +395,7 @@ func (v *securityView) SetupLayout(gtx layout.Context, l localization.Catalog, o
 			return label(gtx, l.T("security.forgotten"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
 		}),
 		vspace(12),
-	}
+	)
 	if problem := v.problem(l, state); problem != "" {
 		rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, problem, token.TypestyleBodyMedium, sc.Error.Color, 0)
@@ -410,6 +416,51 @@ func (v *securityView) SetupLayout(gtx layout.Context, l localization.Catalog, o
 		})
 	}))
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, rows...)
+}
+
+// passwordOnly is key, or its variant for protection by the password
+// alone, without a TPM.
+func passwordOnly(state security.State, key string) string {
+	if state.Hardware {
+		return key
+	}
+	return key + "_password"
+}
+
+// tpmHint tells, over the form of protection by the password alone, why
+// the TPM cannot be used and how to make it usable, where the user can:
+// not where it failed for another reason, as on Haiku, which has none.
+func (v *securityView) tpmHint(gtx layout.Context, l localization.Catalog) []layout.FlexChild {
+	sc := scheme(gtx)
+	access := v.manager.Access()
+	var text string
+	switch access.Kind {
+	case security.AccessMissing:
+		text = l.T("security.tpm_missing")
+	case security.AccessNoRule:
+		text = fmt.Sprintf(l.T("security.tpm_no_rule"), access.Device)
+	case security.AccessNoGroup:
+		text = fmt.Sprintf(l.T("security.tpm_no_group"), access.Device, access.Group)
+	case security.AccessRelogin:
+		text = fmt.Sprintf(l.T("security.tpm_relogin"), access.Group)
+	default:
+		return nil
+	}
+	rows := []layout.FlexChild{
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, l.T("security.tpm_instead"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
+		}),
+		vspace(8),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, text, token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
+		}),
+	}
+	if command := accessCommand(access); command != "" {
+		rows = append(rows, vspace(8), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return v.layoutCommand(gtx, l, command)
+		}))
+	}
+	return append(rows, vspace(16))
 }
 
 // buttonRow puts main at the end of a row and other, if set, at its start.
@@ -524,7 +575,7 @@ func (v *securityView) UnlockLayout(gtx layout.Context, l localization.Catalog) 
 					}),
 					vspace(8),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return label(gtx, l.T("security.unlock_body"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
+						return label(gtx, l.T(passwordOnly(state, "security.unlock_body")), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
 					}),
 				}
 				if !state.Available {
@@ -569,10 +620,10 @@ func (v *securityView) problem(l localization.Catalog, state security.State) str
 	case "mismatch":
 		return l.T("security.mismatch")
 	case "failed":
-		return l.T("security.failed")
+		return l.T(passwordOnly(state, "security.failed"))
 	}
 	if state.Problem != "" {
-		return l.T("security.failed")
+		return l.T(passwordOnly(state, "security.failed"))
 	}
 	return ""
 }

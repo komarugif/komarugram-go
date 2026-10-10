@@ -368,6 +368,17 @@ func (w *Window) ReleaseMemoryLater() {
 	}
 }
 
+// MemoryReleaser returns ReleaseMemoryLater bound to the process rather
+// than to w, for what outlives the window, as a cache of the process does:
+// w.ReleaseMemoryLater kept there held the window and its whole view after
+// it closed.
+func (w *Window) MemoryReleaser() func() {
+	if w.host == nil {
+		return func() {}
+	}
+	return w.host.releaseMemoryLater
+}
+
 // KeepMemory cancels the release ReleaseMemoryLater put off: the view that
 // dropped the memory is shown again, and takes it back.
 func (w *Window) KeepMemory() {

@@ -212,8 +212,10 @@ func programErrorText(err error, name string, l localization.Catalog) string {
 		return l.T("program.not_executable")
 	case errors.Is(err, video.ErrWrongProgram), errors.Is(err, player.ErrWrongProgram):
 		return l.Format("program.wrong", map[string]string{"program": name})
-	case errors.Is(err, miniapp.ErrNotChromium):
-		return l.T("program.not_chromium")
+	case errors.Is(err, miniapp.ErrNotBrowser):
+		return l.T("program.not_browser")
+	case errors.Is(err, miniapp.ErrOldFirefox):
+		return l.T("program.old_firefox")
 	case errors.Is(err, player.ErrSnap):
 		return l.T("program.snap")
 	case errors.Is(err, player.ErrUnsupportedSystem):

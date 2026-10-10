@@ -189,6 +189,8 @@ func chooseStickerArchive(ctx context.Context, title string) (string, error) {
 		cmd.Env = append(os.Environ(), "KOMARUGRAM_ZIP_NAME="+suggested)
 	case "darwin":
 		cmd = exec.CommandContext(ctx, "osascript", "-e", `on run argv`, "-e", `POSIX path of (choose file name with default name (item 1 of argv))`, "-e", `end run`, name)
+	case "haiku":
+		cmd = exec.CommandContext(ctx, "filepanel", "--save", "--directory", dir, "--name", name)
 	default:
 		if _, err := exec.LookPath("kdialog"); err == nil {
 			cmd = exec.CommandContext(ctx, "kdialog", "--getsavefilename", suggested, "*.zip|ZIP archives")
@@ -198,15 +200,14 @@ func chooseStickerArchive(ctx context.Context, title string) (string, error) {
 			return "", errors.New("file chooser unavailable")
 		}
 	}
-	out, err := cmd.Output()
+	out, err := chooserOutput(cmd)
+	if err == nil {
+		err = ctx.Err()
+	}
 	if err != nil {
-		var exit *exec.ExitError
-		if errors.As(err, &exit) && ctx.Err() == nil {
-			return "", nil
-		}
 		return "", err
 	}
-	path := strings.TrimSpace(string(out))
+	path := strings.TrimSpace(out)
 	if path == "" {
 		return "", nil
 	}

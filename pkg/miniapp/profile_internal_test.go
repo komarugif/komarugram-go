@@ -14,7 +14,7 @@ import (
 func TestProfileResolve(t *testing.T) {
 	root := t.TempDir()
 
-	dir, ephemeral, err := Profile{Root: root}.resolve()
+	dir, ephemeral, err := Profile{Root: root}.resolve("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +23,7 @@ func TestProfileResolve(t *testing.T) {
 	}
 	os.RemoveAll(dir)
 
-	app, ephemeral, err := Profile{Storage: PerApp, Root: root, App: "kitchen_bot"}.resolve()
+	app, ephemeral, err := Profile{Storage: PerApp, Root: root, App: "kitchen_bot"}.resolve("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,14 +39,14 @@ func TestProfileResolve(t *testing.T) {
 
 	// Two apps must not land in one directory, and an account must not land in
 	// the directory of the app of the same name.
-	other, _, err := Profile{Storage: PerApp, Root: root, App: "other_bot"}.resolve()
+	other, _, err := Profile{Storage: PerApp, Root: root, App: "other_bot"}.resolve("")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if other == app {
 		t.Error("two apps share a profile")
 	}
-	account, _, err := Profile{Storage: Shared, Root: root, Account: "kitchen_bot"}.resolve()
+	account, _, err := Profile{Storage: Shared, Root: root, Account: "kitchen_bot"}.resolve("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestProfileResolve(t *testing.T) {
 		t.Error("an account shares the profile of a like-named app")
 	}
 
-	if _, _, err := (Profile{Storage: PerApp, Root: root}).resolve(); err == nil {
+	if _, _, err := (Profile{Storage: PerApp, Root: root}).resolve(""); err == nil {
 		t.Error("a per-app profile without an app should be refused")
 	}
 }

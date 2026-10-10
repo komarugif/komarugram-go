@@ -67,6 +67,7 @@ func main() {
 	profileExport := flag.Duration("profile-export", 0, "automatically export JSON at this interval (e.g. 2s); enables collection without profiler UI")
 	profileCapture := flag.String("profile-capture", "", "capture profiles without GUI: comma-separated cpu,heap,allocs,trace,goroutine")
 	scrollLog := flag.String("scroll-log", "", "write every scroll event of the lists to this file, for measuring what the wheel and the touchpad send")
+	notified := flag.String("notified", "", "open the chat of the notification with this tag in the running messenger; Haiku's notifications start it so when clicked")
 	noIntegrations := flag.Bool("no-integrations", false, "do not look for FFmpeg, mpv, VLC or a browser on the system; only the paths set in the settings are used, as on a machine without them")
 	flag.Parse()
 	if *noIntegrations {
@@ -147,9 +148,17 @@ func main() {
 	releaseInstance := func() {}
 	if !*check {
 		var err error
-		releaseInstance, err = claimInstance(func(token string) {
+		notice := *notified
+		if notice == "" {
+			notice = launchNotice()
+		}
+		releaseInstance, err = claimInstance(notice, func(token string) {
 			if w := windows.Load(); w != nil {
 				w.ShowAll(token)
+			}
+		}, func(tag string) {
+			if w := windows.Load(); w != nil {
+				w.openNotice(tag)
 			}
 		})
 		if errors.Is(err, errRunning) && len(tdataPaths) > 0 {
@@ -307,6 +316,7 @@ func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive
 			Preferences: prefs,
 			MiniApps:    miniApps(prefs),
 			OpenWindow:  process.Open,
+			OfferEmoji:  true,
 		})
 		window.Store(w)
 		app.Store(content)

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Unlicense OR MIT
 
 // Package security owns the device-bound key which protects local messenger
-// data. The key is sealed by TPM 2.0 and can only be released after the user
-// supplies the master password.
+// data. The key is sealed by TPM 2.0 (the keychain on macOS) and can only be
+// released after the user supplies the master password; where there is no
+// TPM, it is sealed by the master password alone (password.go).
 package security
 
 import (
@@ -46,11 +47,16 @@ var disableMarkerAD = []byte("komarugram-go/disable-protection/v1")
 
 // State is a consistent snapshot suitable for the settings and unlock UI.
 type State struct {
+	// Available reports whether protection can be enabled, or the enabled
+	// one unlocked: always, but for a key sealed by a TPM that is gone.
 	Available bool
-	Enabled   bool
-	Unlocked  bool
-	Busy      bool
-	Problem   string
+	// Hardware reports whether the key is, or would be, sealed by the TPM
+	// (the keychain on macOS) rather than by the password alone.
+	Hardware bool
+	Enabled  bool
+	Unlocked bool
+	Busy     bool
+	Problem  string
 }
 
 type config struct {
@@ -61,6 +67,9 @@ type config struct {
 	ArgonThreads  uint8  `json:"argon_threads"`
 	SealedPublic  []byte `json:"sealed_public"`
 	SealedPrivate []byte `json:"sealed_private"`
+	// Sealer is what sealed the key: "" for the TPM, sealerPassword for
+	// the password alone.
+	Sealer string `json:"sealer,omitempty"`
 }
 
 // TPM is the deliberately small hardware boundary used by Manager. Tests can
@@ -75,9 +84,11 @@ type TPM interface {
 // only TPM-wrapped material and an Argon2 salt, never a password verifier or a
 // key which can be brute-forced away from the original TPM.
 type Manager struct {
-	mu           sync.Mutex
-	path         string
-	tpm          TPM
+	mu   sync.Mutex
+	path string
+	tpm  TPM
+	// soft seals the key where the TPM cannot (passwordSealer).
+	soft         TPM
 	config       *config
 	key          []byte
 	available    bool
@@ -106,7 +117,7 @@ func Open() (*Manager, error) {
 
 // OpenPath is Open with explicit dependencies, primarily for tests.
 func OpenPath(path string, tpm TPM) (*Manager, error) {
-	m := &Manager{path: path, tpm: tpm, ready: true, subs: make(map[uint64]func()), waitChange: make(chan struct{})}
+	m := &Manager{path: path, tpm: tpm, soft: passwordSealer{}, ready: true, subs: make(map[uint64]func()), waitChange: make(chan struct{})}
 	m.access = checkAccess(tpm)
 	m.available = m.access.Kind == AccessReady
 	b, err := os.ReadFile(path)
@@ -135,6 +146,9 @@ func OpenPath(path string, tpm TPM) (*Manager, error) {
 }
 
 func validateConfig(c *config) error {
+	if c.Sealer != "" && c.Sealer != sealerPassword {
+		return errors.New("security: invalid configuration")
+	}
 	if c.Version != configVersion || len(c.Salt) != saltSize || c.ArgonTime == 0 || c.ArgonMemory < 8*1024 || c.ArgonThreads == 0 || len(c.SealedPublic) == 0 || len(c.SealedPrivate) == 0 {
 		return errors.New("security: invalid configuration")
 	}
@@ -171,8 +185,14 @@ func (m *Manager) State() State {
 }
 
 func (m *Manager) stateLocked() State {
+	hardware := m.available && m.tpm != nil
+	if m.config != nil {
+		hardware = m.config.Sealer == ""
+	}
+	_, usable := m.sealerLocked(m.config)
 	return State{
-		Available: m.available,
+		Available: usable,
+		Hardware:  hardware,
 		Enabled:   m.config != nil,
 		Unlocked:  m.config == nil || m.ready || (m.disabling && len(m.key) == keySize),
 		Busy:      m.busy,
@@ -180,8 +200,8 @@ func (m *Manager) stateLocked() State {
 	}
 }
 
-// Enable creates and verifies a TPM-sealed random root key, saves the public
-// blobs, then rewrites all existing sessions before announcing success.
+// Enable creates and verifies a random root key sealed by the TPM, or by
+// the password alone where there is none, saves the public blobs, then rewrites all existing sessions before announcing success.
 func (m *Manager) Enable(ctx context.Context, password string) error {
 	if password == "" {
 		return errors.New("security: empty master password")
@@ -191,25 +211,22 @@ func (m *Manager) Enable(ctx context.Context, password string) error {
 		m.mu.Unlock()
 		return errors.New("security: protection is already enabled")
 	}
-	if !m.available || m.tpm == nil {
-		m.mu.Unlock()
-		return ErrUnavailable
-	}
 	if m.busy {
 		m.mu.Unlock()
 		return errors.New("security: another operation is in progress")
 	}
+	sealer, _ := m.sealerLocked(nil)
 	m.busy, m.problem = true, ""
 	m.signalLocked()
 	m.mu.Unlock()
 	m.notify()
 
-	err := m.enable(ctx, password)
+	err := m.enable(ctx, password, sealer)
 	m.finish(err)
 	return err
 }
 
-func (m *Manager) enable(ctx context.Context, password string) error {
+func (m *Manager) enable(ctx context.Context, password string, sealer TPM) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -231,13 +248,17 @@ func (m *Manager) enable(ctx context.Context, password string) error {
 		return err
 	}
 	defer clear(root)
-	auth := deriveAuthorization(password, salt, argonTime, argonMemory, argonThreads)
+	cfg := &config{Version: configVersion, Salt: salt, ArgonTime: argonTime, ArgonMemory: argonMemory, ArgonThreads: argonThreads}
+	if _, soft := sealer.(passwordSealer); soft {
+		cfg.Sealer, cfg.ArgonTime, cfg.ArgonMemory = sealerPassword, passwordArgonTime, passwordArgonMemory
+	}
+	auth := deriveAuthorization(password, salt, cfg.ArgonTime, cfg.ArgonMemory, cfg.ArgonThreads)
 	defer clear(auth)
-	public, private, err := m.tpm.Seal(root, auth)
+	public, private, err := sealer.Seal(root, auth)
 	if err != nil {
 		return fmt.Errorf("security: seal root key: %w", err)
 	}
-	check, err := m.tpm.Unseal(public, private, auth)
+	check, err := sealer.Unseal(public, private, auth)
 	if err != nil || len(check) != keySize || !equal(check, root) {
 		clear(check)
 		if err == nil {
@@ -246,7 +267,7 @@ func (m *Manager) enable(ctx context.Context, password string) error {
 		return fmt.Errorf("security: verify sealed key: %w", err)
 	}
 	clear(check)
-	cfg := &config{Version: configVersion, Salt: salt, ArgonTime: argonTime, ArgonMemory: argonMemory, ArgonThreads: argonThreads, SealedPublic: public, SealedPrivate: private}
+	cfg.SealedPublic, cfg.SealedPrivate = public, private
 	if err := writeConfig(m.path, cfg); err != nil {
 		return err
 	}
@@ -274,7 +295,7 @@ func (m *Manager) enable(ctx context.Context, password string) error {
 	return nil
 }
 
-// Unlock asks the TPM to release the root key and completes any interrupted
+// Unlock asks the TPM, or the password alone, to release the root key and completes any interrupted
 // plaintext-session migration before waking account connections.
 func (m *Manager) Unlock(ctx context.Context, password string) error {
 	m.mu.Lock()
@@ -286,7 +307,8 @@ func (m *Manager) Unlock(ctx context.Context, password string) error {
 		m.mu.Unlock()
 		return nil
 	}
-	if !m.available || m.tpm == nil {
+	sealer, usable := m.sealerLocked(m.config)
+	if !usable {
 		m.mu.Unlock()
 		return ErrUnavailable
 	}
@@ -300,7 +322,7 @@ func (m *Manager) Unlock(ctx context.Context, password string) error {
 	m.mu.Unlock()
 	m.notify()
 
-	err := m.unlock(ctx, password, &cfg)
+	err := m.unlock(ctx, password, &cfg, sealer)
 	m.finish(err)
 	return err
 }
@@ -318,7 +340,8 @@ func (m *Manager) VerifyPassword(ctx context.Context, password string) error {
 		m.mu.Unlock()
 		return errors.New("security: another operation is in progress")
 	}
-	if !m.available || m.tpm == nil {
+	sealer, usable := m.sealerLocked(m.config)
+	if !usable {
 		m.mu.Unlock()
 		return ErrUnavailable
 	}
@@ -329,7 +352,7 @@ func (m *Manager) VerifyPassword(ctx context.Context, password string) error {
 	}
 	auth := deriveAuthorization(password, cfg.Salt, cfg.ArgonTime, cfg.ArgonMemory, cfg.ArgonThreads)
 	defer clear(auth)
-	root, err := m.tpm.Unseal(cfg.SealedPublic, cfg.SealedPrivate, auth)
+	root, err := sealer.Unseal(cfg.SealedPublic, cfg.SealedPrivate, auth)
 	defer clear(root)
 	if err != nil || len(root) != keySize {
 		return ErrUnlockFailed
@@ -453,13 +476,13 @@ func (m *Manager) finishDisable() error {
 	return nil
 }
 
-func (m *Manager) unlock(ctx context.Context, password string, cfg *config) error {
+func (m *Manager) unlock(ctx context.Context, password string, cfg *config, sealer TPM) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	auth := deriveAuthorization(password, cfg.Salt, cfg.ArgonTime, cfg.ArgonMemory, cfg.ArgonThreads)
 	defer clear(auth)
-	root, err := m.tpm.Unseal(cfg.SealedPublic, cfg.SealedPrivate, auth)
+	root, err := sealer.Unseal(cfg.SealedPublic, cfg.SealedPrivate, auth)
 	if err != nil || len(root) != keySize {
 		clear(root)
 		return ErrUnlockFailed
@@ -525,6 +548,21 @@ func (m *Manager) finish(err error) {
 	m.signalLocked()
 	m.mu.Unlock()
 	m.notify()
+}
+
+// sealerLocked is what seals the key of cfg, or of the protection Enable
+// would make for a nil cfg, and whether it can be used now.
+func (m *Manager) sealerLocked(cfg *config) (TPM, bool) {
+	if cfg == nil {
+		if m.available && m.tpm != nil {
+			return m.tpm, true
+		}
+		return m.soft, true
+	}
+	if cfg.Sealer == sealerPassword {
+		return m.soft, true
+	}
+	return m.tpm, m.available && m.tpm != nil
 }
 
 func deriveAuthorization(password string, salt []byte, time, memory uint32, threads uint8) []byte {

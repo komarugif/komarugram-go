@@ -545,6 +545,7 @@ func (h *accountWindows) windowSpec(a *account.Account, session *accountSession,
 				WindowLocked:   &session.locked,
 				CurrentAccount: session.accountID,
 				OpenWindow:     h.process.Open,
+				OfferEmoji:     true,
 			})
 			app = content
 			session.app.Store(content)
@@ -615,8 +616,10 @@ func (h *accountWindows) windowSpec(a *account.Account, session *accountSession,
 					h.remember(chosen.ID)
 					signIn.Finish()
 					// The sign-in is over: what fails from here on is told
-					// by the account's window, not by the sign-in.
-					h.runAccount(ctx, chosen, session.store)
+					// by the account's window, not by the sign-in. The
+					// account runs on without this worker, which holds the
+					// first window.
+					session.handOff(func(ctx context.Context) { h.runAccount(ctx, chosen, session.store) })
 					return nil
 				})
 				if err != nil && !errors.Is(err, context.Canceled) {

@@ -120,6 +120,8 @@ type App struct {
 	sessionEnded *sessionEndedDialog
 	// connectionFailed offers to connect again once the connection stopped.
 	connectionFailed *connectionFailedDialog
+	// emojiOffer offers an emoji pack where the system has no emoji.
+	emojiOffer *emojiOffer
 	// frozen tells that Telegram froze the account.
 	frozen *frozenView
 
@@ -147,6 +149,9 @@ type Services struct {
 	// OpenWindow opens another window in this process, such as a photo
 	// viewer of its own. Without it, the viewer offers no such button.
 	OpenWindow func(appwindow.Spec)
+	// OfferEmoji lets the window offer an emoji pack where no font of the
+	// system has emoji (emoji_offer.go); tests and renders leave it off.
+	OfferEmoji bool
 }
 
 // New creates the messenger UI.
@@ -234,6 +239,9 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	}
 	a.sessionEnded = newSessionEndedDialog(leave)
 	a.connectionFailed = newConnectionFailedDialog()
+	if services.OfferEmoji {
+		a.emojiOffer = newEmojiOffer()
+	}
 	a.frozen = newFrozenView(store)
 	a.profile.frozen = a.frozen
 	a.profile.openAvatar = func(chat int64) {
@@ -526,7 +534,7 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 	p.openPhoto = func(m model.Message) { a.viewer.Open(p.chat, m, p.photos()) }
 	p.openAlone = func(m model.Message) { a.viewer.OpenAlone(p.chat, m) }
 	p.releaseMemory, p.keepMemory = w.ReleaseMemoryLater, w.KeepMemory
-	formula.SetRelease(w.ReleaseMemoryLater)
+	formula.SetRelease(w.MemoryReleaser())
 	p.openWebApp = a.launchWebApp
 	if p.composer != nil {
 		p.composer.confirmations = func() (bool, bool) {
@@ -699,6 +707,10 @@ func (a *App) Update(gtx layout.Context) {
 	}
 	a.sessionEnded.Update(gtx, a.store)
 	a.connectionFailed.Update(gtx, a.store)
+	a.settings.emojiView.drain()
+	if a.emojiOffer != nil {
+		a.emojiOffer.Update(gtx, a.settings.emojiView, a.chats.toast.Show, a.catalog(), a.window.Invalidate)
+	}
 	a.frozen.Update(gtx)
 	if id := a.openChat.Swap(0); id != 0 {
 		a.open(chatPick{ID: id})
@@ -1090,6 +1102,9 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	a.frozen.Layout(overlayGtx, a.catalog())
 	a.sessionEnded.Layout(overlayGtx, a.catalog())
 	a.connectionFailed.Layout(overlayGtx, a.catalog())
+	if a.emojiOffer != nil {
+		a.emojiOffer.Layout(overlayGtx, a.settings.emojiView, a.catalog())
+	}
 }
 
 // withAudioBar draws the bar of what plays over a page that is not a chat's,

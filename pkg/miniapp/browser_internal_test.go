@@ -15,6 +15,8 @@ func TestParseVersion(t *testing.T) {
 		"Brave Browser 148.1.90.124":               {148},
 		"Brave Browser Beta 148.1.91.158 beta":     {148},
 		"Chromium 152.0.7977.82 snap":              {152, 0, 7977, 82},
+		"Mozilla Firefox 140.3.0esr":               {140, 3, 0},
+		"LibreWolf 157.0-1":                        {157, 0},
 		"":                                         nil,
 		"some wrapper script says hello":           nil,
 		"Chromium version unknown, see chrome://x": nil,
@@ -53,7 +55,8 @@ func TestNewest(t *testing.T) {
 }
 
 // TestFindBrowser reports what this machine offers; it asserts only that a
-// browser found is one that told its version.
+// browser found is one that told its version, or, built from Firefox, its
+// name: the version of its engine may come only once it runs.
 func TestFindBrowser(t *testing.T) {
 	for _, b := range candidates() {
 		if b.found {
@@ -65,7 +68,7 @@ func TestFindBrowser(t *testing.T) {
 		t.Skip("no Chromium-based browser found")
 	}
 	t.Logf("chosen: %s (%s)", chosen.ref, chosen.banner)
-	if chosen.version == nil {
+	if chosen.version == nil && chosen.engine != engineFirefox {
 		t.Errorf("%s did not report a version", chosen.ref)
 	}
 }

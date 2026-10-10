@@ -97,8 +97,9 @@ func unixDesktop() bool {
 }
 
 // wheelKnown tells whether Gio tells a wheel's notches from a touchpad on
-// this platform (pointer.Event.Wheel): it does on X11, Wayland, Windows and macOS.
-var wheelKnown = unixDesktop() || runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+// this platform (pointer.Event.Wheel): it does on X11, Wayland, Windows, macOS
+// and Haiku.
+var wheelKnown = unixDesktop() || runtime.GOOS == "windows" || runtime.GOOS == "darwin" || runtime.GOOS == "haiku"
 
 // NotchPixels is how far a wheel's notch scrolls a list, and what Pixels
 // gives for one on X11 and on Windows; on Wayland the compositor chooses

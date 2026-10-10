@@ -118,7 +118,7 @@ func (d *panicDialog) Update(gtx layout.Context) {
 func openPanicReport(path string) error {
 	var command *exec.Cmd
 	switch runtime.GOOS {
-	case "darwin":
+	case "darwin", "haiku":
 		command = exec.Command("open", path)
 	case "windows":
 		command = exec.Command("rundll32", "url.dll,FileProtocolHandler", path)

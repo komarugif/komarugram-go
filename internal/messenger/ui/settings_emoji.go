@@ -48,6 +48,11 @@ type emojiSettings struct {
 	have   []emojipacks.Pack
 	haveAt time.Time
 
+	// useWhenDone is the pack to choose once it is downloaded, as the offer
+	// of a pack asks (emojiOffer); done is told how its download ended.
+	useWhenDone string
+	done        func(id string, err error)
+
 	none   surface
 	rows   map[string]*emojiPackRow
 	events chan emojiPackEvent
@@ -143,10 +148,9 @@ func (s *emojiSettings) packs() (shown []emojipacks.Pack, installed map[string]e
 	return shown, installed
 }
 
-func (s *emojiSettings) Update(gtx layout.Context) {
-	if !s.available() {
-		return
-	}
+// drain takes what the catalog and downloads came to. It runs while the
+// settings are hidden too, for a download the offer of a pack started.
+func (s *emojiSettings) drain() {
 	for done := false; !done; {
 		select {
 		case e := <-s.events:
@@ -163,6 +167,16 @@ func (s *emojiSettings) Update(gtx layout.Context) {
 				if e.err == nil && s.files().EmojiPack == e.id && s.applied != nil {
 					s.applied()
 				}
+				if e.id == s.useWhenDone {
+					s.useWhenDone = ""
+					if files := s.files(); e.err == nil && files.EmojiPack == "" {
+						files.EmojiPack = e.id
+						s.setFiles(files)
+					}
+					if s.done != nil {
+						s.done(e.id, row.err)
+					}
+				}
 			default:
 				row := s.row(e.id)
 				row.done, row.total = e.done, e.total
@@ -171,10 +185,33 @@ func (s *emojiSettings) Update(gtx layout.Context) {
 			done = true
 		}
 	}
+}
+
+// askCatalog reads the catalog, once.
+func (s *emojiSettings) askCatalog() {
 	if s.source != nil && !s.asked {
 		s.asked, s.reading = true, true
 		go s.readCatalog()
 	}
+}
+
+// startDownload downloads p, unless it is downloading already.
+func (s *emojiSettings) startDownload(p emojipacks.Pack) {
+	row := s.row(p.ID)
+	if row.stop != nil || s.source == nil {
+		return
+	}
+	ctx, stop := context.WithCancel(context.Background())
+	row.stop, row.err, row.done, row.total = stop, nil, 0, p.DownloadSize()
+	go s.install(ctx, p)
+}
+
+func (s *emojiSettings) Update(gtx layout.Context) {
+	if !s.available() {
+		return
+	}
+	s.drain()
+	s.askCatalog()
 	files := s.files()
 	if s.none.Clicked(gtx) && files.EmojiPack != "" {
 		files.EmojiPack = ""
@@ -190,10 +227,8 @@ func (s *emojiSettings) Update(gtx layout.Context) {
 			s.setFiles(files)
 			gtx.Execute(op.InvalidateCmd{})
 		}
-		if row.download.Clicked(gtx) && row.stop == nil && s.source != nil {
-			ctx, stop := context.WithCancel(context.Background())
-			row.stop, row.err, row.done, row.total = stop, nil, 0, p.DownloadSize()
-			go s.install(ctx, p)
+		if row.download.Clicked(gtx) {
+			s.startDownload(p)
 		}
 		if row.cancel.Clicked(gtx) && row.stop != nil {
 			row.stop()

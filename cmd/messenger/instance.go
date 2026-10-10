@@ -37,10 +37,13 @@ var errRunning = errors.New("the messenger is already running")
 
 // claimInstance makes this process the running instance, whose activate is
 // called with an XDG activation token, maybe empty, whenever the messenger is
-// started again. If another instance is running, it asks that one to show
-// its windows, with this process's activation token, and returns errRunning.
-// Where the socket cannot be used, every process runs on its own, as before.
-func claimInstance(activate func(token string)) (release func(), err error) {
+// started again, and whose open is called with the tag of a notification
+// when it is started to open one (-notified). If another instance is
+// running, it asks that one to show its windows, with this process's
+// activation token, or to open notice when it is not empty, and returns
+// errRunning. Where the socket cannot be used, every process runs on its
+// own, as before.
+func claimInstance(notice string, activate func(token string), open func(tag string)) (release func(), err error) {
 	release = func() {}
 	path, err := instanceSocket()
 	if err != nil || len(path) > maxSocketPath {
@@ -49,8 +52,11 @@ func claimInstance(activate func(token string)) (release func(), err error) {
 	if conn, err := net.DialTimeout("unix", path, time.Second); err == nil {
 		defer conn.Close()
 		conn.SetDeadline(time.Now().Add(time.Second))
-		token := os.Getenv("XDG_ACTIVATION_TOKEN")
-		if _, err := conn.Write([]byte("activate " + token + "\n")); err != nil {
+		line := "activate " + os.Getenv("XDG_ACTIVATION_TOKEN")
+		if notice != "" {
+			line = "open " + notice
+		}
+		if _, err := conn.Write([]byte(line + "\n")); err != nil {
 			return release, err
 		}
 		return release, errRunning
@@ -79,8 +85,11 @@ func claimInstance(activate func(token string)) (release func(), err error) {
 				if err != nil {
 					return
 				}
-				if token, ok := strings.CutPrefix(strings.TrimSuffix(line, "\n"), "activate"); ok {
+				line = strings.TrimSuffix(line, "\n")
+				if token, ok := strings.CutPrefix(line, "activate"); ok {
 					activate(strings.TrimSpace(token))
+				} else if tag, ok := strings.CutPrefix(line, "open "); ok {
+					open(tag)
 				}
 			}()
 		}

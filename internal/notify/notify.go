@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Unlicense OR MIT
 
 // Package notify shows desktop notifications: through the freedesktop
-// Notifications service on Linux and FreeBSD, and as the tray icon's
-// balloon on Windows, which shows them as toasts.
+// Notifications service on Linux and FreeBSD, the notify command on Haiku,
+// and as the tray icon's balloon on Windows, which shows them as toasts.
 package notify
 
 import "unicode/utf8"

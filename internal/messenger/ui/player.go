@@ -20,8 +20,8 @@ import (
 )
 
 // playerFor picks the external player for media: the chosen one while it is
-// installed, else the only player installed, else a fallback such as
-// Chromium. ask is set when several players are installed and none of them
+// installed, else the only player installed, else a fallback such as the
+// browser of Mini Apps. ask is set when several players are installed and none of them
 // is chosen; kind is "" when there is nothing to play in.
 func playerFor(chosen player.Kind, installed []player.Kind) (kind player.Kind, ask bool) {
 	for _, k := range installed {
@@ -41,6 +41,16 @@ func playerFor(chosen player.Kind, installed []player.Kind) (kind player.Kind, a
 		return players[0], false
 	}
 	return "", true
+}
+
+// playerTitle names a player in the settings: the browser one, stored as
+// player.Chromium, plays in whatever browser Mini Apps run in, Firefox among
+// them, so it is named after them.
+func playerTitle(kind player.Kind, l localization.Catalog) string {
+	if kind.Fallback() {
+		return l.T("program.browser")
+	}
+	return kind.Title()
 }
 
 // dedicatedPlayers are the kinds that are players of their own, not a
@@ -277,7 +287,7 @@ func (s *playerSettings) Update(gtx layout.Context) {
 // subtitle is the line under the section on the main settings page.
 func (s *playerSettings) subtitle(l localization.Catalog) string {
 	kind, ask := s.current()
-	name := kind.Title()
+	name := playerTitle(kind, l)
 	switch {
 	case ask:
 		name = l.T("player.not_chosen")
@@ -304,7 +314,7 @@ func (s *playerSettings) Layout(gtx layout.Context, l localization.Catalog) layo
 	}
 	labels := map[player.Kind]string{"": l.T("player.ask_option")}
 	for _, k := range player.Kinds {
-		labels[k] = k.Title()
+		labels[k] = playerTitle(k, l)
 		if !s.has(k) {
 			labels[k] += " · " + l.T("player.not_installed")
 		}

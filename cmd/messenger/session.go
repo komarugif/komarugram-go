@@ -71,6 +71,18 @@ func (s *accountSession) start(run func(ctx context.Context)) {
 	}()
 }
 
+// handOff runs the session's work on from here with run, on a goroutine of
+// its own, so that the caller's worker can end: a sign-in's worker holds
+// its window, which would stay in memory, closed or not, for as long as
+// the account ran on that worker. Stop waits for run too.
+func (s *accountSession) handOff(run func(ctx context.Context)) {
+	s.workers.Add(1)
+	go func() {
+		defer s.workers.Done()
+		run(s.ctx)
+	}()
+}
+
 // invalidate redraws the attached window, if any.
 func (s *accountSession) invalidate() {
 	if w := s.window.Load(); w != nil {

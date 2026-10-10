@@ -3,8 +3,10 @@
 package ui
 
 import (
+	"runtime"
 	"testing"
 	"time"
+	"weak"
 
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -88,5 +90,24 @@ func TestSearchToggle(t *testing.T) {
 	a.openSection(gtx, section{kind: sectionSearch})
 	if a.section.kind != sectionSettings {
 		t.Errorf("section %+v, want settings", a.section)
+	}
+}
+
+// A closed window is not kept by what outlives it: the formula cache of the
+// process took the window's ReleaseMemoryLater, and with it the window and
+// its whole view, until another window replaced it (a window closed to the
+// tray stayed in memory).
+func TestClosedWindowIsCollected(t *testing.T) {
+	w := &appwindow.Window{Motion: motion.New(func() {})}
+	gone := weak.Make(w)
+	a := New(w, mockstore.New(time.Now(), 0), Services{MiniApps: miniappprefs.New(miniapp.Shared)})
+	a.Close()
+	w.Motion.Close()
+	a, w = nil, nil
+	for i := 0; i < 5 && gone.Value() != nil; i++ {
+		runtime.GC()
+	}
+	if gone.Value() != nil {
+		t.Fatal("the window of a closed view is still referenced")
 	}
 }

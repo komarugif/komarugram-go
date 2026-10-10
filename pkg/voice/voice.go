@@ -62,9 +62,24 @@ type Recorder struct {
 	done    chan struct{}
 }
 
-// Start starts recording with ffmpeg, trying the system's inputs in turn
+// native records the microphone where ffmpeg cannot, until the recording
+// stops, and reports whether any sound came; nil where ffmpeg does.
+var native func(r *Recorder) (bool, error)
+
+// Start starts recording: with the native recorder where there is one,
+// else with ffmpeg, trying the system's inputs in turn
 // until one gives sound. It does not wait: Failed tells when none does.
 func Start(ctx context.Context, ffmpeg string) *Recorder {
+	if native != nil {
+		ctx, cancel := context.WithCancel(ctx)
+		r := &Recorder{ffmpeg: ffmpeg, ctx: ctx, cancel: cancel, done: make(chan struct{})}
+		go func() {
+			defer close(r.done)
+			_, err := native(r)
+			r.finish(err)
+		}()
+		return r
+	}
 	return startWith(ctx, ffmpeg, func(ctx context.Context) ([][]string, error) { return inputs(ctx, ffmpeg) })
 }
 
