@@ -570,6 +570,7 @@ func TestEmojiSections(t *testing.T) {
 // has come, and the recent emoji, which come with it, are above the sections
 // only once.
 func TestEmojiPickerDoesNotReplaceWhatItShows(t *testing.T) {
+	withEmojiPack(t, "🅰")
 	h := newComposerHarness(t)
 	h.chat = 2
 	c := h.p.composer
@@ -607,6 +608,7 @@ func TestEmojiPickerDoesNotReplaceWhatItShows(t *testing.T) {
 // A button of the footer takes the list to its section, and the button of the
 // section in view is the one that is lit.
 func TestEmojiFooterGoesToSection(t *testing.T) {
+	withEmojiPack(t, "🅰")
 	h := newComposerHarness(t)
 	h.chat = 2
 	c := h.p.composer

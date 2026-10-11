@@ -523,6 +523,16 @@ Run the focused check from the project root:
   - `internal/gl/gl_unix.go`: built for Haiku too, loading GL from
     `libOSMesa.so.8`; Haiku reads the extensions with `glGetStringi`, as
     macOS, its core profile having no `glGetString(GL_EXTENSIONS)`.
+  - `gpu/headless/headless_haiku.go`: an OSMesa OpenGL 3.3 core context,
+    loaded with `dlopen`, without a `BApplication`, window or bridge
+    library. A one-pixel default framebuffer makes the context current;
+    Gio renders into its own sRGB texture. Calls stay on their OS thread,
+    and release unbinds the context before destroying it. The Haiku-only
+    `TestHaikuHeadlessContexts` checks colors across alternating contexts
+    and repeated creation/release; it fails without the backend.
+    Both files have explicit `//go:build haiku` tags: upstream Go does not
+    recognize Haiku as an OS, so the filename suffix alone does not exclude
+    them from Linux and other builds.
 
 - Windows 7 (built with the Go of
   [go-legacy-win7](https://github.com/thongtech/go-legacy-win7): Go itself

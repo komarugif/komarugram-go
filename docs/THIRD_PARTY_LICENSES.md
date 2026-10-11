@@ -63,3 +63,20 @@ The Go modules linked into `messenger` and `kitchen`, as `go version -m` lists t
 | GitHub's mark (`github.githubassets.com/favicons/favicon.svg`) and its users' avatars, fetched when the settings' About section opens and kept in memory only: not in the repository nor the program | © GitHub and the users; the mark under [GitHub's logo guidelines](https://github.com/logos) |
 
 The full texts are in each module's `LICENSE` file (`go env GOMODCACHE`) and in the repositories linked above.
+
+## AppImage packaging
+
+These components are used by `cmd/appimage-build`, not linked into the Go
+messenger executable. The runtime is included in the resulting AppImage;
+its upstream notice is bundled as `APPIMAGE_RUNTIME_LICENSE` too.
+
+| Component | License |
+|---|---|
+| [appimagetool](https://github.com/AppImage/appimagetool), an external build tool supplied by the user or downloaded from its official release and cached by `cmd/appimage-build` | MIT; its dependencies have their own licenses |
+| [AppImage type2-runtime](https://github.com/AppImage/type2-runtime), supplied locally or downloaded by appimagetool | MIT; statically bundled musl, libfuse, squashfuse, zstd and zlib have their own terms, linked in `cmd/appimage-build/APPIMAGE_RUNTIME_LICENSE` |
+
+## Windows packaging
+
+| Component | License |
+|---|---|
+| [gioui.org/cmd/gogio](https://git.sr.ht/~eliasnaur/gio-cmd), supplied by the user or installed into the build cache by `cmd/windows-build` | Unlicense OR MIT; its Go dependencies have their own licenses, including MIT for [akavel/rsrc](https://github.com/akavel/rsrc) |

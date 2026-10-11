@@ -109,6 +109,7 @@ func (slowSearch) Send(context.Context, int64, model.OutgoingMessage) error { re
 // last stays till the next has come, and clearing the query gives back the
 // sections at once.
 func TestSearchDoesNotBlink(t *testing.T) {
+	withEmojiPack(t)
 	h := newComposerHarness(t)
 	h.chat = 2
 	c := h.p.composer

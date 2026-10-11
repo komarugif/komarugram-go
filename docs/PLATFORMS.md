@@ -76,9 +76,11 @@ alone. A real machine or a VM of FreeBSD is needed to try it.
    `go build -overlay`.
 2. **Vulkan's headers** are needed to build (`vulkan-headers` in the
    ports), or the `novulkan` tag.
-3. **Memory**: compiling `github.com/gotd/td/tg` for a new target peaks at
-   4.8 GB. On a machine with 6 GB, build it alone first
-   (`go build -p 1 github.com/gotd/td/tg`), then the client.
+3. **Memory**: allow about 4.5 GB for a first build, mainly for
+   `github.com/gotd/td/tg`; the peak varies with Go, target and parallelism.
+   Use `GOMAXPROCS=1 GOGC=50 GOMEMLIMIT=2GiB go build -p 1` with the
+   target and flags above to reduce memory use. The limit is soft and per
+   Go process; see [Building with less memory](BUILD_LOW_MEMORY.md).
 
 ### What works differently there
 
@@ -367,6 +369,11 @@ ffmpeg is the package `ffmpeg6_tools` (`pkgman install ffmpeg6_tools`);
   otherwise it took `GL_FRAMEBUFFER_SRGB` for on after the blit turned it
   off, and every frame but the first was too dark. It keeps a vertex
   array bound, which the core profile needs.
+- **Headless rendering.** `gpu/headless/headless_haiku.go` creates its own
+  OSMesa OpenGL 3.3 core context, without a window or a `BApplication`.
+  Its default framebuffer is one pixel: Gio draws into an sRGB texture
+  of the requested size. This also serves message snapshots. OSMesa is
+  loaded directly with `dlopen`; no bridge library is needed.
 - **The signature.** `BApplication` takes the signature the program's
   file carries in its resources, and Gio's `application/x-vnd.<ID>`
   (`application/x-vnd.messenger`) only when it has none: a
@@ -426,7 +433,7 @@ From 2026-10-07 to 2026-10-08, in the VM above:
 | Drag and drop | files dragged from Tracker onto a chat (by the maintainer, 2026-10-08): the view takes a drag whose message has `refs`, and Gio gets `DropEvent`s |
 | A click on a notification | `notify --onClickArgv -notified=<tag>`: the notification server starts the client by `BRoster::Launch` with messages, so the argument comes in a `B_ARGV_RECEIVED` to its `BApplication`, not on the command line. The new process starts its `BApplication` before it hands over to the running client (`app.HaikuLaunchArgs`), reads the tag, and the running client opens the chat. The first build read only the command line, and a click only brought the window (the maintainer, 2026-10-08); a launch as the server makes it opened the chat (`~/haiku-tools/tests/launchargv`, 2026-10-08). The server starts it with an environment of its own, without `HOME` or the Desktop's XDG directories (a probe program a notification started, 2026-10-08): the client found no settings and no running client to hand over to, and ended, while the notification went away on the click as if it were not there (the maintainer). The client now sets `HOME` and Haiku's `config/settings` and `config/cache` as the XDG directories when they are not set (`cmd/messenger/haiku_dirs.go`), which a start over SSH needs too; a launch with an empty environment opened the chat |
 | Local-data protection | Haiku has no TPM: the offer to protect, at the first start and in the settings, protects by the master password alone, and says how much weaker that is. In a client of its own directories: enabled (`"sealer": "password"`, `accounts.db.secure`), a wrong password refused after a restart and the right one opened the data, about 1.6 s with Argon2id at 128 MiB (2026-10-08) |
-| Players | mpv 0.41.0 and VLC 3.0.23 from HaikuPorts (`pkgman install mpv vlc`): `pkg/player`'s tests pass for both, control, seeking a stream, closing (2026-10-08). VLC for Haiku has no `--one-instance`, built only with D-Bus or for Windows, and refused to start on it; it is no longer passed there (nor on macOS, whose VLC has no D-Bus either: not checked there). Given no item (`""`, which only `TestCloseLeavesNothing` gave it) VLC for Haiku crashes within seconds, and the system's crash dialog came up for each run; the test now gives it `vlc://pause:60`. Saving a report of a VLC crash crashed the Debugger itself. Told to `quit` while it played an HTTP stream, VLC once kept running, a core busy; the client kills it after `quit` anyway. Firefox's `TestChromiumOpensAtSize` fails only because the VM's screen, 768 pixels high, is lower than the window it asks for |
+| Players | mpv 0.41.0 and VLC 3.0.23 from HaikuPorts (`pkgman install mpv vlc`): `pkg/player`'s tests pass for both, control, seeking a stream, closing (2026-10-08). VLC for Haiku has no `--one-instance`, built only with D-Bus or for Windows, and refused to start on it; it is no longer passed there (nor on macOS, whose VLC has no D-Bus either: not checked there). Given no item (`""`, which only `TestCloseLeavesNothing` gave it) VLC for Haiku crashes within seconds, and the system's crash dialog came up for each run; the test now gives it `vlc://pause:60`. Saving a report of a VLC crash crashed the Debugger itself. Told to `quit` while it played an HTTP stream, VLC once kept running, a core busy; the client kills it after `quit` anyway. Firefox's `TestChromiumOpensAtSize` failed because the VM's screen, 768 pixels high, was lower than the window it asked for, 450 by 800: Firefox takes no `--headless=new` and opens a window on the screen. It asks for 400 by 400 now, and passes (2026-10-11) |
 | Choosing files | Haiku's own panel, `filepanel` (in the system): opening a file for the attachment menu leads to the box for sending it; saving prints its path the same way (2026-10-08). The Open button was pressed by the maintainer once and then by `~/haiku-tools/tests/sendrefs`, which sends the panel's messages |
 | Editing | typing, Backspace, the arrows and Delete in an editor of a Gio test program |
 
