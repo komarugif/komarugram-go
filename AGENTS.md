@@ -172,7 +172,7 @@ modules are not in this repository, and the client fetches them
   while it hands an event to one it runs only that window's calls, so both
   hang. Use `appwindow`'s `SetTitle` and `PerformLater`.
 
-The full list, with the story behind each item, is README "Pitfalls met while
+The full list, with the story behind each item, is README_FULL.md "Pitfalls met while
 working on this code".
 
 ## Testing the app live

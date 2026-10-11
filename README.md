@@ -5,9 +5,10 @@
 
 Telegram Desktop client written from scratch in Go. Feature-rich and security-enhanced foundation. Easy to build and freely distributable, using a permissive license.
 
-[ [English] | [Русский](README_RU.md) ]
+[English] | [Русский](README_RU.md) | [Other stuff](./docs/README_FULL.md) | [Widgets and UI](./docs/UI_COMPONENTS.md)
 
-[ [Other stuff](./docs/README_FULL.md) | [Widgets and UI](./docs/UI_COMPONENTS.md) ]
+<img src="./assets/screenshot-win7.jpg" width="720" alt="Windows 7 screenshot">
+<p>Screenshot of KomaruGram Go, built and run on Windows 7</p>
 
 </div>
 
@@ -17,13 +18,17 @@ The official Telegram Desktop and its forks have many issues: heavy reliance on 
 
 ## What's inside?
 
+Supports multi-account usage, hardware and software data encryption, local (offline) caching, animated stickers, emoji sets, in-chat GIF playback, voice message playback/recording, a media viewer, forums, Instant View, Markdown, Rich Messages, and Mini Apps.
+
+WIP: message formatting and scheduled posting tools, chat and channel administration, user stories, gift sending, Telegram Stars, Gram Wallet, folder/cache/notification settings, a plugin system, hotkeys, and an editable interface layout.
+
 [Gio](https://gioui.org/) handles the UI. It is a cross-platform, immediate-mode GUI library. It was chosen because it eliminates the typical limitations of frameworks, has no dependencies, doesn't break cross-platform builds, is fully compatible with Wayland, and can be ported to other platforms without any issues.
 
 [gotd/td](https://github.com/gotd/td) implements MTProto and a little more, which serves as the foundation for all interactions with the Telegram protocol.
 
 [wazero](https://github.com/wazero/wazero) is used as a high-performance WebAssembly sandbox for rendering stickers. It ensures cross-platform portability and guarantees code isolation without launching a separate process.
 
-FFmpeg, mpv, VLC and Chromium are available as external integrations that you must provide yourself. However, the application will work even without them, if the user is satisfied with that.
+FFmpeg, mpv, VLC and Chromium/Firefox are available as external integrations that you must provide yourself. However, the application will work even without them, if the user is satisfied with that.
 
 Without FFmpeg, or when chosen in the settings, GIFs and animated avatars play with FFmpeg's H.264 decoder compiled to WebAssembly. It is not built into the application: it is downloaded the first time it is needed from [libavcodec-wasm](https://github.com/komarugif/libavcodec-wasm), which holds its sources and build script. To use your own build, point the `KOMARUGRAM_AVCDEC` environment variable at an `avcdec.wasm` file or its URL.
 
@@ -31,54 +36,53 @@ Voice messages and music play in the application itself, with no FFmpeg or exter
 
 ## How to get started
 
-Make a copy of this repository. Ensure that **[Go 1.27.1](https://go.dev/dl/)** is installed on your machine — it is the minimum required version. On Linux, Wayland and X11 development libraries may be required.
+Make a copy of this repository. Ensure that **[Go 1.27.1](https://go.dev/dl/)** is installed on your machine — it is the minimum required version. [Windows 7](./docs/BUILD_WINDOWS7.md) and [Haiku](./docs/BUILD_HAIKU.md) require their own patched versions of Go.
 
-If you do not need to create an executable file, you can use this command to run it universally across different operating systems.
+On Linux, Wayland and X11 development libraries may be required: `vulkan-headers mesa-egl mesa-dev libxkbcommon-dev wayland-dev`. Depending on your graphics environment, you can disable specific dependencies using build tags: `-tags nox11`, `-tags nowayland`, or `-tags novulkan`.
+
+The build process may require up to 4.5 GB of RAM; please keep this in mind and close unnecessary applications during the initial build. If you run out of memory, use the environment variables `GOMAXPROCS=1 GOGC=50 GOMEMLIMIT=2GiB`. As a last resort, you can use the `-low-memory` flag with the `./cmd/*-build` scripts; this can cut memory usage during the build in half, at the cost of potential runtime performance loss. [Read more here](./docs/BUILD_LOW_MEMORY.md).
+
+You can use this command to run the application across different platforms:
 ```
 go run ./cmd/messenger
 ```
 
-If you need to create an executable file with an icon, proceed as follows.
-
-### **Linux**:
-**Simply with go build:**
+If you need to create an executable file, choose the command for your platform:
+### **Linux/macOS**
 ```
-GOOS=linux go build -ldflags="-s -w" -buildvcs=false -o komarugram ./cmd/messenger
+go build -ldflags="-s -w" -o komarugram ./cmd/messenger
+```
+### **Linux** (AppImage with icon)
+```
+go run ./cmd/appimage-build -o KomaruGram.AppImage
+```
+### **Windows** (cross-compilation supported)
+For your architecture:
+```
+go run ./cmd/windows-build -o komarugram.exe
+```
+To select a different architecture:
+```
+go run ./cmd/windows-build -arch arm64 -o komarugram.exe
 ```
 
-### **Windows:**
-
-**Install Gio cmd tools:**
+### **Haiku**
 ```
-go install gioui.org/cmd/gogio@latest
+go run ./cmd/haiku-build -o ~/apps/KomaruGram
 ```
-**Building the application with an icon:**
-```
-gogio -ldflags="-s -w" -icon=./assets/logo_round.png -target=windows -o komarugram.exe ./cmd/messenger
-```
-
-### **Windows 7:**
-
-Windows 7 needs [go-legacy-win7](https://github.com/thongtech/go-legacy-win7), a Go that still supports it, in place of the official one; the steps, on Windows 7 itself, are in [BUILD_WINDOWS7.md](./docs/BUILD_WINDOWS7.md).
-
-### **Haiku:**
-
-Haiku needs a Go of its own and a few patched modules; the steps, all on Haiku itself, are in [BUILD_HAIKU.md](./docs/BUILD_HAIKU.md).
-
-The build process can consume up to 4 GB of RAM. Keep this in mind and close unnecessary applications during the initial build. All subsequent builds should run instantly.
 
 ## Portability
 
 KomaruGram Go can be ported to a wide range of operating systems thanks to its architecture and minimal dependencies. Check out [PLATFORMS.md](./docs/PLATFORMS.md) if you are interested in platform-specific details.
 
-| OS | Status |
+| Platform | Status |
 |---|---|
 | Windows 10/11 | ✅ First-class support |
 | Windows 7 | ✅ Supported |
 | Linux (Wayland) | ✅ First-class support |
 | Linux (X11) | ✅ Supported |
 | MacOS | ✅ First-class support |
-| Haiku OS | ✅ Supported |
+| Haiku | ✅ Supported |
 | FreeBSD | ⚠️ Should build; not tested in practice |
 | OpenBSD | ⚠️ Should build in theory; not tested |
 | NetBSD | ❓ Porting possible, with some caveats |

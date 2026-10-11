@@ -93,7 +93,10 @@ func TestChromiumSizeArgs(t *testing.T) {
 
 // TestChromiumOpensAtSize checks that the window opens at the size
 // SizeArgs gave, which is all it gets where it may not resize itself, as on
-// Wayland: here the video never tells its size.
+// Wayland: here the video never tells its size. The size is a small one:
+// Firefox, which takes no --headless=new, opens a window on the screen,
+// and the system makes one higher than the screen as high as it is (450 by
+// 768 for 450 by 800 on Haiku in a VM's screen).
 func TestChromiumOpensAtSize(t *testing.T) {
 	if !miniapp.Available() {
 		t.Skip("no Chromium-based browser")
@@ -103,7 +106,7 @@ func TestChromiumOpensAtSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer stream.Close()
-	extra := append([]string{"--headless=new", "--mute-audio"}, Chromium.SizeArgs(720, 1280)...)
+	extra := append([]string{"--headless=new", "--mute-audio"}, Chromium.SizeArgs(240, 240)...)
 	p, err := openChromium(context.Background(), stream.URL(), extra)
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +116,7 @@ func TestChromiumOpensAtSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if width != 450 || height != 800 {
-		t.Errorf("the window opened at %dx%d, want 450x800", width, height)
+	if width != 400 || height != 400 {
+		t.Errorf("the window opened at %dx%d, want 400x400", width, height)
 	}
 }

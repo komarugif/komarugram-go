@@ -28,7 +28,9 @@ func TestPhotoViewerPlaysVideos(t *testing.T) {
 	h.viewer.Open(1, h.store.photos[0], nil)
 	h.until("the video in the gallery", func() bool {
 		items, _, _, _, _ := h.viewer.snapshot()
-		return indexOf(items, 20) >= 0
+		// indexOf clamps a missing ID to the nearest item; it is not
+		// a membership check. Wait for the asynchronously fetched video.
+		return slices.ContainsFunc(items, func(m model.Message) bool { return m.Key.MessageID == 20 })
 	})
 	h.key(key.NameRightArrow)
 	h.until("the thumbnail", func() bool { return slices.Contains(h.store.read(), "v20/t") })

@@ -3,6 +3,11 @@
 package ui
 
 import (
+	"image"
+	"image/png"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,8 +16,58 @@ import (
 
 	"gioui.org/layout"
 
+	"komarugram/internal/messenger/emojipacks"
+	"komarugram/internal/messenger/fonts"
 	"komarugram/internal/messenger/model"
+	"komarugram/internal/messenger/preferences"
 )
+
+// withEmojiPack draws emoji with a pack of sprites that has every emoji of
+// the picker's sections, as the client does once the pack it offers where
+// the system has no emoji font is installed. Tests of the picker that need
+// its emoji shown use it: otherwise the emoji the system's fonts do not
+// draw are left out, and on Haiku, which has no emoji font, all of them.
+func withEmojiPack(t *testing.T, more ...string) {
+	t.Helper()
+	seen := map[string]bool{}
+	var order [][]string
+	add := func(emoji string) {
+		emoji = strings.ReplaceAll(emoji, "\uFE0F", "")
+		if emoji != "" && !seen[emoji] {
+			seen[emoji] = true
+			order = append(order, []string{emoji})
+		}
+	}
+	for _, items := range emojiSectionItems() {
+		for _, item := range items {
+			add(item.Emoji)
+		}
+	}
+	for _, emoji := range more {
+		add(emoji)
+	}
+	const cell, columns = 8, 64
+	rows := (len(order) + columns - 1) / columns
+	picture := filepath.Join(t.TempDir(), "emoji_1.png")
+	f, err := os.Create(picture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, image.NewNRGBA(image.Rect(0, 0, columns*cell, rows*cell))); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	catalog := t.TempDir()
+	if _, err := emojipacks.BuildSprites(catalog, emojipacks.Pack{ID: "all", Name: "All", License: "CC0"}, emojipacks.Sprites{Cell: cell, Columns: columns, Rows: rows}, []string{picture}, order); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(fonts.SetEnv, filepath.Join(catalog, "all"))
+	applyFonts(preferences.Fonts{}, nil)
+	t.Cleanup(func() {
+		os.Unsetenv(fonts.SetEnv)
+		applyFonts(preferences.Fonts{}, nil)
+	})
+}
 
 // TestPickerLeavesOutEmojiNotDrawn checks that the picker offers the emoji
 // the theme's fonts draw as one glyph, and neither a character no font has

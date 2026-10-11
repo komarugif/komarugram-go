@@ -11,6 +11,15 @@
 // cache, patched, and named in a go.work beside them.
 //
 //	go run ./cmd/haiku-build -o /boot/home/apps/KomaruGram
+//
+// With -test it runs the tests instead, with the same modules and flags,
+// and with the four libraries built into the work directory, where the
+// tests are told to load them from. What follows the flags goes to go
+// test as it is: packages and its flags, after a "--"; with nothing, the
+// tests of ./internal/... ./cmd/... ./pkg/...
+//
+//	go run ./cmd/haiku-build -test
+//	go run ./cmd/haiku-build -test -- -run TestPlayback ./pkg/audio
 package main
 
 import (
@@ -27,6 +36,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"komarugram/pkg/program"
 )
 
 // patched is a module that needs a patch for Haiku, and the patch, named
@@ -47,13 +58,20 @@ func main() {
 	log.SetFlags(0)
 	out := flag.String("o", "", "the directory to build into (required)")
 	work := flag.String("work", "", "where the patched modules are kept (default: a directory in the user's cache)")
+	lowMemory := flag.Bool("low-memory", false, "reduce compiler concurrency and disable inlining only in gotd/td/tg")
+	test := flag.Bool("test", false, "run the tests instead of building; what follows the flags goes to go test")
 	flag.Parse()
-	if *out == "" {
+	if *out == "" && !*test {
 		flag.Usage()
 		os.Exit(2)
 	}
 	if runtime.GOOS != "haiku" {
 		log.Fatal("haiku-build runs on Haiku; to build from another system, see docs/PLATFORMS.md")
+	}
+	if *lowMemory {
+		if err := enableLowMemory(); err != nil {
+			log.Fatal(err)
+		}
 	}
 	repo, err := goOutput("list", "-m", "-f", "{{.Dir}}")
 	if err != nil {
@@ -66,82 +84,164 @@ func main() {
 		}
 		*work = filepath.Join(cache, "komarugram-go-haiku-build")
 	}
-	if err := build(repo, *work, *out); err != nil {
+	goWork, dirs, err := prepareWork(repo, *work)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if *test {
+		err = runTests(repo, *work, goWork, dirs, flag.Args())
+	} else {
+		err = build(repo, *work, goWork, dirs, *out)
+	}
+	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func build(repo, work, out string) error {
+// prepareWork prepares the patched modules in work and writes the go.work
+// that names them, returning its path and the modules' directories.
+func prepareWork(repo, work string) (string, map[string]string, error) {
 	goroot, err := goOutput("env", "GOROOT")
 	if err != nil {
-		return err
+		return "", nil, err
 	}
 	haikuSys := filepath.Join(goroot, "src", "cmd", "vendor", "golang.org", "x", "sys", "unix")
 	if names, _ := filepath.Glob(filepath.Join(haikuSys, "*_haiku*.go")); len(names) == 0 {
-		return fmt.Errorf("this Go (%s) has no Haiku files of golang.org/x/sys: build with the Go of github.com/komarugif/go-haiku", goroot)
+		return "", nil, fmt.Errorf("this Go (%s) has no Haiku files of golang.org/x/sys: build with the Go of github.com/komarugif/go-haiku", goroot)
 	}
 	if err := os.MkdirAll(work, 0o755); err != nil {
-		return err
+		return "", nil, err
 	}
 	workFile := fmt.Sprintf("go 1.27.1\n\nuse %s\n\n", repo)
 	dirs := map[string]string{}
 	for _, m := range modules {
 		dir, err := prepare(repo, work, m, haikuSys)
 		if err != nil {
-			return fmt.Errorf("%s: %w", m.path, err)
+			return "", nil, fmt.Errorf("%s: %w", m.path, err)
 		}
 		dirs[m.path] = dir
 		workFile += fmt.Sprintf("replace %s => %s\n", m.path, dir)
 	}
 	goWork := filepath.Join(work, "go.work")
 	if err := os.WriteFile(goWork, []byte(workFile), 0o644); err != nil {
-		return err
+		return "", nil, err
 	}
+	return goWork, dirs, nil
+}
 
-	out, err = filepath.Abs(out)
+// goEnv is the environment of the go commands that build the messenger
+// and its tests.
+func goEnv(goWork string) []string {
+	env := append(os.Environ(), "GOWORK="+goWork, "CGO_ENABLED=1")
+	if _, set := os.LookupEnv("GOGC"); !set {
+		env = append(env, "GOGC=50")
+	}
+	return env
+}
+
+// Apply limits to this build process and all Go children, including the
+// library builders. Explicit user limits take precedence over the defaults.
+func enableLowMemory() error {
+	for key, value := range map[string]string{
+		"GOMAXPROCS": "1", "GOGC": "50", "GOMEMLIMIT": "1792MiB",
+	} {
+		if _, set := os.LookupEnv(key); !set {
+			if err := os.Setenv(key, value); err != nil {
+				return err
+			}
+		}
+	}
+	flags := strings.TrimSpace(os.Getenv("GOFLAGS") + " -p=1 -gcflags=github.com/gotd/td/tg=-l")
+	return os.Setenv("GOFLAGS", flags)
+}
+
+func build(repo, work, goWork string, dirs map[string]string, out string) error {
+	out, err := filepath.Abs(out)
 	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		return err
 	}
-	program := filepath.Join(out, "messenger")
-	log.Printf("building the messenger: several minutes, and up to 5 GB of memory")
+	binary := filepath.Join(out, "messenger")
+	log.Printf("building the messenger: several minutes, and about 4.5 GB of memory")
 	// gotd's tg package takes most of the memory: one package at a time,
 	// and a collector that runs sooner, keep it within reach.
-	cmd := exec.Command("go", "build", "-p", "1", "-ldflags=-linkmode=internal", "-tags", "sqlite3_flock", "-o", program, "./cmd/messenger")
+	cmd := program.Command("go", "build", "-p", "1", "-ldflags=-linkmode=internal", "-tags", "sqlite3_flock", "-o", binary, "./cmd/messenger")
 	cmd.Dir = repo
-	cmd.Env = append(os.Environ(), "GOWORK="+goWork, "CGO_ENABLED=1", "GOGC=50")
+	cmd.Env = goEnv(goWork)
 	if err := run(cmd); err != nil {
 		return err
 	}
-	for _, lib := range []struct{ name, build string }{
-		{"libgiohaiku.so", filepath.Join(repo, "third_party", "gio", "app", "internal", "haiku", "build.go")},
-		{"libotohaiku.so", filepath.Join(dirs["github.com/ebitengine/oto/v3"], "internal", "haiku", "build.go")},
-		{"libtrayhaiku.so", filepath.Join(repo, "internal", "tray", "haiku", "build.go")},
-		{"libvoicehaiku.so", filepath.Join(repo, "pkg", "voice", "haiku", "build.go")},
-	} {
-		log.Printf("building %s", lib.name)
-		cmd := exec.Command("go", "run", lib.build, "-o", filepath.Join(out, lib.name))
-		cmd.Dir = filepath.Dir(lib.build)
-		cmd.Env = append(os.Environ(), "GOWORK=off")
-		if err := run(cmd); err != nil {
-			return err
-		}
+	if _, err := buildLibs(repo, dirs, out); err != nil {
+		return err
 	}
 	// The signature, flags, version and icon, from the resource definition.
 	rsrc := filepath.Join(work, "messenger.rsrc")
-	if err := run(exec.Command("rc", "-o", rsrc, filepath.Join(repo, "cmd", "messenger", "messenger.rdef"))); err != nil {
+	if err := run(program.Command("rc", "-o", rsrc, filepath.Join(repo, "cmd", "messenger", "messenger.rdef"))); err != nil {
 		return err
 	}
-	if err := run(exec.Command("xres", "-o", program, rsrc)); err != nil {
+	if err := run(program.Command("xres", "-o", binary, rsrc)); err != nil {
 		return err
 	}
-	if err := run(exec.Command("mimeset", "-f", program)); err != nil {
+	if err := run(program.Command("mimeset", "-f", binary)); err != nil {
 		return err
 	}
-	log.Printf("done: %s", program)
+	log.Printf("done: %s", binary)
 	return nil
+}
+
+// lib is one of the C++ libraries the messenger loads from beside itself,
+// the program that builds it, and the variable that names it in its place.
+type lib struct{ name, build, env string }
+
+func libs(repo string, dirs map[string]string) []lib {
+	return []lib{
+		{"libgiohaiku.so", filepath.Join(repo, "third_party", "gio", "app", "internal", "haiku", "build.go"), "GIO_HAIKU_LIB"},
+		{"libotohaiku.so", filepath.Join(dirs["github.com/ebitengine/oto/v3"], "internal", "haiku", "build.go"), "OTO_HAIKU_LIB"},
+		{"libtrayhaiku.so", filepath.Join(repo, "internal", "tray", "haiku", "build.go"), "KOMARUGRAM_TRAY_LIB"},
+		{"libvoicehaiku.so", filepath.Join(repo, "pkg", "voice", "haiku", "build.go"), "KOMARUGRAM_VOICE_LIB"},
+	}
+}
+
+// buildLibs builds the libraries into out, and returns the variables that
+// name them there.
+func buildLibs(repo string, dirs map[string]string, out string) ([]string, error) {
+	var env []string
+	for _, l := range libs(repo, dirs) {
+		log.Printf("building %s", l.name)
+		path := filepath.Join(out, l.name)
+		cmd := program.Command("go", "run", l.build, "-o", path)
+		cmd.Dir = filepath.Dir(l.build)
+		cmd.Env = append(os.Environ(), "GOWORK=off")
+		if err := run(cmd); err != nil {
+			return nil, err
+		}
+		env = append(env, l.env+"="+path)
+	}
+	return env, nil
+}
+
+// runTests runs go test with args, or with the tests of the repository,
+// as the messenger is built. A test binary runs from a temporary
+// directory, so the libraries are named by their variables.
+func runTests(repo, work, goWork string, dirs map[string]string, args []string) error {
+	libDir := filepath.Join(work, "lib")
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		return err
+	}
+	libEnv, err := buildLibs(repo, dirs, libDir)
+	if err != nil {
+		return err
+	}
+	if len(args) == 0 {
+		args = []string{"./internal/...", "./cmd/...", "./pkg/..."}
+	}
+	log.Printf("running the tests: the first build takes several minutes, and about 4.5 GB of memory")
+	cmd := program.Command("go", append([]string{"test", "-p", "1", "-ldflags=-linkmode=internal", "-tags", "sqlite3_flock"}, args...)...)
+	cmd.Dir = repo
+	cmd.Env = append(goEnv(goWork), libEnv...)
+	return run(cmd)
 }
 
 // prepare copies module m out of the module cache into work, adds what it
@@ -151,7 +251,7 @@ func prepare(repo, work string, m patched, haikuSys string) (string, error) {
 	if _, err := os.Stat(filepath.Join(dir, ".patched")); err == nil {
 		return dir, nil
 	}
-	cmd := exec.Command("go", "mod", "download", "-json", m.path+"@"+m.version)
+	cmd := program.Command("go", "mod", "download", "-json", m.path+"@"+m.version)
 	cmd.Dir = repo
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	data, err := cmd.Output()
@@ -178,7 +278,7 @@ func prepare(repo, work string, m patched, haikuSys string) (string, error) {
 		}
 	}
 	patch := filepath.Join(repo, "docs", "haiku", m.dir+"-"+m.version+".patch")
-	apply := exec.Command("patch", "-p1", "--forward", "--batch", "-i", patch)
+	apply := program.Command("patch", "-p1", "--forward", "--batch", "-i", patch)
 	apply.Dir = dir
 	if err := run(apply); err != nil {
 		return "", fmt.Errorf("apply %s: %w", filepath.Base(patch), err)
@@ -232,7 +332,7 @@ func run(cmd *exec.Cmd) error {
 
 func goOutput(args ...string) (string, error) {
 	var stderr bytes.Buffer
-	cmd := exec.Command("go", args...)
+	cmd := program.Command("go", args...)
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
