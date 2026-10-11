@@ -260,6 +260,8 @@ func TestSplitChosenPaths(t *testing.T) {
 		{"/home/a b/one.png\n/home/two.jpg\n", []string{"/home/a b/one.png", "/home/two.jpg"}},
 		{"C:\\Users\\я\\one.png\r\nC:\\Users\\я\\two.png\r\n", []string{"C:\\Users\\я\\one.png", "C:\\Users\\я\\two.png"}},
 		{"/single", []string{"/single"}},
+		// PowerShell 2.0 on Windows 7, told to print UTF-8.
+		{"\ufeffC:\\kg\\ffmpeg.exe\r\n", []string{"C:\\kg\\ffmpeg.exe"}},
 	} {
 		if got := splitPaths(c.out); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%q: %q, want %q", c.out, got, c.want)

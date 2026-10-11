@@ -55,8 +55,12 @@ type State struct {
 	Hardware bool
 	Enabled  bool
 	Unlocked bool
-	Busy     bool
-	Problem  string
+	// Encrypting reports that protection is being turned on: the key is
+	// known, and the data are being encrypted with it. Nothing is to be
+	// unlocked then, though Unlocked is false until they are.
+	Encrypting bool
+	Busy       bool
+	Problem    string
 }
 
 type config struct {
@@ -95,6 +99,7 @@ type Manager struct {
 	access       Access
 	ready        bool
 	disabling    bool
+	encrypting   bool
 	busy         bool
 	problem      string
 	migrate      func() error
@@ -191,12 +196,13 @@ func (m *Manager) stateLocked() State {
 	}
 	_, usable := m.sealerLocked(m.config)
 	return State{
-		Available: usable,
-		Hardware:  hardware,
-		Enabled:   m.config != nil,
-		Unlocked:  m.config == nil || m.ready || (m.disabling && len(m.key) == keySize),
-		Busy:      m.busy,
-		Problem:   m.problem,
+		Available:  usable,
+		Hardware:   hardware,
+		Enabled:    m.config != nil,
+		Unlocked:   m.config == nil || m.ready || (m.disabling && len(m.key) == keySize),
+		Encrypting: m.encrypting,
+		Busy:       m.busy,
+		Problem:    m.problem,
 	}
 }
 
@@ -275,6 +281,7 @@ func (m *Manager) enable(ctx context.Context, password string, sealer TPM) error
 	m.config = cfg
 	m.key = append([]byte(nil), root...)
 	m.ready = false
+	m.encrypting = true
 	migrate := m.migrationLocked()
 	m.signalLocked()
 	m.mu.Unlock()
@@ -283,6 +290,7 @@ func (m *Manager) enable(ctx context.Context, password string, sealer TPM) error
 			m.mu.Lock()
 			clear(m.key)
 			m.key = nil
+			m.encrypting = false
 			m.signalLocked()
 			m.mu.Unlock()
 			return fmt.Errorf("security: encrypt existing sessions: %w", err)
@@ -290,6 +298,7 @@ func (m *Manager) enable(ctx context.Context, password string, sealer TPM) error
 	}
 	m.mu.Lock()
 	m.ready = true
+	m.encrypting = false
 	m.signalLocked()
 	m.mu.Unlock()
 	return nil

@@ -69,6 +69,7 @@ var (
 	iconIntegrations  = wdk.RequireIconWidget(icons.ActionSettingsInputComponent)
 	iconAddAccount    = wdk.RequireIconWidget(icons.SocialPersonAdd)
 	iconLogOut        = wdk.RequireIconWidget(icons.ActionExitToApp)
+	iconUninstall     = wdk.RequireIconWidget(icons.ActionDeleteForever)
 	iconEdit          = wdk.RequireIconWidget(icons.EditorModeEdit)
 	iconReply         = wdk.RequireIconWidget(icons.ContentReply)
 	iconCopy          = wdk.RequireIconWidget(icons.ContentContentCopy)

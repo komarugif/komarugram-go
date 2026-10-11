@@ -523,3 +523,49 @@ Run the focused check from the project root:
   - `internal/gl/gl_unix.go`: built for Haiku too, loading GL from
     `libOSMesa.so.8`; Haiku reads the extensions with `glGetStringi`, as
     macOS, its core profile having no `glGetString(GL_EXTENSIONS)`.
+
+- Windows 7 (built with the Go of
+  [go-legacy-win7](https://github.com/thongtech/go-legacy-win7): Go itself
+  has not run there since 1.21):
+  - `app/os_windows.go`, `app/internal/windows`: where there is no
+    `EnableMouseInPointer`, before Windows 8, the mouse comes as
+    `WM_MOUSEMOVE`, `WM_LBUTTONDOWN` and the like, handled as upstream did
+    before it took up the pointer input in 2025 (809a6d0dc7fe), with the
+    fourth and fifth buttons and `WM_CAPTURECHANGED`. `EnableMouseInPointer`
+    returns `ErrNoPointerInput` there; it used to panic when the window was
+    made. The wheel of the pointer input reads its buttons from the
+    pointer, the mouse's from the buttons held. `TestWithoutPointerInput`,
+    `TestMouseButtonMessages`.
+  - `app/d3d11_windows.go`: a device lost before it presented a frame turns
+    the devices made from then on to WARP, Direct3D's software rasterizer:
+    the Direct3D 11 of VirtualBox's driver for Windows 7 makes a device of
+    feature level 11_0 and loses it on the first `Present`
+    (`DXGI_ERROR_DRIVER_INTERNAL_ERROR`). `GIO_D3D11_WARP=1` turns to WARP
+    from the start, for a driver that draws wrong without failing.
+    `TestDeviceLostBeforePresentTurnsToWARP`.
+  - `app/d3d11_windows.go`, `app/gpufailed_other.go`: `GPUFailed` reports
+    whether windows are drawn by WARP because the driver failed (or
+    `GIO_D3D11_WARP=1`); false elsewhere. The messenger runs the browsers it
+    drives without the GPU then.
+  - `app/window.go`: a device lost on `Present` is let go and the next frame
+    drawn with a new one, as a device lost while drawing is; the window used
+    to close with "GPU device lost". `TestDeviceLostOnPresentDrawsAgain`.
+  - `app/os_windows.go`, `app/internal/windows/translucency.go`,
+    `app/glass_windows.go`, `app/glass_other.go`: `BlurBehind` is Aero's
+    glass on Windows 7, where there is no acrylic: `DwmEnableBlurBehindWindow` over all of the window,
+    the region named (the system keeps the one given before, the empty one
+    of a transparent window). The glass is drawn behind the content of a
+    window with the system's frame too, so it is granted to one, and
+    `FrameBlurs` tells the application, which keeps the frame. Transparency
+    is granted only while the desktop is composed (`DwmIsCompositionEnabled`):
+    under Windows 7's Basic and Classic themes a window is opaque, and what
+    it leaves transparent would be black; `WM_DWMCOMPOSITIONCHANGED` grants
+    or takes it as the theme changes. `Transparent` is now kept as wanted
+    and granted, as `BlurBehind` was. `TestGlassBlursWithTheFrame`, which
+    needs the desktop's session (over SSH it sees no composition and skips).
+
+- `app/os_windows.go`: a character beyond the Basic Multilingual Plane, an
+  emoji say, which comes as two `WM_CHAR` of a surrogate pair from
+  `SendInput`, on-screen keyboards and the like, is put together and
+  inserted. Each half failed `unicode.IsPrint` and was dropped. Found on
+  Windows 7; the code is the same on every Windows. `TestCharOfSurrogatePair`.

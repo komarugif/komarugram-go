@@ -221,6 +221,13 @@ func (w *Window) validateAndProcess(size image.Point, sync bool, frame *op.Ops, 
 		if w.gpu != nil {
 			err = w.ctx.Present()
 			w.ctx.Unlock()
+			if errors.Is(err, gpu.ErrDeviceLost) {
+				// The frame was not seen: draw the next with a new device,
+				// as when the device is lost while drawing.
+				w.destroyGPU()
+				w.driver.Invalidate()
+				return nil
+			}
 		}
 		return err
 	}

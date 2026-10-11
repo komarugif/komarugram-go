@@ -28,7 +28,9 @@ type visualLockView struct {
 	result     chan error
 	running    bool
 	failed     bool
-	focused    bool
+	// empty is set when the password was submitted empty.
+	empty   bool
+	focused bool
 }
 
 func newVisualLockView(manager *security.Manager, invalidate func()) *visualLockView {
@@ -45,7 +47,7 @@ func (v *visualLockView) Update(gtx layout.Context, locked *atomic.Bool) {
 		v.running = false
 		v.password.Clear()
 		v.focused = false
-		v.failed = err != nil
+		v.failed, v.empty = err != nil, false
 		if err == nil {
 			locked.Store(false)
 			return
@@ -62,10 +64,10 @@ func (v *visualLockView) Update(gtx layout.Context, locked *atomic.Bool) {
 	if v.submit.Clicked(gtx) || v.password.Submitted(gtx) {
 		password := v.password.Text()
 		if password == "" {
-			v.failed = true
+			v.failed, v.empty = true, true
 			return
 		}
-		v.failed = false
+		v.failed, v.empty = false, false
 		v.running = true
 		go func() {
 			v.result <- v.security.VerifyPassword(context.Background(), password)
@@ -98,7 +100,7 @@ func (v *visualLockView) Layout(gtx layout.Context, l localization.Catalog) layo
 				}
 				if v.failed {
 					rows = append(rows, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return label(gtx, l.T("security.failed"), token.TypestyleBodyMedium, sc.Error.Color, 0)
+						return label(gtx, l.T(v.problem()), token.TypestyleBodyMedium, sc.Error.Color, 0)
 					}))
 				}
 				if v.running || v.password.Text() == "" {
@@ -114,4 +116,13 @@ func (v *visualLockView) Layout(gtx layout.Context, l localization.Catalog) layo
 		})
 	})
 	return layout.Dimensions{Size: image.Pt(size.X, size.Y)}
+}
+
+// problem is the key of the text under the password, once it failed: a
+// key sealed by the password alone has no TPM to check.
+func (v *visualLockView) problem() string {
+	if v.empty {
+		return "security.empty"
+	}
+	return passwordOnly(v.security.State(), "security.failed")
 }

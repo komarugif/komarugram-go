@@ -1,0 +1,6 @@
+# The dependencies the settings' About section names, with their versions
+# as go.mod requires them: a name, the module and its version on each line.
+# Kept in step with go.mod (AGENTS.md); assets' test compares them.
+Gio gioui.org v0.10.2
+gotd github.com/gotd/td v0.162.0
+wazero github.com/tetratelabs/wazero v1.12.0

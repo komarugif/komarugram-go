@@ -12,6 +12,9 @@ import (
 	"syscall"
 )
 
+// noWindow does nothing: only Windows opens a console for a child.
+func noWindow(cmd *exec.Cmd) {}
+
 // Group starts cmd in a process group of its own and makes cancelling its
 // context kill the whole group. A flatpak is bwrap running the program, and
 // killing bwrap alone leaves the program running with no parent.

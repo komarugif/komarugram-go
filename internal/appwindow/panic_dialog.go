@@ -21,6 +21,7 @@ import (
 	"gioui.org/widget/material"
 
 	"komarugram/internal/crash"
+	"komarugram/pkg/program"
 )
 
 const panicDialogWhere = "crash dialog"
@@ -119,11 +120,11 @@ func openPanicReport(path string) error {
 	var command *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin", "haiku":
-		command = exec.Command("open", path)
+		command = program.Command("open", path)
 	case "windows":
-		command = exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
+		command = program.Command("rundll32", "url.dll,FileProtocolHandler", path)
 	default:
-		command = exec.Command("xdg-open", path)
+		command = program.Command("xdg-open", path)
 	}
 	return command.Run()
 }

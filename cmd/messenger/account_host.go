@@ -10,6 +10,7 @@ import (
 	"image"
 	_ "image/jpeg"
 	"log"
+	"os"
 	"slices"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"komarugram/internal/appwindow"
 	"komarugram/internal/diagnostics"
 	"komarugram/internal/messenger/account"
+	"komarugram/internal/messenger/install"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/login"
 	"komarugram/internal/messenger/model"
@@ -32,6 +34,7 @@ import (
 	"komarugram/internal/messenger/ui"
 	"komarugram/internal/miniappprefs"
 	"komarugram/internal/notify"
+	"komarugram/pkg/program"
 )
 
 // logOutTimeout bounds how long leaving an account waits for Telegram
@@ -55,6 +58,9 @@ type accountWindows struct {
 	miniapps    *miniappprefs.Settings
 	// imports are the archives given on the command line, added by start.
 	imports []*account.TData
+	// relaunch is the installed program to start when this process ends:
+	// the sign-in installed it, and quit for it.
+	relaunch string
 	// startMu serializes start, which runs once it has succeeded.
 	startMu  sync.Mutex
 	started  bool
@@ -546,6 +552,7 @@ func (h *accountWindows) windowSpec(a *account.Account, session *accountSession,
 				CurrentAccount: session.accountID,
 				OpenWindow:     h.process.Open,
 				OfferEmoji:     true,
+				Uninstall:      h.uninstaller(),
 			})
 			app = content
 			session.app.Store(content)
@@ -573,8 +580,21 @@ func (h *accountWindows) windowSpec(a *account.Account, session *accountSession,
 						return
 					}
 				}
-				offered := false
+				offered, installOffered := false, false
 				offer := func(ctx context.Context) error {
+					// The first account is the time to install the program:
+					// the installed copy then signs in, in place of this one.
+					if !installOffered && h.firstAccount() && install.Offered() {
+						installOffered = true
+						exe, err := signIn.OfferInstall(ctx)
+						if err != nil {
+							return err
+						}
+						if exe != "" {
+							h.relaunchAs(exe)
+							return context.Canceled
+						}
+					}
 					if offered || h.security == nil || h.security.Enabled() {
 						return nil
 					}
@@ -629,6 +649,50 @@ func (h *accountWindows) windowSpec(a *account.Account, session *accountSession,
 			return content
 		},
 	}
+}
+
+// uninstaller opens the window that uninstalls the program, and quits:
+// on Windows a running copy could not be removed. It is nil where the
+// program does not install itself, as nobody tried it removing itself
+// there.
+func (h *accountWindows) uninstaller() func() {
+	if !install.Supported() {
+		return nil
+	}
+	return func() {
+		exe, err := os.Executable()
+		if err == nil {
+			err = program.Command(exe, "-uninstall").Start()
+		}
+		if err != nil {
+			log.Printf("open the uninstaller: %v", err)
+			return
+		}
+		h.Quit()
+	}
+}
+
+// firstAccount reports whether no account was added yet.
+func (h *accountWindows) firstAccount() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.order) == 0
+}
+
+// relaunchAs ends the process for the installed program exe, which starts
+// when it has ended: two copies would share one configuration.
+func (h *accountWindows) relaunchAs(exe string) {
+	h.mu.Lock()
+	h.relaunch = exe
+	h.mu.Unlock()
+	h.Quit()
+}
+
+// relaunched is the program to start as this process ends, or "".
+func (h *accountWindows) relaunched() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.relaunch
 }
 
 // bind makes w the window of a, and session its session.

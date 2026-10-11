@@ -1,8 +1,9 @@
-# Platforms: the graphics stack, and Unix systems other than Linux
+# Platforms: the graphics stack, other systems, and Windows 7
 
 How Gio draws on each platform, and what building KomaruGram for other
-Unix-like systems takes, from a FreeBSD build tried in October 2026; and
-how it is built and run on Haiku, from the port of October 2026.
+Unix-like systems takes, from a FreeBSD build tried in October 2026; how
+it is built and run on Haiku, from the port of October 2026; and how it
+is built for Windows 7, which Go itself no longer runs on.
 
 **What is checked stays Linux, Windows and macOS.** A native build for FreeBSD,
 and likely OpenBSD, is possible and cheap to port, but nobody runs it;
@@ -21,7 +22,7 @@ under it are the graphics APIs of each:
 |---|---|---|---|
 | Linux, Wayland | `app/os_wayland.go` | OpenGL ES 3 through EGL; Vulkan if that fails | `NewContext`: EGL first |
 | Linux, X11 | `app/os_x11.go`, `os_x11_xi2.go` | OpenGL ES 3 through EGL | Vulkan is there but off: `vulkanBuggy = true` |
-| Windows | `app/os_windows.go` | Direct3D 11; EGL (ANGLE's `libEGL.dll`) if that fails | priority: D3D11 1, EGL 2 |
+| Windows | `app/os_windows.go` | Direct3D 11, WARP (its software rasterizer) once the GPU's device was lost before its first frame; EGL (ANGLE's `libEGL.dll`) if that fails | priority: D3D11 1, EGL 2 |
 | macOS | `app/os_macos.go` | Metal; OpenGL with the `nometal` tag | — |
 | Haiku | `app/os_haiku.go`, `app/internal/haiku` | OpenGL 3.3 core through OSMesa (llvmpipe), into memory; the window shows the frames | the only one (see Haiku below) |
 | Android, iOS, js | their own | GLES or Vulkan, Metal or GLES, WebGL | — |
@@ -533,3 +534,135 @@ answer, so its own thread may send it).
   ID is `$(NF-3)`, not `$2`.
 - `hey` drives a window by scripting:
   `hey messenger set Minimize of Window 0 to true`.
+
+## Windows 7
+
+Windows 7 SP1, 64-bit. Go has not run there since 1.21: a program built
+by Go 1.27 calls a function Windows 7 lacks before `main` and dies with
+`Exception 0xc0000005` at `PC=0x0`. It is built with the Go of
+[go-legacy-win7](https://github.com/thongtech/go-legacy-win7), Go with
+what Windows 7 needs put back, released for each Go version (1.27.1-1 of
+2026-09-04 here, the toolchain the maintainer chose):
+
+```sh
+# the release's archive for the system that builds, unpacked to ~/go-win7
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 GOTOOLCHAIN=local ~/go-win7/bin/go build -o messenger.exe ./cmd/messenger
+```
+
+`GOTOOLCHAIN=local` keeps it from fetching upstream Go for the `go` line
+of `go.mod`. Nothing else changes: the same tree builds for Windows 10
+with upstream Go. Building on Windows 7 itself, with Git for Windows
+2.46.2 and the release's Windows archive, is in
+[BUILD_WINDOWS7.md](BUILD_WINDOWS7.md).
+
+### What was changed for it
+
+- **The mouse** (Gio): `EnableMouseInPointer` is Windows 8's, and the
+  window panicked as it was made. Without it the mouse comes as
+  `WM_MOUSEMOVE`, `WM_LBUTTONDOWN` and the like, handled as upstream Gio
+  did before it took up the pointer input.
+- **Direct3D** (Gio): the Direct3D 11 of VirtualBox's driver (7.2.14) makes
+  a device of feature level 11_0 and loses it on the first `Present`, with
+  `DXGI_ERROR_DRIVER_INTERNAL_ERROR`; the window closed with "GPU device
+  lost". A device lost before its first frame turns Gio to WARP for good,
+  and a device lost on `Present` is made anew instead of closing the
+  window. `GIO_D3D11_WARP=1` turns to WARP from the start.
+- **Mini Apps**: browsers on Windows are rarely on `PATH`. The ones
+  registered under `Clients\StartMenuInternet` (for the user and for the
+  machine) are looked at too, by the name of their program: Chromium- and
+  Firefox-based only, as Internet Explorer is there and its version reads
+  like Chromium's. Where Gio turned to WARP, Chromium-based browsers start
+  with `--disable-gpu`: on the same driver Supermium's window stayed white.
+  This reaches every Windows.
+- **Aero's glass** (Gio): the blur behind the window was acrylic only,
+  which Windows 7 lacks, and the window was seen through unblurred. It is
+  Aero's glass there, with the system's frame kept: the glass is drawn
+  behind the content of a framed window too, unlike acrylic, for which
+  the window draws its own frame on Windows 10 and 11. Under the Basic and
+  Classic themes nothing is composed, and the window is opaque.
+- **Emoji typed** (Gio, every Windows): a character beyond the BMP comes as
+  two `WM_CHAR`, and each half was dropped.
+- **One instance** (`cmd/messenger/instance.go`): the running client
+  listens on a Unix socket, which Windows has only from 10 1803, and a
+  second start, or a click on a balloon that starts the client, opened
+  another window beside the first; the account's key itself stayed safe,
+  as `LockFileEx` on its lock file refuses a second client. Where the socket
+  cannot be made the client listens on the loopback, writes the address and
+  a random token to `komarugram-go.port` in its cache directory (the user's
+  own), and takes only messages that start with the token.
+- **The demo's tray**: with `-demo-notify` the demo has a tray icon, as
+  notifications on Windows are its balloons; it had none, and showed none
+  there, on Windows 10 too.
+- **VLC** (every Windows): it never ran from the client on Windows.
+  `--rc-fake-tty`, an option of its builds for other systems, made VLC for
+  Windows refuse to start ("the command line options were invalid"); its
+  installer registers it in the App Paths, not on `PATH`, where
+  `program.LookPath` now looks too, as Windows does for a program by name;
+  and VLC 3.0.24 writes its version resource with commas ("3,0,24,0"),
+  which the check for 3.x refused. Where Gio turned to WARP, VLC is given
+  `--vout=directdraw`: its Direct3D 11 and 9 outputs showed black on the
+  same driver.
+- **Console windows** (every Windows): the client, a program with windows
+  only (`gogio` builds it so), started console programs, ffmpeg, ffprobe
+  and powershell, and Windows opened a console window for each: they
+  flashed up on every probe of a file and every animation decoded by
+  FFmpeg (seen by the maintainer on Windows 7). Every program the client
+  starts goes through `program.Command`, which gives it
+  `CREATE_NO_WINDOW`; `TestEveryStartGoesThroughCommand` finds a start
+  through `os/exec` anywhere else. A windowed probe on Windows 7 saw the
+  console window with `os/exec` and none with `program.Command`.
+- **A program picked in the settings** (every Windows): PowerShell 2.0,
+  Windows 7's, starts its output with a byte order mark once told to print
+  UTF-8, and the path the file dialog returned began with U+FEFF: every
+  file was refused as not executable.
+
+### Checked on Windows 7
+
+On 2026-10-08, in VirtualBox 7.2.14 with its WDDM driver and Aero on, 4
+cores and 6 GB, Windows 7 SP1 with the updates the maintainer installed
+by hand (servicing stack KB4490628, SHA-2 KB4474419, the platform update
+KB2670838, the Universal C Runtime KB2999226, the convenience rollup
+KB3125574 and later ones):
+
+| What | Result |
+|---|---|
+| Gio's tests, built with go-legacy-win7 and run there | pass, `TestWithoutPointerInput` and the WARP and surrogate ones among them; each of the new ones fails without its fix |
+| `messenger -demo` | the window opens, drawn by WARP, which it turned to on its own; the chat list and chats draw; clicks, the wheel, typing Cyrillic and emoji (with `SendInput`), maximizing |
+| Mini Apps | Supermium 150 (Chromium 150) found among the registered browsers, at `C:\Program Files\Supermium\chrome.exe`; the demo's app opens from the bot's menu button with its init data and theme, keeps its local storage between launches, and Close inside it closes the browser |
+| Aero's glass | the main window's transparency at 35% in the demo: the sidebar blurs the wallpaper, under the system's glass frame, maximized and not. Switched to "Windows 7 Basic" while it ran, the window turned opaque (light, not black); back to the Landscapes theme, the glass came back without a restart |
+| Tray | `-demo -demo-notify 15s`: the icon shows, and balloons of the messages that come, with the client's icon; a click on a balloon opened its chat, bringing back the minimized window; a right click on the icon opens its menu, Open and Quit. Windows 7 hides a new icon among the hidden ones but while a balloon shows. It holds back balloons with `NIIF_RESPECT_QUIET_TIME`, which the client sets, for the first hour after a user first signs in |
+| A real account | the maintainer's, moved from Linux (its local data, 439 files, 540 MB; no paths of Linux in the settings): the chat list loads and new messages come, read-only; channels' photos load. A second start with the window minimized brought it back and ended ("the messenger is already running"), the instance on the loopback |
+| FFmpeg | the essentials build 9.0.2 of [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) (2026-09-19), whose page says Windows 10 but that it may work on 7 with the Universal C Runtime, does: Opus and H.264 encode, a frame decodes, ffprobe reads; picked in the settings ("Указан вручную … ffmpeg version 9.0.2"); `pkg/voice`'s tests pass with it, `TestRecordAndEncode` among them, and DirectShow lists the VM's microphone |
+| Voice messages | with VirtualBox's audio input on, the host's microphone comes through DirectShow ("Микрофон (Устройство с поддержк…", its name cut at 31 characters by DirectShow): ffmpeg recorded 3 s at a mean of −35.7 dB, `pkg/voice` 3.5 s at a peak of 0.92, and the demo's composer recorded with its loudness moving (2026-10-09). The maintainer recorded in the client the same day: a flat waveform at first, which did not come back; the microphone was likely not yet passed to the VM. The demo keeps its settings in memory and finds no FFmpeg the settings name: without one on PATH its microphone button offers an audio file instead |
+| VLC | 3.0.24 (`vlc-3.0.24-win64.exe /S`): found in the App Paths; `pkg/player`'s `TestControl` and `TestStreamSeek` pass; a channel's video of the real account opened from the client in VLC and played, with DirectDraw |
+| Installing itself | (2026-10-09) the sign-in's offer, with a fresh profile: to `%LocalAppData%\Programs\KomaruGram`, the copy, its key in the list of programs (with its icon and size), the shortcuts on the desktop and in the Start menu, and the installed copy started in place of the downloaded one; the folder chooser, `Program Files` becoming `Program Files\KomaruGram` with the note of the administrator's rights; Don't install going on to the protection. Removed from the list of programs: with the installed copy running, the window says so; quit, everything goes, the copy in the temporary folder too, and the user's data stay. `-install-system` and `-uninstall-system` were run from an administrator's SSH session. The maintainer installed to `Program Files` the same day: allowed in the UAC request, it installed; refused, the screen said the rights were not given. After their removal `Program Files\KomaruGram` was left, empty, likely because the copy doing it had the folder as its current one (not checked how the list of programs starts it); Windows does not remove a folder that is a process's current one (checked); the copies now work from the temporary folder, and a folder goes only if the installation made it |
+| Protection without a TPM | (2026-10-09, the maintainer) the real account's data encrypted with the master password alone and decrypted again; unlocking at the start and unlocking a window locked in the background. Two things it showed were fixed: the unlock screen came for a moment while the data were being encrypted, and a wrong password in the window's lock spoke of the TPM |
+| Console windows | (2026-10-09, the maintainer) none flashes any more, from ffmpeg's animations to the checks of the programs, since every program is started with `program.Command` |
+| Saving files | (2026-10-09, the maintainer) a sticker set exported to a ZIP with a Cyrillic name: it was saved as question marks, the save dialog's PowerShell printing the path in cp866; with UTF-8 output it keeps its name |
+| Building there | (2026-10-09) the steps of [BUILD_WINDOWS7.md](BUILD_WINDOWS7.md) from a clean profile: go-legacy-win7's Windows archive extracted to `C:\`, the repository cloned with Git for Windows 2.46.2, `gogio` installed and the messenger built with its icon in about 4 minutes, again in 41 s; the program built there runs |
+| Settings' About | "Windows 7 Professional Service Pack 1 (NT 6.1.7601)", GitHub's mark and Augustwise's avatar fetched, the mascot from its repository |
+| HTTPS | from Go, to github.com, raw.githubusercontent.com (the wasm modules), telegram.org and gyan.dev: the system's roots were enough |
+
+### Not done
+
+| What | On Windows 7 |
+|---|---|
+| mpv | does not start there: mpv 0.41.0 for Windows (the official build, x86_64-w64-mingw32) needs `api-ms-win-core-path-l1-1-0.dll`, and with that one's stand-in beside it `SHCORE.dll`, Windows 8.1's. The client drives mpv on Windows now, over its named pipe (`pkg/player/pipe_windows.go`); `TestPipeWritesWhileReading` passes on Windows 7 and fails with a synchronous handle, but mpv itself was driven on no Windows: Windows 10 and 11 are to be checked. Below Windows 8.1 the client does not offer mpv (`pkg/player`'s `Kinds` leaves it out): not in the choice of the player nor in the integrations, and its texts name only VLC and the browser |
+| Real hardware | only the VM, whose driver fails Direct3D 11 |
+
+### Things met on the way
+
+- Supermium in this VM: with the Guest Additions' driver its windows
+  showed artifacts, and with Aero it hung (as in
+  [supermium#1448](https://github.com/win32ss/supermium/issues/1448), where
+  its author names VM versions with broken DWM). With `--disable-gpu` it
+  works.
+- Updates: Windows Update no longer serves Windows 7. The Guest
+  Additions' drivers are signed with SHA-2 only, which Windows 7 takes after
+  KB4490628 and KB4474419.
+- Over SSH (Bitvise SSH Server), commands run in a session that does not
+  see the desktop: programs with windows were started by a scheduled task
+  in the user's session (`schtasks /it`), with their command line in a
+  batch file, which cmd reads in the OEM code page (866): text with
+  Cyrillic in it went as hex. A test binary that panicked stayed running
+  after the panic until killed.
