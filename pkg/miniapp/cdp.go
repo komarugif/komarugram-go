@@ -198,6 +198,20 @@ func (p *cdp) eval(ctx context.Context, expression string, value bool) (string, 
 	return text, nil
 }
 
+func (p *cdp) windowSize(ctx context.Context) (width, height int, err error) {
+	result, err := p.rpc.call(ctx, "Browser.getWindowForTarget", nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	var window struct {
+		Bounds struct{ Width, Height int } `json:"bounds"`
+	}
+	if err := json.Unmarshal(result, &window); err != nil {
+		return 0, 0, err
+	}
+	return window.Bounds.Width, window.Bounds.Height, nil
+}
+
 func (p *cdp) setWindowBounds(ctx context.Context, left, top, width, height int) error {
 	result, err := p.rpc.call(ctx, "Browser.getWindowForTarget", nil)
 	if err != nil {
