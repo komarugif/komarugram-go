@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf16"
 	"unicode/utf8"
 	"unsafe"
 
@@ -58,9 +59,10 @@ type window struct {
 	frameDims image.Point
 	loop      *eventLoop
 
-	// blurWanted is the BlurBehind option; config.BlurBehind is what was
+	// blurWanted and transparentWanted are the BlurBehind and Transparent
+	// options; config.BlurBehind and config.Transparent are what was
 	// granted.
-	blurWanted bool
+	blurWanted, transparentWanted bool
 	// accent is set once the window has an accent policy, which is then to
 	// be taken off it.
 	accent bool
@@ -69,6 +71,14 @@ type window struct {
 	unseen windows.Rect
 	// drop takes the files dragged over the window; nil if it cannot.
 	drop *dropTarget
+	// legacyMouse is set where the system has no pointer input, before
+	// Windows 8: the mouse comes as WM_MOUSEMOVE, WM_LBUTTONDOWN and the
+	// like, and mouseBtns are the buttons held.
+	legacyMouse bool
+	mouseBtns   pointer.Buttons
+	// highSurrogate is the first half of a character beyond the Basic
+	// Multilingual Plane, an emoji say, which comes as two WM_CHAR.
+	highSurrogate uint16
 }
 
 const _WM_WAKEUP = windows.WM_USER + iota
@@ -216,7 +226,9 @@ func (w *window) init() error {
 	if err := windows.RegisterTouchWindow(hwnd, 0); err != nil {
 		return err
 	}
-	if err := windows.EnableMouseInPointer(1); err != nil {
+	if err := windows.EnableMouseInPointer(1); err == windows.ErrNoPointerInput {
+		w.legacyMouse = true
+	} else if err != nil {
 		return err
 	}
 	w.hdc, err = windows.GetDC(hwnd)
@@ -281,11 +293,20 @@ func windowProc(hwnd syscall.Handle, msg uint32, wParam, lParam uintptr) uintptr
 		}
 		fallthrough
 	case windows.WM_CHAR:
-		if r := rune(wParam); unicode.IsPrint(r) {
-			w.w.EditorInsert(string(r))
+		if text := w.char(uint16(wParam)); text != "" {
+			w.w.EditorInsert(text)
 		}
 		// The message is processed.
 		return windows.TRUE
+	case windows.WM_DWMCOMPOSITIONCHANGED:
+		// The Basic and Classic themes of Windows 7 compose nothing: the
+		// window cannot be seen through under them.
+		if t, b := w.effects(w.config.Decorated); t != w.config.Transparent || b != w.config.BlurBehind {
+			w.config.Transparent, w.config.BlurBehind = t, b
+			w.applyEffects()
+			windows.SetWindowPos(w.hwnd, 0, 0, 0, 0, 0, windows.SWP_NOMOVE|windows.SWP_NOSIZE|windows.SWP_NOZORDER|windows.SWP_FRAMECHANGED)
+			w.update()
+		}
 	case windows.WM_DPICHANGED:
 		// Let Windows know we're prepared for runtime DPI changes.
 		return windows.TRUE
@@ -337,6 +358,43 @@ func windowProc(hwnd syscall.Handle, msg uint32, wParam, lParam uintptr) uintptr
 		}
 
 		w.pointerUpdate(pi, pid, kind, lParam)
+	case windows.WM_LBUTTONDOWN, windows.WM_LBUTTONUP, windows.WM_RBUTTONDOWN, windows.WM_RBUTTONUP,
+		windows.WM_MBUTTONDOWN, windows.WM_MBUTTONUP, windows.WM_XBUTTONDOWN, windows.WM_XBUTTONUP:
+		if !w.legacyMouse {
+			break
+		}
+		btn, press := mouseButton(msg, wParam)
+		w.mouseButton(btn, press, lParam)
+		if msg == windows.WM_XBUTTONDOWN || msg == windows.WM_XBUTTONUP {
+			return 1
+		}
+		return 0
+	case windows.WM_MOUSEMOVE:
+		if !w.legacyMouse {
+			break
+		}
+		x, y := coordsFromlParam(lParam)
+		w.ProcessEvent(pointer.Event{
+			Kind:      pointer.Move,
+			Source:    pointer.Mouse,
+			Position:  f32.Pt(float32(x), float32(y)),
+			Buttons:   w.mouseBtns,
+			Time:      windows.GetMessageTime(),
+			Modifiers: getModifiers(),
+		})
+		return 0
+	case windows.WM_MOUSEWHEEL, windows.WM_MOUSEHWHEEL:
+		if !w.legacyMouse {
+			break
+		}
+		w.scrollEvent(wParam, lParam, msg == windows.WM_MOUSEHWHEEL, getModifiers(), w.mouseBtns)
+		return 0
+	case windows.WM_CAPTURECHANGED:
+		// Another window took the mouse while buttons were held.
+		if w.legacyMouse && w.mouseBtns != 0 {
+			w.mouseBtns = 0
+			w.ProcessEvent(pointer.Event{Kind: pointer.Cancel, Source: pointer.Mouse})
+		}
 	case windows.WM_CANCELMODE:
 		w.ProcessEvent(pointer.Event{
 			Kind: pointer.Cancel,
@@ -356,10 +414,12 @@ func windowProc(hwnd syscall.Handle, msg uint32, wParam, lParam uintptr) uintptr
 		np := windows.Point{X: int32(x), Y: int32(y)}
 		windows.ScreenToClient(w.hwnd, &np)
 		return w.hitTest(int(np.X), int(np.Y))
-	case windows.WM_POINTERWHEEL:
-		w.scrollEvent(wParam, lParam, false, getModifiers())
-	case windows.WM_POINTERHWHEEL:
-		w.scrollEvent(wParam, lParam, true, getModifiers())
+	case windows.WM_POINTERWHEEL, windows.WM_POINTERHWHEEL:
+		pi, err := windows.GetPointerInfo(uint32(getPointerIDwParam(wParam)))
+		if err != nil {
+			panic(err)
+		}
+		w.scrollEvent(wParam, lParam, msg == windows.WM_POINTERHWHEEL, getModifiers(), getPointerButtons(pi))
 	case windows.WM_DESTROY:
 		w.revokeDropTarget()
 		w.ProcessEvent(Win32ViewEvent{})
@@ -388,7 +448,7 @@ func windowProc(hwnd syscall.Handle, msg uint32, wParam, lParam uintptr) uintptr
 		// not of the work area.
 		fullscreen := windows.GetWindowLong(w.hwnd, windows.GWL_STYLE)&windows.WS_OVERLAPPEDWINDOW == 0
 		if !place.IsMaximized() || fullscreen {
-			if w.config.BlurBehind {
+			if w.acrylic() {
 				// With a client area that is all of the window, acrylic is
 				// drawn over the content instead of behind it.
 				szp := (*windows.NCCalcSizeParams)(unsafe.Pointer(lParam))
@@ -679,13 +739,86 @@ func coordsFromlParam(lParam uintptr) (int, int) {
 	return x, y
 }
 
-func (w *window) scrollEvent(wParam, lParam uintptr, horizontal bool, kmods key.Modifiers) {
-	pid := getPointerIDwParam(wParam)
-	pi, err := windows.GetPointerInfo(uint32(pid))
-	if err != nil {
-		panic(err)
+// char returns the text of a WM_CHAR: nothing for what does not print, and
+// for the first half of a surrogate pair, kept until the second comes.
+func (w *window) char(c uint16) string {
+	high := w.highSurrogate
+	w.highSurrogate = 0
+	switch {
+	case utf16.IsSurrogate(rune(c)) && c < 0xdc00:
+		w.highSurrogate = c
+		return ""
+	case utf16.IsSurrogate(rune(c)):
+		r := utf16.DecodeRune(rune(high), rune(c))
+		if r == unicode.ReplacementChar || !unicode.IsPrint(r) {
+			return ""
+		}
+		return string(r)
 	}
+	if r := rune(c); unicode.IsPrint(r) {
+		return string(r)
+	}
+	return ""
+}
 
+// mouseButton returns the button of a button message of the mouse, and
+// whether it went down.
+func mouseButton(msg uint32, wParam uintptr) (pointer.Buttons, bool) {
+	switch msg {
+	case windows.WM_LBUTTONDOWN:
+		return pointer.ButtonPrimary, true
+	case windows.WM_LBUTTONUP:
+		return pointer.ButtonPrimary, false
+	case windows.WM_RBUTTONDOWN:
+		return pointer.ButtonSecondary, true
+	case windows.WM_RBUTTONUP:
+		return pointer.ButtonSecondary, false
+	case windows.WM_MBUTTONDOWN:
+		return pointer.ButtonTertiary, true
+	case windows.WM_MBUTTONUP:
+		return pointer.ButtonTertiary, false
+	}
+	// WM_XBUTTONDOWN and WM_XBUTTONUP: GET_XBUTTON_WPARAM says which.
+	btn := pointer.ButtonQuaternary
+	if (wParam>>16)&0xffff == windows.XBUTTON2 {
+		btn = pointer.ButtonQuinary
+	}
+	return btn, msg == windows.WM_XBUTTONDOWN
+}
+
+// mouseButton handles a button of the mouse where there is no pointer
+// input: the window holds the mouse while any button is down, as with
+// pointer input.
+func (w *window) mouseButton(btn pointer.Buttons, press bool, lParam uintptr) {
+	if !w.config.Focused {
+		windows.SetFocus(w.hwnd)
+	}
+	kind := pointer.Release
+	if press {
+		kind = pointer.Press
+		if w.mouseBtns == 0 {
+			windows.SetCapture(w.hwnd)
+		}
+		w.mouseBtns |= btn
+	} else {
+		w.mouseBtns &^= btn
+		if w.mouseBtns == 0 {
+			windows.ReleaseCapture()
+		}
+	}
+	// Unlike the pointer's, these coordinates are the client area's.
+	x, y := coordsFromlParam(lParam)
+	w.ProcessEvent(pointer.Event{
+		Kind:      kind,
+		Source:    pointer.Mouse,
+		Position:  f32.Pt(float32(x), float32(y)),
+		Buttons:   w.mouseBtns,
+		Time:      windows.GetMessageTime(),
+		Modifiers: getModifiers(),
+	})
+}
+
+func (w *window) scrollEvent(wParam, lParam uintptr, horizontal bool, kmods key.Modifiers, btns pointer.Buttons) {
 	x, y := coordsFromlParam(lParam)
 	// The WM_MOUSEWHEEL coordinates are in screen coordinates, in contrast
 	// to other mouse events.
@@ -708,7 +841,7 @@ func (w *window) scrollEvent(wParam, lParam uintptr, horizontal bool, kmods key.
 		Kind:      pointer.Scroll,
 		Source:    pointer.Mouse,
 		Position:  p,
-		Buttons:   getPointerButtons(pi),
+		Buttons:   btns,
 		Scroll:    sp,
 		Wheel:     isWheelDelta(dist),
 		Modifiers: kmods,
@@ -839,18 +972,16 @@ func (w *window) Configure(options []Option) {
 	metric := configForDPI(dpi)
 	prev := w.config
 	cnf := w.config
-	cnf.BlurBehind = w.blurWanted
+	cnf.BlurBehind, cnf.Transparent = w.blurWanted, w.transparentWanted
 	cnf.apply(metric, options)
-	w.blurWanted = cnf.BlurBehind
+	w.blurWanted, w.transparentWanted = cnf.BlurBehind, cnf.Transparent
+	cnf.Transparent, cnf.BlurBehind = w.effects(cnf.Decorated)
 	w.config.Title = cnf.Title
 	w.config.Decorated = cnf.Decorated
 	w.config.MinSize = cnf.MinSize
 	w.config.MaxSize = cnf.MaxSize
 	windows.SetWindowText(w.hwnd, cnf.Title)
-	w.config.Transparent = cnf.Transparent
-	// Acrylic is drawn behind the content of a window without the system's
-	// frame, and around the one with it.
-	w.config.BlurBehind = cnf.Transparent && cnf.BlurBehind && !cnf.Decorated && windows.TransparencyEffects()
+	w.config.Transparent, w.config.BlurBehind = cnf.Transparent, cnf.BlurBehind
 	effects := w.config.Transparent != prev.Transparent || w.config.BlurBehind != prev.BlurBehind
 	if w.placed && cnf.Mode == prev.Mode && cnf.Size == prev.Size && cnf.Decorated == prev.Decorated &&
 		cnf.TopMost == prev.TopMost && cnf.MinSize == prev.MinSize && cnf.MaxSize == prev.MaxSize {
@@ -920,7 +1051,7 @@ func (w *window) Configure(options []Option) {
 			width = r.Right - r.Left
 			height = r.Bottom - r.Top
 		} else {
-			if w.config.BlurBehind {
+			if w.acrylic() {
 				// The client area is a pixel shorter than the window: see
 				// WM_NCCALCSIZE.
 				height++
@@ -995,24 +1126,39 @@ func reframed(seen windows.Rect, decorated bool, unseen windows.Rect) windows.Re
 // that is wholly transparent.
 const acrylicTint = 0x01000000
 
+// effects returns what is granted of the transparency and the blur wanted
+// for a window with the system's frame or without: nothing where the desktop
+// is not composed. Acrylic is drawn behind the content of a window without
+// the system's frame, and around the one with it; Aero's glass, on Windows
+// 7, behind the content of either.
+func (w *window) effects(decorated bool) (transparent, blur bool) {
+	transparent = w.transparentWanted && windows.Composition()
+	blur = transparent && w.blurWanted && windows.TransparencyEffects() && (!decorated || windows.GlassBlur())
+	return transparent, blur
+}
+
+// acrylic reports whether the blur behind the window is acrylic.
+func (w *window) acrylic() bool { return w.config.BlurBehind && !windows.GlassBlur() }
+
 // applyEffects makes the system show what is behind the window where its
 // content is not opaque, as config.Transparent and config.BlurBehind say:
-// blurred, with acrylic, or as it is. config.BlurBehind is cleared when the
-// system has no acrylic.
+// blurred, with acrylic or Aero's glass, or as it is. config.BlurBehind is
+// cleared when the system has no acrylic.
 func (w *window) applyEffects() {
-	if w.config.BlurBehind {
+	if w.acrylic() {
 		if err := windows.SetWindowAccent(w.hwnd, windows.AccentAcrylic, acrylicTint); err != nil {
 			w.config.BlurBehind = false
 		} else {
 			w.accent = true
 		}
 	}
-	if !w.config.BlurBehind && w.accent {
+	if !w.acrylic() && w.accent {
 		windows.SetWindowAccent(w.hwnd, windows.AccentDisabled, 0)
 		w.accent = false
 	}
-	// Acrylic takes the alpha of the content itself.
-	windows.DwmEnableTransparency(w.hwnd, w.config.Transparent && !w.config.BlurBehind)
+	// Acrylic takes the alpha of the content itself; the glass is drawn
+	// where DwmEnableBlurBehindWindow lets the desktop through.
+	windows.DwmBlurBehind(w.hwnd, w.config.Transparent && !w.acrylic(), w.config.BlurBehind && !w.acrylic())
 	if w.config.Transparent || w.config.Decorated {
 		windows.DwmExtendFrameIntoClientArea(w.hwnd, windows.Margins{})
 	}

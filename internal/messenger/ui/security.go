@@ -46,6 +46,9 @@ type securityView struct {
 	localProblem                          string
 	// copied is the command last put on the clipboard.
 	copied string
+	// encrypting turns while protection, just turned on, encrypts the
+	// data, in place of the unlock screen.
+	encrypting loadingIndicator
 	// focused is set once the first field of the unlock screen or of the
 	// offer to protect has been focused, and cleared by a failure, so that
 	// the password can be typed again at once.
@@ -569,6 +572,18 @@ func (v *securityView) UnlockLayout(gtx layout.Context, l localization.Catalog) 
 		return layout.UniformInset(16).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(420)))
 			return v.height.Card(gtx, func(gtx layout.Context) layout.Dimensions {
+				if state.Encrypting {
+					// The password was given a moment ago, to the settings.
+					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return label(gtx, l.T("security.enabling"), token.TypestyleHeadlineSmall, sc.Surface.OnColor, 0)
+						}),
+						vspace(20),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return v.encrypting.centered(gtx, l, 48)
+						}),
+					)
+				}
 				rows := []layout.FlexChild{
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return label(gtx, l.T("security.unlock_title"), token.TypestyleHeadlineSmall, sc.Surface.OnColor, 0)

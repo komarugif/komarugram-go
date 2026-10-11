@@ -162,7 +162,13 @@ func checkVLCVersion(version string) (string, error) {
 
 func checkWindows(ctx context.Context, kind Kind, path string) (string, error) {
 	if kind == MPV {
-		return "", ErrUnsupportedSystem
+		// mpv prints its version as elsewhere, and carries no version
+		// resource.
+		banner, err := program.Banner(ctx, path, "--version")
+		if err != nil {
+			return "", err
+		}
+		return parseBanner(kind, banner)
 	}
 	product, version, err := program.FileVersion(ctx, path)
 	if err != nil {

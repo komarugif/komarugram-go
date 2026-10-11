@@ -3,7 +3,10 @@
 package app
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"sync/atomic"
 	"unsafe"
 
 	"gioui.org/gpu"
@@ -18,9 +21,33 @@ type d3d11Context struct {
 	swchain       *d3d11.IDXGISwapChain
 	renderTarget  *d3d11.RenderTargetView
 	width, height int
+
+	// warp is set for a device of WARP, the software rasterizer.
+	warp bool
+	// presented is set once a frame was presented with the device.
+	presented bool
 }
 
 const debugDirectX = false
+
+// useWARP makes the devices made from then on WARP's, the software
+// rasterizer of Direct3D 11, instead of the GPU's. It is set when a device
+// of the GPU is lost before it presented a frame, as with the Direct3D 11
+// of VirtualBox's driver for Windows 7, which reports a feature level of
+// 11_0 and loses the device on the first Present
+// (DXGI_ERROR_DRIVER_INTERNAL_ERROR); and from the start with
+// GIO_D3D11_WARP=1, for a driver that draws wrong without failing.
+var useWARP atomic.Bool
+
+func init() {
+	if os.Getenv("GIO_D3D11_WARP") == "1" {
+		useWARP.Store(true)
+	}
+}
+
+// GPUFailed reports whether the GPU's driver failed to draw, and windows are
+// drawn by WARP instead; or WARP was asked for with GIO_D3D11_WARP=1.
+func GPUFailed() bool { return useWARP.Load() }
 
 func init() {
 	drivers = append(drivers, gpuAPI{
@@ -31,10 +58,11 @@ func init() {
 			if debugDirectX {
 				flags |= d3d11.CREATE_DEVICE_DEBUG
 			}
-			dev, ctx, _, err := d3d11.CreateDevice(
-				d3d11.DRIVER_TYPE_HARDWARE,
-				flags,
-			)
+			driver, warp := uint32(d3d11.DRIVER_TYPE_HARDWARE), useWARP.Load()
+			if warp {
+				driver = d3d11.DRIVER_TYPE_WARP
+			}
+			dev, ctx, _, err := d3d11.CreateDevice(driver, flags)
 			if err != nil {
 				return nil, fmt.Errorf("NewContext: %v", err)
 			}
@@ -44,7 +72,7 @@ func init() {
 				d3d11.IUnknownRelease(unsafe.Pointer(dev), dev.Vtbl.Release)
 				return nil, err
 			}
-			return &d3d11Context{win: w, dev: dev, ctx: ctx, swchain: swchain}, nil
+			return &d3d11Context{win: w, dev: dev, ctx: ctx, swchain: swchain, warp: warp}, nil
 		},
 	})
 }
@@ -60,7 +88,20 @@ func (c *d3d11Context) RenderTarget() (gpu.RenderTarget, error) {
 }
 
 func (c *d3d11Context) Present() error {
-	return wrapErr(c.swchain.Present(1, 0))
+	err := c.lost(wrapErr(c.swchain.Present(1, 0)))
+	if err == nil {
+		c.presented = true
+	}
+	return err
+}
+
+// lost passes err on, and turns to WARP when it says that a device of the
+// GPU was lost before it presented anything: its driver cannot draw.
+func (c *d3d11Context) lost(err error) error {
+	if errors.Is(err, gpu.ErrDeviceLost) && !c.warp && !c.presented {
+		useWARP.Store(true)
+	}
+	return err
 }
 
 func wrapErr(err error) error {
@@ -84,7 +125,7 @@ func (c *d3d11Context) Refresh() error {
 	}
 	c.releaseFBO()
 	if err := c.swchain.ResizeBuffers(0, 0, 0, d3d11.DXGI_FORMAT_UNKNOWN, 0); err != nil {
-		return wrapErr(err)
+		return c.lost(wrapErr(err))
 	}
 	c.width = width
 	c.height = height

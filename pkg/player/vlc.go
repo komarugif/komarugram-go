@@ -54,8 +54,6 @@ func openVLC(ctx context.Context, path, source string, extra []string) (*vlc, er
 	}
 	args := []string{
 		"--extraintf=oldrc", control,
-		// Without a terminal the interface does not start on a socket.
-		"--rc-fake-tty",
 		// Stay on the last frame, as mpv's --keep-open does.
 		"--play-and-pause",
 		// The source is named after the kind of media, not the file:
@@ -65,6 +63,16 @@ func openVLC(ctx context.Context, path, source string, extra []string) (*vlc, er
 	if runtime.GOOS == "windows" {
 		// Otherwise the interface opens a console window of its own.
 		args = append(args, "--rc-quiet")
+		if GPUFailed != nil && GPUFailed() {
+			// VLC's Direct3D outputs show black on a driver that failed
+			// the client's windows, as VirtualBox's for Windows 7 does;
+			// DirectDraw draws.
+			args = append(args, "--vout=directdraw")
+		}
+	} else {
+		// Without a terminal the interface does not start on a socket. VLC
+		// for Windows has no such option, and refuses to start with it.
+		args = append(args, "--rc-fake-tty")
 	}
 	if hasOneInstance() {
 		// A second VLC would otherwise hand the file to the first one and
@@ -74,7 +82,7 @@ func openVLC(ctx context.Context, path, source string, extra []string) (*vlc, er
 	args = append(args, extra...)
 	args = append(args, source)
 
-	cmd := exec.CommandContext(ctx, path, args...)
+	cmd := program.CommandContext(ctx, path, args...)
 	program.Group(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start vlc: %w", err)
@@ -268,3 +276,8 @@ func hasOneInstance() bool {
 	}
 	return true
 }
+
+// GPUFailed, when set, reports whether the system's GPU driver failed to
+// draw the client's windows: VLC for Windows then draws its video with
+// DirectDraw.
+var GPUFailed func() bool

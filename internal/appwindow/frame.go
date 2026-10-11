@@ -22,15 +22,17 @@ import (
 	"gioui.org/widget"
 )
 
-// On Windows the blur behind a window is acrylic, which the system draws
-// behind the content only of a window without its frame, and around the
-// one with it. A window that asks for blur there has no system frame and
-// draws its own: a caption with the title and the window's buttons, above
-// the content. Elsewhere the frame is the compositor's or Gio's.
+// On Windows 10 and 11 the blur behind a window is acrylic, which the
+// system draws behind the content only of a window without its frame, and
+// around the one with it. A window that asks for blur there has no system
+// frame and draws its own: a caption with the title and the window's
+// buttons, above the content. Windows 7 blurs with Aero's glass, behind the
+// content of a window with its frame too, which keeps it. Elsewhere the
+// frame is the compositor's or Gio's.
 
 // ownFrame is whether windows on this system draw their own frame when they
 // blur what is behind them.
-var ownFrame = runtime.GOOS == "windows"
+var ownFrame = runtime.GOOS == "windows" && !app.FrameBlurs()
 
 func ownsFrame() bool { return ownFrame }
 

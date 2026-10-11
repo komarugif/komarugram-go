@@ -23,6 +23,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"komarugram/pkg/program"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -304,7 +305,7 @@ func launch(ctx context.Context, url string, profile Profile, page Page, telegra
 		cancel:    cancel,
 	}
 	prog, pre := chosen.command(dir)
-	bridge.browser = exec.Command(prog, append(pre, args...)...)
+	bridge.browser = program.Command(prog, append(pre, args...)...)
 	if err := bridge.browser.Start(); err != nil {
 		cancel()
 		discard()

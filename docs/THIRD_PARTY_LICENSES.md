@@ -59,5 +59,7 @@ The Go modules linked into `messenger` and `kitchen`, as `go version -m` lists t
 | `pkg/miniapp/assets/telegram-web-app.js`: Telegram's Mini App SDK | © Telegram, no license stated |
 | `avcdec.wasm`, downloaded at run time: FFmpeg's H.264 decoder ([libavcodec-wasm](https://github.com/komarugif/libavcodec-wasm)) | LGPL-2.1-or-later |
 | `aacdec.wasm`, downloaded at run time: the Fraunhofer FDK AAC decoder ([fdk-aac-wasm](https://github.com/komarugif/fdk-aac-wasm)) | Fraunhofer FDK AAC license, no patent grant |
+| Claude's mascot, scenes downloaded when the settings' About section opens, from [clawd-animations](https://github.com/komarugif/clawd-animations): extracted from [Wale-Durojaye Ayotomiwa](https://ayotomcs.me/claude-mascot)'s reconstruction of its animations; played by `pkg/rectanim`, not in this repository nor the program | © Anthropic, the character and the brand; the reconstruction its author's. No license stated; removed with that repository on request |
+| GitHub's mark (`github.githubassets.com/favicons/favicon.svg`) and its users' avatars, fetched when the settings' About section opens and kept in memory only: not in the repository nor the program | © GitHub and the users; the mark under [GitHub's logo guidelines](https://github.com/logos) |
 
 The full texts are in each module's `LICENSE` file (`go env GOMODCACHE`) and in the repositories linked above.

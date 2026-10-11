@@ -5,6 +5,7 @@
 package windows
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"time"
@@ -323,11 +324,13 @@ const (
 	UNICODE_NOCHAR = 65535
 
 	WM_CANCELMODE            = 0x001F
+	WM_CAPTURECHANGED        = 0x0215
 	WM_CHAR                  = 0x0102
 	WM_CLOSE                 = 0x0010
 	WM_COPYDATA              = 0x004A
 	WM_CREATE                = 0x0001
 	WM_DPICHANGED            = 0x02E0
+	WM_DWMCOMPOSITIONCHANGED = 0x031E
 	WM_DESTROY               = 0x0002
 	WM_ERASEBKGND            = 0x0014
 	WM_GETMINMAXINFO         = 0x0024
@@ -368,6 +371,12 @@ const (
 	WM_UNICHAR               = 0x0109
 	WM_USER                  = 0x0400
 	WM_WINDOWPOSCHANGED      = 0x0047
+	WM_XBUTTONDOWN           = 0x020B
+	WM_XBUTTONUP             = 0x020C
+
+	// The buttons of WM_XBUTTONDOWN and WM_XBUTTONUP.
+	XBUTTON1 = 0x0001
+	XBUTTON2 = 0x0002
 
 	WS_CLIPCHILDREN     = 0x02000000
 	WS_CLIPSIBLINGS     = 0x04000000
@@ -558,7 +567,15 @@ func RegisterTouchWindow(hwnd syscall.Handle, flags uint32) error {
 	return nil
 }
 
+// ErrNoPointerInput is returned by EnableMouseInPointer where the system
+// has no pointer input, before Windows 8: the mouse comes as WM_MOUSEMOVE,
+// WM_LBUTTONDOWN and the like there.
+var ErrNoPointerInput = errors.New("EnableMouseInPointer: no pointer input before Windows 8")
+
 func EnableMouseInPointer(enable uint) error {
+	if _EnableMouseInPointer.Find() != nil {
+		return ErrNoPointerInput
+	}
 	r1, _, err := _EnableMouseInPointer.Call(uintptr(enable))
 	if r1 == 0 {
 		return fmt.Errorf("EnableMouseInPointer failed: %v", err)

@@ -196,3 +196,38 @@ func TestUnlockWaitsForMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// While Enable encrypts the data, the state says so: the key is known,
+// and nothing is to be unlocked, though Unlocked is false until it ends.
+func TestEnableReportsEncrypting(t *testing.T) {
+	m, err := OpenPath(filepath.Join(t.TempDir(), "security.json"), new(fakeTPM))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var during State
+	m.SetMigration(func() error { during = m.State(); return nil })
+	if err := m.Enable(context.Background(), "secret"); err != nil {
+		t.Fatal(err)
+	}
+	if !during.Enabled || during.Unlocked || !during.Encrypting {
+		t.Fatalf("state while encrypting: %+v", during)
+	}
+	if st := m.State(); !st.Unlocked || st.Encrypting {
+		t.Fatalf("state after encrypting: %+v", st)
+	}
+}
+
+// A failed encryption leaves the key unknown, to be unlocked again.
+func TestFailedEnableIsNotEncrypting(t *testing.T) {
+	m, err := OpenPath(filepath.Join(t.TempDir(), "security.json"), new(fakeTPM))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.SetMigration(func() error { return errors.New("disk full") })
+	if err := m.Enable(context.Background(), "secret"); err == nil {
+		t.Fatal("Enable succeeded with a failed migration")
+	}
+	if st := m.State(); st.Encrypting || st.Unlocked {
+		t.Fatalf("state after a failed encryption: %+v", st)
+	}
+}

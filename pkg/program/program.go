@@ -34,13 +34,20 @@ func Searching() bool { return !searchOff.Load() }
 // ErrSearchDisabled is LookPath's error while searching is off.
 var ErrSearchDisabled = errors.New("looking for programs on the system is turned off")
 
-// LookPath is exec.LookPath, unless searching is off. Every search for an
-// external program goes through it or FindFlatpak.
+// LookPath is exec.LookPath, unless searching is off; on Windows a program
+// not on PATH is looked for in the App Paths too, where installers register
+// it. Every search for an external program goes through it or FindFlatpak.
 func LookPath(name string) (string, error) {
 	if searchOff.Load() {
 		return "", fmt.Errorf("%s: %w", name, ErrSearchDisabled)
 	}
-	return exec.LookPath(name)
+	path, err := exec.LookPath(name)
+	if err != nil {
+		if found, ok := appPath(name); ok {
+			return found, nil
+		}
+	}
+	return path, err
 }
 
 // bannerTimeout bounds how long a program may take to print its version. A
@@ -60,7 +67,7 @@ var ErrNoBanner = errors.New("the program did not print its version")
 func Banner(ctx context.Context, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, bannerTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := CommandContext(ctx, name, args...)
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANGUAGE=C")
 	out := &limitedBuffer{limit: bannerLimit}
 	cmd.Stdout = out
@@ -174,4 +181,11 @@ func IsExecutable(path string) bool {
 		return false
 	}
 	return isExecutable(info)
+}
+
+// dottedVersion is a version from a Windows version resource with dots
+// between its parts: some programs write the old form with commas, as VLC
+// 3.0.24 does ("3,0,24,0").
+func dottedVersion(v string) string {
+	return strings.NewReplacer(", ", ".", ",", ".").Replace(strings.TrimSpace(v))
 }
