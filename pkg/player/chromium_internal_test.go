@@ -109,11 +109,11 @@ func TestChromiumOpensAtSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer p.Close()
-	answer, err := p.page.Eval(context.Background(), `innerWidth + "x" + innerHeight`)
+	width, height, err := p.page.WindowSize(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if answer != "450x800" {
-		t.Errorf("the window opened at %s, want 450x800", answer)
+	if width != 450 || height != 800 {
+		t.Errorf("the window opened at %dx%d, want 450x800", width, height)
 	}
 }

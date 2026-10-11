@@ -496,12 +496,18 @@ func TestRenderComposerMotion(t *testing.T) {
 	save(h, "sending")
 }
 
-// emojiPage is an emoji tab that Telegram answers a little late, with nothing
-// of its own for it but the recent emoji.
-type emojiPage struct{}
+// emojiPage is an emoji tab with nothing of its own but the recent emoji.
+// reply, when set, holds its response until the test has checked loading.
+type emojiPage struct{ reply <-chan struct{} }
 
-func (emojiPage) Picker(_ context.Context, r model.PickerRequest) (model.PickerPage, error) {
-	time.Sleep(50 * time.Millisecond)
+func (p emojiPage) Picker(ctx context.Context, r model.PickerRequest) (model.PickerPage, error) {
+	if p.reply != nil {
+		select {
+		case <-p.reply:
+		case <-ctx.Done():
+			return model.PickerPage{}, ctx.Err()
+		}
+	}
 	return model.PickerPage{Recent: []model.PickerItem{{ID: "emoji/🅰", Emoji: "🅰"}}}, nil
 }
 func (emojiPage) Send(context.Context, int64, model.OutgoingMessage) error { return nil }
@@ -567,7 +573,8 @@ func TestEmojiPickerDoesNotReplaceWhatItShows(t *testing.T) {
 	h := newComposerHarness(t)
 	h.chat = 2
 	c := h.p.composer
-	c.source = emojiPage{}
+	reply := make(chan struct{})
+	c.source = emojiPage{reply: reply}
 	h.frame()
 	l := localization.For("en")
 	c.pickerOpen = true
@@ -580,6 +587,7 @@ func TestEmojiPickerDoesNotReplaceWhatItShows(t *testing.T) {
 	if len(before) != 0 {
 		t.Fatalf("%d emoji shown while the page loads", len(before))
 	}
+	close(reply)
 	for deadline := time.Now().Add(3 * time.Second); c.loading && time.Now().Before(deadline); {
 		time.Sleep(5 * time.Millisecond)
 		h.frame()

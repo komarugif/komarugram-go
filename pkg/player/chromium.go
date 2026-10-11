@@ -104,7 +104,7 @@ const chromiumFit = `new Promise(function (resolve) {
   function fit() {
     var w = v.videoWidth, h = v.videoHeight;
     if (!w || !h) { w = 480; h = 120; }
-    var frameW = outerWidth - innerWidth, frameH = outerHeight - innerHeight;
+    var frameW = %d - innerWidth, frameH = %d - innerHeight;
     var maxW = screen.availWidth * 0.9 - frameW, maxH = screen.availHeight * 0.9 - frameH;
     var scale = Math.min(1, maxW / w, maxH / h);
     if (w * scale < 400) scale = Math.min(400 / w, maxW / w, maxH / h);
@@ -230,8 +230,13 @@ func (p *chromium) fit(ctx context.Context) {
 	// questions can land in the blank page before it, or in none.
 	var answer string
 	for {
-		var err error
-		answer, err = p.page.Eval(ctx, chromiumFit)
+		// Read the outer size through the protocol: Brave's privacy
+		// protection randomizes the page's outerWidth and outerHeight.
+		width, height, err := p.page.WindowSize(ctx)
+		if err != nil {
+			return
+		}
+		answer, err = p.page.Eval(ctx, fmt.Sprintf(chromiumFit, width, height))
 		if err == nil && answer != "wait" {
 			break
 		}
