@@ -11,6 +11,7 @@ profiles/
 /telegram-android/
 # Binaries the README's build commands leave in the root, and the resource
 # file with the icon gogio leaves beside the package it builds.
+/KomaruGram.AppImage
 /komarugram
 /komarugram.exe
 /cmd/messenger/*.syso
