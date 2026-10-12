@@ -356,6 +356,12 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			log.Printf("save settings: %v", err)
 		}
 	}
+	a.settings.pauseInactive = func() bool { return a.preferences.Global().PauseInactive }
+	a.settings.setPauseInactive = func(on bool) {
+		if err := services.Preferences.SetPauseInactive(on); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
 	a.settings.windowBlur = func() bool { return a.preferences.Global().WindowBlur }
 	a.settings.setWindowBlur = func(on bool) {
 		if err := services.Preferences.SetWindowBlur(on); err != nil {
@@ -914,8 +920,10 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 		}()
 	}
 	decoderPrefs := a.preferences.Global()
+	paused := decoderPrefs.PauseInactive && !a.focused
 	configureMedia := func(m *chatmedia.Manager) {
 		m.ConfigureDecoders(decoderPrefs.StickerPlayer == "wasm", decoderPrefs.AnimationPlayer == "wasm", decoderPrefs.FFmpegPath)
+		m.SetPaused(paused)
 	}
 	if a.info != nil {
 		configureMedia(a.info.renderer.media)
@@ -1223,8 +1231,6 @@ func (a *App) SetSuspended(hidden bool) {
 	a.images.Release()
 }
 
-// SetFocused is called on the UI goroutine when the window gains or loses
-// the focus: the account shows online while it has it, if Ghost allows.
 // OpenChat opens chat in the window, as a click in the chat list would; it
 // may be called from any goroutine.
 func (a *App) OpenChat(chat int64) {
@@ -1238,10 +1244,15 @@ func (a *App) Showing() (chat int64, focused bool) {
 	return a.shownChat.Load(), a.shownFocus.Load()
 }
 
+// SetFocused is called on the UI goroutine when the window gains or loses
+// the focus: the account shows online while it has it, if Ghost allows, and
+// its animations play, if the settings pause them in an inactive window.
 func (a *App) SetFocused(focused bool) {
 	a.focused = focused
 	a.shownFocus.Store(focused)
 	a.tellGhost()
+	// A frame drawn now pauses the animations, or plays them again.
+	a.window.Invalidate()
 }
 
 // tellGhost gives the store what Ghost allows, and whether the window is

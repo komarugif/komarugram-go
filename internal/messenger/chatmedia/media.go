@@ -97,6 +97,8 @@ type Manager struct {
 	// ffmpegChecked is whether the search was made for the FFmpeg
 	// configured.
 	sandboxGIFs, ffmpegChecked bool
+	// paused stops every animation where it is; UI thread only.
+	paused bool
 }
 
 func New(source Source, changed func()) *Manager {
@@ -218,6 +220,9 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 			m.load(ctx, e, msg)
 		})
 	}
+	if m.paused {
+		animate = false
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	wasAnimating := e.animate
@@ -230,11 +235,17 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 	}
 	e.seen = m.generation
 	e.lastVisible = time.Now()
-	if !animate && e.still != nil {
+	// A paused animation stays on the frame it reached.
+	if !animate && e.still != nil && (!m.paused || e.frame == nil) {
 		return e.still, e.err
 	}
 	return e.frame, e.err
 }
+
+// SetPaused stops every animation where it is, or lets them play again, as
+// Telegram Desktop pauses them while its window is not active. It runs on
+// the UI goroutine.
+func (m *Manager) SetPaused(paused bool) { m.paused = paused }
 
 // Visibility is tied to completed UI frames, not elapsed time. An idle window
 // may go minutes without a frame while every image is still on screen.

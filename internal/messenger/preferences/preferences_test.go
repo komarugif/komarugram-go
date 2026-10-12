@@ -41,6 +41,9 @@ func TestPersistsAndNotifies(t *testing.T) {
 	if err := s.SetComposerBlur(false); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.SetPauseInactive(false); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.SetPlayer(player.VLC); err != nil {
 		t.Fatal(err)
 	}
@@ -57,8 +60,8 @@ func TestPersistsAndNotifies(t *testing.T) {
 	if err := s.SetTheme(ThemeLight); err != nil {
 		t.Fatal(err)
 	}
-	if called != 10 {
-		t.Fatalf("notifications = %d, want 10", called)
+	if called != 11 {
+		t.Fatalf("notifications = %d, want 11", called)
 	}
 
 	loaded, err := OpenPath(path)

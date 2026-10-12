@@ -749,3 +749,34 @@ func TestHiddenDecodersAskForFrames(t *testing.T) {
 		t.Fatalf("stopped decoders asked for %d frames", n)
 	}
 }
+
+// TestPausedAnimationHoldsItsFrame pauses an animation that plays: it stops
+// where it is, not on its first frame, and plays again once let.
+func TestPausedAnimationHoldsItsFrame(t *testing.T) {
+	m := New(&fakeSource{}, func() {})
+	defer m.Close()
+	still, current := image.NewRGBA(image.Rect(0, 0, 8, 8)), image.NewRGBA(image.Rect(0, 0, 8, 8))
+	e := &entry{animated: true, still: still, frame: current, box: image.Pt(1024, 1024), wake: make(chan struct{}, 1), cancel: func() {}}
+	m.entries["gif"] = e
+	msg := model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "gif"}}
+	frame := func() image.Image {
+		m.BeginFrame()
+		defer m.EndFrame()
+		im, _ := m.Frame(msg, true)
+		return im
+	}
+	if frame() != current || !e.animate {
+		t.Fatal("the animation does not play")
+	}
+	m.SetPaused(true)
+	if got := frame(); got != current {
+		t.Fatal("a paused animation jumped to its first frame")
+	}
+	if e.animate {
+		t.Fatal("a paused animation goes on playing")
+	}
+	m.SetPaused(false)
+	if frame() != current || !e.animate {
+		t.Fatal("the animation does not play again")
+	}
+}

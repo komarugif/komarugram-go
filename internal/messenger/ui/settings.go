@@ -190,6 +190,12 @@ type settingsPage struct {
 	setOverlays  func(preferences.Overlays)
 	blur         *checkbox.Checkboxes[string]
 	transparency *slider.Slider
+	// pauseInactive and setPauseInactive read and switch whether media
+	// animations stop in an inactive window; without them the checkbox is
+	// hidden.
+	pauseInactive         func() bool
+	setPauseInactive      func(bool)
+	pauseInactiveCheckbox *checkbox.Checkboxes[string]
 	// Compositor blur is independent of in-app animation and overlay blur.
 	windowBlur                  func() bool
 	setWindowBlur               func(bool)
@@ -319,6 +325,11 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 	for v := 0; v <= preferences.TransparencyMax; v += 5 {
 		steps = append(steps, v)
 	}
+	p.pauseInactiveCheckbox = checkbox.NewCheckboxes([]string{"pause"}, nil, func(values []string) {
+		if p.setPauseInactive != nil {
+			p.setPauseInactive(slices.Contains(values, "pause"))
+		}
+	})
 	p.windowBlurCheckbox = checkbox.NewCheckboxes([]string{"window"}, nil, func(values []string) {
 		if p.setWindowBlur != nil {
 			p.setWindowBlur(slices.Contains(values, "window"))
@@ -480,6 +491,17 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		p.confirmBoxes.Update(gtx)
 	}
 	p.animations.Update(gtx)
+	if p.pauseInactive != nil {
+		// Another window may have changed the shared preference.
+		var want []string
+		if p.pauseInactive() {
+			want = []string{"pause"}
+		}
+		if !slices.Equal(p.pauseInactiveCheckbox.GetValues(), want) {
+			p.pauseInactiveCheckbox.SetValues(want)
+		}
+		p.pauseInactiveCheckbox.Update(gtx)
+	}
 	p.privacy.Update(gtx)
 	if p.section == settingsIntegrations {
 		p.players.Update(gtx)
@@ -582,7 +604,19 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 			}
 		case settingsPower:
 			content = func(gtx layout.Context) layout.Dimensions {
-				return p.cardHeight("Layout-8").Card(gtx, p.animations.Layout, defaultCardPadding)
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return p.cardHeight("Layout-8").Card(gtx, p.animations.Layout, defaultCardPadding)
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						if p.pauseInactive == nil {
+							return layout.Dimensions{}
+						}
+						return layout.Inset{Top: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return p.cardHeight("Layout-9").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutPauseInactive(gtx, l) }, defaultCardPadding)
+						})
+					}),
+				)
 			}
 		case settingsPremium:
 			content = func(gtx layout.Context) layout.Dimensions { return p.layoutPremium(gtx, l) }
@@ -940,6 +974,21 @@ func (p *settingsPage) layoutChats(gtx layout.Context, l localization.Catalog) l
 		}))
 	}
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, cards...)
+}
+
+// layoutPauseInactive draws the card of the switch that pauses media
+// animations while the window is not active.
+func (p *settingsPage) layoutPauseInactive(gtx layout.Context, l localization.Catalog) layout.Dimensions {
+	sc := scheme(gtx)
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return p.pauseInactiveCheckbox.Layout(gtx, map[string]string{"pause": l.T("settings.pause_inactive")})
+		}),
+		vspace(4),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, l.T("settings.pause_inactive_hint"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
+		}),
+	)
 }
 
 // blurAvailable reports whether the blur checkboxes have an effect: it costs
