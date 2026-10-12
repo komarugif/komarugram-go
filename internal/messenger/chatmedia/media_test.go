@@ -912,3 +912,75 @@ func TestStatusLoopsPlayOnTheFrameClock(t *testing.T) {
 		})
 	}
 }
+
+// TestAnimationsShareTheFrameClock plays Lottie stickers, drawn by workers,
+// for a view on the frame's clock: once their first pictures are shown they
+// wake the window no more, and the frames NextFrame asks for, one per tick
+// for them all, show 30 pictures a second, or 60 at full rate.
+func TestAnimationsShareTheFrameClock(t *testing.T) {
+	data, err := os.ReadFile("../../../assets/stickers/sample.tgs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	play := func(fullRate bool) (frames, pictures int, woke int32) {
+		var wakes atomic.Int32
+		m := NewShared(&fakeSource{data: data}, func() { wakes.Add(1) })
+		defer m.Close()
+		var msgs []model.Message
+		for i := range 5 {
+			msgs = append(msgs, model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprint("sticker", i), MIMEType: "application/x-tgsticker"}})
+		}
+		status := m.StatusFit
+		if fullRate {
+			status = m.StatusFullRate
+		}
+		var shown image.Image
+		draw := func(counting bool) {
+			m.BeginFrameAt(time.Now())
+			for i, msg := range msgs {
+				im := status(msg, true, image.Pt(64, 64), false).Frame
+				if i == 0 && counting && im != shown {
+					pictures++
+				}
+				if i == 0 {
+					shown = im
+				}
+			}
+			m.EndFrame()
+			if counting {
+				frames++
+			}
+		}
+		// As a window would: a frame when woken, or when one is due.
+		run := func(d time.Duration, counting bool) {
+			end := time.Now().Add(d)
+			last := wakes.Load()
+			draw(counting)
+			for time.Now().Before(end) {
+				next := m.NextFrame()
+				if w := wakes.Load(); w != last || !next.IsZero() && !time.Now().Before(next) {
+					last = w
+					draw(counting)
+				}
+				time.Sleep(200 * time.Microsecond)
+			}
+		}
+		run(time.Second, false)
+		before := wakes.Load()
+		run(2*time.Second, true)
+		return frames / 2, pictures / 2, wakes.Load() - before
+	}
+	frames, pictures, woke := play(false)
+	t.Logf("30 a second: %d frames, %d pictures a second", frames, pictures)
+	if woke > 0 {
+		t.Fatalf("playing animations woke the window %d times", woke)
+	}
+	if frames > 33 || pictures < 20 {
+		t.Fatalf("%d frames a second showed %d pictures, want 30 of both", frames, pictures)
+	}
+	frames, pictures, _ = play(true)
+	t.Logf("full rate: %d frames, %d pictures a second", frames, pictures)
+	if frames > 63 || pictures < 36 {
+		t.Fatalf("%d frames a second showed %d pictures at full rate, want 60 of both", frames, pictures)
+	}
+}

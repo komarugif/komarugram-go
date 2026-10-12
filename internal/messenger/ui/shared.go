@@ -347,8 +347,7 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 	}
 	p.giftGeneration++
 	defer p.trimGiftRows()
-	p.renderer.media.BeginFrame()
-	defer p.renderer.media.EndFrame()
+	defer mediaFrame(gtx, p.renderer.media)()
 	covered := p.gift != nil || p.renderer.link != ""
 	shown := p.modal.Layout(gtx, covered, func(gtx layout.Context) layout.Dimensions {
 		size := image.Pt(min(gtx.Constraints.Max.X, gtx.Dp(640)), min(gtx.Constraints.Max.Y, gtx.Dp(740)))

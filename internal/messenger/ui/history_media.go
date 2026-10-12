@@ -84,7 +84,13 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	loading, cancelled := false, false
 	progress := float32(0)
 	if target.Media != nil {
-		status := p.media.StatusFit(target, animate, size, crop)
+		fit := p.media.StatusFit
+		if m.Kind == model.MessageSticker {
+			// As Telegram Desktop plays stickers in messages: up to 60
+			// pictures a second.
+			fit = p.media.StatusFullRate
+		}
+		status := fit(target, animate, size, crop)
 		frame, preview, err = status.Frame, status.Preview, status.Err
 		loading, cancelled = status.Loading, status.Cancelled
 		if status.Total > 0 {

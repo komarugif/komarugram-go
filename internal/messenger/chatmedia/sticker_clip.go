@@ -63,14 +63,14 @@ func decodeStickerClip(ctx context.Context, sticker *vp9.Sticker, box image.Poin
 	return clip, nil
 }
 
-// lottieClipSteps is how long each picture of a's loop lasts, as often as
-// an animation played by a worker shows one at most, and how many there
-// are; none for an animation without frames.
+// lottieClipSteps is how long each picture of a's loop lasts, 30 a second
+// at most, as Telegram Desktop plays emoji, and how many there are; none
+// for an animation without frames.
 func lottieClipSteps(a *lottie.Animation) (time.Duration, int) {
 	if a.FrameCount <= 0 || a.FPS <= 0 {
 		return 0, 0
 	}
-	step := max(time.Duration(float64(time.Second)/a.FPS), animationTick)
+	step := max(time.Duration(float64(time.Second)/a.FPS), 2*frameTick)
 	length := time.Duration(float64(a.FrameCount) / a.FPS * float64(time.Second))
 	return step, int((length + step - 1) / step)
 }

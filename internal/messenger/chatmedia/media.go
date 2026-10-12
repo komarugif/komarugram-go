@@ -71,6 +71,17 @@ type entry struct {
 	// while it stands still; clipAt is where in the loop it stopped.
 	clipStart time.Time
 	clipAt    time.Duration
+	// pending is the next picture of an animation a worker plays for a
+	// manager on the frame's clock, to show from pendingAt; consumed tells
+	// the worker it was taken. worker is set while the worker plays it.
+	pending   image.Image
+	pendingAt time.Time
+	consumed  chan struct{}
+	worker    bool
+	// every is every how many ticks the worker shows a picture.
+	every int64
+	// fullRate lets the animation show 60 pictures a second.
+	fullRate bool
 }
 type Manager struct {
 	// wasm plays video stickers in the VP9 sandbox, and gifWASM GIFs and
@@ -110,6 +121,10 @@ type Manager struct {
 	// the frame being drawn, next when it is to be drawn again.
 	uiClips   bool
 	now, next time.Time
+	// clocked is set while the view draws on the frame's clock and asks
+	// for NextFrame: workers then leave their pictures for the frames due,
+	// instead of waking the window for each.
+	clocked atomic.Bool
 }
 
 func New(source Source, changed func()) *Manager {
@@ -121,7 +136,7 @@ func New(source Source, changed func()) *Manager {
 	return m
 }
 func (m *Manager) Frame(msg model.Message, animate bool) (image.Image, error) {
-	return m.frame(msg, animate, image.Point{}, false)
+	return m.frame(msg, animate, image.Point{}, false, false)
 }
 
 // decodeStep rounds requested sizes up, so that resizing a window by a few
@@ -174,7 +189,7 @@ func (m *Manager) CheapToPlay(msg model.Message, want image.Point, cover bool) b
 	return e.clip != nil && box.X <= e.box.X && box.Y <= e.box.Y && (!cover || e.cover)
 }
 
-func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover bool) (image.Image, error) {
+func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover, fullRate bool) (image.Image, error) {
 	if msg.Media == nil {
 		return nil, nil
 	}
@@ -219,7 +234,7 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 			m.evict(true)
 		}
 		ctx, cancel := context.WithCancel(m.ctx)
-		e = &entry{wake: make(chan struct{}, 1), wasm: wasm, ffmpeg: m.ffmpeg, sandboxGIF: m.SandboxGIFs(), seen: m.generation, animate: animate, cancel: cancel, cancelled: m.cancelled[key], frame: previous, preview: preview, still: still, clip: clip, box: box, cover: cover, sticker: animatedSticker || msg.Kind == model.MessageSticker}
+		e = &entry{wake: make(chan struct{}, 1), consumed: make(chan struct{}, 1), wasm: wasm, ffmpeg: m.ffmpeg, sandboxGIF: m.SandboxGIFs(), seen: m.generation, animate: animate, cancel: cancel, cancelled: m.cancelled[key], frame: previous, preview: preview, still: still, clip: clip, box: box, cover: cover, sticker: animatedSticker || msg.Kind == model.MessageSticker}
 		m.entries[key] = e
 		m.wg.Go(func() {
 			defer crash.Recover("chatmedia load "+key, func(p *crash.Panic) {
@@ -246,6 +261,10 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 	}
 	e.seen = m.generation
 	e.lastVisible = time.Now()
+	e.fullRate = e.fullRate || fullRate
+	if m.clocked.Load() && e.worker {
+		m.workerFrame(e)
+	}
 	if m.uiClips && e.clip != nil {
 		if im := m.clipFrame(e); im != nil {
 			return im, e.err
@@ -273,44 +292,76 @@ func (m *Manager) clipFrame(e *entry) image.Image {
 	// Loops change on the ticks of the clock every animation shares, so
 	// that those on screen change together, in one frame, however often
 	// the window draws.
-	now := m.now.Truncate(animationTick)
+	now := tickFloor(m.now, 2)
 	if e.clipStart.IsZero() {
 		// A loop that stood still goes on from where it stopped.
 		e.clipStart = now.Add(-e.clipAt)
 	}
 	step := e.clip.frameDuration
 	elapsed := now.Sub(e.clipStart)
-	index := int(elapsed / step)
+	index := pictureAt(elapsed, step)
 	e.clipAt = elapsed % (step * time.Duration(len(e.clip.frames)))
-	e.frame = e.clip.frames[index%len(e.clip.frames)]
-	// The next picture shows on the tick after it is due.
-	next := e.clipStart.Add(step * time.Duration(index+1))
-	if late := next.Sub(next.Truncate(animationTick)); late > 0 {
-		next = next.Add(animationTick - late)
-	}
-	if m.next.IsZero() || next.Before(m.next) {
-		m.next = next
-	}
+	e.frame = e.clip.frames[index%int64(len(e.clip.frames))]
+	m.schedule(pictureTick(e.clipStart, index+1, step, 2))
 	return e.frame
+}
+
+// workerFrame shows the picture the worker left for this frame, if it is
+// due, and schedules the frame of the next one. The caller holds e.mu.
+func (m *Manager) workerFrame(e *entry) {
+	if e.pending != nil && !m.now.Before(e.pendingAt) {
+		e.frame, e.pending = e.pending, nil
+		select {
+		case e.consumed <- struct{}{}:
+		default:
+		}
+	}
+	if !e.animate {
+		return
+	}
+	if e.pending != nil {
+		m.schedule(e.pendingAt)
+		return
+	}
+	// The worker is drawing it: it is due on its next tick at the soonest.
+	m.schedule(tickCeil(m.now.Add(time.Nanosecond), max(e.every, 1)))
+}
+
+// schedule asks for a frame at t, if none is asked for sooner.
+func (m *Manager) schedule(t time.Time) {
+	if m.next.IsZero() || t.Before(m.next) {
+		m.next = t
+	}
 }
 
 // Visibility is tied to completed UI frames, not elapsed time. An idle window
 // may go minutes without a frame while every image is still on screen.
-func (m *Manager) BeginFrame() { m.BeginFrameAt(time.Now()) }
+// A view that begins frames so draws when it is woken: the workers playing
+// animations wake it for each picture.
+func (m *Manager) BeginFrame() {
+	m.clocked.Store(false)
+	m.begin(time.Now())
+}
 
-// BeginFrameAt begins a frame drawn for now, the time loops played on the
-// UI's clock show.
+// BeginFrameAt begins a frame drawn for now, on the frame's clock: the
+// pictures of animations are those of now, and the view asks NextFrame when
+// to draw again, instead of being woken for each picture.
 func (m *Manager) BeginFrameAt(now time.Time) {
 	if now.IsZero() {
 		now = time.Now()
 	}
+	m.clocked.Store(true)
+	m.begin(now)
+}
+
+func (m *Manager) begin(now time.Time) {
 	m.generation++
 	m.now, m.next = now, time.Time{}
 }
 
-// NextFrame is when a loop drawn in the frame shows its next picture, zero
-// for never: the window is to draw a frame again then. It runs on the UI
-// goroutine, after the frame's media were asked for.
+// NextFrame is when an animation drawn in the frame shows its next picture,
+// zero for never: the window is to draw a frame again then. It runs on the
+// UI goroutine, after the frame's media were asked for.
 func (m *Manager) NextFrame() time.Time { return m.next }
 
 // ConfigureDecoders runs on the UI goroutine. New workers capture these settings.
@@ -553,7 +604,7 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 	if e.clip != nil {
 		m.playAnimation(ctx, e, func(t time.Duration) (image.Image, error) {
 			return e.clip.FrameAt(t), nil
-		}, publish)
+		}, e.clip.frameDuration, publish)
 		return
 	}
 	if im := previewImage(msg.Media.Preview); im != nil {
@@ -632,6 +683,8 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 		return
 	}
 	var frame func(time.Duration) (image.Image, error)
+	// period is how long a frame of the animation lasts.
+	var period time.Duration
 	var close func()
 	switch {
 	case msg.Media.MIMEType == "application/x-tgsticker":
@@ -661,6 +714,7 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 				err = m.decodeLottieLoop(ctx, e, a, release, publish)
 			} else if err == nil {
 				frame = func(t time.Duration) (image.Image, error) { im, _, er := a.FrameAt(ctx, t); return clone(im), er }
+				period = time.Duration(float64(time.Second) / a.FPS)
 				close = func() { a.Close(context.Background()) }
 			}
 		}
@@ -687,8 +741,8 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 		}
 		defer release()
 		if !e.wasm {
-			if f, ok := m.ffmpegSticker(ctx, e, data); ok {
-				frame = f
+			if f, d, ok := m.ffmpegSticker(ctx, e, data); ok {
+				frame, period = f, d
 				break
 			}
 		}
@@ -719,6 +773,7 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 					e.mu.Unlock()
 					if err == nil && clip != nil {
 						frame = func(t time.Duration) (image.Image, error) { return clip.FrameAt(t), nil }
+						period = clip.frameDuration
 					}
 				} else {
 					var lastIndex = -1
@@ -736,6 +791,7 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 						lastIndex = index
 						return last, nil
 					}
+					period = a.File.FrameDuration
 					close = func() { a.Close(context.Background()) }
 				}
 			}
@@ -829,7 +885,7 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 	if frame == nil {
 		return
 	}
-	m.playAnimation(ctx, e, frame, publish)
+	m.playAnimation(ctx, e, frame, period, publish)
 }
 
 // gifThumbnail is Telegram's thumbnail of a GIF, decoded in the process, or
@@ -1024,52 +1080,85 @@ func waitAnimation(ctx context.Context, e *entry) error {
 	}
 }
 
-func (m *Manager) playAnimation(ctx context.Context, e *entry, frame func(time.Duration) (image.Image, error), publish func(image.Image, error)) {
+// playAnimation plays the animation frame draws, whose own frames last
+// period: its first picture at once, and the others, while it is to
+// animate, on the ticks of the clock every animation shares, each drawn
+// ahead of its tick. For a view on the frame's clock the picture is left for
+// the frame due, which shows it and schedules the next; otherwise it wakes
+// the window when due.
+func (m *Manager) playAnimation(ctx context.Context, e *entry, frame func(time.Duration) (image.Image, error), period time.Duration, publish func(image.Image, error)) {
 	e.mu.Lock()
-	e.animated = true
+	e.animated, e.worker = true, true
 	e.mu.Unlock()
-	started := time.Now()
-	first := true
-	wasAnimating := false
+	defer func() {
+		e.mu.Lock()
+		e.worker, e.pending = false, nil
+		e.mu.Unlock()
+	}()
+	im, err := frame(0)
+	if err != nil {
+		publish(nil, err)
+		return
+	}
+	publish(im, nil)
+	var started time.Time
+	shown := int64(-1)
 	for {
 		e.mu.Lock()
-		animate := e.animate
+		animate, fullRate := e.animate, e.fullRate
 		e.mu.Unlock()
-		if animate && !wasAnimating {
-			started = time.Now()
-		}
-		wasAnimating = animate
-		if first || animate {
-			elapsed := time.Since(started)
-			if !animate {
-				elapsed = 0
-			}
-			im, err := frame(elapsed)
-			if err != nil {
-				publish(nil, err)
+		if !animate {
+			// Played again, it starts over.
+			started, shown = time.Time{}, -1
+			if waitAnimation(ctx, e) != nil {
 				return
 			}
-			if im != nil && (first || animate) {
-				publish(im, nil)
-				first = false
-			}
+			continue
 		}
-		// Every animation ticks on the same clock, so that those on screen
-		// together publish together and wake the window once, not each in
-		// turn.
-		timer := time.NewTimer(time.Until(time.Now().Truncate(animationTick).Add(animationTick)))
+		k := ticksPer(period, fullRate)
+		step := period
+		if step <= 0 {
+			step = time.Duration(k) * frameTick
+		}
+		soonest := tickCeil(time.Now().Add(time.Nanosecond), k)
+		if started.IsZero() {
+			started = soonest
+		}
+		// The tick of the next picture that differs from the one shown: a
+		// slow animation skips the ticks that would show the same.
+		at := pictureTick(started, shown+1, step, k)
+		if at.Before(soonest) {
+			at = soonest
+		}
+		index := pictureAt(at.Sub(started), step)
+		// The middle of the picture's frame, which no rounding moves.
+		im, err := frame(step*time.Duration(index) + step/2)
+		if err != nil {
+			publish(nil, err)
+			return
+		}
+		shown = index
+		if m.clocked.Load() {
+			e.mu.Lock()
+			e.pending, e.pendingAt, e.every = im, at, k
+			e.mu.Unlock()
+			select {
+			case <-e.consumed:
+			case <-ctx.Done():
+				return
+			}
+			continue
+		}
+		timer := time.NewTimer(time.Until(at))
 		select {
 		case <-ctx.Done():
 			timer.Stop()
 			return
 		case <-timer.C:
 		}
+		publish(im, nil)
 	}
 }
-
-// animationTick is how often an animation played by a worker shows its
-// next picture.
-const animationTick = time.Second / 30
 
 // nilImage turns a typed nil, such as a nil *image.RGBA stored in an
 // image.Image, into a plain nil so that "im != nil" means there are pixels.
@@ -1200,7 +1289,18 @@ func (m *Manager) Status(msg model.Message, animate bool) Status {
 // StatusFit is Status for media shown in want pixels. Still images are decoded
 // to fit or cover; animated stickers keep a close, step-rounded pixel size.
 func (m *Manager) StatusFit(msg model.Message, animate bool, want image.Point, cover bool) Status {
-	frame, _ := m.frame(msg, animate, want, cover)
+	return m.status(msg, animate, want, cover, false)
+}
+
+// StatusFullRate is StatusFit for media whose animation shows up to 60
+// pictures a second, as Telegram Desktop plays stickers in messages; others
+// show 30.
+func (m *Manager) StatusFullRate(msg model.Message, animate bool, want image.Point, cover bool) Status {
+	return m.status(msg, animate, want, cover, true)
+}
+
+func (m *Manager) status(msg model.Message, animate bool, want image.Point, cover, fullRate bool) Status {
+	frame, _ := m.frame(msg, animate, want, cover, fullRate)
 	if msg.Media == nil {
 		return Status{}
 	}
@@ -1267,6 +1367,10 @@ func (m *Manager) Stats() (entries int, bytes int64) {
 // bytes estimates the decoded pixels e holds. The caller holds e.mu.
 func (e *entry) bytes() (bytes int64) {
 	frames := []image.Image{e.frame, e.preview}
+	// A picture of a cached loop is counted with the loop.
+	if e.pending != nil && e.pending != e.frame && e.clip == nil {
+		bytes += imageBytes(e.pending)
+	}
 	if e.still != nil && e.still != e.frame && (e.clip == nil || e.still != e.clip.frames[0]) {
 		frames = append(frames, e.still)
 	}

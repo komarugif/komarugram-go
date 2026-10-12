@@ -932,25 +932,15 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	defer a.images.EndFrame()
 	if a.avatars != nil {
 		configureMedia(a.avatars.media)
-		a.avatars.media.BeginFrameAt(gtx.Now)
-		defer func() {
-			a.avatars.media.EndFrame()
-			// Emoji statuses play on the frame's clock: one frame shows
-			// the next picture of them all.
-			if next := a.avatars.media.NextFrame(); !next.IsZero() {
-				gtx.Execute(op.InvalidateCmd{At: next})
-			}
-		}()
+		defer mediaFrame(gtx, a.avatars.media)()
 	}
 	if a.history != nil {
 		configureMedia(a.history.media)
-		a.history.media.BeginFrame()
-		defer a.history.media.EndFrame()
+		defer mediaFrame(gtx, a.history.media)()
 	}
 	if a.comments != nil {
 		configureMedia(a.comments.media)
-		a.comments.media.BeginFrame()
-		defer a.comments.media.EndFrame()
+		defer mediaFrame(gtx, a.comments.media)()
 	}
 	// The comments belong to the channel they were opened over.
 	if a.thread != nil && a.thread.from != a.selected {
@@ -1236,6 +1226,19 @@ func (a *App) SetSuspended(hidden bool) {
 		a.avatars.media.Release()
 	}
 	a.images.Release()
+}
+
+// mediaFrame begins the frame of m on the frame's clock and returns what
+// ends it: animations change on the ticks of one clock, and the window draws
+// again when the next picture of any of them is due, once for them all.
+func mediaFrame(gtx layout.Context, m *chatmedia.Manager) func() {
+	m.BeginFrameAt(gtx.Now)
+	return func() {
+		m.EndFrame()
+		if next := m.NextFrame(); !next.IsZero() {
+			gtx.Execute(op.InvalidateCmd{At: next})
+		}
+	}
 }
 
 // OpenChat opens chat in the window, as a click in the chat list would; it

@@ -19,19 +19,19 @@ import (
 // ffmpegSticker decodes a bounded loop only after hover or autoplay requests
 // playback. Static previews are handled by stickerPreview through WASM.
 // Larger clips retain the streaming WASM decoder instead of growing the cache.
-func (m *Manager) ffmpegSticker(ctx context.Context, e *entry, data []byte) (func(time.Duration) (image.Image, error), bool) {
+func (m *Manager) ffmpegSticker(ctx context.Context, e *entry, data []byte) (func(time.Duration) (image.Image, error), time.Duration, bool) {
 	path := video.ResolveFFmpeg(e.ffmpeg)
 	if path == "" {
-		return nil, false
+		return nil, 0, false
 	}
 	file, err := webm.Demux(data)
 	if err != nil || file.CodecID != "V_VP9" || file.Width <= 0 || file.Height <= 0 || file.Width > 512 || file.Height > 512 {
-		return nil, false
+		return nil, 0, false
 	}
 	size := resample.Fit(file.Width, file.Height, e.box, false)
 	count := len(file.Frames)
 	if count == 0 || count > maxStickerClipFrames || file.FrameDuration <= 0 || file.FrameDuration > maxStickerClipDuration/time.Duration(count) || int64(size.X)*int64(size.Y)*4*int64(count) > maxStickerClipBytes {
-		return nil, false
+		return nil, 0, false
 	}
 	e.mu.Lock()
 	e.caching = true
@@ -44,9 +44,9 @@ func (m *Manager) ffmpegSticker(ctx context.Context, e *entry, data []byte) (fun
 	}
 	e.mu.Unlock()
 	if err != nil {
-		return nil, false
+		return nil, 0, false
 	}
-	return func(t time.Duration) (image.Image, error) { return clip.FrameAt(t), nil }, true
+	return func(t time.Duration) (image.Image, error) { return clip.FrameAt(t), nil }, clip.frameDuration, true
 }
 
 func decodeFFmpegSticker(ctx context.Context, path string, data []byte, size image.Point, count int, duration time.Duration) (*stickerClip, error) {
