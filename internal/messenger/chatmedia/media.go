@@ -578,6 +578,19 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 		if err == nil {
 			var a *lottie.Animation
 			a, err = rt.Open(ctx, msg.Media.ID, data, min(256, max(e.box.X, e.box.Y)))
+			if err == nil && a.FrameCount <= 1 {
+				// One frame is a picture, as some emoji statuses are: it is
+				// drawn once, and no ticker draws it again for nothing.
+				im, _, er := a.FrameAt(ctx, 0)
+				a.Close(context.Background())
+				release()
+				if er != nil {
+					publish(nil, er)
+					return
+				}
+				publish(clone(im), nil)
+				return
+			}
 			if err == nil {
 				frame = func(t time.Duration) (image.Image, error) { im, _, er := a.FrameAt(ctx, t); return clone(im), er }
 				close = func() { a.Close(context.Background()) }

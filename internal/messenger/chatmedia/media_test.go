@@ -780,3 +780,44 @@ func TestPausedAnimationHoldsItsFrame(t *testing.T) {
 		t.Fatal("the animation does not play again")
 	}
 }
+
+// TestOneFrameLottieDrawsOnce plays a Lottie animation of one frame, as some
+// emoji statuses are: it is a picture, published once, and never wakes the
+// window again.
+func TestOneFrameLottieDrawsOnce(t *testing.T) {
+	data, err := os.ReadFile("../../../assets/stickers/sample.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = bytes.Replace(data, []byte(`"op":180`), []byte(`"op":1`), 1)
+	var changed atomic.Int32
+	m := New(&fakeSource{data: data}, func() { changed.Add(1) })
+	defer m.Close()
+	msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "status", MIMEType: "application/x-tgsticker"}}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		m.BeginFrame()
+		frame, err := m.Frame(msg, true)
+		m.EndFrame()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if frame != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the frame never came")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	before := changed.Load()
+	for range 30 {
+		m.BeginFrame()
+		m.Frame(msg, true)
+		m.EndFrame()
+		time.Sleep(10 * time.Millisecond)
+	}
+	if woke := changed.Load() - before; woke > 0 {
+		t.Fatalf("a still picture woke the window %d times", woke)
+	}
+}
