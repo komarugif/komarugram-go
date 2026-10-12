@@ -821,3 +821,94 @@ func TestOneFrameLottieDrawsOnce(t *testing.T) {
 		t.Fatalf("a still picture woke the window %d times", woke)
 	}
 }
+
+// TestStatusLoopsPlayOnTheFrameClock plays emoji statuses, Lottie and video
+// ones, as the avatars' manager does: decoded once in the pixels they take,
+// they wake the window no more, and each frame shows the picture of its own
+// time, the next one, of them all at once, scheduled by NextFrame.
+func TestStatusLoopsPlayOnTheFrameClock(t *testing.T) {
+	for _, tc := range []struct{ file, mime string }{
+		{"sample.tgs", "application/x-tgsticker"},
+		{"circle.webm", "video/webm"},
+	} {
+		t.Run(tc.mime, func(t *testing.T) {
+			data, err := os.ReadFile("../../../assets/stickers/" + tc.file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var woke atomic.Int32
+			m := NewAvatars(&fakeSource{data: data}, func() { woke.Add(1) })
+			defer m.Close()
+			var msgs []model.Message
+			for i := range 5 {
+				msgs = append(msgs, model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprint("status", i), MIMEType: tc.mime}})
+			}
+			want := image.Pt(16, 16)
+			now := time.Unix(1000, 0)
+			draw := func() []image.Image {
+				m.BeginFrameAt(now)
+				defer m.EndFrame()
+				var frames []image.Image
+				for _, msg := range msgs {
+					frames = append(frames, m.StatusFit(msg, true, want, false).Frame)
+				}
+				return frames
+			}
+			deadline := time.Now().Add(10 * time.Second)
+			for {
+				draw()
+				ready := 0
+				for _, msg := range msgs {
+					e := m.entries[msg.Media.ID]
+					e.mu.Lock()
+					if e.clip != nil {
+						ready++
+					}
+					e.mu.Unlock()
+				}
+				if ready == len(msgs) {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("%d of %d loops decoded", ready, len(msgs))
+				}
+				time.Sleep(10 * time.Millisecond)
+				now = now.Add(10 * time.Millisecond)
+			}
+			first := draw()
+			if got := first[0].Bounds().Size(); got.X > want.X || got.Y > want.Y {
+				t.Fatalf("a status is drawn in %v, on screen in %v", got, want)
+			}
+			before := woke.Load()
+			time.Sleep(300 * time.Millisecond)
+			if n := woke.Load() - before; n > 0 {
+				t.Fatalf("decoded loops woke the window %d times", n)
+			}
+			next := m.NextFrame()
+			if next.IsZero() || !next.After(now) || next.Sub(now) > time.Second/10 {
+				t.Fatalf("next frame at %v, the frame drawn at %v", next, now)
+			}
+			// Before the next picture of any is due the frame shows the same
+			// ones, and once it is due another.
+			changed := func(frames []image.Image) int {
+				n := 0
+				for i := range frames {
+					if frames[i] != first[i] {
+						n++
+					}
+				}
+				return n
+			}
+			now = next.Add(-time.Millisecond)
+			if n := changed(draw()); n > 0 {
+				t.Fatalf("%d pictures changed before they were due", n)
+			}
+			// The loops started apart, and still change together: on the
+			// tick of the clock they share, in one frame.
+			now = next
+			if n := changed(draw()); n != len(first) {
+				t.Fatalf("%d of %d pictures changed in the frame due", n, len(first))
+			}
+		})
+	}
+}

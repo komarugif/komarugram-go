@@ -932,8 +932,15 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	defer a.images.EndFrame()
 	if a.avatars != nil {
 		configureMedia(a.avatars.media)
-		a.avatars.media.BeginFrame()
-		defer a.avatars.media.EndFrame()
+		a.avatars.media.BeginFrameAt(gtx.Now)
+		defer func() {
+			a.avatars.media.EndFrame()
+			// Emoji statuses play on the frame's clock: one frame shows
+			// the next picture of them all.
+			if next := a.avatars.media.NextFrame(); !next.IsZero() {
+				gtx.Execute(op.InvalidateCmd{At: next})
+			}
+		}()
 	}
 	if a.history != nil {
 		configureMedia(a.history.media)

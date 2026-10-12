@@ -67,6 +67,10 @@ type entry struct {
 	// created. A larger request replaces the entry.
 	box   image.Point
 	cover bool
+	// clipStart is when the loop played on the UI's clock started, zero
+	// while it stands still; clipAt is where in the loop it stopped.
+	clipStart time.Time
+	clipAt    time.Duration
 }
 type Manager struct {
 	// wasm plays video stickers in the VP9 sandbox, and gifWASM GIFs and
@@ -99,6 +103,13 @@ type Manager struct {
 	sandboxGIFs, ffmpegChecked bool
 	// paused stops every animation where it is; UI thread only.
 	paused bool
+	// uiClips plays decoded loops on the UI's clock: each frame shows the
+	// picture of its own time, and the next is scheduled by NextFrame, so
+	// that any number of loops wake the window once per picture. Emoji
+	// statuses, few, small and often on screen, play so. now is the time of
+	// the frame being drawn, next when it is to be drawn again.
+	uiClips   bool
+	now, next time.Time
 }
 
 func New(source Source, changed func()) *Manager {
@@ -235,6 +246,11 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 	}
 	e.seen = m.generation
 	e.lastVisible = time.Now()
+	if m.uiClips && e.clip != nil {
+		if im := m.clipFrame(e); im != nil {
+			return im, e.err
+		}
+	}
 	// A paused animation stays on the frame it reached.
 	if !animate && e.still != nil && (!m.paused || e.frame == nil) {
 		return e.still, e.err
@@ -247,9 +263,55 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 // the UI goroutine.
 func (m *Manager) SetPaused(paused bool) { m.paused = paused }
 
+// clipFrame is the picture of e's loop at the time of the frame, nil while
+// it stands still, and schedules the next. The caller holds e.mu.
+func (m *Manager) clipFrame(e *entry) image.Image {
+	if !e.animate {
+		e.clipStart = time.Time{}
+		return nil
+	}
+	// Loops change on the ticks of the clock every animation shares, so
+	// that those on screen change together, in one frame, however often
+	// the window draws.
+	now := m.now.Truncate(animationTick)
+	if e.clipStart.IsZero() {
+		// A loop that stood still goes on from where it stopped.
+		e.clipStart = now.Add(-e.clipAt)
+	}
+	step := e.clip.frameDuration
+	elapsed := now.Sub(e.clipStart)
+	index := int(elapsed / step)
+	e.clipAt = elapsed % (step * time.Duration(len(e.clip.frames)))
+	e.frame = e.clip.frames[index%len(e.clip.frames)]
+	// The next picture shows on the tick after it is due.
+	next := e.clipStart.Add(step * time.Duration(index+1))
+	if late := next.Sub(next.Truncate(animationTick)); late > 0 {
+		next = next.Add(animationTick - late)
+	}
+	if m.next.IsZero() || next.Before(m.next) {
+		m.next = next
+	}
+	return e.frame
+}
+
 // Visibility is tied to completed UI frames, not elapsed time. An idle window
 // may go minutes without a frame while every image is still on screen.
-func (m *Manager) BeginFrame() { m.generation++ }
+func (m *Manager) BeginFrame() { m.BeginFrameAt(time.Now()) }
+
+// BeginFrameAt begins a frame drawn for now, the time loops played on the
+// UI's clock show.
+func (m *Manager) BeginFrameAt(now time.Time) {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	m.generation++
+	m.now, m.next = now, time.Time{}
+}
+
+// NextFrame is when a loop drawn in the frame shows its next picture, zero
+// for never: the window is to draw a frame again then. It runs on the UI
+// goroutine, after the frame's media were asked for.
+func (m *Manager) NextFrame() time.Time { return m.next }
 
 // ConfigureDecoders runs on the UI goroutine. New workers capture these settings.
 // wasm and gifWASM choose the sandboxes for video stickers and for GIFs over
@@ -485,6 +547,9 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 			m.changed()
 		}
 	}
+	if e.clip != nil && m.uiClips {
+		return // The view plays the loop.
+	}
 	if e.clip != nil {
 		m.playAnimation(ctx, e, func(t time.Duration) (image.Image, error) {
 			return e.clip.FrameAt(t), nil
@@ -591,7 +656,10 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 				publish(clone(im), nil)
 				return
 			}
-			if err == nil {
+			if err == nil && m.uiClips && lottieClipFits(a) {
+				close = func() { a.Close(context.Background()) }
+				err = m.decodeLottieLoop(ctx, e, a, release, publish)
+			} else if err == nil {
 				frame = func(t time.Duration) (image.Image, error) { im, _, er := a.FrameAt(ctx, t); return clone(im), er }
 				close = func() { a.Close(context.Background()) }
 			}
@@ -747,6 +815,16 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 	}
 	if close != nil {
 		defer close()
+	}
+	if m.uiClips {
+		e.mu.Lock()
+		clip := e.clip
+		e.mu.Unlock()
+		if clip != nil {
+			// The view plays the loop from here on.
+			m.changed()
+			return
+		}
 	}
 	if frame == nil {
 		return
@@ -950,8 +1028,6 @@ func (m *Manager) playAnimation(ctx context.Context, e *entry, frame func(time.D
 	e.mu.Lock()
 	e.animated = true
 	e.mu.Unlock()
-	tick := time.NewTicker(time.Second / 30)
-	defer tick.Stop()
 	started := time.Now()
 	first := true
 	wasAnimating := false
@@ -978,13 +1054,22 @@ func (m *Manager) playAnimation(ctx context.Context, e *entry, frame func(time.D
 				first = false
 			}
 		}
+		// Every animation ticks on the same clock, so that those on screen
+		// together publish together and wake the window once, not each in
+		// turn.
+		timer := time.NewTimer(time.Until(time.Now().Truncate(animationTick).Add(animationTick)))
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-tick.C:
+		case <-timer.C:
 		}
 	}
 }
+
+// animationTick is how often an animation played by a worker shows its
+// next picture.
+const animationTick = time.Second / 30
 
 // nilImage turns a typed nil, such as a nil *image.RGBA stored in an
 // image.Image, into a plain nil so that "im != nil" means there are pixels.
@@ -1010,6 +1095,11 @@ func clone(im *image.RGBA) image.Image {
 	if im == nil {
 		return nil
 	}
+	return cloneRGBA(im)
+}
+
+// cloneRGBA copies im, which the renderer reuses, into an image of its own.
+func cloneRGBA(im *image.RGBA) *image.RGBA {
 	out := image.NewRGBA(im.Bounds())
 	draw.Draw(out, out.Bounds(), im, im.Bounds().Min, draw.Src)
 	return out
@@ -1148,6 +1238,7 @@ func NewAvatars(source Source, changed func()) *Manager {
 	m := New(source, changed)
 	m.limit = 64
 	m.imageSize = 160
+	m.uiClips = true
 	m.videoHeight = 160
 	m.sem = make(chan struct{}, 2)
 	return m

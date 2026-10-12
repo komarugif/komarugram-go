@@ -110,11 +110,12 @@ func (a *App) layoutCustomEmoji(gtx layout.Context, id int64, size unit.Dp) layo
 		return layout.Dimensions{}
 	}
 	emoji := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d", id), MIMEType: "application/x-custom-emoji"}}
-	frame, _ := a.avatars.media.Frame(emoji, a.window.Motion.AnimationsEnabled())
+	// Drawn in the pixels it takes on screen: its loop is kept decoded.
+	px := gtx.Dp(size)
+	frame := a.avatars.media.StatusFit(emoji, a.window.Motion.AnimationsEnabled(), image.Pt(px, px), false).Frame
 	if frame == nil {
 		return layout.Dimensions{}
 	}
-	px := gtx.Dp(size)
 	return drawImage(gtx, &a.images, frame, image.Pt(px, px))
 }
 

@@ -5,9 +5,11 @@ package chatmedia
 import (
 	"context"
 	"image"
+	"math"
 	"sync"
 	"time"
 
+	"komarugram/pkg/lottie"
 	"komarugram/pkg/resample"
 	"komarugram/pkg/vp9"
 )
@@ -57,6 +59,78 @@ func decodeStickerClip(ctx context.Context, sticker *vp9.Sticker, box image.Poin
 		if i == 0 {
 			first(frame)
 		}
+	}
+	return clip, nil
+}
+
+// lottieClipSteps is how long each picture of a's loop lasts, as often as
+// an animation played by a worker shows one at most, and how many there
+// are; none for an animation without frames.
+func lottieClipSteps(a *lottie.Animation) (time.Duration, int) {
+	if a.FrameCount <= 0 || a.FPS <= 0 {
+		return 0, 0
+	}
+	step := max(time.Duration(float64(time.Second)/a.FPS), animationTick)
+	length := time.Duration(float64(a.FrameCount) / a.FPS * float64(time.Second))
+	return step, int((length + step - 1) / step)
+}
+
+// lottieClipFits reports whether the loop of a, drawn at its size, fits the
+// limits of a decoded loop.
+func lottieClipFits(a *lottie.Animation) bool {
+	step, count := lottieClipSteps(a)
+	return count > 0 && count <= maxStickerClipFrames && step*time.Duration(count) <= maxStickerClipDuration &&
+		int64(count)*int64(a.Size.X)*int64(a.Size.Y)*4 <= maxStickerClipBytes
+}
+
+// decodeLottieLoop draws the loop of a into e's clip, for the view to play
+// on its own clock: the first picture at once, the others once e is to
+// animate. release gives up the decoding slot meanwhile.
+func (m *Manager) decodeLottieLoop(ctx context.Context, e *entry, a *lottie.Animation, release func(), publish func(image.Image, error)) error {
+	im, _, err := a.FrameAt(ctx, 0)
+	if err != nil {
+		return err
+	}
+	first := cloneRGBA(im)
+	publish(first, nil)
+	release()
+	if waitAnimation(ctx, e) != nil {
+		return nil
+	}
+	e.mu.Lock()
+	e.animated, e.caching = true, true
+	e.mu.Unlock()
+	clip, err := drawLottieClip(ctx, a, first)
+	e.mu.Lock()
+	e.caching = false
+	if err == nil && ctx.Err() == nil {
+		e.clip = clip
+	}
+	e.mu.Unlock()
+	return err
+}
+
+// drawLottieClip draws every picture of a's loop, first being the first.
+func drawLottieClip(ctx context.Context, a *lottie.Animation, first *image.RGBA) (*stickerClip, error) {
+	step, count := lottieClipSteps(a)
+	clip := &stickerClip{frames: make([]*image.RGBA, 0, count), frameDuration: step}
+	for i := range count {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		frame := first
+		if i > 0 {
+			// The middle of the animation's frame shown then: a time at its
+			// edge may round to the frame before.
+			index := int(math.Round(float64(i)*step.Seconds()*a.FPS)) % a.FrameCount
+			im, _, err := a.FrameAt(ctx, time.Duration((float64(index)+0.5)/a.FPS*float64(time.Second)))
+			if err != nil {
+				return nil, err
+			}
+			frame = cloneRGBA(im)
+		}
+		clip.frames = append(clip.frames, frame)
+		clip.bytes += int64(len(frame.Pix))
 	}
 	return clip, nil
 }
