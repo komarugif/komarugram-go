@@ -471,6 +471,9 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		if links, ok := source.(model.TelegramLinkSource); ok {
 			a.usernames = make(chan usernameResult, 1)
 			a.settings.about.openCommunity = func() { a.openUsername(links, community) }
+			a.settings.openPremiumBot = func(bot string) {
+				a.openUsername(links, bot)
+			}
 		}
 		if _, ok := store.(model.CommentsStore); ok {
 			a.history.openComments = a.openComments

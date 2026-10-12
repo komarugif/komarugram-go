@@ -5,7 +5,6 @@ package ui
 import (
 	"fmt"
 	"image"
-	"log"
 	"math"
 	"slices"
 	"strconv"
@@ -208,6 +207,7 @@ type settingsPage struct {
 	premium model.PremiumSource
 	// localPremium and setLocalPremium read and switch Local Premium; the
 	// toggle shows it.
+	openPremiumBot     func(string)
 	localPremium       func() bool
 	setLocalPremium    func(bool)
 	localPremiumToggle *toggle.Toggle[string]
@@ -403,11 +403,7 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 	}
 	if p.subscribe.Clicked(gtx) && p.premium != nil {
 		if bot := p.premium.Premium().Bot; bot != "" {
-			go func() {
-				if err := openBrowser("https://t.me/" + bot); err != nil {
-					log.Printf("open @%s: %v", bot, err)
-				}
-			}()
+			p.openPremiumBot(bot)
 		}
 	}
 	// The sidebar can switch the theme too.

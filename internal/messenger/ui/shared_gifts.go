@@ -168,7 +168,7 @@ func (p *chatInfo) giftCard(gtx layout.Context, m model.Message, l localization.
 		}
 
 		// The sender avatar sits above the art and background, inside the top left corner.
-		avatarSize := unit.Dp(44)
+		avatarSize := unit.Dp(32)
 		av := gtx
 		av.Constraints = layout.Exact(image.Pt(gtx.Dp(avatarSize+4), gtx.Dp(avatarSize+4)))
 		offset(av, image.Pt(gtx.Dp(4), gtx.Dp(4)), func(gtx layout.Context) layout.Dimensions {

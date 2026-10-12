@@ -38,8 +38,8 @@ var (
 	iconInfo       = wdk.RequireIconWidget(icons.ActionInfoOutline)
 	// The marks of a chat's kind before its title in the chat list.
 	iconKindGroup   = wdk.RequireIconWidget(icons.SocialPeople)
-	iconKindChannel = wdk.RequireIconWidget(icons.ActionAnnouncement)
-	iconKindBot     = wdk.RequireIconWidget(icons.ActionAndroid)
+	iconKindChannel = wdk.RequireIconWidget(icons.CommunicationRSSFeed)
+	iconKindBot     = wdk.RequireIconWidget(icons.NotificationADB)
 )
 
 const (
