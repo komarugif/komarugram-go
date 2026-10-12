@@ -113,6 +113,23 @@ func (s *Sticker) FrameSized(ctx context.Context, elapsed time.Duration, size im
 	return s.scaler.Resize(s.planes, s.mask, size.X, size.Y), nil
 }
 
+// FrameSizedInto is FrameSized into dst, an image at the origin of the size
+// to scale to, instead of a new image; it returns dst.
+func (s *Sticker) FrameSizedInto(ctx context.Context, elapsed time.Duration, dst *image.RGBA) (*image.RGBA, error) {
+	if dst.Rect.Size() == s.Size {
+		frame, err := s.FrameAt(ctx, elapsed)
+		if err != nil {
+			return nil, err
+		}
+		copy(dst.Pix, frame.Pix)
+		return dst, nil
+	}
+	if err := s.seek(ctx, elapsed); err != nil {
+		return nil, err
+	}
+	return s.scaler.ResizeInto(dst, s.planes, s.mask), nil
+}
+
 // seek decodes up to the frame belonging at elapsed. VP9 frames depend on
 // their predecessors, so this decodes forward; wrapping around restarts from
 // frame zero, which is a keyframe. Only the frame reached is composed, by

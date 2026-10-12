@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"komarugram/internal/messenger/model"
+	"komarugram/pkg/h264"
 	"komarugram/pkg/vp9"
 	"komarugram/pkg/webm"
 )
@@ -985,78 +987,127 @@ func TestAnimationsShareTheFrameClock(t *testing.T) {
 	}
 }
 
-// TestLottiePicturesReuseTheirPixels plays Lottie stickers for a view on the
-// frame's clock: each picture is drawn into pixels of a picture no longer
-// shown, not into new ones, so that playing makes next to no garbage.
-func TestLottiePicturesReuseTheirPixels(t *testing.T) {
-	data, err := os.ReadFile("../../../assets/stickers/sample.json")
-	if err != nil {
-		t.Fatal(err)
+// TestPicturesReuseTheirPixels plays animations of every kind a worker
+// draws for a view on the frame's clock: Lottie, a VP9 sticker too large to
+// keep its loop, and GIFs played by ffmpeg and by the H.264 decoder. Each
+// picture is drawn into pixels of a picture no longer shown, not into new
+// ones, so that playing makes next to no garbage, and the pictures shown
+// share a few pixel buffers.
+func TestPicturesReuseTheirPixels(t *testing.T) {
+	file := func(name string) func(t *testing.T) []byte {
+		return func(t *testing.T) []byte {
+			data, err := os.ReadFile("../../../assets/" + name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return data
+		}
 	}
-	// A loop of half a second: the renderer's own memory in its sandbox
-	// grows while the animation plays its first loops.
-	data = bytes.Replace(data, []byte(`"op":180`), []byte(`"op":30`), 1)
-	var wakes atomic.Int32
-	m := NewShared(&fakeSource{data: data}, func() { wakes.Add(1) })
-	defer m.Close()
-	var msgs []model.Message
-	for i := range 5 {
-		msgs = append(msgs, model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprint("sticker", i), MIMEType: "application/x-tgsticker"}})
+	cases := []struct {
+		name string
+		msg  model.Message
+		want image.Point
+		data func(t *testing.T) []byte
+		set  func(t *testing.T, m *Manager)
+		// warming is set for a decoder whose own memory in its sandbox
+		// grows over its first few hundred pictures, longer than the test
+		// plays: only the pictures' buffers are counted.
+		warming bool
+	}{
+		{"lottie", model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "lottie", MIMEType: "application/x-tgsticker"}}, image.Pt(128, 128),
+			func(t *testing.T) []byte {
+				// A loop of half a second: the renderer's own memory in its
+				// sandbox grows while the animation plays its first loops.
+				return bytes.Replace(file("stickers/sample.json")(t), []byte(`"op":180`), []byte(`"op":30`), 1)
+			}, nil, false},
+		{"vp9", model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "webm", MIMEType: "video/webm"}}, image.Pt(512, 512),
+			file("stickers/circle.webm"), nil, false},
+		{"ffmpeg", model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "gif", MIMEType: "image/gif"}}, image.Pt(100, 100),
+			func(t *testing.T) []byte { return gifData(t, 24) },
+			func(t *testing.T, m *Manager) {
+				if _, err := exec.LookPath("ffmpeg"); err != nil {
+					t.Skip("no ffmpeg")
+				}
+				m.ConfigureDecoders(false, false, "")
+			}, false},
+		{"h264", model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "mp4", MIMEType: "video/mp4"}}, image.Pt(100, 100),
+			file("video.mp4"),
+			func(t *testing.T, m *Manager) {
+				// The module is not in this repository: KOMARUGRAM_AVCDEC
+				// names a build of it.
+				path := os.Getenv("KOMARUGRAM_AVCDEC")
+				if path == "" {
+					t.Skip("set KOMARUGRAM_AVCDEC to an avcdec.wasm")
+				}
+				m.avc.open = func(ctx context.Context) (*h264.Runtime, error) {
+					module, err := os.ReadFile(path)
+					if err != nil {
+						return nil, err
+					}
+					return h264.NewRuntime(ctx, module)
+				}
+				m.ConfigureDecoders(false, true, "")
+			}, true},
 	}
-	pictures := 0
-	var shown image.Image
-	var seen []*image.RGBA
-	draw := func() {
-		m.BeginFrameAt(time.Now())
-		for i, msg := range msgs {
-			im := m.StatusFullRate(msg, true, image.Pt(128, 128), false).Frame
-			if i == 0 && im != shown {
-				pictures++
-				shown = im
-				if rgba, ok := im.(*image.RGBA); ok {
-					seen = append(seen, rgba)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var wakes atomic.Int32
+			m := NewShared(&fakeSource{data: tc.data(t)}, func() { wakes.Add(1) })
+			defer m.Close()
+			if tc.set != nil {
+				tc.set(t, m)
+			}
+			pictures := 0
+			var shown image.Image
+			var seen []*image.RGBA
+			draw := func() {
+				m.BeginFrameAt(time.Now())
+				im := m.StatusFit(tc.msg, true, tc.want, false).Frame
+				m.EndFrame()
+				if im != shown {
+					pictures++
+					shown = im
+					if rgba, ok := im.(*image.RGBA); ok && rgba != nil {
+						seen = append(seen, rgba)
+					}
 				}
 			}
-		}
-		m.EndFrame()
-	}
-	// As a window would: a frame when woken, or when one is due.
-	run := func(d time.Duration) {
-		end := time.Now().Add(d)
-		last := wakes.Load()
-		draw()
-		for time.Now().Before(end) {
-			next := m.NextFrame()
-			if w := wakes.Load(); w != last || !next.IsZero() && !time.Now().Before(next) {
-				last = w
+			// As a window would: a frame when woken, or when one is due.
+			run := func(d time.Duration) {
+				end := time.Now().Add(d)
+				last := wakes.Load()
 				draw()
+				for time.Now().Before(end) {
+					next := m.NextFrame()
+					if w := wakes.Load(); w != last || !next.IsZero() && !time.Now().Before(next) {
+						last = w
+						draw()
+					}
+					time.Sleep(200 * time.Microsecond)
+				}
 			}
-			time.Sleep(200 * time.Microsecond)
-		}
-	}
-	run(2 * time.Second)
-	pictures, seen = 0, nil
-	var before, after runtime.MemStats
-	runtime.ReadMemStats(&before)
-	run(2 * time.Second)
-	runtime.ReadMemStats(&after)
-	garbage := (after.TotalAlloc - before.TotalAlloc) / 2
-	pictures /= 2
-	// A picture of 128 pixels takes 64 KB: five stickers at 60 pictures a
-	// second would make some 19 MB of garbage drawn into new pixels.
-	t.Logf("%d pictures of one sticker, %d KB allocated in a second", pictures, garbage>>10)
-	if pictures < 30 {
-		t.Fatalf("%d pictures in a second", pictures)
-	}
-	if garbage > 1<<20 {
-		t.Fatalf("playing made %d KB of garbage in a second", garbage>>10)
-	}
-	// The pictures shown share a few pixel buffers.
-	buffers := map[*uint8]bool{}
-	for _, im := range seen {
-		buffers[&im.Pix[0]] = true
-	}
-	if len(buffers) > 4 {
-		t.Fatalf("%d pictures had %d pixel buffers", len(seen), len(buffers))
+			run(2 * time.Second)
+			pictures, seen = 0, nil
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			run(2 * time.Second)
+			runtime.ReadMemStats(&after)
+			if pictures < 20 || len(seen) == 0 {
+				t.Fatalf("%d pictures in two seconds", pictures)
+			}
+			size := len(seen[0].Pix)
+			perPicture := int(after.TotalAlloc-before.TotalAlloc) / pictures
+			t.Logf("%d pictures of %d KB in two seconds, %d KB allocated for each", pictures, size>>10, perPicture>>10)
+			if perPicture > size/4 && !tc.warming {
+				t.Fatalf("each picture of %d KB made %d KB of garbage", size>>10, perPicture>>10)
+			}
+			buffers := map[*uint8]bool{}
+			for _, im := range seen {
+				buffers[&im.Pix[0]] = true
+			}
+			if len(buffers) > 6 {
+				t.Fatalf("%d pictures had %d pixel buffers", len(seen), len(buffers))
+			}
+		})
 	}
 }

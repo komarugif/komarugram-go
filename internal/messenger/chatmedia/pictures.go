@@ -30,23 +30,13 @@ func (r *pictureRing) next(m *Manager, e *entry, size image.Point) *image.RGBA {
 		return nil
 	}
 	n := size.X * size.Y * 4
-	e.mu.Lock()
-	used := func(pix []uint8) bool {
-		for _, im := range []image.Image{e.frame, e.pending, e.still} {
-			if rgba, ok := im.(*image.RGBA); ok && rgba != nil && len(rgba.Pix) > 0 && &rgba.Pix[0] == &pix[0] {
-				return true
-			}
-		}
-		return false
-	}
 	var free []uint8
 	for _, pix := range r.pix {
-		if len(pix) == n && !used(pix) {
+		if len(pix) == n && !e.uses(pix) {
 			free = pix
 			break
 		}
 	}
-	e.mu.Unlock()
 	if free == nil {
 		if len(r.pix) == ringPictures {
 			return nil
@@ -55,4 +45,20 @@ func (r *pictureRing) next(m *Manager, e *entry, size image.Point) *image.RGBA {
 		r.pix = append(r.pix, free)
 	}
 	return &image.RGBA{Pix: free, Stride: size.X * 4, Rect: image.Rectangle{Max: size}}
+}
+
+// uses reports whether pix are the pixels of the picture e shows, of the one
+// left for a frame, or of its still.
+func (e *entry) uses(pix []uint8) bool {
+	if len(pix) == 0 {
+		return false
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, im := range []image.Image{e.frame, e.pending, e.still} {
+		if rgba, ok := im.(*image.RGBA); ok && rgba != nil && len(rgba.Pix) > 0 && &rgba.Pix[0] == &pix[0] {
+			return true
+		}
+	}
+	return false
 }

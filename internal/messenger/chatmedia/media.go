@@ -15,6 +15,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -786,12 +787,20 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 				} else {
 					var lastIndex = -1
 					var last image.Image
+					var ring pictureRing
+					size := resample.Fit(a.Size.X, a.Size.Y, e.box, false)
 					frame = func(t time.Duration) (image.Image, error) {
 						index := int(t/a.File.FrameDuration) % a.FrameCount()
 						if index == lastIndex {
 							return last, nil
 						}
-						im, er := stickerFrame(ctx, a, t, e.box)
+						var im *image.RGBA
+						var er error
+						if dst := ring.next(m, e, size); dst != nil {
+							im, er = a.FrameSizedInto(ctx, t, dst)
+						} else {
+							im, er = stickerFrame(ctx, a, t, e.box)
+						}
 						if er != nil {
 							return nil, er
 						}
@@ -997,6 +1006,7 @@ func (m *Manager) playGIFSandbox(ctx context.Context, e *entry, data []byte, pub
 func (m *Manager) playVideoFrames(ctx context.Context, e *entry, v *h264.Video, publish func(image.Image, error)) error {
 	size := resample.Fit(v.Size().X, v.Size().Y, e.box, e.cover)
 	defer m.byWorker(e)()
+	var ring pictureRing
 	var idle, start time.Time
 	for {
 		e.mu.Lock()
@@ -1026,7 +1036,12 @@ func (m *Manager) playVideoFrames(ctx context.Context, e *entry, v *h264.Video, 
 		if err != nil {
 			return err
 		}
-		im := v.Picture(size)
+		var im *image.RGBA
+		if dst := ring.next(m, e, size); dst != nil {
+			im = v.PictureInto(dst)
+		} else {
+			im = v.Picture(size)
+		}
 		soonest := tickCeil(time.Now().Add(time.Nanosecond), 2)
 		if i == 0 || start.IsZero() {
 			// A loop, or a pause, starts the clock again.
@@ -1053,11 +1068,23 @@ func (m *Manager) playGIFFrames(ctx context.Context, e *entry, p *video.Player, 
 	defer m.byWorker(e)()
 	var idle time.Time
 	var last *image.RGBA
+	// offered are the frames left for the view, given back to p once they
+	// are not shown, as pictureRing does with its own.
+	var offered []*image.RGBA
 	for {
 		e.mu.Lock()
 		animate := e.animate
 		e.mu.Unlock()
 		p.SetPaused(!animate)
+		if m.clocked.Load() {
+			offered = slices.DeleteFunc(offered, func(im *image.RGBA) bool {
+				if e.uses(im.Pix) {
+					return false
+				}
+				p.Release(im)
+				return true
+			})
+		}
 		tick := tickFloor(time.Now(), 2)
 		if animate {
 			idle = time.Time{}
@@ -1068,6 +1095,7 @@ func (m *Manager) playGIFFrames(ctx context.Context, e *entry, p *video.Player, 
 			if im != nil && im != last {
 				last = im
 				m.offer(ctx, e, im, tick, 2, false, publish)
+				offered = append(offered, im)
 			}
 		} else if idle.IsZero() {
 			idle = time.Now()
