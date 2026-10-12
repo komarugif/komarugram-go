@@ -206,6 +206,19 @@ func (r *Runtime) open(ctx context.Context, name string, module api.Module, anim
 // reports how long the renderer took. The returned image is reused between
 // calls.
 func (a *Animation) FrameAt(ctx context.Context, elapsed time.Duration) (*image.RGBA, time.Duration, error) {
+	took, err := a.FrameInto(ctx, elapsed, a.frame)
+	if err != nil {
+		return nil, took, err
+	}
+	return a.frame, took, nil
+}
+
+// FrameInto is FrameAt drawing into dst, an image of the animation's size,
+// so that the caller decides which pictures it keeps.
+func (a *Animation) FrameInto(ctx context.Context, elapsed time.Duration, dst *image.RGBA) (time.Duration, error) {
+	if dst.Rect.Size() != a.Size || dst.Stride != a.Size.X*4 {
+		return 0, fmt.Errorf("%s: a frame of %v drawn into %v", a.Name, a.Size, dst.Rect.Size())
+	}
 	index := 0
 	if a.FrameCount > 0 {
 		index = int(elapsed.Seconds()*a.FPS) % a.FrameCount
@@ -219,24 +232,24 @@ func (a *Animation) FrameAt(ctx context.Context, elapsed time.Duration) (*image.
 		1, // antialias
 	)
 	if err != nil {
-		return nil, 0, fmt.Errorf("%s: render: %w", a.Name, err)
+		return 0, fmt.Errorf("%s: render: %w", a.Name, err)
 	}
 	took := time.Since(started)
 	if err := a.runtime.sandbox.Check(ctx, a.module, started); err != nil {
-		return nil, took, fmt.Errorf("%s: %w", a.Name, err)
+		return took, fmt.Errorf("%s: %w", a.Name, err)
 	}
 	if res[0] == 0 {
-		return nil, took, fmt.Errorf("%s: renderer returned no frame", a.Name)
+		return took, fmt.Errorf("%s: renderer returned no frame", a.Name)
 	}
 
 	pixels, ok := a.module.Memory().Read(uint32(res[0]), uint32(a.Size.X*a.Size.Y*4))
 	if !ok {
-		return nil, took, fmt.Errorf("%s: frame outside sandbox memory", a.Name)
+		return took, fmt.Errorf("%s: frame outside sandbox memory", a.Name)
 	}
 	// tlottie hands back straight alpha in RGBA byte order, while image.RGBA
 	// and Gio both expect the colours premultiplied.
-	premultiply(a.frame.Pix, pixels)
-	return a.frame, took, nil
+	premultiply(dst.Pix, pixels)
+	return took, nil
 }
 
 // Close tears down this animation's sandbox.

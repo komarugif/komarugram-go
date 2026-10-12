@@ -713,7 +713,15 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 				close = func() { a.Close(context.Background()) }
 				err = m.decodeLottieLoop(ctx, e, a, release, publish)
 			} else if err == nil {
-				frame = func(t time.Duration) (image.Image, error) { im, _, er := a.FrameAt(ctx, t); return clone(im), er }
+				var ring pictureRing
+				frame = func(t time.Duration) (image.Image, error) {
+					if dst := ring.next(m, e, a.Size); dst != nil {
+						_, er := a.FrameInto(ctx, t, dst)
+						return dst, er
+					}
+					im, _, er := a.FrameAt(ctx, t)
+					return clone(im), er
+				}
 				period = time.Duration(float64(time.Second) / a.FPS)
 				close = func() { a.Close(context.Background()) }
 			}

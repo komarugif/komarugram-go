@@ -984,3 +984,79 @@ func TestAnimationsShareTheFrameClock(t *testing.T) {
 		t.Fatalf("%d frames a second showed %d pictures at full rate, want 60 of both", frames, pictures)
 	}
 }
+
+// TestLottiePicturesReuseTheirPixels plays Lottie stickers for a view on the
+// frame's clock: each picture is drawn into pixels of a picture no longer
+// shown, not into new ones, so that playing makes next to no garbage.
+func TestLottiePicturesReuseTheirPixels(t *testing.T) {
+	data, err := os.ReadFile("../../../assets/stickers/sample.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A loop of half a second: the renderer's own memory in its sandbox
+	// grows while the animation plays its first loops.
+	data = bytes.Replace(data, []byte(`"op":180`), []byte(`"op":30`), 1)
+	var wakes atomic.Int32
+	m := NewShared(&fakeSource{data: data}, func() { wakes.Add(1) })
+	defer m.Close()
+	var msgs []model.Message
+	for i := range 5 {
+		msgs = append(msgs, model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprint("sticker", i), MIMEType: "application/x-tgsticker"}})
+	}
+	pictures := 0
+	var shown image.Image
+	var seen []*image.RGBA
+	draw := func() {
+		m.BeginFrameAt(time.Now())
+		for i, msg := range msgs {
+			im := m.StatusFullRate(msg, true, image.Pt(128, 128), false).Frame
+			if i == 0 && im != shown {
+				pictures++
+				shown = im
+				if rgba, ok := im.(*image.RGBA); ok {
+					seen = append(seen, rgba)
+				}
+			}
+		}
+		m.EndFrame()
+	}
+	// As a window would: a frame when woken, or when one is due.
+	run := func(d time.Duration) {
+		end := time.Now().Add(d)
+		last := wakes.Load()
+		draw()
+		for time.Now().Before(end) {
+			next := m.NextFrame()
+			if w := wakes.Load(); w != last || !next.IsZero() && !time.Now().Before(next) {
+				last = w
+				draw()
+			}
+			time.Sleep(200 * time.Microsecond)
+		}
+	}
+	run(2 * time.Second)
+	pictures, seen = 0, nil
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	run(2 * time.Second)
+	runtime.ReadMemStats(&after)
+	garbage := (after.TotalAlloc - before.TotalAlloc) / 2
+	pictures /= 2
+	// A picture of 128 pixels takes 64 KB: five stickers at 60 pictures a
+	// second would make some 19 MB of garbage drawn into new pixels.
+	t.Logf("%d pictures of one sticker, %d KB allocated in a second", pictures, garbage>>10)
+	if pictures < 30 {
+		t.Fatalf("%d pictures in a second", pictures)
+	}
+	if garbage > 1<<20 {
+		t.Fatalf("playing made %d KB of garbage in a second", garbage>>10)
+	}
+	// The pictures shown share a few pixel buffers.
+	buffers := map[*uint8]bool{}
+	for _, im := range seen {
+		buffers[&im.Pix[0]] = true
+	}
+	if len(buffers) > 4 {
+		t.Fatalf("%d pictures had %d pixel buffers", len(seen), len(buffers))
+	}
+}
