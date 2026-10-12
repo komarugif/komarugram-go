@@ -7,23 +7,58 @@ import (
 	"fmt"
 	"gio-mw/token"
 	"image"
+	"image/color"
 	"io"
 	"io/fs"
 	"log"
 	"os"
+	"slices"
+	"sync"
 
 	"gioui.org/layout"
 	"gioui.org/op/paint"
 	"gioui.org/widget"
 )
 
+// iconColors is how many colors and sizes of an icon stay rasterized.
+const iconColors = 4
+
+// RequireIconWidget returns the icon of IconVG data, or panics.
+//
+// A widget.Icon keeps the picture of the last color and size it drew: an
+// icon drawn in two colors in a frame, as the kind of a chat is in the
+// selected row of a list and in the others, would be rasterized again each
+// time. The few colors and sizes drawn last keep an Icon each. The icon may
+// be drawn by several windows at once.
 func RequireIconWidget(data []byte) IconWidget {
-	iconWidget, err := widget.NewIcon(data)
-	if err != nil {
+	if _, err := widget.NewIcon(data); err != nil {
 		panic(err)
 	}
+	type drawn struct {
+		color color.NRGBA
+		size  int
+		icon  *widget.Icon
+	}
+	var mu sync.Mutex
+	var recent []drawn // The last drawn first.
 	return func(gtx layout.Context, foreground token.MatColor) layout.Dimensions {
-		return iconWidget.Layout(gtx, foreground.AsNRGBA())
+		c, size := foreground.AsNRGBA(), gtx.Constraints.Min.X
+		mu.Lock()
+		defer mu.Unlock()
+		i := slices.IndexFunc(recent, func(d drawn) bool { return d.color == c && d.size == size })
+		var d drawn
+		if i >= 0 {
+			d = recent[i]
+			recent = slices.Delete(recent, i, i+1)
+		} else {
+			icon, _ := widget.NewIcon(data)
+			d = drawn{color: c, size: size, icon: icon}
+			if len(recent) == iconColors {
+				recent = recent[:iconColors-1]
+			}
+		}
+		recent = slices.Insert(recent, 0, d)
+		return d.icon.Layout(gtx, c)
 	}
 }
 
