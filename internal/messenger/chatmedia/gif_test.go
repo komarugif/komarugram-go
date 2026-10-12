@@ -16,10 +16,12 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"komarugram/internal/messenger/model"
+	"komarugram/pkg/h264"
 )
 
 // gifData is an animation of frames moving squares.
@@ -242,5 +244,102 @@ func TestGIFShowsThumbnailFirst(t *testing.T) {
 		if n := decoders(t); n != 0 {
 			t.Fatalf("%d decoders run for GIFs shown still", n)
 		}
+	}
+}
+
+// TestGIFsShareTheFrameClock plays a GIF, with ffmpeg and with the H.264
+// decoder in its sandbox, as video avatars play, for a view on the frame's
+// clock: once its first picture is shown it wakes the window no more, and the
+// frames NextFrame asks for, on the ticks of the clock every animation
+// shares, are no more than 30 a second.
+func TestGIFsShareTheFrameClock(t *testing.T) {
+	cases := []struct {
+		name string
+		msg  model.Message
+		data func(t *testing.T) []byte
+		set  func(t *testing.T, m *Manager)
+	}{
+		{"ffmpeg", model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "gif", MIMEType: "image/gif"}},
+			func(t *testing.T) []byte { return gifData(t, 24) },
+			func(t *testing.T, m *Manager) {
+				if _, err := exec.LookPath("ffmpeg"); err != nil {
+					t.Skip("no ffmpeg")
+				}
+				m.ConfigureDecoders(false, false, "")
+			}},
+		{"sandbox", model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "mp4", MIMEType: "video/mp4"}},
+			func(t *testing.T) []byte {
+				data, err := os.ReadFile("../../../assets/video.mp4")
+				if err != nil {
+					t.Fatal(err)
+				}
+				return data
+			},
+			func(t *testing.T, m *Manager) {
+				// The module is not in this repository: KOMARUGRAM_AVCDEC
+				// names a build of it.
+				path := os.Getenv("KOMARUGRAM_AVCDEC")
+				if path == "" {
+					t.Skip("set KOMARUGRAM_AVCDEC to an avcdec.wasm")
+				}
+				m.avc.open = func(ctx context.Context) (*h264.Runtime, error) {
+					module, err := os.ReadFile(path)
+					if err != nil {
+						return nil, err
+					}
+					return h264.NewRuntime(ctx, module)
+				}
+				m.ConfigureDecoders(false, true, "")
+			}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var wakes atomic.Int32
+			m := NewShared(&fakeSource{data: tc.data(t)}, func() { wakes.Add(1) })
+			defer m.Close()
+			tc.set(t, m)
+			var shown image.Image
+			frames, pictures := 0, 0
+			draw := func(counting bool) {
+				m.BeginFrameAt(time.Now())
+				status := m.StatusFit(tc.msg, true, image.Pt(100, 100), true)
+				m.EndFrame()
+				if status.Err != nil {
+					t.Fatal(status.Err)
+				}
+				if counting {
+					frames++
+					if status.Frame != shown {
+						pictures++
+					}
+				}
+				shown = status.Frame
+			}
+			// As a window would: a frame when woken, or when one is due.
+			run := func(d time.Duration, counting bool) {
+				end := time.Now().Add(d)
+				last := wakes.Load()
+				draw(counting)
+				for time.Now().Before(end) {
+					next := m.NextFrame()
+					if w := wakes.Load(); w != last || !next.IsZero() && !time.Now().Before(next) {
+						last = w
+						draw(counting)
+					}
+					time.Sleep(200 * time.Microsecond)
+				}
+			}
+			run(2*time.Second, false)
+			before := wakes.Load()
+			run(2*time.Second, true)
+			woke := wakes.Load() - before
+			t.Logf("%d frames, %d pictures a second; woken %d times", frames/2, pictures/2, woke)
+			if woke > 0 {
+				t.Fatalf("the playing GIF woke the window %d times", woke)
+			}
+			if frames/2 > 33 || pictures/2 < 10 {
+				t.Fatalf("%d frames a second showed %d pictures", frames/2, pictures/2)
+			}
+		})
 	}
 }

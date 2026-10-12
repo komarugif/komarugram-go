@@ -939,7 +939,7 @@ func (m *Manager) playGIF(ctx context.Context, e *entry, url string, publish fun
 			p = video.NewPlayerOfSize(url, size, e.ffmpeg)
 		}
 		p.Start()
-		err := playGIFFrames(ctx, e, p, publish)
+		err := m.playGIFFrames(ctx, e, p, publish)
 		p.Stop()
 		if err != nil {
 			publish(nil, err)
@@ -970,7 +970,7 @@ func (m *Manager) playGIFSandbox(ctx context.Context, e *entry, data []byte, pub
 			publish(nil, err)
 			return
 		}
-		err = playVideoFrames(ctx, e, v, publish)
+		err = m.playVideoFrames(ctx, e, v, publish)
 		v.Close(context.Background())
 		done()
 		if err != nil {
@@ -983,82 +983,152 @@ func (m *Manager) playGIFSandbox(ctx context.Context, e *entry, data []byte, pub
 	}
 }
 
-// playVideoFrames publishes the pictures of v, each at its time, while the
-// GIF animates, and returns once it has not for gifIdle.
-func playVideoFrames(ctx context.Context, e *entry, v *h264.Video, publish func(image.Image, error)) error {
+// playVideoFrames plays the pictures of v, each on the tick of the clock
+// every animation shares that is its time, while the GIF animates, and
+// returns once it has not for gifIdle.
+func (m *Manager) playVideoFrames(ctx context.Context, e *entry, v *h264.Video, publish func(image.Image, error)) error {
 	size := resample.Fit(v.Size().X, v.Size().Y, e.box, e.cover)
-	var idle, due, start time.Time
+	defer m.byWorker(e)()
+	var idle, start time.Time
 	for {
 		e.mu.Lock()
 		animate := e.animate
 		e.mu.Unlock()
-		wait := time.Second / 30
-		if animate {
-			idle = time.Time{}
-			i, err := v.Next(ctx)
-			if err != nil {
-				return err
-			}
-			publish(v.Picture(size), nil)
-			now := time.Now()
-			if i == 0 || due.IsZero() {
-				// A loop, or a pause, starts the clock again.
-				start = now.Add(-v.Time(i))
-			}
-			// Behind time, the next picture follows at once: a slow machine
-			// plays slower rather than skipping, which H.264 cannot.
-			due = start.Add(v.Time(i + 1))
-			wait = max(0, due.Sub(now))
-		} else {
-			due = time.Time{}
+		if !animate {
+			start = time.Time{}
 			if idle.IsZero() {
 				idle = time.Now()
 			} else if time.Since(idle) > gifIdle {
 				return nil
 			}
+			timer := time.NewTimer(time.Second / 30)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil
+			case <-timer.C:
+			case <-e.wake:
+				// Animation asked for again: the paused GIF resumes at once.
+				timer.Stop()
+			}
+			continue
 		}
-		timer := time.NewTimer(wait)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
+		idle = time.Time{}
+		i, err := v.Next(ctx)
+		if err != nil {
+			return err
+		}
+		im := v.Picture(size)
+		soonest := tickCeil(time.Now().Add(time.Nanosecond), 2)
+		if i == 0 || start.IsZero() {
+			// A loop, or a pause, starts the clock again.
+			start = soonest.Add(-v.Time(i))
+		}
+		at := tickCeil(start.Add(v.Time(i)-frameTick/2), 2)
+		if at.Before(soonest) {
+			// Behind time, the next picture follows at once: a slow machine
+			// plays slower rather than skipping, which H.264 cannot.
+			start = start.Add(soonest.Sub(at))
+			at = soonest
+		}
+		if !m.offer(ctx, e, im, at, 2, true, publish) {
 			return nil
-		case <-timer.C:
-		case <-e.wake:
-			// Animation asked for again: the paused GIF resumes at once.
-			timer.Stop()
 		}
 	}
 }
 
-// playGIFFrames publishes the frames of p while the GIF animates, and
-// returns once it has not for gifIdle.
-func playGIFFrames(ctx context.Context, e *entry, p *video.Player, publish func(image.Image, error)) error {
-	tick := time.NewTicker(time.Second / 30)
-	defer tick.Stop()
+// playGIFFrames shows the frames p plays, which ffmpeg paces itself, while
+// the GIF animates, and returns once it has not for gifIdle. It looks for a
+// new frame on every tick of the clock every animation shares a GIF shows
+// one on, and leaves it for that tick.
+func (m *Manager) playGIFFrames(ctx context.Context, e *entry, p *video.Player, publish func(image.Image, error)) error {
+	defer m.byWorker(e)()
 	var idle time.Time
+	var last *image.RGBA
 	for {
 		e.mu.Lock()
 		animate := e.animate
 		e.mu.Unlock()
 		p.SetPaused(!animate)
+		tick := tickFloor(time.Now(), 2)
 		if animate {
 			idle = time.Time{}
 			im, err := p.Frame()
 			if err != nil {
 				return err
 			}
-			if im != nil {
-				publish(im, nil)
+			if im != nil && im != last {
+				last = im
+				m.offer(ctx, e, im, tick, 2, false, publish)
 			}
 		} else if idle.IsZero() {
 			idle = time.Now()
 		} else if time.Since(idle) > gifIdle {
 			return nil
 		}
+		timer := time.NewTimer(time.Until(tick.Add(2 * frameTick)))
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return nil
-		case <-tick.C:
+		case <-timer.C:
+		}
+	}
+}
+
+// byWorker marks e as played by a worker, which offers its pictures, until
+// the returned function is called.
+func (m *Manager) byWorker(e *entry) func() {
+	e.mu.Lock()
+	e.animated, e.worker = true, true
+	e.mu.Unlock()
+	return func() {
+		e.mu.Lock()
+		e.worker, e.pending = false, nil
+		e.mu.Unlock()
+	}
+}
+
+// offer shows im, a picture of e, from at, a tick of every k-th. For a view
+// on the frame's clock the picture is left for the frame due, and with wait
+// offer returns once the frame took it, or e stopped animating; otherwise
+// it wakes the window at at. It reports false once ctx is done.
+func (m *Manager) offer(ctx context.Context, e *entry, im image.Image, at time.Time, k int64, wait bool, publish func(image.Image, error)) bool {
+	if !m.clocked.Load() {
+		if d := time.Until(at); d > 0 {
+			timer := time.NewTimer(d)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return false
+			case <-timer.C:
+			}
+		}
+		publish(im, nil)
+		return true
+	}
+	e.mu.Lock()
+	e.pending, e.pendingAt, e.every = im, at, k
+	e.mu.Unlock()
+	if !wait {
+		return true
+	}
+	// Stopped, it is not taken: the worker is to see it has to wait.
+	check := time.NewTicker(gifIdle / 4)
+	defer check.Stop()
+	for {
+		select {
+		case <-e.consumed:
+			return true
+		case <-ctx.Done():
+			return false
+		case <-check.C:
+			e.mu.Lock()
+			animate := e.animate
+			e.mu.Unlock()
+			if !animate {
+				return true
+			}
 		}
 	}
 }
@@ -1087,14 +1157,7 @@ func waitAnimation(ctx context.Context, e *entry) error {
 // the frame due, which shows it and schedules the next; otherwise it wakes
 // the window when due.
 func (m *Manager) playAnimation(ctx context.Context, e *entry, frame func(time.Duration) (image.Image, error), period time.Duration, publish func(image.Image, error)) {
-	e.mu.Lock()
-	e.animated, e.worker = true, true
-	e.mu.Unlock()
-	defer func() {
-		e.mu.Lock()
-		e.worker, e.pending = false, nil
-		e.mu.Unlock()
-	}()
+	defer m.byWorker(e)()
 	im, err := frame(0)
 	if err != nil {
 		publish(nil, err)
@@ -1138,25 +1201,9 @@ func (m *Manager) playAnimation(ctx context.Context, e *entry, frame func(time.D
 			return
 		}
 		shown = index
-		if m.clocked.Load() {
-			e.mu.Lock()
-			e.pending, e.pendingAt, e.every = im, at, k
-			e.mu.Unlock()
-			select {
-			case <-e.consumed:
-			case <-ctx.Done():
-				return
-			}
-			continue
-		}
-		timer := time.NewTimer(time.Until(at))
-		select {
-		case <-ctx.Done():
-			timer.Stop()
+		if !m.offer(ctx, e, im, at, k, true, publish) {
 			return
-		case <-timer.C:
 		}
-		publish(im, nil)
 	}
 }
 
