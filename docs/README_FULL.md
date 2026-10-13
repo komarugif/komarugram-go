@@ -73,6 +73,7 @@ From the repository root, so that the kitchen finds its media:
 ```sh
 go run ./cmd/messenger                     # sign in by phone number; the session is kept
 go run ./cmd/messenger -demo               # demo data, no account
+go run ./cmd/messenger -demo-signin        # demo data, after the sign-in that comes before an account (code 12345, cloud password demo)
 go run ./cmd/messenger -demo-chats 50000   # try the UI with a huge chat list
 go run ./cmd/messenger -tdata pkg/tdata/assets/tdata.zip          # import and open a real account
 go run ./cmd/messenger -tdata assets                              # import every tdata zip and open one window per account
@@ -288,7 +289,14 @@ messenger again, brings the windows back, and its menu quits. Without a tray,
 closing the last window quits as before. `-demo` (or
 `-demo-chats`) runs on demo data with no account; its settings are kept in
 memory only, and it never reads or changes the saved settings, accounts or
-local-data protection.
+local-data protection. `-demo-signin` first goes through what comes before an
+account is added, on the sign-in's own screens: the offers to install and to
+protect local data, the phone number, the code (`12345`) and the cloud
+password (`demo`, with its hint). It answers as Telegram does, refusing a
+number that is too short and a wrong code or password. Nothing is installed or
+sent anywhere, and the protection it turns on is kept by the password alone,
+in a directory of its own that is removed when the demo ends
+(`cmd/messenger/demo_signin.go`).
 
 `internal/messenger/account` keeps the registry, does the sign-in on top of
 gotd (`Add`, asking through the `Prompter` interface), imports tdata

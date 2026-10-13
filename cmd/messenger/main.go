@@ -32,6 +32,7 @@ import (
 	"komarugram/internal/messenger/install"
 	"komarugram/internal/messenger/langpack"
 	"komarugram/internal/messenger/localization"
+	"komarugram/internal/messenger/login"
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/preferences"
@@ -60,6 +61,7 @@ func main() {
 	demoChats := flag.Int("demo-chats", 0, "run on demo data with this many generated chats added")
 	demoPanic := flag.Bool("demo-panic", false, "show the recovered-panic dialog once on demo data")
 	demoNotify := flag.Duration("demo-notify", 0, "on demo data, receive a message this often, to try notifications")
+	demoSignInFlag := flag.Bool("demo-signin", false, "on demo data, first go through everything before an account is added: the offers to install and to protect local data, the phone number, the code ("+demoCode+") and the cloud password ("+demoPassword+"); nothing is installed or saved")
 	var tdataPaths pathsFlag
 	flag.Var(&tdataPaths, "tdata", "import a Telegram Desktop tdata zip or every zip in a directory; may be repeated")
 	check := flag.Bool("check", false, "import/load accounts without windows, print counts and exit")
@@ -134,7 +136,7 @@ func main() {
 	if profiling && *check {
 		fail("-profile requires a window; cannot be combined with -check")
 	}
-	demoMode := *demo || *demoChats > 0 || *demoPanic || *demoNotify > 0
+	demoMode := *demo || *demoChats > 0 || *demoPanic || *demoNotify > 0 || *demoSignInFlag
 	if demoMode && (*check || len(tdataPaths) > 0) {
 		fail("-demo runs without accounts; cannot be combined with -check or -tdata")
 	}
@@ -163,7 +165,7 @@ func main() {
 
 	if demoMode {
 		reportLastCrash(catalog)
-		runDemo(*demoChats, *profile, *profileDir, *demoPanic, *demoNotify)
+		runDemo(*demoChats, *profile, *profileDir, *demoPanic, *demoNotify, *demoSignInFlag)
 		return
 	}
 	// A second start brings the running instance back from the tray.
@@ -334,11 +336,29 @@ func reportLastCrash(catalog localization.Catalog) {
 
 // runDemo shows demo data with settings kept in memory only: the demo
 // neither reads nor changes the user's settings, accounts or local-data
-// protection.
-func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive time.Duration) {
+// protection. With signIn the window starts at the sign-in that comes before
+// the first account (demo_signin.go), and the demo's data show once it is done.
+func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive time.Duration, signIn bool) {
 	prefs := preferences.Memory()
 	followLanguage(prefs)
 	process := newProcess(profile, profileDir, nil)
+	var protection *security.Manager
+	if signIn {
+		manager, remove, err := demoProtection()
+		if err != nil {
+			log.Fatalf("demo sign-in: %v", err)
+		}
+		protection = manager
+		flush := process.BeforeExit
+		process.BeforeExit = func() {
+			remove()
+			if flush != nil {
+				flush()
+			}
+		}
+	}
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
 	opts := windowOptions(prefs)
 	opts.ProfileName = "demo"
 	opts.DemoPanic = panicDemo
@@ -412,15 +432,25 @@ func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive
 			}
 		}()
 	}
-	process.Open(appwindow.Spec{Options: opts, Build: func(w *appwindow.Window) appwindow.Content {
+	process.Open(appwindow.Spec{Options: opts, Closed: stop, Build: func(w *appwindow.Window) appwindow.Content {
 		content := ui.New(w, store, ui.Services{
 			Preferences: prefs,
 			MiniApps:    miniApps(prefs),
+			Security:    protection,
 			OpenWindow:  process.Open,
 			OfferEmoji:  true,
 		})
 		window.Store(w)
 		app.Store(content)
+		if signIn {
+			l := login.New(w.Invalidate)
+			content.RequireDemoLogin(l)
+			go func() {
+				if err := demoSignIn(ctx, l, demoPause); err != nil && !errors.Is(err, context.Canceled) {
+					log.Print(err)
+				}
+			}()
+		}
 		return content
 	}})
 	process.Main()
