@@ -193,6 +193,8 @@ type settingsPage struct {
 	setOverlays  func(preferences.Overlays)
 	blur         *checkbox.Checkboxes[string]
 	transparency *slider.Slider
+	// shadow is how dark the shadows of dialogs and menus are.
+	shadow *slider.Slider
 	// pauseInactive and setPauseInactive read and switch whether media
 	// animations stop in an inactive window; without them the checkbox is
 	// hidden.
@@ -344,6 +346,17 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			p.setWindowTransparency(v)
 		}
 	})
+	var shadowSteps []int
+	for v := 0; v <= preferences.ShadowMax; v += shadowStep {
+		shadowSteps = append(shadowSteps, v)
+	}
+	p.shadow = slider.StandardSlider(shadowSteps, preferences.ShadowDefault, func(v int) {
+		if p.overlays != nil && p.setOverlays != nil {
+			o := p.overlays()
+			o.Shadow = v
+			p.setOverlays(o)
+		}
+	})
 	p.transparency = slider.StandardSlider(steps, 30, func(v int) {
 		if p.overlays != nil && p.setOverlays != nil {
 			o := p.overlays()
@@ -444,6 +457,9 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 			}
 			if p.transparency.GetValue() != o.Transparency {
 				p.transparency.SetValue(o.Transparency)
+			}
+			if shadow := (o.Shadow + shadowStep/2) / shadowStep * shadowStep; p.shadow.GetValue() != shadow {
+				p.shadow.SetValue(shadow)
 			}
 		}
 		if got := p.blur.GetValues(); !slices.Equal(slices.Sorted(slices.Values(got)), slices.Sorted(slices.Values(want))) {
@@ -921,6 +937,9 @@ func (p *settingsPage) layoutAppearance(gtx layout.Context, mode themeMode, syst
 	if p.composerBlur != nil {
 		cards = append(cards, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutOverlays(gtx, l) }))
 	}
+	if p.overlays != nil {
+		cards = append(cards, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutShadow(gtx, l) }))
+	}
 	if p.emojiView.available() {
 		cards = append(cards, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return p.cardHeight("layoutAppearance-1").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.emojiView.Layout(gtx, l) }, defaultCardPadding)
@@ -1070,6 +1089,32 @@ func (p *settingsPage) layoutOverlays(gtx layout.Context, l localization.Catalog
 			}))
 		}
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
+	}, defaultCardPadding)
+}
+
+// shadowStep is the difference between the stops of the shadow's slider, in
+// percent.
+const shadowStep = 25
+
+// layoutShadow draws the card of the shadows under dialogs and menus: how
+// dark they are.
+func (p *settingsPage) layoutShadow(gtx layout.Context, l localization.Catalog) layout.Dimensions {
+	sc := scheme(gtx)
+	return p.cardHeight("layoutShadow-1").Card(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, l.T("settings.shadow"), token.TypestyleTitleMedium, sc.Surface.OnColor, 1)
+			}),
+			vspace(8),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, l.T("settings.shadow_intensity")+": "+strconv.Itoa(p.overlays().Shadow)+"%", token.TypestyleBodyLarge, sc.Surface.OnColor, 1)
+			}),
+			layout.Rigid(p.shadow.Layout),
+			vspace(4),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, l.T("settings.shadow_hint"), token.TypestyleBodySmall, sc.SurfaceVariant.OnColor, 0)
+			}),
+		)
 	}, defaultCardPadding)
 }
 

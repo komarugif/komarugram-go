@@ -916,6 +916,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	}
 	withWindowSurfaceOpacity(gtx, a.preferences.Global().WindowTransparency, transparent)
 	withLook(gtx, a.preferences.Global().Look)
+	withShadowIntensity(gtx, a.preferences.Global().Overlays.Shadow)
 	if trace := diagnostics.From(gtx.Values); trace != nil && trace.Recorder.Due(trace.Window, "cache-gauges", time.Second) {
 		defer func() {
 			r := trace.Recorder

@@ -192,11 +192,21 @@ type Overlays struct {
 	// toasts.
 	MenusBlur  bool `json:"menus_blur"`
 	ToastsBlur bool `json:"toasts_blur"`
+	// Shadow is how dark the shadows under dialogs and menus are, in
+	// percent of the full ones, from 0, none, to ShadowMax.
+	Shadow int `json:"shadow"`
 }
 
 // TransparencyMax is the most transparent an overlay can be made: past it
 // the text on the overlay could not be read.
 const TransparencyMax = 70
+
+// ShadowDefault is the intensity of shadows until the user changes it, and
+// ShadowMax the strongest one, in percent of the full shadow.
+const (
+	ShadowDefault = 75
+	ShadowMax     = 200
+)
 
 // Opacity is how opaque the overlays that blur are, from 0.3 to 1.
 func (o Overlays) Opacity() float32 { return 1 - float32(o.Transparency)/100 }
@@ -344,7 +354,7 @@ func defaults() Global {
 		ComposerBlur:   true,
 		AudioVolume:    100,
 		WindowBlur:     true,
-		Overlays:       Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true},
+		Overlays:       Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true, Shadow: ShadowDefault},
 		Ghost:          Ghost{SendRead: true, SendOnline: true, SendTyping: true, ReadOnInteract: true},
 		Keep:           Keep{Deleted: true, Edits: true},
 		Notify:         Notify{Desktop: true, Sound: true, Name: true, Text: true, Private: true, Groups: true, Channels: true, AllAccounts: true},
@@ -438,6 +448,9 @@ func validate(g Global) error {
 	}
 	if g.Overlays.Transparency < 0 || g.Overlays.Transparency > TransparencyMax {
 		return errors.New("invalid overlay transparency")
+	}
+	if g.Overlays.Shadow < 0 || g.Overlays.Shadow > ShadowMax {
+		return errors.New("invalid overlay shadow")
 	}
 	if g.WindowTransparency < 0 || g.WindowTransparency > TransparencyMax {
 		return errors.New("invalid window transparency")
@@ -745,6 +758,9 @@ func (s *Store) SetComposerBlur(on bool) error {
 func (s *Store) SetOverlays(o Overlays) error {
 	if o.Transparency < 0 || o.Transparency > TransparencyMax {
 		return errors.New("invalid overlay transparency")
+	}
+	if o.Shadow < 0 || o.Shadow > ShadowMax {
+		return errors.New("invalid overlay shadow")
 	}
 	return s.change(func(g *Global) { g.Overlays = o })
 }

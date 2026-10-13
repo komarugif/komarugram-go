@@ -57,7 +57,10 @@ func (s *widgetStyle) layoutTracks(gtx layout.Context) layout.Dimensions {
 	// stop it is at, fractional on the way, and everything is drawn from it.
 	anim := &s.Slider.animation
 	if anim.pressed.Duration == 0 {
-		anim.pressed.Duration = token.DurationShort3
+		// A slider is dragged and clicked: the handle starts moving at once
+		// and settles fast, not in the 200 ms of the standard curve.
+		anim.position.Duration, anim.position.Easing = positionDuration, &positionEasing
+		anim.pressed.Duration = token.DurationShort2
 	}
 	position := anim.position.Animate(gtx, float32(activeStopIndicatorIndex))
 	pressed := anim.pressed.Animate(gtx, boolToFloat(s.Slider.sStartDrag.Dragging()))

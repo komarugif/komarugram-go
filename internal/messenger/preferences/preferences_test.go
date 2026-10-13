@@ -68,7 +68,7 @@ func TestPersistsAndNotifies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Global{WindowBlur: true, Theme: ThemeLight, Language: "en", LastAccountID: "account-b", MotionMode: powersave.ModeOff, MotionSet: true, LowBattery: 25, MiniAppStorage: miniapp.PerApp, Composer: ComposerClassic, AudioVolume: 100, Player: player.VLC, VLCPath: "/opt/vlc/vlc", BrowserPath: "/opt/chromium/chrome", Ghost: Ghost{SendRead: true, SendOnline: true, SendTyping: true, ReadOnInteract: true}, Overlays: Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true}, Keep: Keep{Deleted: true, Edits: true}, Notify: Notify{Desktop: true, Sound: true, Name: true, Text: true, Private: true, Groups: true, Channels: true, AllAccounts: true}, Look: Look{BubbleRadius: BubbleRadiusMax, AvatarCorners: AvatarRound}}
+	want := Global{WindowBlur: true, Theme: ThemeLight, Language: "en", LastAccountID: "account-b", MotionMode: powersave.ModeOff, MotionSet: true, LowBattery: 25, MiniAppStorage: miniapp.PerApp, Composer: ComposerClassic, AudioVolume: 100, Player: player.VLC, VLCPath: "/opt/vlc/vlc", BrowserPath: "/opt/chromium/chrome", Ghost: Ghost{SendRead: true, SendOnline: true, SendTyping: true, ReadOnInteract: true}, Overlays: Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true, Shadow: ShadowDefault}, Keep: Keep{Deleted: true, Edits: true}, Notify: Notify{Desktop: true, Sound: true, Name: true, Text: true, Private: true, Groups: true, Channels: true, AllAccounts: true}, Look: Look{BubbleRadius: BubbleRadiusMax, AvatarCorners: AvatarRound}}
 	if got := loaded.Global(); !got.Equal(want) {
 		t.Fatalf("loaded %+v, want %+v", got, want)
 	}
@@ -228,11 +228,14 @@ func TestOverlays(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := s.Global().Overlays
-	if o.Transparency != 30 || !o.MenusBlur || !o.ToastsBlur || o.Opacity() != 0.7 {
+	if o.Transparency != 30 || !o.MenusBlur || !o.ToastsBlur || o.Opacity() != 0.7 || o.Shadow != ShadowDefault {
 		t.Fatalf("by default %+v", o)
 	}
 	if err := s.SetOverlays(Overlays{Transparency: TransparencyMax + 1}); err == nil {
 		t.Fatal("a transparency past the bound was accepted")
+	}
+	if err := s.SetOverlays(Overlays{Shadow: ShadowMax + 1}); err == nil {
+		t.Fatal("a shadow past the bound was accepted")
 	}
 	if err := s.SetOverlays(Overlays{Transparency: 55}); err != nil {
 		t.Fatal(err)
@@ -253,8 +256,23 @@ func TestOverlays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := loaded.Global().Overlays; got != (Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true}) {
+	if got := loaded.Global().Overlays; got != (Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true, Shadow: ShadowDefault}) {
 		t.Fatalf("an old file has %+v", got)
+	}
+	// Overlays saved before the shadow's setting keep the default shadows, and
+	// shadows turned off stay off.
+	for body, want := range map[string]int{`"transparency":40`: ShadowDefault, `"transparency":40,"shadow":0`: 0, `"shadow":150`: 150} {
+		file := `{"version":1,"global":{"theme":0,"language":"ru","motion_mode":0,"low_battery":20,"mini_app_storage":2,"overlays":{` + body + `}},"accounts":{}}`
+		if err := os.WriteFile(path, []byte(file), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		loaded, err = OpenPath(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := loaded.Global().Overlays.Shadow; got != want {
+			t.Errorf("overlays %s: shadow %d, want %d", body, got, want)
+		}
 	}
 	bad := `{"version":1,"global":{"theme":0,"language":"ru","motion_mode":0,"low_battery":20,"mini_app_storage":2,"overlays":{"transparency":99}},"accounts":{}}`
 	if err := os.WriteFile(path, []byte(bad), 0o600); err != nil {

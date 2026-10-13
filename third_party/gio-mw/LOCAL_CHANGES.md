@@ -94,7 +94,8 @@ animate as Material 3 describes, and every animation can be turned off.
     stop's index, fractional on the way, which the tracks, the stops and the
     handle are drawn from) instead of jumping, whether a drag, a click or
     `SetValue` moved it; the handle narrows and widens as it is pressed and
-    released. `slider_test.go`.
+    released. It moves in 100 ms, fast at the start (emphasized
+    decelerate), as a slider is dragged and clicked. `slider_test.go`.
 
 ## Surfaces
 

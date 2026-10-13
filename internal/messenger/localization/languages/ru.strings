@@ -1149,6 +1149,9 @@
 "settings.power" = "Энергосбережение";
 "settings.privacy" = "Приватность и безопасность";
 "settings.recovered" = "Не удалось показать раздел. Возврат к настройкам.";
+"settings.shadow" = "Тени";
+"settings.shadow_hint" = "Тени под диалогами и контекстными меню.";
+"settings.shadow_intensity" = "Интенсивность теней";
 "settings.show_open" = "Открыт — показать окно";
 "settings.storage_none" = "ничего не хранить";
 "settings.storage_per_app" = "отдельно для каждого приложения";

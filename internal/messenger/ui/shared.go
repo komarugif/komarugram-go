@@ -353,7 +353,8 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 		size := image.Pt(min(gtx.Constraints.Max.X, gtx.Dp(640)), min(gtx.Constraints.Max.Y, gtx.Dp(740)))
 		gtx.Constraints = layout.Exact(size)
 		defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(16)).Push(gtx.Ops).Pop()
-		fillRect(gtx, scheme(gtx).Surface.Color, size)
+		// The header has no color of its own: it is the body's.
+		fillRect(gtx, scheme(gtx).SurfaceContainerLow, size)
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.UniformInset(12).Layout(gtx, func(gtx layout.Context) layout.Dimensions {

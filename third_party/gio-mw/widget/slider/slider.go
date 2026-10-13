@@ -3,6 +3,7 @@
 package slider
 
 import (
+	"gio-mw/token"
 	"gio-mw/wdk"
 	"slices"
 
@@ -37,6 +38,11 @@ type Slider struct {
 // positionEpsilon is how close to a stop, in stops, the handle counts as
 // being at it.
 const positionEpsilon = 0.01
+
+// How the handle moves to a stop: quickly, and most of it at the start.
+const positionDuration = token.DurationShort2
+
+var positionEasing = token.EasingEmphasizedDecelerate
 
 // animation holds the animated drawing parameters of one slider.
 type animation struct {

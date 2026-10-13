@@ -71,7 +71,7 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	p.images = &images
 	p.composerStyle = func() preferences.ComposerStyle { return preferences.ComposerFloating }
 	p.composerBlur = func() bool { return true }
-	overlays := preferences.Overlays{Transparency: 30, MenusBlur: true}
+	overlays := preferences.Overlays{Transparency: 30, MenusBlur: true, Shadow: preferences.ShadowDefault}
 	windowBlur := true
 	p.windowBlur = func() bool { return windowBlur }
 	p.setWindowBlur = func(on bool) { windowBlur = on }

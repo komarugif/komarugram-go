@@ -1099,6 +1099,9 @@
 "settings.power" = "Power saving";
 "settings.privacy" = "Privacy and security";
 "settings.recovered" = "Could not display this section. Returned to settings.";
+"settings.shadow" = "Shadows";
+"settings.shadow_hint" = "The shadows under dialogs and context menus.";
+"settings.shadow_intensity" = "Shadow intensity";
 "settings.show_open" = "Open — show window";
 "settings.storage_none" = "store nothing";
 "settings.storage_per_app" = "separate for every app";

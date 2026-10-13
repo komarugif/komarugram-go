@@ -125,7 +125,7 @@ func (m *modal) Layout(gtx layout.Context, locked bool, content layout.Widget) b
 	}
 	size := gtx.Constraints.Max
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
-	scrim := scheme(gtx).Scrim.SetOpacity(token.OpacityLevel8)
+	scrim := scheme(gtx).Scrim.SetOpacity(scrimOpacity(gtx))
 	scrim.A = uint8(float32(scrim.A)*visibility + .5)
 	paint.Fill(gtx.Ops, scrim.AsNRGBA())
 	// The keyboard focus target lies under the scrim, which takes the clicks.
@@ -188,5 +188,5 @@ func (m *modal) animate(gtx layout.Context) float32 {
 
 // Card animates content-driven changes independently of the dialog's entrance.
 func (m *modal) Card(gtx layout.Context, content layout.Widget, padding unit.Dp) layout.Dimensions {
-	return m.height.Card(gtx, content, padding)
+	return m.height.card(gtx, content, padding, dialogSurface(gtx))
 }
