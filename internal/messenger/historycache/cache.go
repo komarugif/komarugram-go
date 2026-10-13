@@ -77,6 +77,8 @@ func (c *Cache) open() error {
 		return err
 	}
 	c.db.SetMaxOpenConns(1)
+	// Telegram's language packs were kept here, a copy an account, under
+	// "language/"; package langpack keeps one for all now.
 	_, err = c.db.Exec(`PRAGMA temp_store=memory;
  CREATE TABLE IF NOT EXISTS messages(chat INTEGER, id INTEGER, payload BLOB, deleted INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(chat,id));
  CREATE TABLE IF NOT EXISTS global_deletions(id INTEGER PRIMARY KEY);
@@ -86,6 +88,7 @@ func (c *Cache) open() error {
  CREATE TABLE IF NOT EXISTS edits(chat INTEGER,id INTEGER,at INTEGER,payload BLOB,PRIMARY KEY(chat,id,at));
  CREATE TABLE IF NOT EXISTS spans(chat INTEGER,low INTEGER,high INTEGER,PRIMARY KEY(chat,low));
  DROP INDEX IF EXISTS photos;
+ DELETE FROM kv WHERE key >= 'language/' AND key < 'language0';
  CREATE INDEX IF NOT EXISTS photo_videos ON messages(chat,id) WHERE ` + photoWhere + `;`)
 	if err == nil {
 		err = c.initSearch()

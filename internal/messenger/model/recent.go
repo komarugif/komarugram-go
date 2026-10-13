@@ -23,7 +23,7 @@ const RecentChatsLimit = 48
 // BumpChat returns list with c first, once, and no more than limit chats.
 // A chat is kept by what identifies and names it, not by what it last said.
 func BumpChat(list []Chat, c Chat, limit int) []Chat {
-	c.LastMessage, c.LastSender, c.Unread, c.LastTime, c.Pinned, c.PinRank = "", "", 0, time.Time{}, false, 0
+	c.Last, c.Unread, c.LastTime, c.Pinned, c.PinRank = Preview{}, 0, time.Time{}, false, 0
 	out := make([]Chat, 0, min(len(list)+1, limit))
 	out = append(out, c)
 	for _, old := range list {

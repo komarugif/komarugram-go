@@ -53,8 +53,8 @@ type notifySettings struct {
 	set    func(preferences.Notify)
 	groups []*notifyGroup
 	// texts are the switches' texts in language.
-	texts    map[string]string
-	language localization.Language
+	texts   map[string]string
+	catalog localization.Catalog
 }
 
 func newNotifySettings() *notifySettings {
@@ -93,8 +93,8 @@ func (s *notifySettings) Layout(gtx layout.Context, l localization.Catalog, acco
 	if s.get == nil {
 		return layout.Dimensions{}
 	}
-	if s.texts == nil || s.language != l.Language() {
-		s.texts, s.language = map[string]string{}, l.Language()
+	if s.texts == nil || s.catalog != l {
+		s.texts, s.catalog = map[string]string{}, l
 		for _, g := range s.groups {
 			for _, key := range g.keys {
 				s.texts[key] = l.T("notify." + key)

@@ -10,17 +10,10 @@ package login
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"strings"
 	"sync"
-	"time"
-
-	"github.com/gotd/td/telegram/auth"
-	"github.com/gotd/td/tgerr"
 
 	"komarugram/internal/messenger/account"
-	"komarugram/internal/messenger/security"
 )
 
 // Step is what the sign-in is doing or waiting for.
@@ -53,13 +46,13 @@ type State struct {
 	Step Step
 	// Busy is set from an answer being sent until the next step is ready.
 	Busy bool
-	// Problem is what was wrong with the previous answer or attempt, in
-	// words for the user; empty if nothing.
-	Problem string
+	// Problem is what was wrong with the previous answer or attempt; nil
+	// if nothing. The interface words it.
+	Problem error
 	// Phone is the number the code was sent to, at StepCode.
 	Phone string
 	// Delivery says where the code went, at StepCode.
-	Delivery string
+	Delivery account.CodeKind
 	// CodeLength is the number of digits in the code, 0 if unknown.
 	CodeLength int
 	// Hint is the account's hint for its 2FA password, at StepPassword.
@@ -138,7 +131,7 @@ func (l *Login) give(a answer, steps ...Step) {
 	if ok {
 		l.waiting = false
 		l.state.Busy = true
-		l.state.Problem = ""
+		l.state.Problem = nil
 	}
 	l.mu.Unlock()
 	if ok {
@@ -187,7 +180,7 @@ func (l *Login) Run(ctx context.Context, connect func(ctx context.Context, p acc
 		if err == nil || ctx.Err() != nil {
 			return err
 		}
-		l.set(State{Step: StepFailed, Problem: explain(err)})
+		l.set(State{Step: StepFailed, Problem: err})
 		select {
 		case <-l.retry:
 		case <-ctx.Done():
@@ -228,7 +221,7 @@ func (l *Login) OfferInstall(ctx context.Context) (string, error) {
 
 // Phone implements account.Prompter.
 func (l *Login) Phone(ctx context.Context, problem error) (string, error) {
-	a, err := l.ask(ctx, State{Step: StepPhone, Problem: explain(problem)})
+	a, err := l.ask(ctx, State{Step: StepPhone, Problem: problem})
 	phone := normalizePhone(a.text)
 	l.mu.Lock()
 	l.phone = phone
@@ -244,8 +237,8 @@ func (l *Login) Code(ctx context.Context, sent account.CodeInfo, problem error) 
 	a, err := l.ask(ctx, State{
 		Step:       StepCode,
 		Phone:      phone,
-		Problem:    explain(problem),
-		Delivery:   delivery(sent.Kind),
+		Problem:    problem,
+		Delivery:   sent.Kind,
 		CodeLength: sent.Length,
 	})
 	if a.back {
@@ -256,7 +249,7 @@ func (l *Login) Code(ctx context.Context, sent account.CodeInfo, problem error) 
 
 // Password implements account.Prompter.
 func (l *Login) Password(ctx context.Context, hint string, problem error) (string, error) {
-	a, err := l.ask(ctx, State{Step: StepPassword, Problem: explain(problem), Hint: hint})
+	a, err := l.ask(ctx, State{Step: StepPassword, Problem: problem, Hint: hint})
 	if a.back {
 		return "", account.ErrBack
 	}
@@ -276,66 +269,4 @@ func normalizePhone(s string) string {
 		return ""
 	}
 	return "+" + string(digits)
-}
-
-func delivery(k account.CodeKind) string {
-	switch k {
-	case account.CodeApp:
-		return "Код отправлен в приложение Telegram на другом вашем устройстве."
-	case account.CodeSMS:
-		return "Код отправлен в SMS."
-	case account.CodeCall:
-		return "Код продиктуют по телефону."
-	}
-	return "Код отправлен."
-}
-
-// explain says in Russian what went wrong; empty for no error.
-func explain(err error) string {
-	if err == nil {
-		return ""
-	}
-	if wait, ok := tgerr.AsFloodWait(err); ok {
-		return fmt.Sprintf("Слишком много попыток. Подождите %s.", waitText(wait))
-	}
-	switch {
-	case errors.Is(err, account.ErrNoConnection):
-		return "Нет ответа от Telegram. Проверьте интернет; если Telegram у вас не открывается напрямую, задайте прокси (переменная KOMARUGRAM_PROXY или флаг -proxy)."
-	case errors.Is(err, account.ErrAccountExists):
-		return "Этот аккаунт уже добавлен. Откройте его из списка аккаунтов в настройках."
-	case errors.Is(err, security.ErrLocked):
-		return "Локальные данные заблокированы."
-	case errors.Is(err, account.ErrInUse):
-		return "Этот сеанс уже открыт в другом окне приложения."
-	case errors.Is(err, auth.ErrPasswordInvalid):
-		return "Неверный пароль."
-	case errors.Is(err, account.ErrNoAccount):
-		return "Для этого номера нет аккаунта Telegram. Регистрация здесь не поддерживается."
-	case errors.Is(err, account.ErrCodeUnsupported):
-		return "Telegram просит привязать почту для получения кода. Сделайте это в официальном приложении."
-	case tgerr.Is(err, "PHONE_NUMBER_INVALID"):
-		return "Неверный номер телефона."
-	case tgerr.Is(err, "PHONE_NUMBER_BANNED"):
-		return "Этот номер заблокирован."
-	case tgerr.Is(err, "PHONE_CODE_INVALID", "PHONE_CODE_EMPTY"):
-		return "Неверный код."
-	case tgerr.Is(err, "PHONE_CODE_EXPIRED"):
-		return "Код устарел. Запросите новый."
-	case tgerr.Is(err, "PHONE_NUMBER_FLOOD", "PHONE_PASSWORD_FLOOD"):
-		return "Слишком много попыток. Попробуйте позже."
-	case tgerr.Is(err, "API_ID_INVALID", "API_ID_PUBLISHED_FLOOD"):
-		return "Telegram отклонил приложение (api_id)."
-	}
-	return "Не удалось подключиться: " + err.Error()
-}
-
-func waitText(d time.Duration) string {
-	switch secs := int(d.Round(time.Second) / time.Second); {
-	case secs < 60:
-		return fmt.Sprintf("%d с", max(secs, 1))
-	case secs < 3600:
-		return fmt.Sprintf("%d мин", (secs+59)/60)
-	default:
-		return fmt.Sprintf("%d ч", (secs+3599)/3600)
-	}
 }

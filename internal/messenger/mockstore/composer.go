@@ -117,7 +117,7 @@ func (s *Store) Send(ctx context.Context, chat int64, out model.OutgoingMessage)
 	s.histories[chat] = h
 	for i := range s.chats {
 		if s.chats[i].ID == chat {
-			s.chats[i].LastMessage = m.Text
+			s.chats[i].Last.Text = m.Text
 			s.chats[i].LastTime = m.Date
 		}
 	}

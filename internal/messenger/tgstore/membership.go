@@ -75,7 +75,7 @@ func (s *Store) PrepareLeave(ctx context.Context, chat int64) (model.LeavePlan, 
 		return model.LeavePlan{}, err
 	}
 	if u, ok := user.(*tg.User); ok && !u.Deleted {
-		plan.SuccessorID, plan.SuccessorName = u.ID, userName(u)
+		plan.SuccessorID, plan.SuccessorName = u.ID, personName(u)
 	} else {
 		return model.LeavePlan{}, errors.New("Telegram did not identify the future owner")
 	}

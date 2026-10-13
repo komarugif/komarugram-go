@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"komarugram/assets"
+	"komarugram/internal/messenger/localization"
 	"komarugram/pkg/program"
 )
 
@@ -163,7 +164,7 @@ func trust(ctx context.Context, path string) {
 func desktopEntry(name, exe, icon string, hidden, made bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[Desktop Entry]\nType=Application\nName=%s\n", name)
-	b.WriteString("Comment=Telegram client\nComment[ru]=Клиент Telegram\n")
+	localized(&b, "Comment", "install.comment")
 	fmt.Fprintf(&b, "Exec=%s\n", execQuote(exe))
 	fmt.Fprintf(&b, "Icon=%s\n", icon)
 	b.WriteString("Terminal=false\nCategories=Network;InstantMessaging;Chat;\n")
@@ -173,9 +174,26 @@ func desktopEntry(name, exe, icon string, hidden, made bool) string {
 	fmt.Fprintf(&b, "%s=%s\n", exeKey, exe)
 	fmt.Fprintf(&b, "%s=%t\n", madeKey, made)
 	b.WriteString("Actions=uninstall;\n\n[Desktop Action uninstall]\n")
-	b.WriteString("Name=Uninstall\nName[ru]=Удалить\n")
+	localized(&b, "Name", "install.uninstall_action")
 	fmt.Fprintf(&b, "Exec=%s -uninstall\n", execQuote(exe))
 	return b.String()
+}
+
+// localized writes a desktop file's key with the text of the client's key:
+// English for any language, then each language's own.
+func localized(b *strings.Builder, key, text string) {
+	fmt.Fprintf(b, "%s=%s\n", key, localization.For(string(localization.English)).T(text))
+	for _, l := range localization.Languages() {
+		if l != localization.English {
+			// The specification names a language as POSIX locales do:
+			// pt_BR for Telegram's pt-br.
+			code, region, _ := strings.Cut(string(l), "-")
+			if region != "" {
+				code += "_" + strings.ToUpper(region)
+			}
+			fmt.Fprintf(b, "%s[%s]=%s\n", key, code, localization.For(string(l)).T(text))
+		}
+	}
 }
 
 // execQuote quotes a path for a desktop file's Exec key: in double quotes,

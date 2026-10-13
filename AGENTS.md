@@ -45,8 +45,9 @@ Russian; code, comments and docs are in English.
   Telegram for Android is the second reference, for what Telegram Desktop
   lacks or does differently (`TMessagesProj/src/main/java/org/telegram`;
   its strings in `TMessagesProj/src/main/res/values/strings.xml`).
-  Texts shown to the user map to tdesktop's `lng_…` keys in
-  `internal/messenger/localization` (`TelegramKeys`).
+  Texts shown to the user are keys of `internal/messenger/localization`,
+  in its `languages/*.strings`, and map to tdesktop's `lng_…` keys in its
+  `telegram_keys.strings`: `docs/LOCALIZATION.md`.
 - Performance or memory: `docs/PROFILING.md`; README "Pitfalls".
 
 ## Commands

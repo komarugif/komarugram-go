@@ -59,7 +59,7 @@ func (p peerRecord) withMetadata(chat model.Chat) model.Chat {
 		}
 		if p.Rights.Self {
 			chat.Kind = model.KindSaved
-			chat.Title = "Избранное"
+			chat.Title = ""
 		}
 	}
 	if p.Metadata.Known {

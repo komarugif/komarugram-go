@@ -21,6 +21,7 @@ func main() {
 		Locale:       system.Locale{Language: "en", Direction: system.LTR},
 		QuitOnEscape: true,
 	}
+	appwindow.SetLanguage("en")
 	appwindow.Main(opts, func(w *appwindow.Window) appwindow.Content {
 		services.SetMotionService(w.Motion)
 		return app_shell.NewAppShell(w.Window)

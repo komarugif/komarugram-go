@@ -20,9 +20,13 @@ put it next to these, and add it to this page.
 - **Colors and type come from the theme.** `scheme(gtx)` returns the MD3
   color scheme; text uses `token.Typestyle…`. No literal colors.
 - **Text comes from the catalog.** Every string is a key of
-  `localization.Catalog` (`l.T`, `l.Format`, `l.Count`), with Russian and
-  English values. When Telegram Desktop shows the same text, the key maps to
-  its `lng_…` key in `TelegramKeys`, and the server's language pack wins.
+  `localization.Catalog` (`l.T`, `l.Format`, `l.Count`), with a value in
+  each file of `localization/languages`. When Telegram Desktop shows the
+  same text, the key maps to its `lng_…` key in `telegram_keys.strings`,
+  and the server's language pack wins. A store hands data, not words: a
+  chat's last message is a `model.Preview` the interface words
+  (`l.Preview`), Saved Messages' title is `l.ChatTitle`. See
+  `docs/LOCALIZATION.md`.
 - **Motion follows the settings.** Animations use `wdk` tweens with `token`
   durations and easings; pass `animate` (from `Window.Motion`) where a
   component can do without, as the spoiler does.

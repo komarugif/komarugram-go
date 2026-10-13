@@ -72,7 +72,7 @@ func (p *photoWindow) Layout(gtx layout.Context) {
 }
 
 func (p *photoWindow) Locale() system.Locale {
-	return system.Locale{Language: string(p.catalog.Language()), Direction: system.LTR}
+	return WindowLocale(p.catalog)
 }
 
 func (p *photoWindow) SetSuspended(hidden bool) {
@@ -125,7 +125,7 @@ func (a *App) openPhotoWindow(chat int64, m model.Message, known photoList) {
 	title := catalog.T("viewer.window")
 	for _, c := range a.store.Chats() {
 		if c.ID == chat {
-			title += " — " + c.Title
+			title += " — " + catalog.ChatTitle(c)
 		}
 	}
 	source := a.history.source

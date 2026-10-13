@@ -416,7 +416,7 @@ func (a *articleWindow) layoutSteps(gtx layout.Context, l localization.Catalog) 
 }
 
 func (a *articleWindow) Locale() system.Locale {
-	return system.Locale{Language: string(a.catalog.Language()), Direction: system.LTR}
+	return WindowLocale(a.catalog)
 }
 
 func (a *articleWindow) SetSuspended(hidden bool) {
@@ -498,7 +498,7 @@ func (a *App) openArticleWindow(m model.Message, fragment string) {
 	title := ""
 	for _, c := range a.store.Chats() {
 		if c.ID == m.Key.ChatID {
-			title = c.Title
+			title = a.catalog().ChatTitle(c)
 		}
 	}
 	a.openArticleWindowOf(m, fragment, title, articleSource{})

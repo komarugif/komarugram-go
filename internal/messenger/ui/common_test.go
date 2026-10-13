@@ -11,17 +11,6 @@ import (
 	"komarugram/internal/messenger/localization"
 )
 
-func TestPlural(t *testing.T) {
-	for n, want := range map[int]string{
-		0: "many", 1: "one", 2: "few", 4: "few", 5: "many", 11: "many", 12: "many",
-		14: "many", 21: "one", 22: "few", 25: "many", 101: "one", 111: "many", 112: "many",
-	} {
-		if got := plural(n, "one", "few", "many"); got != want {
-			t.Errorf("plural(%d) = %s, want %s", n, got, want)
-		}
-	}
-}
-
 func TestAvatarColorIndex(t *testing.T) {
 	for _, id := range []int64{0, 1, 6, 7, 1 << 40, -1, -2, -7, -1001234567890, -1 << 62} {
 		if i := avatarColorIndex(id); i < 0 || i >= len(avatarColors) {

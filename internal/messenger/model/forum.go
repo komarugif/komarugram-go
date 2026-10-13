@@ -24,9 +24,9 @@ type Topic struct {
 	// Unread counts the messages not read, Mentions those that name the
 	// account.
 	Unread, Mentions int
-	LastSender       string
-	LastMessage      string
-	LastTime         time.Time
+	// Last is the topic's last message, as the list shows it.
+	Last     Preview
+	LastTime time.Time
 }
 
 // TopicList is what a forum's topics look like so far.

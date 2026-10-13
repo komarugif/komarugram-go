@@ -28,10 +28,10 @@ func (s *Store) DeleteMessages(ctx context.Context, chat int64, ids []model.Mess
 	s.histories[chat] = h
 	for i := range s.chats {
 		if s.chats[i].ID == chat {
-			s.chats[i].LastMessage = ""
+			s.chats[i].Last.Text = ""
 			if len(messages) > 0 {
 				last := messages[len(messages)-1]
-				s.chats[i].LastMessage = last.Text
+				s.chats[i].Last.Text = last.Text
 				s.chats[i].LastTime = last.Date
 			}
 		}

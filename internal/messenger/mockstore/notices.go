@@ -47,7 +47,7 @@ func (s *Store) Receive() {
 	chats := append([]model.Chat(nil), s.chats...)
 	for i := range chats {
 		if chats[i].ID == in.chat {
-			chats[i].LastMessage, chats[i].LastSender, chats[i].LastTime = in.text, in.sender, m.Date
+			chats[i].Last, chats[i].LastTime = model.Preview{Text: in.text, Sender: in.sender}, m.Date
 			chats[i].Unread++
 			chat = chats[i]
 		}
@@ -57,6 +57,6 @@ func (s *Store) Receive() {
 	notices := s.notices
 	s.mu.Unlock()
 	if notices != nil && chat.ID != 0 {
-		notices(model.MessageNotice{Chat: chat, Sender: in.sender, Text: in.text})
+		notices(model.MessageNotice{Chat: chat, Message: model.Preview{Text: in.text, Sender: in.sender}})
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"context"
 	"komarugram/internal/messenger/model"
 	"testing"
-	"time"
 
 	"github.com/gotd/td/tg"
 )
@@ -76,25 +75,6 @@ func TestGiftAttributesPrivacyAndInstanceIdentity(t *testing.T) {
 	if e != nil || m.Key == second.Key {
 		t.Fatal("gift instances collide")
 	}
-}
-func TestLanguagePackKeepsPluralsAndLoadsOffline(t *testing.T) {
-	values := languageStrings([]tg.LangPackStringClass{&tg.LangPackString{Key: "lng_media_type_photos", Value: "PHOTO"}, &tg.LangPackStringPluralized{Key: "lng_profile_photos", OneValue: "{count} one", FewValue: "{count} few", ManyValue: "{count} many", OtherValue: "{count} other"}})
-	if values["lng_profile_photos#few"] != "{count} few" {
-		t.Fatal(values)
-	}
-	s := testStore(t)
-	if e := s.Cache().Put(context.Background(), "language/ru", values); e != nil {
-		t.Fatal(e)
-	}
-	s.LanguagePack("ru")
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if got := s.LanguagePack("ru"); got["lng_media_type_photos"] == "PHOTO" && got["lng_profile_photos#many"] != "" {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
-	t.Fatal("offline server language pack not restored")
 }
 
 // A paragraph's anchor at its start is the block's; one inside it stays

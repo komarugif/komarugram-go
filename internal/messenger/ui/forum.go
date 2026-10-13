@@ -44,6 +44,8 @@ type forumPage struct {
 	retry  surface
 	// spinner is the indicator of the first page on its way.
 	spinner loadingIndicator
+	// group is the forum's title, for a service message's preview.
+	group string
 	// emoji draws a custom emoji, for a topic's icon.
 	emoji func(gtx layout.Context, id int64, size unit.Dp) layout.Dimensions
 	// open shows a topic; openAt shows it at a message.
@@ -122,6 +124,7 @@ func (f *forumPage) layout(gtx layout.Context, c model.Chat, source model.ForumS
 	sc := scheme(gtx)
 	size := gtx.Constraints.Max
 	fillRect(gtx, sc.Surface.Color, size)
+	f.group = c.Title
 	list := source.Topics(c.ID)
 	switch {
 	case len(list.Topics) == 0 && list.Err != nil:
@@ -311,18 +314,18 @@ func (f *forumPage) layoutTopicText(gtx layout.Context, t model.Topic, area imag
 		messageWidth -= px + gtx.Dp(8)
 	}
 	x := area.Min.X
-	if t.LastSender != "" {
+	sender, message := l.Preview(t.Last, f.group, false)
+	if sender != "" {
 		senderGtx := gtx
 		senderGtx.Constraints.Max.X = max(messageWidth/2, 0)
 		dims := offset(senderGtx, image.Pt(x, lineY), func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, t.LastSender+": ", token.TypestyleBodyMedium, accent, 1)
+			return label(gtx, sender+": ", token.TypestyleBodyMedium, accent, 1)
 		})
 		x += dims.Size.X
 		messageWidth -= dims.Size.X
 	}
 	messageGtx := gtx
 	messageGtx.Constraints.Max.X = max(messageWidth, 0)
-	message := t.LastMessage
 	if message == "" {
 		message = l.T("forum.no_messages")
 	}

@@ -30,11 +30,7 @@ func (s *Store) notice(m model.Message, chat model.Chat, raw tg.MessageClass) {
 	if f == nil || chat.ID == 0 || m.Outgoing || m.Kind == model.MessageService || chat.Kind == model.KindSaved || time.Since(m.Date) > noticeAge {
 		return
 	}
-	n := model.MessageNotice{Chat: chat}
-	n.Text, n.Sender = topicPreview(m)
-	if chat.Kind != model.KindGroup {
-		n.Sender = ""
-	}
+	n := model.MessageNotice{Chat: chat, Message: messagePreview(m, chat.Kind == model.KindGroup)}
 	if r, ok := raw.(*tg.Message); ok {
 		n.Silent = r.Silent
 	}

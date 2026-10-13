@@ -7,7 +7,7 @@ import (
 )
 
 func TestChatStringsPreferTelegramAndPluralForms(t *testing.T) {
-	c := For("ru").WithTelegram(map[string]string{"lng_media_type_photos": "SERVER PHOTOS", "lng_profile_photos#one": "ONE {count}", "lng_profile_photos#few": "FEW {count}", "lng_profile_photos#many": "MANY {count}", "lng_gift_unique_model": "SERVER MODEL", "lng_gift_unique_number": "NUMBER {index}", "lng_credits_box_out_about": "Please read {link}.", "lng_gift_stars_title#many": "{count} SERVER STARS"})
+	c := For("ru").WithPack(testPack("ru", map[string]string{"lng_media_type_photos": "SERVER PHOTOS", "lng_profile_photos#one": "ONE {count}", "lng_profile_photos#few": "FEW {count}", "lng_profile_photos#many": "MANY {count}", "lng_gift_unique_model": "SERVER MODEL", "lng_gift_unique_number": "NUMBER {index}", "lng_credits_box_out_about": "Please read {link}.", "lng_gift_stars_title#many": "{count} SERVER STARS"}))
 	if c.T("shared.photos") != "SERVER PHOTOS" || c.T("gift.model") != "SERVER MODEL" {
 		t.Fatal("server strings ignored")
 	}
@@ -29,7 +29,7 @@ func TestAllSharedHeadingsAndGiftLabelsHaveServerKeys(t *testing.T) {
 		keys = append(keys, "shared."+string(k), "shared.count."+string(k))
 	}
 	for _, key := range keys {
-		if !strings.HasPrefix(TelegramKeys[key], "lng_") {
+		if !strings.HasPrefix(telegramKey(key), "lng_") {
 			t.Errorf("missing server mapping: %s", key)
 		}
 		if For("en").T(key) == key || For("ru").T(key) == key {

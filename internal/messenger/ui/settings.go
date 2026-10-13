@@ -27,6 +27,7 @@ import (
 
 	"komarugram/internal/appwindow"
 	"komarugram/internal/messenger/localization"
+	"komarugram/internal/messenger/localization/viewtexts"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/preferences"
 	"komarugram/internal/messenger/security"
@@ -119,10 +120,12 @@ type settingsPage struct {
 	items     map[settingsSection]*settingsItem
 	back      *button.Button
 
-	motion      *motion.Settings
-	miniapps    *miniappprefs.Settings
-	theme       *radio.Radios[themeMode]
-	language    *radio.Radios[string]
+	motion   *motion.Settings
+	miniapps *miniappprefs.Settings
+	theme    *radio.Radios[themeMode]
+	language *radio.Radios[string]
+	// worded is the catalog animations and privacy took their texts from.
+	worded      localization.Catalog
 	animations  *motion.View
 	privacy     *miniappprefs.View
 	security    *securityView
@@ -232,9 +235,10 @@ type settingsPage struct {
 }
 
 func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protection *security.Manager, invalidate func(), accounts model.Accounts, accountID func() string, mode themeMode, language string, setMode func(themeMode), setLanguage func(string)) *settingsPage {
-	animations := motion.NewView(m, motion.Russian)
+	l := localization.For(language)
+	animations := motion.NewView(m, viewtexts.Motion(l))
 	animations.TitleStyle = token.TypestyleTitleMedium
-	privacy := miniappprefs.NewView(miniapps, miniappprefs.Russian)
+	privacy := miniappprefs.NewView(miniapps, viewtexts.MiniApps(l))
 	privacy.TitleStyle = token.TypestyleTitleMedium
 	p := &settingsPage{
 		about: newAboutView(invalidate),
@@ -253,7 +257,7 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 		motion:        m,
 		miniapps:      miniapps,
 		theme:         radio.NewRadios([]themeMode{themeAuto, themeLight, themeDark}, mode, setMode),
-		language:      radio.NewRadios([]string{"ru", "en"}, language, setLanguage),
+		language:      radio.NewRadios(languageCodes(), language, setLanguage),
 		animations:    animations,
 		privacy:       privacy,
 		security:      newSecurityView(protection, invalidate),
@@ -364,12 +368,10 @@ func (p *settingsPage) open() {
 }
 
 func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language string) {
-	if language == "en" {
-		p.animations.SetStrings(motion.English)
-		p.privacy.SetStrings(miniappprefs.English)
-	} else {
-		p.animations.SetStrings(motion.Russian)
-		p.privacy.SetStrings(miniappprefs.Russian)
+	if l := localization.For(language); l != p.worded {
+		p.worded = l
+		p.animations.SetStrings(viewtexts.Motion(l))
+		p.privacy.SetStrings(viewtexts.MiniApps(l))
 	}
 	for _, account := range p.shownAccounts {
 		if row := p.accountRows[account.ID]; row != nil && row.click.Clicked(gtx) {
@@ -912,7 +914,7 @@ func (p *settingsPage) layoutAppearance(gtx layout.Context, mode themeMode, syst
 		vspace(12),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return settingsChoiceCard(gtx, p.cardHeight("choice-language"), l.T("settings.language"), "", func(gtx layout.Context) layout.Dimensions {
-				return p.language.Layout(gtx, radio.LeadingKind, map[string]string{"ru": "Русский", "en": "English"})
+				return p.language.Layout(gtx, radio.LeadingKind, languageNames())
 			})
 		}),
 	}
@@ -1350,10 +1352,7 @@ func limitValue(key string, value int, l localization.Catalog) string {
 		return strconv.Itoa(value)
 	}
 	gb := float64(value) * model.UploadPartSize / (1 << 20) / 1000
-	number := strconv.FormatFloat(math.Round(gb*10)/10, 'f', -1, 64)
-	if l.Language() == localization.Russian {
-		number = strings.Replace(number, ".", ",", 1)
-	}
+	number := strings.Replace(strconv.FormatFloat(math.Round(gb*10)/10, 'f', -1, 64), ".", l.T("number.decimal"), 1)
 	return fmt.Sprintf(l.T("premium.gb"), number)
 }
 

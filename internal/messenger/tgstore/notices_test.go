@@ -47,10 +47,10 @@ func TestNoticesOfNewIncomingMessages(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("%d notices: %+v", len(got), got)
 	}
-	if n := got[0]; n.Chat.ID != 5 || n.Chat.Title != "Alice" || n.Text != "hello" || n.Sender != "" || n.Silent {
+	if n := got[0]; n.Chat.ID != 5 || n.Chat.Title != "Alice" || n.Message.Text != "hello" || n.Message.Sender != "" || n.Silent {
 		t.Errorf("private: %+v", n)
 	}
-	if n := got[1]; n.Chat.ID != group || n.Sender != "Alice" || n.Text != "quiet" || !n.Silent {
+	if n := got[1]; n.Chat.ID != group || n.Message.Sender != "Alice" || n.Message.Text != "quiet" || !n.Silent {
 		t.Errorf("group: %+v", n)
 	}
 
@@ -59,7 +59,7 @@ func TestNoticesOfNewIncomingMessages(t *testing.T) {
 	until.SetMuteUntil(int(time.Now().Add(time.Hour).Unix()))
 	handle(&tg.UpdateNotifySettings{Peer: &tg.NotifyPeer{Peer: &tg.PeerUser{UserID: 5}}, NotifySettings: *until})
 	handle(&tg.UpdateNewMessage{Message: &tg.Message{ID: 15, PeerID: &tg.PeerUser{UserID: 5}, Message: "again", Date: now}})
-	if n := got[len(got)-1]; n.Text != "again" || !n.Chat.Muted {
+	if n := got[len(got)-1]; n.Message.Text != "again" || !n.Chat.Muted {
 		t.Errorf("after muting: %+v", n)
 	}
 }

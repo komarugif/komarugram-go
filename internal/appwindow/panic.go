@@ -42,9 +42,10 @@ func (s *panicScreen) layout(gtx layout.Context, p *crash.Panic) {
 		s.theme.Palette.Fg = color.NRGBA{R: 240, G: 226, B: 226, A: 255}
 	}
 	paint.Fill(gtx.Ops, s.theme.Bg)
-	text := "Ошибка отрисовки окна. Повторная попытка…\n\n" + p.Error()
+	l := texts()
+	text := l.T("window.redrawing") + "\n\n" + p.Error()
 	if dir, err := crash.Dir(); err == nil {
-		text += "\n\nОтчёты: " + dir
+		text += "\n\n" + l.Format("window.reports", map[string]string{"path": dir})
 	}
 	layout.UniformInset(unit.Dp(24)).Layout(gtx, material.Body1(s.theme, text).Layout)
 	gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(retryAfter)})

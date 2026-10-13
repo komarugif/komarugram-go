@@ -30,6 +30,7 @@ import (
 	"komarugram/internal/diagnostics"
 	"komarugram/internal/messenger/account"
 	"komarugram/internal/messenger/install"
+	"komarugram/internal/messenger/langpack"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
@@ -93,6 +94,9 @@ func main() {
 		program.SetSearching(false)
 	}
 	useWasmCache()
+	if config, err := os.UserConfigDir(); err == nil {
+		langpack.Configure(filepath.Join(config, "komarugram-go", "language"))
+	}
 	if *scrollLog != "" {
 		if err := logScroll(*scrollLog); err != nil {
 			log.Printf("scroll log: %v", err)
@@ -198,6 +202,7 @@ func main() {
 		if sharedPreferences, err = preferences.Open(); err != nil {
 			fail("settings: ", err)
 		}
+		followLanguage(sharedPreferences)
 		catalog = localization.For(sharedPreferences.Global().Language)
 		reportLastCrash(catalog)
 	}
@@ -332,6 +337,7 @@ func reportLastCrash(catalog localization.Catalog) {
 // protection.
 func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive time.Duration) {
 	prefs := preferences.Memory()
+	followLanguage(prefs)
 	process := newProcess(profile, profileDir, nil)
 	opts := windowOptions(prefs)
 	opts.ProfileName = "demo"
@@ -440,7 +446,7 @@ func windowOptions(prefs *preferences.Store) appwindow.Options {
 		Title:       catalog.T("app.title"),
 		Width:       unit.Dp(1200),
 		Height:      unit.Dp(760),
-		Locale:      system.Locale{Language: string(catalog.Language()), Direction: system.LTR},
+		Locale:      ui.WindowLocale(catalog),
 	}
 }
 
@@ -583,6 +589,13 @@ func (b *trayBalloon) Notify(title, text string, sound bool) error {
 // useWasmCache keeps the decoders' compiled code on disk between starts:
 // in the cache directory, signed with a key kept in the configuration
 // directory, apart from it. Without it they still share code in memory.
+// followLanguage words what windows show by themselves on failures in the
+// language of the settings, as it changes.
+func followLanguage(p *preferences.Store) {
+	appwindow.SetLanguage(p.Global().Language)
+	p.Subscribe(func() { appwindow.SetLanguage(p.Global().Language) })
+}
+
 func useWasmCache() {
 	cache, err := os.UserCacheDir()
 	if err != nil {

@@ -25,6 +25,8 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
+	"komarugram/internal/messenger/localization"
+	"komarugram/internal/messenger/localization/viewtexts"
 	"komarugram/internal/motion"
 )
 
@@ -51,7 +53,7 @@ func NewPage() router.PageWidget {
 	}
 	var animations *motion.View
 	if settings := services.GetMotionService(); settings != nil {
-		animations = motion.NewView(settings, motion.English)
+		animations = motion.NewView(settings, viewtexts.Motion(localization.For("en")))
 	}
 	return &Page{
 		animations:    animations,

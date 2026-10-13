@@ -430,7 +430,7 @@ Run repository build, vet, tests and formatting checks from `AGENTS.md` for
 implementation changes. Preserve Linux `nowayland`, `nox11`, `novulkan` builds
 and Windows amd64/arm64 cross-builds, with output outside the repository. No new
 dependency is planned; if one becomes necessary, present the choice before
-adding it. Map matching copy through `localization.TelegramKeys` using verified
+adding it. Map matching copy through `localization/telegram_keys.strings` using verified
 `lng_…` keys and placeholder contracts; write English/Russian fallbacks for
 Android-specific concepts with no equivalent. Android resource names are
 references, not valid tdesktop language-pack keys.

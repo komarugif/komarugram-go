@@ -39,7 +39,7 @@ func (h *Host) showPanic(p *crash.Panic) {
 	}
 	h.Open(Spec{
 		Options: Options{
-			Title: "Ошибка приложения", Width: unit.Dp(620), Height: unit.Dp(320),
+			Title: texts().T("window.error_title"), Width: unit.Dp(620), Height: unit.Dp(320),
 			TopMost: true, QuitOnEscape: true, panicDialog: true,
 		},
 		Build:  func(w *Window) Content { return newPanicDialog(w, p) },
@@ -95,7 +95,7 @@ func (d *panicDialog) Theme(gtx layout.Context) *token.Theme {
 func (d *panicDialog) Update(gtx layout.Context) {
 	if d.copy.Clicked(gtx) {
 		gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(d.p.Text()))})
-		d.status = "Отчёт скопирован"
+		d.status = texts().T("window.copied")
 	}
 	if d.open.Clicked(gtx) && d.p.Path != "" && !d.opening {
 		d.opening = true
@@ -105,9 +105,9 @@ func (d *panicDialog) Update(gtx layout.Context) {
 	case err := <-d.opened:
 		d.opening = false
 		if err != nil {
-			d.status = "Не удалось открыть файл: " + err.Error()
+			d.status = texts().Format("window.open_failed", map[string]string{"error": err.Error()})
 		} else {
-			d.status = "Файл открыт"
+			d.status = texts().T("window.opened")
 		}
 	default:
 	}
@@ -139,7 +139,7 @@ func (d *panicDialog) Layout(gtx layout.Context) {
 	paint.Fill(gtx.Ops, d.material.Bg)
 	layout.UniformInset(unit.Dp(24)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-			layout.Rigid(material.H6(d.material, "В приложении произошла ошибка").Layout),
+			layout.Rigid(material.H6(d.material, texts().T("window.panic")).Layout),
 			layout.Rigid(layout.Spacer{Height: unit.Dp(12)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				label := material.Body1(d.material, d.p.Error())
@@ -148,9 +148,9 @@ func (d *panicDialog) Layout(gtx layout.Context) {
 			}),
 			layout.Rigid(layout.Spacer{Height: unit.Dp(12)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				text := "Не удалось сохранить отчёт в файл. Его можно скопировать."
+				text := texts().T("window.report_unsaved")
 				if d.p.Path != "" {
-					text = "Отчёт: " + d.p.Path
+					text = texts().Format("window.report", map[string]string{"path": d.p.Path})
 				}
 				label := material.Body2(d.material, text)
 				label.MaxLines = 2
@@ -159,17 +159,17 @@ func (d *panicDialog) Layout(gtx layout.Context) {
 			layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return d.button(gtx, &d.copy, "Скопировать") }),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return d.button(gtx, &d.copy, texts().T("window.copy")) }),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						if d.p.Path == "" || d.opening {
 							gtx = gtx.Disabled()
 						}
-						return d.button(gtx, &d.open, "Открыть файл")
+						return d.button(gtx, &d.open, texts().T("window.open_file"))
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return d.button(gtx, &d.ignore, "Игнорировать")
+						return d.button(gtx, &d.ignore, texts().T("window.ignore"))
 					}),
 				)
 			}),

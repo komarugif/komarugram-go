@@ -1,11 +1,20 @@
 // SPDX-License-Identifier: Unlicense OR MIT
 
-// Package localization contains the client-owned UI catalog. Telegram server
-// language packs can later overlay matching keys, while application-specific
-// strings keep a reliable bundled fallback.
+// Package localization words the client's interface. Its own texts come
+// with it, a file a language in languages/; Telegram's language pack for
+// the language, when loaded (Install), takes their place for the keys
+// Telegram Desktop has (telegram_keys.strings). A language the client has
+// no file for shows Telegram's texts where the pack has them, English
+// elsewhere.
 package localization
 
-// Language is a supported UI language code.
+import (
+	"strconv"
+	"strings"
+	"sync"
+)
+
+// Language is a language's code, as Telegram names it ("ru", "pt-br").
 type Language string
 
 const (
@@ -13,324 +22,160 @@ const (
 	English Language = "en"
 )
 
-// Catalog is an immutable language view and is cheap to create per frame.
-type Catalog struct {
-	language Language
-	server   map[string]string
+// Languages are the languages the client comes with.
+func Languages() []Language {
+	out := make([]Language, len(bundled))
+	for i, b := range bundled {
+		out[i] = b.code
+	}
+	return out
 }
 
-// For returns a catalog, falling back to Russian for unknown saved values.
-func For(code string) Catalog {
-	lang := Language(code)
-	if lang != English && lang != Russian {
-		lang = Russian
-	}
-	return Catalog{language: lang}
-}
-
-func (c Catalog) Language() Language { return c.language }
-
-// T translates a stable application key. Missing English entries deliberately
-// fall back to Russian, so adding a UI string never renders an empty label.
-func (c Catalog) T(key string) string {
-	if value := c.server[TelegramKeys[key]]; value != "" {
-		return value
-	}
-	if c.language == English {
-		if value := english[key]; value != "" {
-			return value
+// Name is a language's name in itself, or its code.
+func (l Language) Name() string {
+	if b := bundleFor(l); b != nil {
+		if name := b.get()["language.name"]; name != "" {
+			return name
 		}
 	}
-	if value := russian[key]; value != "" {
-		return value
+	return string(l)
+}
+
+// A locale is the bundles a language's texts are looked for in: its own,
+// its main language's ("pt" for "pt-br"), English, Russian.
+type locale struct {
+	code  Language
+	chain []*bundle
+}
+
+var locales sync.Map // Language → *locale
+
+func localeFor(code Language) *locale {
+	if l, ok := locales.Load(code); ok {
+		return l.(*locale)
+	}
+	l := &locale{code: code}
+	primary, _, _ := strings.Cut(string(code), "-")
+	for _, c := range []Language{code, Language(primary), English, Russian} {
+		if b := bundleFor(c); b != nil && !containsBundle(l.chain, b) {
+			l.chain = append(l.chain, b)
+		}
+	}
+	actual, _ := locales.LoadOrStore(code, l)
+	return actual.(*locale)
+}
+
+func containsBundle(chain []*bundle, b *bundle) bool {
+	for _, c := range chain {
+		if c == b {
+			return true
+		}
+	}
+	return false
+}
+
+// Catalog is a language's texts as they are when it is made: cheap to make
+// for each frame, and comparable, so a cache of texts made with one can
+// tell when the language or Telegram's pack changed.
+type Catalog struct {
+	locale     *locale
+	pack, base *Pack
+}
+
+// For is the catalog of a language, with Telegram's pack for it when one
+// is installed. An empty code is Russian, the client's first language.
+func For(code string) Catalog {
+	code = strings.ToLower(code)
+	if code == "" {
+		code = string(Russian)
+	}
+	c := Catalog{locale: localeFor(Language(code))}
+	return c.WithPack(Installed(code))
+}
+
+// WithPack is c with p in place of Telegram's pack for the language.
+func (c Catalog) WithPack(p *Pack) Catalog {
+	c.pack, c.base = p, nil
+	if p != nil && p.Base != "" {
+		c.base = Installed(p.Base)
+	}
+	return c
+}
+
+func (c Catalog) Language() Language { return c.locale.code }
+
+// RTL reports whether the language is written right to left: as
+// Telegram's pack says, or the client's file ("language.rtl" = "true").
+func (c Catalog) RTL() bool {
+	if c.pack != nil {
+		return c.pack.RTL
+	}
+	return c.locale.chain[0].get()["language.rtl"] == "true"
+}
+
+// T is the text of key: Telegram's, then the language's own, then
+// English, then Russian, which has every text; a key no language has is
+// shown as itself.
+func (c Catalog) T(key string) string {
+	if c.pack != nil {
+		if telegram := telegramKey(key); telegram != "" {
+			for _, p := range [...]*Pack{c.pack, c.base} {
+				if p == nil {
+					continue
+				}
+				if value := p.texts[telegram]; value != "" {
+					return value
+				}
+			}
+		}
+	}
+	for _, b := range c.locale.chain {
+		if value := b.get()[key]; value != "" {
+			return value
+		}
 	}
 	return key
 }
 
-var russian = map[string]string{
-	"app.title": "KomaruGram Go",
-	"tray.open": "Открыть", "tray.quit": "Выход",
-	"nav.all": "Все чаты", "nav.search": "Поиск", "nav.profile": "Профиль",
-	"nav.saved": "Избранное", "nav.settings": "Настройки",
-	"nav.theme_dark": "Тёмная", "nav.theme_light": "Светлая",
-	"nav.theme_dark_full": "Тёмная тема", "nav.theme_light_full": "Светлая тема",
-	"nav.menu":       "Меню",
-	"settings.title": "Настройки", "settings.appearance": "Оформление",
-	"settings.privacy": "Приватность и безопасность", "settings.power": "Энергосбережение",
-	"settings.integrations": "Внешние интеграции",
-	"settings.back":         "Назад", "settings.account": "Аккаунт",
-	"settings.no_accounts":      "Нет подключённых аккаунтов.",
-	"settings.telegram_account": "Аккаунт Telegram",
-	"settings.open_new":         "Открыть в новом окне", "settings.current": "Текущее окно",
-	"settings.show_open":   "Открыт — показать окно",
-	"settings.add_account": "Добавить аккаунт", "settings.add_account_hint": "Войти по номеру телефона в новом окне",
-	"settings.theme": "Тема", "settings.language": "Язык",
-	"settings.composer": "Панель ввода сообщений", "settings.composer_classic": "Классическая", "settings.composer_floating": "Плавающая",
-	"settings.composer_blur": "Размытие под плавающей панелью", "settings.composer_blur_off": "Размытие оверлеев не работает, пока анимации выключены.",
-	"settings.theme_auto": "Авто: как в системе", "settings.theme_light": "Светлая", "settings.theme_dark": "Тёмная",
-	"settings.auto_light": "Авто, сейчас светлая", "settings.auto_dark": "Авто, сейчас тёмная",
-	"settings.animations": "Анимации", "settings.now_off": "сейчас выключены",
-	"settings.system_light":   "Система сообщает светлую тему.",
-	"settings.system_dark":    "Система сообщает тёмную тему.",
-	"settings.system_unknown": "Система не сообщает свою тему, в режиме «Авто» используется светлая.",
-	"settings.storage_none":   "ничего не хранить", "settings.storage_per_app": "отдельно для каждого приложения",
-	"settings.storage_shared": "общее хранилище аккаунта",
-	"settings.motion_auto":    "авто", "settings.motion_on": "всегда включены", "settings.motion_off": "выключены",
-	"security.local_title":             "Защита локальных данных",
-	"security.off":                     "Шифрование выключено",
-	"security.on":                      "Сессии защищены мастер-паролем и TPM",
-	"security.on_password":             "Сессии защищены мастер-паролем, без TPM",
-	"security.explanation_password":    "Сеансы, список аккаунтов и история шифруются случайным ключом, который зашифрован мастер-паролем: TPM этому приложению недоступен. Пароль — вся защита: тот, кто скопирует файлы, сможет подбирать его на своём компьютере, поэтому нужен длинный, например из четырёх-пяти случайных слов.",
-	"protect.body_password":            "Перед добавлением аккаунта можно включить шифрование: сеансы, список аккаунтов и история будут зашифрованы ключом, который открывает мастер-пароль при каждом запуске. TPM этому приложению недоступен, поэтому защита держится только на пароле: тот, кто скопирует файлы, сможет подбирать его на своём компьютере. Выберите длинный пароль, например из четырёх-пяти случайных слов.",
-	"security.tpm_instead":             "С доступом к TPM ключ хранился бы в нём, и защита была бы сильнее.",
-	"security.unlock_body_password":    "Введите мастер-пароль.",
-	"security.failed_password":         "Неверный мастер-пароль.",
-	"security.locked":                  "Локальные данные заблокированы",
-	"security.unavailable":             "TPM 2.0 недоступен этому приложению",
-	"security.unavailable_short":       "TPM недоступен",
-	"security.on_short":                "шифрование включено",
-	"security.explanation":             "Сеансы, список аккаунтов и история шифруются случайным ключом, который запечатан в TPM этого компьютера и открывается мастер-паролем. Скопированные файлы нельзя открыть на другой машине даже со знанием пароля.",
-	"security.forgotten":               "Мастер-пароль нельзя восстановить. Если его забыть, аккаунты придётся добавить заново.",
-	"security.check_again":             "Проверить снова",
-	"security.copy":                    "Копировать",
-	"security.copied":                  "Скопировано",
-	"security.tpm_missing":             "TPM 2.0 не найден. Обычно его нужно включить в настройках UEFI (fTPM у AMD, Intel PTT у Intel) и перезагрузить компьютер.",
-	"security.tpm_no_rule":             "Устройство %s есть, но система не даёт доступа к нему ни одной группе пользователей. Установите правила udev для TPM и добавьте себя в группу tss:",
-	"security.tpm_no_group":            "Доступ к %[1]s есть у группы «%[2]s», а вашей учётной записи в ней нет. Добавьте себя в группу:",
-	"security.tpm_relogin":             "Вы уже в группе «%s», но текущий сеанс входа в систему начался раньше. Выйдите из системы и войдите снова.",
-	"security.tpm_then_relogin":        "Затем выйдите из системы и войдите снова: новая группа действует только в новом сеансе.",
-	"security.tpm_failed":              "Не удалось обратиться к TPM: %s",
-	"security.tpm_later":               "Без TPM данные хранятся незашифрованными; защиту можно включить позже в настройках.",
-	"protect.title":                    "Защитите локальные данные",
-	"protect.body":                     "Перед добавлением аккаунта можно включить шифрование: сеансы, список аккаунтов и история будут зашифрованы ключом из TPM этого компьютера. При каждом запуске его открывает мастер-пароль, а скопированные файлы не откроются на другой машине.",
-	"protect.skip":                     "Продолжить без защиты",
-	"account.logout":                   "Выйти из аккаунта",
-	"account.logout_hint":              "Завершить сеанс и удалить данные с компьютера",
-	"account.logout_confirm":           "Сеанс будет завершён в Telegram, а сообщения и файлы этого аккаунта удалены с компьютера. Вернуть аккаунт можно, войдя снова.",
-	"account.logout_offline":           "Если Telegram недоступен, сеанс останется в списке устройств аккаунта: завершите его там.",
-	"account.cancel":                   "Отмена",
-	"session.title_ended":              "Сеанс завершён",
-	"session.title_deleted":            "Аккаунт удалён",
-	"session.title_banned":             "Аккаунт заблокирован",
-	"session.ended_duplicated":         "Telegram завершил сеанс: ключ этого аккаунта использовался одновременно через два соединения, например на другом компьютере или в другой программе. Новые сообщения не придут, пока вы не войдёте снова. Можно выйти из аккаунта или пока оставить его, чтобы читать сохранённое.",
-	"session.ended_revoked":            "Сеанс этого аккаунта завершили с другого устройства. Новые сообщения не придут, пока вы не войдёте снова. Можно выйти из аккаунта или пока оставить его, чтобы читать сохранённое.",
-	"session.ended_expired":            "Срок действия сеанса этого аккаунта истёк. Новые сообщения не придут, пока вы не войдёте снова. Можно выйти из аккаунта или пока оставить его, чтобы читать сохранённое.",
-	"session.ended_unregistered":       "Telegram больше не знает ключ этого сеанса: сеанс удалён на сервере. Новые сообщения не придут, пока вы не войдёте снова. Можно выйти из аккаунта или пока оставить его, чтобы читать сохранённое.",
-	"session.ended_deleted":            "Этот аккаунт удалён в Telegram. Можно выйти из него или пока оставить, чтобы читать сохранённое.",
-	"session.ended_banned":             "Telegram заблокировал этот аккаунт. Можно выйти из него или пока оставить, чтобы читать сохранённое.",
-	"session.ignore":                   "Игнорировать",
-	"account.logging_out":              "Выходим…",
-	"security.password":                "Мастер-пароль",
-	"security.confirm":                 "Повторите мастер-пароль",
-	"security.enable":                  "Включить защиту",
-	"security.enabling":                "Шифруем…",
-	"security.unlock_title":            "Разблокировка локальных данных",
-	"security.unlock_body":             "Введите мастер-пароль. Проверка выполняется внутри TPM и защищена от перебора модулем.",
-	"security.unlock":                  "Разблокировать",
-	"security.unlocking":               "Проверяем…",
-	"security.empty":                   "Введите мастер-пароль.",
-	"security.mismatch":                "Пароли не совпадают.",
-	"security.failed":                  "Не удалось выполнить операцию. Проверьте пароль, доступ к TPM и системный журнал.",
-	"security.recovery_warning":        "Пока данные зашифрованы, очистка или замена TPM сделает их недоступными. Для переноса заранее расшифруйте данные на этом компьютере.",
-	"security.window_lock_title":       "Блокировка окна",
-	"security.window_lock_unavailable": "Для блокировки окна сначала включите защиту локальных данных мастер-паролем.",
-	"security.window_locked":           "Окно заблокировано",
-	"security.window_lock_body":        "Введите мастер-пароль, чтобы снова показать аккаунт. Соединение остаётся активным.",
-	"security.auto_lock_off":           "Автоблокировка по неактивности выключена",
-	"security.auto_lock_minutes":       "Блокировать после %d мин. неактивности",
-	"security.lock_on_minimize":        "Блокировать при сворачивании",
-	"security.lock_on_close":           "Блокировать при закрытии окна в трей",
-	"security.decrypt_body":            "Для резервной копии или переноса на другой компьютер можно постоянно отключить шифрование. Сессии, список аккаунтов и история будут записаны в открытом виде. Для подтверждения снова введите мастер-пароль.",
-	"security.decrypt":                 "Расшифровать локальные данные",
-	"security.decrypting":              "Расшифровываем…",
-	"security.cancel":                  "Отмена",
-	"page.choose_chat":                 "Выберите чат, чтобы начать общение",
-	"page.history_later":               "Переписка появится в следующих версиях",
-	"page.telegram_account":            "Аккаунт Telegram", "page.phone": "Телефон",
-	"page.username": "Имя пользователя", "page.bio": "О себе",
-	"page.id": "ID", "page.dc": "Дата-центр", "page.not_set": "Не задано", "page.bio_empty": "Не заполнено",
-	"page.edit": "Изменить профиль", "page.first_name": "Имя", "page.last_name": "Фамилия",
-	"page.save": "Сохранить", "page.saving": "Сохраняем…", "page.cancel": "Отмена",
-	"page.username_hint": "5–32 символа: латинские буквы, цифры и _. Можно оставить пустым.",
-	"page.err_name":      "Введите имя, не длиннее 64 символов.",
-	"page.err_username":  "Имя пользователя: 5–32 символа, латинские буквы, цифры и _, начинается с буквы и не заканчивается на _.",
-	"page.err_taken":     "Это имя пользователя уже занято.",
-	"page.err_bio":       "«О себе» — не длиннее %d символов.",
-	"page.err_offline":   "Нет подключения к Telegram. Попробуйте ещё раз, когда аккаунт подключится.",
-	"page.err_failed":    "Не удалось сохранить: %s",
-	"page.dc_1":          "Майами", "page.dc_2": "Амстердам", "page.dc_3": "Майами", "page.dc_4": "Амстердам", "page.dc_5": "Сингапур",
-	"premium.title": "Telegram Premium", "premium.on": "Подключён", "premium.off": "Не подключён",
-	"premium.active":    "Подписка Telegram Premium активна: лимиты ниже — в правом столбце.",
-	"premium.inactive":  "Premium увеличивает лимиты, убирает рекламу в каналах, ускоряет загрузку файлов и открывает эксклюзивные стикеры, реакции и статусы-эмодзи.",
-	"premium.subscribe": "Подключить в @%s",
-	"premium.blocked":   "Сервер не разрешает оформлять Premium из этого приложения. Подключите его в официальном приложении Telegram.",
-	"premium.limits":    "Лимиты", "premium.limits_note": "Значения присылает сервер; без Premium · с Premium.",
-	"premium.limit.channels_limit":              "Каналы и группы",
-	"premium.limit.channels_public_limit":       "Публичные ссылки",
-	"premium.limit.dialog_filters_limit":        "Папки",
-	"premium.limit.dialog_filters_chats_limit":  "Чатов в папке",
-	"premium.limit.dialogs_pinned_limit":        "Закреплённые чаты",
-	"premium.limit.dialogs_folder_pinned_limit": "Закреплённые в архиве",
-	"premium.limit.saved_dialogs_pinned_limit":  "Закреплённые в Избранном",
-	"premium.limit.chatlists_joined_limit":      "Общие папки",
-	"premium.limit.saved_gifs_limit":            "Сохранённые GIF",
-	"premium.limit.stickers_faved_limit":        "Избранные стикеры",
-	"premium.limit.about_length_limit":          "Длина «О себе»",
-	"premium.limit.caption_length_limit":        "Длина подписи к медиа",
-	"premium.limit.message_length_limit":        "Длина сообщения",
-	"premium.limit.upload_max_fileparts":        "Размер загружаемого файла",
-	"premium.gb":                                "%s ГБ",
-	"privacy.visual":                            "Режим визуальной приватности",
-	"privacy.visual_body":                       "Скрывает номера телефонов и IP-адреса устройств, а ID, номер и имя пользователя в профиле показывает под спойлером, пока по нему не нажать. Для стримов, записи экрана и скриншотов.",
-	"privacy.visual_on":                         "визуальная приватность",
-	"chat.search":                               "Поиск", "chat.clear": "Очистить", "chat.not_found": "Ничего не найдено",
-	"status.member_one": "участник", "status.member_few": "участника", "status.member_many": "участников",
-	"status.subscriber_one": "подписчик", "status.subscriber_few": "подписчика", "status.subscriber_many": "подписчиков",
-	"status.bot": "бот", "status.saved": "заметки для себя", "status.recently": "был(а) недавно",
-	"weekday.0": "вс", "weekday.1": "пн", "weekday.2": "вт", "weekday.3": "ср",
-	"weekday.4": "чт", "weekday.5": "пт", "weekday.6": "сб",
+// Count is the text of key for n things, in the plural form the language
+// has for n, with {count} and args filled in.
+func (c Catalog) Count(key string, n int, args map[string]string) string {
+	tags := map[string]string{"count": strconv.Itoa(n)}
+	for k, v := range args {
+		tags[k] = v
+	}
+	return replaceTags(c.plural(key, max(n, -n)), tags)
 }
 
-var english = map[string]string{
-	"app.title": "Messenger",
-	"tray.open": "Open", "tray.quit": "Quit",
-	"nav.all": "All chats", "nav.search": "Search", "nav.profile": "Profile",
-	"nav.saved": "Saved", "nav.settings": "Settings",
-	"nav.theme_dark": "Dark", "nav.theme_light": "Light",
-	"nav.theme_dark_full": "Dark theme", "nav.theme_light_full": "Light theme",
-	"nav.menu":       "Menu",
-	"settings.title": "Settings", "settings.appearance": "Appearance",
-	"settings.privacy": "Privacy and security", "settings.power": "Power saving",
-	"settings.integrations": "External integrations",
-	"settings.back":         "Back", "settings.account": "Account",
-	"settings.no_accounts":      "No connected accounts.",
-	"settings.telegram_account": "Telegram account",
-	"settings.open_new":         "Open in a new window", "settings.current": "Current window",
-	"settings.show_open":   "Open — show window",
-	"settings.add_account": "Add account", "settings.add_account_hint": "Sign in with a phone number in a new window",
-	"settings.theme": "Theme", "settings.language": "Language",
-	"settings.composer": "Message input bar", "settings.composer_classic": "Classic", "settings.composer_floating": "Floating",
-	"settings.composer_blur": "Blur behind the floating bar", "settings.composer_blur_off": "Overlay blur is off while animations are off.",
-	"settings.theme_auto": "Auto: follow system", "settings.theme_light": "Light", "settings.theme_dark": "Dark",
-	"settings.auto_light": "Auto, currently light", "settings.auto_dark": "Auto, currently dark",
-	"settings.animations": "Animations", "settings.now_off": "currently disabled",
-	"settings.system_light":   "The system reports a light theme.",
-	"settings.system_dark":    "The system reports a dark theme.",
-	"settings.system_unknown": "The system does not report its theme; Auto uses light.",
-	"settings.storage_none":   "store nothing", "settings.storage_per_app": "separate for every app",
-	"settings.storage_shared": "shared account storage",
-	"settings.motion_auto":    "auto", "settings.motion_on": "always enabled", "settings.motion_off": "disabled",
-	"security.local_title":             "Local data protection",
-	"security.off":                     "Encryption is off",
-	"security.on":                      "Sessions are protected by the master password and TPM",
-	"security.on_password":             "Sessions are protected by the master password, without a TPM",
-	"security.explanation_password":    "Sessions, the account list and history are encrypted with a random key that the master password encrypts: no TPM is available to this application. The password is all the protection: whoever copies the files can try passwords on their own computer, so it has to be long, four or five random words for one.",
-	"protect.body_password":            "Before adding an account you can turn on encryption: sessions, the account list and history are encrypted with a key the master password opens at every start. No TPM is available to this application, so the password is all the protection: whoever copies the files can try passwords on their own computer. Choose a long one, four or five random words for one.",
-	"security.tpm_instead":             "With access to the TPM, the key would be kept in it, and the protection would be stronger.",
-	"security.unlock_body_password":    "Enter the master password.",
-	"security.failed_password":         "Wrong master password.",
-	"security.locked":                  "Local data is locked",
-	"security.unavailable":             "TPM 2.0 is unavailable to this application",
-	"security.unavailable_short":       "TPM unavailable",
-	"security.on_short":                "encryption enabled",
-	"security.explanation":             "Sessions, the account list and history are encrypted with a random key sealed by this computer's TPM and opened with the master password. Copied files cannot be opened on another machine even with the password.",
-	"security.forgotten":               "The master password cannot be recovered. If it is forgotten, the accounts have to be added again.",
-	"security.check_again":             "Check again",
-	"security.copy":                    "Copy",
-	"security.copied":                  "Copied",
-	"security.tpm_missing":             "No TPM 2.0 was found. It usually has to be enabled in the UEFI settings (fTPM on AMD, Intel PTT on Intel), followed by a restart.",
-	"security.tpm_no_rule":             "The device %s exists, but the system gives no group of users access to it. Install the TPM udev rules and add yourself to the tss group:",
-	"security.tpm_no_group":            "The group “%[2]s” may use %[1]s, and your account is not in it. Add yourself to the group:",
-	"security.tpm_relogin":             "You are already in the group “%s”, but the current login session started before that. Log out and log in again.",
-	"security.tpm_then_relogin":        "Then log out and log in again: a new group only applies to a new session.",
-	"security.tpm_failed":              "The TPM could not be reached: %s",
-	"security.tpm_later":               "Without the TPM data is stored unencrypted; protection can be enabled later in Settings.",
-	"protect.title":                    "Protect local data",
-	"protect.body":                     "Before adding an account you can turn on encryption: sessions, the account list and history are encrypted with a key kept in this computer's TPM. The master password opens it at every start, and copied files cannot be opened on another machine.",
-	"protect.skip":                     "Continue without protection",
-	"account.logout":                   "Log out",
-	"account.logout_hint":              "End the session and delete the data from this computer",
-	"account.logout_confirm":           "The session will be ended in Telegram, and the messages and files of this account deleted from this computer. Signing in again brings the account back.",
-	"account.logout_offline":           "If Telegram cannot be reached, the session stays in the account's list of devices: end it there.",
-	"account.cancel":                   "Cancel",
-	"session.title_ended":              "Session ended",
-	"session.title_deleted":            "Account deleted",
-	"session.title_banned":             "Account banned",
-	"session.ended_duplicated":         "Telegram ended the session: this account's key was used over two connections at once, such as on another computer or in another app. No new messages will arrive until you sign in again. You can log out, or keep the account for now to read what is saved.",
-	"session.ended_revoked":            "This account's session was ended from another device. No new messages will arrive until you sign in again. You can log out, or keep the account for now to read what is saved.",
-	"session.ended_expired":            "This account's session has expired. No new messages will arrive until you sign in again. You can log out, or keep the account for now to read what is saved.",
-	"session.ended_unregistered":       "Telegram no longer knows this session's key: the session was removed on the server. No new messages will arrive until you sign in again. You can log out, or keep the account for now to read what is saved.",
-	"session.ended_deleted":            "This account was deleted in Telegram. You can log out, or keep it for now to read what is saved.",
-	"session.ended_banned":             "Telegram banned this account. You can log out, or keep it for now to read what is saved.",
-	"session.ignore":                   "Ignore",
-	"account.logging_out":              "Logging out…",
-	"security.password":                "Master password",
-	"security.confirm":                 "Repeat master password",
-	"security.enable":                  "Enable protection",
-	"security.enabling":                "Encrypting…",
-	"security.unlock_title":            "Unlock local data",
-	"security.unlock_body":             "Enter the master password. The TPM verifies it and applies its dictionary-attack protection.",
-	"security.unlock":                  "Unlock",
-	"security.unlocking":               "Checking…",
-	"security.empty":                   "Enter the master password.",
-	"security.mismatch":                "The passwords do not match.",
-	"security.failed":                  "The operation failed. Check the password, TPM access and system log.",
-	"security.recovery_warning":        "While data is encrypted, clearing or replacing the TPM makes it inaccessible. Decrypt it on this computer before transferring it.",
-	"security.window_lock_title":       "Window lock",
-	"security.window_lock_unavailable": "Enable local data protection with a master password to use window locking.",
-	"security.window_locked":           "Window locked",
-	"security.window_lock_body":        "Enter the master password to show this account again. The connection remains active.",
-	"security.auto_lock_off":           "Idle locking is off",
-	"security.auto_lock_minutes":       "Lock after %d minutes of inactivity",
-	"security.lock_on_minimize":        "Lock when minimized",
-	"security.lock_on_close":           "Lock when closed to the tray",
-	"security.decrypt_body":            "For a backup or transfer to another computer, you can permanently turn off encryption. Sessions, the account list, and history will be stored in plaintext. Enter the master password again to confirm.",
-	"security.decrypt":                 "Decrypt local data",
-	"security.decrypting":              "Decrypting…",
-	"security.cancel":                  "Cancel",
-	"page.choose_chat":                 "Choose a chat to start messaging",
-	"page.history_later":               "Conversation history will appear in a future version",
-	"page.telegram_account":            "Telegram account", "page.phone": "Phone",
-	"page.username": "Username", "page.bio": "Bio",
-	"page.id": "ID", "page.dc": "Data center", "page.not_set": "Not set", "page.bio_empty": "Empty",
-	"page.edit": "Edit profile", "page.first_name": "First name", "page.last_name": "Last name",
-	"page.save": "Save", "page.saving": "Saving…", "page.cancel": "Cancel",
-	"page.username_hint": "5–32 characters: Latin letters, digits and _. May be left empty.",
-	"page.err_name":      "Enter a first name of at most 64 characters.",
-	"page.err_username":  "A username has 5–32 Latin letters, digits and _, starts with a letter and does not end with _.",
-	"page.err_taken":     "This username is taken.",
-	"page.err_bio":       "The bio is at most %d characters.",
-	"page.err_offline":   "Not connected to Telegram. Try again once the account is connected.",
-	"page.err_failed":    "Could not save: %s",
-	"page.dc_1":          "Miami", "page.dc_2": "Amsterdam", "page.dc_3": "Miami", "page.dc_4": "Amsterdam", "page.dc_5": "Singapore",
-	"premium.title": "Telegram Premium", "premium.on": "Active", "premium.off": "Not subscribed",
-	"premium.active":    "Your Telegram Premium subscription is active: the limits below are those on the right.",
-	"premium.inactive":  "Premium raises limits, removes ads in channels, speeds up file downloads and unlocks exclusive stickers, reactions and emoji statuses.",
-	"premium.subscribe": "Subscribe with @%s",
-	"premium.blocked":   "The server does not allow subscribing to Premium from this app. Subscribe in an official Telegram app.",
-	"premium.limits":    "Limits", "premium.limits_note": "Values come from the server; without Premium · with Premium.",
-	"premium.limit.channels_limit":              "Channels and groups",
-	"premium.limit.channels_public_limit":       "Public links",
-	"premium.limit.dialog_filters_limit":        "Folders",
-	"premium.limit.dialog_filters_chats_limit":  "Chats per folder",
-	"premium.limit.dialogs_pinned_limit":        "Pinned chats",
-	"premium.limit.dialogs_folder_pinned_limit": "Pinned in the archive",
-	"premium.limit.saved_dialogs_pinned_limit":  "Pinned in Saved Messages",
-	"premium.limit.chatlists_joined_limit":      "Shared folders",
-	"premium.limit.saved_gifs_limit":            "Saved GIFs",
-	"premium.limit.stickers_faved_limit":        "Favorite stickers",
-	"premium.limit.about_length_limit":          "Bio length",
-	"premium.limit.caption_length_limit":        "Media caption length",
-	"premium.limit.message_length_limit":        "Message length",
-	"premium.limit.upload_max_fileparts":        "Upload size",
-	"premium.gb":                                "%s GB",
-	"privacy.visual":                            "Visual privacy mode",
-	"privacy.visual_body":                       "Hides phone numbers and the IP addresses of devices, and covers the ID, number and username in the profile with a spoiler until it is clicked. For streams, screen recordings and screenshots.",
-	"privacy.visual_on":                         "visual privacy",
-	"chat.search":                               "Search", "chat.clear": "Clear", "chat.not_found": "Nothing found",
-	"status.member_one": "member", "status.member_few": "members", "status.member_many": "members",
-	"status.subscriber_one": "subscriber", "status.subscriber_few": "subscribers", "status.subscriber_many": "subscribers",
-	"status.bot": "bot", "status.saved": "personal notes", "status.recently": "last seen recently",
-	"weekday.0": "Sun", "weekday.1": "Mon", "weekday.2": "Tue", "weekday.3": "Wed",
-	"weekday.4": "Thu", "weekday.5": "Fri", "weekday.6": "Sat",
+func (c Catalog) plural(key string, n int) string {
+	if c.pack != nil {
+		if telegram := telegramKey(key); telegram != "" {
+			for _, p := range [...]*Pack{c.pack, c.base} {
+				if p == nil {
+					continue
+				}
+				if value := p.texts[telegram+"#"+p.plural(n)]; value != "" {
+					return value
+				}
+				if value := p.texts[telegram+"#other"]; value != "" {
+					return value
+				}
+				if value := p.texts[telegram]; value != "" {
+					return value
+				}
+			}
+		}
+	}
+	// Each language's forms before the next language's: English's text
+	// for a key, not Russian's form of it, in an English interface.
+	for _, b := range c.locale.chain {
+		texts := b.get()
+		if value := texts[key+"#"+b.plural(n)]; value != "" {
+			return value
+		}
+		if value := texts[key]; value != "" {
+			return value
+		}
+	}
+	return key
 }

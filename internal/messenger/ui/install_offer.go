@@ -31,7 +31,7 @@ type installView struct {
 	browse, install, skip *button.Button
 	switches              *toggle.Toggle[string]
 	texts                 map[string]string
-	language              localization.Language
+	catalog               localization.Catalog
 
 	// checked is the folder admin and replace were found for.
 	checked        string
@@ -172,8 +172,8 @@ func sameFolder(a, b string) bool {
 
 func (v *installView) Layout(gtx layout.Context, l localization.Catalog) layout.Dimensions {
 	sc := scheme(gtx)
-	if v.texts == nil || v.language != l.Language() {
-		v.language = l.Language()
+	if v.texts == nil || v.catalog != l {
+		v.catalog = l
 		v.texts = map[string]string{"desktop": l.T("install.desktop"), "menu": l.T(systemKey("install.menu"))}
 	}
 	note := ""

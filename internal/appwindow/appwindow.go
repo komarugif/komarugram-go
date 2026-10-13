@@ -477,7 +477,8 @@ func (h *Host) Open(spec Spec) {
 		// the same way: the system's message box tells it, before the
 		// process ends with its last window.
 		if _, panicked := err.(*crash.Panic); err != nil && !panicked {
-			alert.Error("Ошибка приложения", "Не удалось показать окно «"+opts.Title+"»:\n\n"+err.Error())
+			l := texts()
+			alert.Error(l.T("window.error_title"), l.Format("window.failed", map[string]string{"title": opts.Title, "error": err.Error()}))
 		}
 		h.mu.Lock()
 		h.releaseLaterLocked()
@@ -653,7 +654,7 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 			if p := crash.Guard(where, func() {
 				if opts.DemoPanic && !demoPanicked {
 					demoPanicked = true
-					panic("демонстрационная паника (-demo-panic)")
+					panic("demo panic (-demo-panic)")
 				}
 				content.Update(gtx)
 				if trace != nil {

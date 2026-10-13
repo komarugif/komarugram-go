@@ -195,28 +195,28 @@ func TestDeletedLastMessageReplacesDialogPreview(t *testing.T) {
 
 	// Not the last message: the preview stays.
 	remove(&tg.UpdateDeleteMessages{Messages: []int{3}})
-	if got := chatPreview(t, s, cached).LastMessage; got != "secret" {
+	if got := chatText(chatPreview(t, s, cached)); got != "secret" {
 		t.Fatalf("preview changed by an older deletion: %q", got)
 	}
 	remove(&tg.UpdateDeleteMessages{Messages: []int{2, 5, 6}})
-	if got := chatPreview(t, s, loaded).LastMessage; got != "first" || s.history.top[loaded] != 1 {
+	if got := chatText(chatPreview(t, s, loaded)); got != "first" || s.history.top[loaded] != 1 {
 		t.Fatalf("loaded chat preview %q, top %d", got, s.history.top[loaded])
 	}
-	if got := chatPreview(t, s, cached).LastMessage; got != "kept in cache" {
+	if got := chatText(chatPreview(t, s, cached)); got != "kept in cache" {
 		t.Fatalf("cached chat preview %q", got)
 	}
-	if got := chatPreview(t, s, emptied).LastMessage; got != "" {
+	if got := chatText(chatPreview(t, s, emptied)); got != "" {
 		t.Fatalf("deleted text left in the list: %q", got)
 	}
 	if s.history.top[cached] != 4 {
 		t.Fatalf("top message %d", s.history.top[cached])
 	}
 	remove(&tg.UpdateDeleteChannelMessages{ChannelID: 8, Messages: []int{2}})
-	if got := chatPreview(t, s, peerID(channel)).LastMessage; got != "channel first" {
+	if got := chatText(chatPreview(t, s, peerID(channel))); got != "channel first" {
 		t.Fatalf("channel preview %q", got)
 	}
 	// Private chats keep IDs from the shared sequence; a channel deletion must not touch them.
-	if got := chatPreview(t, s, cached).LastMessage; got != "kept in cache" {
+	if got := chatText(chatPreview(t, s, cached)); got != "kept in cache" {
 		t.Fatalf("channel deletion changed a private chat: %q", got)
 	}
 }
@@ -224,16 +224,16 @@ func TestDeletedLastMessageReplacesDialogPreview(t *testing.T) {
 func TestLivePreviewNamesMedia(t *testing.T) {
 	chat := model.Chat{Kind: model.KindGroup}
 	setPreview(&chat, model.Message{Kind: model.MessagePhoto, SenderName: "Анна"})
-	if chat.LastMessage != "Фото" || chat.LastSender != "Анна" {
+	if chatText(chat) != "Фото" || chatSender(chat) != "Анна" {
 		t.Fatalf("%+v", chat)
 	}
 	setPreview(&chat, model.Message{Kind: model.MessageVideo, Text: "подпись", Outgoing: true})
-	if chat.LastMessage != "Видео, подпись" || chat.LastSender != "Вы" {
+	if chatText(chat) != "Видео, подпись" || chatSender(chat) != "Вы" {
 		t.Fatalf("%+v", chat)
 	}
 	private := model.Chat{Kind: model.KindUser}
 	setPreview(&private, model.Message{Text: "hi", SenderName: "Анна"})
-	if private.LastSender != "" {
+	if chatSender(private) != "" {
 		t.Fatal("sender shown outside a group")
 	}
 }
@@ -286,5 +286,29 @@ func TestEditChangesRevision(t *testing.T) {
 	}
 	if first[0].ContentRevision == 0 || first[0].ContentRevision == second[0].ContentRevision {
 		t.Errorf("revisions %d and %d", first[0].ContentRevision, second[0].ContentRevision)
+	}
+}
+
+// A chat list kept by an older client, with worded lines, shows them
+// until it is loaded again.
+func TestCachedDialogsOfOlderClient(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	old := []map[string]any{
+		{"ID": 1, "Kind": model.KindGroup, "Title": "Group", "LastMessage": "Фото, hi", "LastSender": "Anna"},
+		{"ID": 2, "Kind": model.KindUser, "Title": "Bob", "Last": model.Preview{Media: "preview.photo"}},
+	}
+	if err := s.Cache().Put(ctx, "dialogs", old); err != nil {
+		t.Fatal(err)
+	}
+	chats, err := cachedDialogs(ctx, s.Cache())
+	if err != nil || len(chats) != 2 {
+		t.Fatal(chats, err)
+	}
+	if chats[0].Last != (model.Preview{Text: "Фото, hi", Sender: "Anna"}) || chats[0].Title != "Group" {
+		t.Errorf("old chat %+v", chats[0])
+	}
+	if chats[1].Last != (model.Preview{Media: "preview.photo"}) {
+		t.Errorf("new chat %+v", chats[1])
 	}
 }

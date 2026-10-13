@@ -365,7 +365,7 @@ func foundText(m model.Message, l localization.Catalog) string {
 // avatar and title, the message's date, and its text.
 func (l *chatList) layoutFound(gtx layout.Context, p *searchPanel, f model.FoundMessage, selected bool, now time.Time, catalog localization.Catalog) layout.Dimensions {
 	c := f.Chat
-	c.LastMessage, c.LastSender, c.LastTime, c.Unread = foundText(f.Message, catalog), "", f.Message.Date, 0
+	c.Last, c.LastTime, c.Unread = model.Preview{Text: foundText(f.Message, catalog)}, f.Message.Date, 0
 	return l.layoutRowWith(gtx, p.foundRow(f.Message.Key), c, selected, false, now, catalog)
 }
 

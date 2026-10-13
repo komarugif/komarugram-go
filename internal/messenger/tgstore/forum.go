@@ -153,21 +153,13 @@ func (s *Store) topicsRead(chat int64, res *tg.MessagesForumTopics, more bool) {
 	users := map[int64]*tg.User{}
 	for _, u := range res.Users {
 		if user, ok := u.(*tg.User); ok {
-			names[user.ID], users[user.ID] = userName(user), user
+			names[user.ID], users[user.ID] = personName(user), user
 		}
 	}
 	messages := map[int]tg.MessageClass{}
 	for _, m := range res.Messages {
 		messages[m.GetID()] = m
 	}
-	s.mu.RLock()
-	var group model.Chat
-	for _, ch := range s.chats {
-		if ch.ID == chat {
-			group = ch
-		}
-	}
-	s.mu.RUnlock()
 	me := s.Me().ID
 	var page []topicEntry
 	for _, raw := range res.Topics {
@@ -177,20 +169,20 @@ func (s *Store) topicsRead(chat int64, res *tg.MessagesForumTopics, more bool) {
 		}
 		e := topicEntry{top: t.TopMessage, Topic: convertTopic(t)}
 		if m, ok := messages[t.TopMessage]; ok {
-			e.LastMessage, e.LastTime = preview(m)
+			e.Last, e.LastTime = preview(m)
 			switch m := m.(type) {
 			case *tg.MessageService:
 				converted, _ := convertMessage("", m, names)
-				e.LastMessage = serviceSummary(converted, group)
+				e.Last = model.Preview{Service: &converted}
 			case *tg.Message:
 				switch {
 				case m.Out:
-					e.LastSender = "Вы"
+					e.Last.Outgoing = true
 				default:
 					if from, ok := m.GetFromID(); ok {
 						if user, ok := from.(*tg.PeerUser); ok && user.UserID != me {
 							if u := users[user.UserID]; u != nil {
-								e.LastSender = u.FirstName
+								e.Last.Sender = u.FirstName
 							}
 						}
 					}
@@ -261,8 +253,7 @@ func (c *conversation) noteTopic(m model.Message, isNew bool) (refresh bool) {
 			return false
 		}
 		t.top = int(m.Key.MessageID)
-		text, sender := topicPreview(m)
-		t.LastMessage, t.LastSender, t.LastTime = text, sender, m.Date
+		t.Last, t.LastTime = messagePreview(m, true), m.Date
 		if isNew && !m.Outgoing {
 			t.Unread++
 		}
@@ -283,15 +274,6 @@ func (c *conversation) noteTopic(m model.Message, isNew bool) (refresh bool) {
 	}
 	// A message of a topic not listed: the list is out of date.
 	return true
-}
-
-// topicPreview is what a topic shows of its last message m, and who wrote
-// it, as the chat list shows a group's.
-func topicPreview(m model.Message) (text, sender string) {
-	var chat model.Chat
-	chat.Kind = model.KindGroup
-	setPreview(&chat, m)
-	return chat.LastMessage, chat.LastSender
 }
 
 // readTopic marks topic read up to message id: the unread count of the

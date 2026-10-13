@@ -18,7 +18,7 @@ import (
 	"gioui.org/unit"
 )
 
-// Strings are the texts of View.
+// Strings are the texts of View; the application words them.
 type Strings struct {
 	Title      string
 	Modes      map[powersave.Mode]string
@@ -32,42 +32,6 @@ type Strings struct {
 	Battery   string // Format with the percent and Plugged or Unplugged.
 	Plugged   string
 	Unplugged string
-}
-
-var English = Strings{
-	Title: "Animations",
-	Modes: map[powersave.Mode]string{
-		powersave.ModeAuto: "Auto: off in power saving mode, on low battery or when disabled in the system",
-		powersave.ModeOn:   "Always on",
-		powersave.ModeOff:  "Off",
-	},
-	LowBattery: "Low battery: at or below %d%%",
-	Never:      "Low battery: never",
-	Status:     "System: power saver %s, %s, system animations %s. Animations are %s.",
-	On:         "on",
-	Off:        "off",
-	NoBattery:  "no battery",
-	Battery:    "battery %.0f%% %s",
-	Plugged:    "on AC",
-	Unplugged:  "on battery",
-}
-
-var Russian = Strings{
-	Title: "Анимации",
-	Modes: map[powersave.Mode]string{
-		powersave.ModeAuto: "Авто: выключать в режиме энергосбережения, при низком заряде или если они отключены в системе",
-		powersave.ModeOn:   "Всегда включены",
-		powersave.ModeOff:  "Выключены",
-	},
-	LowBattery: "Низкий заряд: %d%% и ниже",
-	Never:      "Низкий заряд: не учитывать",
-	Status:     "Система: энергосбережение %s, %s, системные анимации %s. Анимации сейчас %s.",
-	On:         "вкл",
-	Off:        "выкл",
-	NoBattery:  "нет батареи",
-	Battery:    "батарея %.0f%%, %s",
-	Plugged:    "от сети",
-	Unplugged:  "от батареи",
 }
 
 // lowBatteryOptions are the thresholds offered, in percent.

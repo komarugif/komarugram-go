@@ -72,11 +72,11 @@ func TestServiceTexts(t *testing.T) {
 // Texts from Telegram's language pack take the place of the bundled ones,
 // plural forms included.
 func TestServiceServerTexts(t *testing.T) {
-	l := For("en").WithTelegram(map[string]string{
+	l := For("en").WithPack(testPack("en", map[string]string{
 		"lng_action_add_user": "{from} brought {user}",
 		"lng_hours#one":       "{count} hr",
 		"lng_hours#other":     "{count} hrs",
-	})
+	}))
 	m := model.Message{Kind: model.MessageService, SenderName: "Anna", Service: &model.ServiceAction{Kind: model.ServiceAddUser, Peers: []model.ServicePeer{{ID: 2, Name: "Bob"}}}}
 	if got := l.Service(m, ServiceContext{}); got != "Anna brought Bob" {
 		t.Errorf("got %q", got)

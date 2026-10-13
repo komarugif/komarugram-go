@@ -645,21 +645,28 @@ func (a *App) setLanguage(language string) {
 	}
 }
 
+// catalog is the language's texts, with Telegram's pack for it when one
+// is loaded; the store loads it.
 func (a *App) catalog() localization.Catalog {
 	language := a.preferences.Global().Language
-	catalog := localization.For(language)
-	if source, ok := a.store.(interface {
-		LanguagePack(string) map[string]string
-	}); ok {
-		catalog = catalog.WithTelegram(source.LanguagePack(language))
+	if source, ok := a.store.(interface{ RequestLanguagePack(string) }); ok {
+		source.RequestLanguagePack(language)
 	}
-	return catalog
+	return localization.For(language)
 }
 
 // Locale lets appwindow expose the selected language to Gio's text shaper and
 // accessibility semantics on the very next frame.
-func (a *App) Locale() system.Locale {
-	return system.Locale{Language: string(a.catalog().Language()), Direction: system.LTR}
+func (a *App) Locale() system.Locale { return WindowLocale(a.catalog()) }
+
+// WindowLocale is the locale of a window in the language: its code and
+// the direction its text runs in.
+func WindowLocale(l localization.Catalog) system.Locale {
+	direction := system.LTR
+	if l.RTL() {
+		direction = system.RTL
+	}
+	return system.Locale{Language: string(l.Language()), Direction: direction}
 }
 
 // private reports whether visual privacy mode is on.
@@ -855,6 +862,7 @@ func (a *App) savedChat() int64 {
 func (a *App) selectedChat() (model.Chat, bool) {
 	for _, c := range a.store.Chats() {
 		if c.ID == a.selected {
+			c.Title = a.catalog().ChatTitle(c)
 			return c, true
 		}
 	}

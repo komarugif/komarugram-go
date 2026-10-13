@@ -152,20 +152,6 @@ func chatTime(t, now time.Time, l localization.Catalog) string {
 	}
 }
 
-// plural picks the Russian plural form for n: one (1, 21), few (2-4, 22-24)
-// or many (0, 5-20, 25).
-func plural(n int, one, few, many string) string {
-	n10, n100 := n%10, n%100
-	switch {
-	case n10 == 1 && n100 != 11:
-		return one
-	case n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14):
-		return few
-	default:
-		return many
-	}
-}
-
 // groupDigits formats n with spaces between thousands: 48 210.
 func groupDigits(n int) string {
 	s := fmt.Sprint(n)

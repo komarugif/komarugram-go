@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"komarugram/internal/messenger/localization"
+	"komarugram/internal/messenger/localization/viewtexts"
 	"komarugram/internal/miniappprefs"
 	"komarugram/pkg/miniapp"
 
@@ -63,7 +65,7 @@ func NewPage() router.PageWidget {
 		closeApp:  button.Text(),
 	}
 	page.privacy = miniappprefs.New(miniapp.Ephemeral)
-	strings := miniappprefs.English
+	strings := viewtexts.MiniApps(localization.For("en"))
 	strings.Title = "Storage" // The page is titled Mini Apps already.
 	page.privacyView = miniappprefs.NewView(page.privacy, strings)
 	page.privacyView.TitleStyle = token.TypestyleTitleMedium

@@ -63,6 +63,7 @@ func main() {
 		Height: unit.Dp(760),
 		Locale: system.Locale{Language: "en", Direction: system.LTR},
 	}
+	appwindow.SetLanguage("en")
 	appwindow.Main(opts, func(w *appwindow.Window) appwindow.Content {
 		return newGallery(w)
 	})

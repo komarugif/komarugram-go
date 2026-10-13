@@ -274,16 +274,16 @@ func foundTopicRow(found model.FoundInTopic, l localization.Catalog) model.Topic
 	t := found.Topic
 	m := found.Message
 	if t.Title == "" && t.General {
-		t.Title = "General"
+		t.Title = l.T("forum.general")
 	}
 	t.Pinned, t.Closed, t.Muted, t.Unread, t.Mentions = false, false, false, 0, 0
 	// The row tells the sender apart, as a topic's does.
-	t.LastSender = m.SenderName
+	t.Last = model.Preview{Sender: m.SenderName, Outgoing: m.Outgoing}
 	if m.Outgoing {
-		t.LastSender = l.T("history.you")
+		t.Last.Sender = ""
 	}
 	m.SenderName = ""
-	t.LastMessage, t.LastTime = foundText(m, l), m.Date
+	t.Last.Text, t.LastTime = foundText(m, l), m.Date
 	return t
 }
 

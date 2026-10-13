@@ -285,18 +285,18 @@ func TestRichMessageLoadsWhole(t *testing.T) {
 func TestRichMessagePreview(t *testing.T) {
 	msg := &tg.Message{ID: 1, PeerID: &tg.PeerUser{UserID: 4}}
 	msg.SetRichMessage(tg.RichMessage{Blocks: []tg.PageBlockClass{&tg.PageBlockTitle{Text: plain("Hello")}, &tg.PageBlockParagraph{Text: plain("  world  ")}}})
-	if text, _ := preview(msg); text != "Hello world" {
-		t.Fatalf("preview %q", text)
+	if p, _ := preview(msg); chatText(model.Chat{Last: p}) != "Hello world" {
+		t.Fatalf("preview %+v", p)
 	}
 	msg.SetRichMessage(tg.RichMessage{Blocks: []tg.PageBlockClass{&tg.PageBlockPhoto{PhotoID: 1}}})
-	if text, _ := preview(msg); text != "Фото" {
-		t.Fatalf("preview %q", text)
+	if p, _ := preview(msg); chatText(model.Chat{Last: p}) != "Фото" {
+		t.Fatalf("preview %+v", p)
 	}
 	m, _ := convertMessage("a", msg, nil)
 	var chat model.Chat
 	setPreview(&chat, m)
-	if chat.LastMessage != "Фото" {
-		t.Fatalf("last message %q", chat.LastMessage)
+	if chatText(chat) != "Фото" {
+		t.Fatalf("last message %q", chatText(chat))
 	}
 	if strings.TrimSpace(m.Text) != "" {
 		t.Fatalf("text %q of a page without text", m.Text)
