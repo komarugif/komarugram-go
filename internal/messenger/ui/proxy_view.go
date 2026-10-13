@@ -507,3 +507,14 @@ func (v *proxyView) LayoutList(gtx layout.Context, l localization.Catalog) layou
 func (v *proxyView) LayoutCheck(gtx layout.Context, l localization.Catalog) layout.Dimensions {
 	return textButton(gtx, &v.check, l.T("proxy.check"))
 }
+
+// usesTelegramWebSocket reports whether Telegram is reached over the WebSocket
+// of its own web clients now. A nil view, which a window without proxies has,
+// is not.
+func (v *proxyView) usesTelegramWebSocket() bool {
+	if v == nil {
+		return false
+	}
+	p, ok := v.store.Active()
+	return ok && p == proxy.Telegram()
+}

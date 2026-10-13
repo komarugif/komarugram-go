@@ -1406,9 +1406,10 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 		}),
 		vspace(12),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			// A lever for those who have Premium: nothing is known of what it
-			// changes, and an account without it has no use of it.
-			if !premium.Active || p.premiumMediaToggle == nil || p.setPremiumMedia == nil {
+			// A lever for those who have Premium, and only where it can act: the
+			// address is the WebSocket's, and Telegram's own. Nothing is known of
+			// what it changes.
+			if !premium.Active || !p.proxy.usesTelegramWebSocket() || p.premiumMediaToggle == nil || p.setPremiumMedia == nil {
 				return layout.Dimensions{}
 			}
 			return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
