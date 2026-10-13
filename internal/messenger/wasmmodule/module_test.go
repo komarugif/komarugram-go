@@ -54,7 +54,7 @@ func TestModuleDownload(t *testing.T) {
 	}
 
 	// A module of the user's at a URL is fetched once per process.
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	isolateCache(t, t.TempDir())
 	requests = 0
 	for range 2 {
 		if module, err := testModule.load(context.Background(), srv.URL); err != nil || !bytes.Equal(module, body) {
@@ -100,7 +100,7 @@ func TestTestedBuildReplacesOlder(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(packed) }))
 	defer srv.Close()
 	cache := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cache)
+	isolateCache(t, cache)
 	t.Setenv("KOMARUGRAM_TEST_TESTED", "")
 	m := Module{Name: "test", Env: "KOMARUGRAM_TEST_TESTED", URL: srv.URL + "/pinned/test.wasm.zst", SHA256: sha256Hex(packed)}
 	dir := filepath.Join(cache, "komarugram-go")
@@ -130,4 +130,12 @@ func TestTestedBuildReplacesOlder(t *testing.T) {
 			t.Errorf("%s went: %v", filepath.Base(path), err)
 		}
 	}
+}
+
+// isolateCache points os.UserCacheDir at dir: Windows reads LocalAppData,
+// the others XDG_CACHE_HOME.
+func isolateCache(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("XDG_CACHE_HOME", dir)
+	t.Setenv("LocalAppData", dir)
 }
