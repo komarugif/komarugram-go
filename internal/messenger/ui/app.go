@@ -21,6 +21,7 @@ import (
 	"gio-mw/widget/button"
 	"gio-mw/widget/overlay"
 
+	"gioui.org/app"
 	"gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -51,6 +52,9 @@ type App struct {
 	windowEffectsSet, windowBlurWanted, windowTransparentWanted bool
 
 	preferences *preferences.Store
+	// softwareChecked is set once the window was found drawn by a software
+	// rasterizer, and animations were turned off if their mode was not set.
+	softwareChecked bool
 	// ownUsers are the users of the accounts signed in here, which Local
 	// Premium marks.
 	ownUsers atomic.Pointer[map[int64]bool]
@@ -904,6 +908,12 @@ func (a *App) Layout(gtx layout.Context) {
 
 // layoutWindow paints the main window using the transparency granted by the backend.
 func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
+	if !a.softwareChecked && app.SoftwareRendered() {
+		a.softwareChecked = true
+		if err := a.preferences.DefaultMotionOff(); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
 	withWindowSurfaceOpacity(gtx, a.preferences.Global().WindowTransparency, transparent)
 	withLook(gtx, a.preferences.Global().Look)
 	if trace := diagnostics.From(gtx.Values); trace != nil && trace.Recorder.Due(trace.Window, "cache-gauges", time.Second) {

@@ -550,6 +550,23 @@ type BUFFER_DESC struct {
 	StructureByteStride uint32
 }
 
+// DXGI_ADAPTER_DESC describes an adapter; VendorId and DeviceId name
+// Microsoft Basic Render Driver for WARP (see IsSoftware).
+type DXGI_ADAPTER_DESC struct {
+	Description           [128]uint16
+	VendorId              uint32
+	DeviceId              uint32
+	SubSysId              uint32
+	Revision              uint32
+	DedicatedVideoMemory  uintptr
+	DedicatedSystemMemory uintptr
+	SharedSystemMemory    uintptr
+	AdapterLuid           struct {
+		LowPart  uint32
+		HighPart int32
+	}
+}
+
 type GUID struct {
 	Data1   uint32
 	Data2   uint16
@@ -1588,6 +1605,43 @@ func (d *IDXGIDevice) GetAdapter() (*IDXGIAdapter, error) {
 		return nil, ErrorCode{Name: "IDXGIDeviceGetAdapter", Code: uint32(r)}
 	}
 	return adapter, nil
+}
+
+func (a *IDXGIAdapter) GetDesc() (DXGI_ADAPTER_DESC, error) {
+	var desc DXGI_ADAPTER_DESC
+	r, _, _ := syscall.Syscall(
+		a.Vtbl.GetDesc,
+		2,
+		uintptr(unsafe.Pointer(a)),
+		uintptr(unsafe.Pointer(&desc)),
+		0,
+	)
+	if r != 0 {
+		return DXGI_ADAPTER_DESC{}, ErrorCode{Name: "IDXGIAdapterGetDesc", Code: uint32(r)}
+	}
+	return desc, nil
+}
+
+// IsSoftware reports whether dev draws on the CPU: its adapter is Microsoft
+// Basic Render Driver, which is WARP, both for a device made as WARP's and
+// for a hardware one on a system without a GPU's driver.
+func IsSoftware(dev *Device) bool {
+	dxgiDev, err := IUnknownQueryInterface(unsafe.Pointer(dev), dev.Vtbl.QueryInterface, &IID_IDXGIDevice)
+	if err != nil {
+		return false
+	}
+	adapter, err := (*IDXGIDevice)(unsafe.Pointer(dxgiDev)).GetAdapter()
+	IUnknownRelease(unsafe.Pointer(dxgiDev), dxgiDev.Vtbl.Release)
+	if err != nil {
+		return false
+	}
+	desc, err := adapter.GetDesc()
+	IUnknownRelease(unsafe.Pointer(adapter), adapter.Vtbl.Release)
+	if err != nil {
+		return false
+	}
+	// https://learn.microsoft.com/windows/win32/direct3darticles/directx-warp
+	return desc.VendorId == 0x1414 && desc.DeviceId == 0x8c
 }
 
 func IUnknownQueryInterface(obj unsafe.Pointer, queryInterfaceMethod uintptr, guid *GUID) (*IUnknown, error) {
