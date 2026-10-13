@@ -251,7 +251,7 @@ func (w *widgetStyle[T]) drawButtonStateLayer(gtx layout.Context, value T, anim 
 		wdk.Ripple{
 			Color:    w.getStateLayerColor(pressed, selected),
 			Bounds:   image.Rectangle{Max: baseBox.EndPoint},
-			Clip:     baseBox.Outline(gtx),
+			Clip:     func() clip.Op { return baseBox.Outline(gtx) },
 			Centered: true,
 		}.Draw(gtx, clickable.History())
 	}

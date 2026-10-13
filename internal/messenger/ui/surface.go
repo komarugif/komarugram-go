@@ -70,7 +70,7 @@ func (s *surface) Layout(gtx layout.Context, size image.Point, style surfaceStyl
 	wdk.Ripple{
 		Color:  style.content.SetOpacity(token.OpacityLevel3),
 		Bounds: area,
-		Clip:   shape.Op(gtx.Ops),
+		Clip:   func() clip.Op { return shape.Op(gtx.Ops) },
 	}.Draw(gtx, s.click.History())
 	if content != nil {
 		content(gtx)

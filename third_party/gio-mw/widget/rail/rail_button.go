@@ -11,6 +11,7 @@ import (
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/unit"
 	"gioui.org/widget"
@@ -140,7 +141,7 @@ func (b *Button) layoutExpanded(gtx layout.Context, bStyle *ButtonStyle) layout.
 		wdk.Ripple{
 			Color:  labelColor.SetOpacity(theme.ItemPressedStateLayerOpacity),
 			Bounds: image.Rectangle{Max: dims.Size},
-			Clip:   box.Outline(gtx),
+			Clip:   func() clip.Op { return box.Outline(gtx) },
 		}.Draw(gtx, b.Clickable.History())
 	}
 	content.Add(gtx.Ops)

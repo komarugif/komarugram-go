@@ -37,7 +37,6 @@ const (
 )
 
 type widgetStyle struct {
-	itemWidths map[*Item]int // Widths of the laid out tabs.
 	*Group
 	tKind  Kind
 	tTheme *Theme
@@ -260,7 +259,7 @@ func (s *widgetStyle) layoutStateLayer(gtx layout.Context, i *Item, anim *animat
 		wdk.Ripple{
 			Color:  rippleColor,
 			Bounds: image.Rectangle{Max: labelDimensions.Size},
-			Clip:   shape.Outline(gtx),
+			Clip:   func() clip.Op { return shape.Outline(gtx) },
 		}.Draw(gtx, i.Clickable.History())
 	}
 }

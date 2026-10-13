@@ -73,14 +73,20 @@ type Group struct {
 	indicatorX     wdk.FloatTween
 	indicatorWidth wdk.FloatTween
 	wrapped        bool
+	// itemWidths are the widths of the tabs laid out in this frame, kept
+	// between frames so that no frame makes a map of its own.
+	itemWidths map[*Item]int
 }
 
 func (g *Group) Layout(gtx layout.Context, trailingWidget layout.Widget) layout.Dimensions {
+	if g.itemWidths == nil {
+		g.itemWidths = make(map[*Item]int, len(g.Items))
+	}
+	clear(g.itemWidths)
 	style := &widgetStyle{
-		Group:      g,
-		itemWidths: make(map[*Item]int, len(g.Items)),
-		tKind:      g.Kind,
-		tTheme:     BuildTheme(gtx),
+		Group:  g,
+		tKind:  g.Kind,
+		tTheme: BuildTheme(gtx),
 	}
 	return style.layout(gtx, trailingWidget)
 }

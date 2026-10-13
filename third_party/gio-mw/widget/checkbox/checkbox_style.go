@@ -313,7 +313,7 @@ func (s checkboxStyle) drawStateLayer(gtx layout.Context) {
 		wdk.Ripple{
 			Color:    token.MatColor(pressedStyle.getStateLayerColor()),
 			Bounds:   image.Rectangle{Max: stateLayerBox.EndPoint},
-			Clip:     stateLayerBox.Outline(gtx),
+			Clip:     func() clip.Op { return stateLayerBox.Outline(gtx) },
 			Centered: true,
 		}.Draw(gtx, s.cClickable.History())
 	}
