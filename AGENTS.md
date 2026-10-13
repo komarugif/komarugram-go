@@ -27,7 +27,7 @@ Russian; code, comments and docs are in English.
 | `internal/messenger/{security,securedb}` | TPM-sealed key, encrypted SQLite (Adiantum VFS) |
 | `internal/messenger/mockstore` | Demo store for `-demo` |
 | `pkg/*` | Reusable parts: `dcpool` (download connections), `tdata`, media decoders |
-| `third_party/gio`, `third_party/gio-mw` | Forks, wired with `replace`; changes to Gio go in `third_party/gio/LOCAL_CHANGES.md` |
+| `third_party/gio`, `third_party/gio-mw` | Forks, wired with `replace`; changes to each go in its `LOCAL_CHANGES.md` (`third_party/gio/…`, `third_party/gio-mw/…`) |
 | `tdesktop`, `ayugram`, `materialgram`, `telegram-android` | Not in the repository, and ignored by git: local clones of Telegram Desktop, two of its forks and Telegram for Android, made when needed (see "Telegram sources") |
 
 ## Read before

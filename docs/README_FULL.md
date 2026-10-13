@@ -55,7 +55,7 @@ Two applications built on the same base:
 | `assets/stickers/`, `assets/video.mp4`, `videos/` | Media the kitchen pages and `-demo` read from the working directory, the repository's root |
 | `web/kitchen`               | A web build of the kitchen                                          |
 | `third_party/gio` | Local Gio v0.10.2 with XKB shortcut handling fixes; see `LOCAL_CHANGES.md` |
-| `third_party/gio-mw`        | Our fork of the widget library, wired in with a `replace`           |
+| `third_party/gio-mw`        | Our fork of the widget library, wired in with a `replace`; see `LOCAL_CHANGES.md` |
 
 The kitchen uses the fork's `exp/router` and `exp/examples` packages, which
 upstream keeps under `internal/`; the fork makes them public so that the
