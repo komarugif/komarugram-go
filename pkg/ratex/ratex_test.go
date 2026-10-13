@@ -156,5 +156,5 @@ func TestCompile(t *testing.T) {
 	if _, err := r.Layout(context.Background(), realFormulas[2], true); err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("compiled in %v, the first formula in %v more; %d bytes gzipped", compiled, time.Since(start)-compiled, len(moduleGz))
+	t.Logf("compiled in %v, the first formula in %v more; %d bytes compressed", compiled, time.Since(start)-compiled, len(moduleZst))
 }

@@ -4,19 +4,19 @@ package ratex
 
 import (
 	"bytes"
-	"compress/gzip"
 	"embed"
-	"io"
 	"sync"
 
 	"github.com/go-text/typesetting/font"
 	"github.com/go-text/typesetting/font/opentype"
+
+	"komarugram/pkg/unpack"
 )
 
 // KaTeX's fonts, as RaTeX ships them, under the SIL Open Font License
-// (fonts/OFL.txt, fonts/NOTICE), gzipped: 308 KB instead of 572.
+// (fonts/OFL.txt, fonts/NOTICE), zstd-compressed: 297 KB instead of 514.
 //
-//go:embed fonts/*.ttf.gz
+//go:embed fonts/*.ttf.zst
 var fontFiles embed.FS
 
 // outline is a glyph's outline, in its font's units, its y up.
@@ -70,15 +70,11 @@ func glyph(id string, code rune) *outline {
 
 // readFace reads KaTeX's font id, nil when it has none of that name.
 func readFace(id string) *font.Face {
-	data, err := fontFiles.ReadFile("fonts/KaTeX_" + id + ".ttf.gz")
+	data, err := fontFiles.ReadFile("fonts/KaTeX_" + id + ".ttf.zst")
 	if err != nil {
 		return nil
 	}
-	zr, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return nil
-	}
-	ttf, err := io.ReadAll(zr)
+	ttf, err := unpack.Zstd(data)
 	if err != nil {
 		return nil
 	}

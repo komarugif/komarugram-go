@@ -1613,8 +1613,8 @@ and https://core.telegram.org/api/bots/ai#live-message-streaming:
 
 - **Module** (`pkg/ratex/build`): a crate of our own over `ratex-parser`,
   `ratex-layout` and `ratex-types` at the commit `Cargo.toml` pins
-  (`776c1d3`), with `Cargo.lock`; `build.sh` builds it and gzips it into
-  `pkg/ratex/ratex.wasm.gz`. It exports `rt_alloc`, `rt_free`,
+  (`776c1d3`), with `Cargo.lock`; `build.sh` builds it and compresses it with
+  zstd into `pkg/ratex/ratex.wasm.zst` (511 KB; it was 654 KB gzipped). It exports `rt_alloc`, `rt_free`,
   `rt_layout` (a formula, its style; 0 for a display list, 1 for an
   error), `rt_out` and `rt_out_len`, and hands back RaTeX's display list
   as JSON: glyphs by font and character code, lines, rectangles and
@@ -1637,7 +1637,7 @@ and https://core.telegram.org/api/bots/ai#live-message-streaming:
   stripped messenger grew by 1,022,304 bytes: the module, the fonts and
   the Go code.
 - **Fonts** (`pkg/ratex/fonts`): KaTeX's 20 TTFs as RaTeX ships them,
-  gzipped (308 KB), with the SIL OFL 1.1 and a notice. They are read
+  zstd-compressed (297 KB), with the SIL OFL 1.1 and a notice. They are read
   when a formula first needs one, and their glyphs' outlines kept.
 - **Sandbox** (`pkg/ratex`): 64 MB of memory, 1 s per formula, 16 KB of
   source and 8 MB of output at most. One instance is kept between
@@ -1695,7 +1695,8 @@ it was in `go.mod` already, indirect.
 - **Grammars** (`pkg/prism/generate`). A copy of libprisma's
   `generate.js` (`desktop-app/libprisma` at `31a5d6f`, 2026-09-29) with the
   two changes above: `\uFFFF` stays, and no language is left out. It
-  writes `pkg/prism/grammars.dat.gz`: 663,696 bytes, 209,457 gzipped, 404
+  writes `pkg/prism/grammars.dat.zst`: 663,696 bytes, 179,092 compressed
+  with zstd (209,457 gzipped before), 404
   language names. `package-lock.json` pins Prism.js 1.29.0; run it with
   `npm ci` (or `bun install --frozen-lockfile`) and `node generate.js`.
   Unchanged, it reproduced libprisma's `grammars.dat` byte for byte under
@@ -1773,7 +1774,8 @@ so CRLF text may differ; Prism's tests were compared with LF only.
   carries its definition's label. It refuses a tree of more than 100,000
   nodes or nested past 128, Telegram Desktop's limits. The module imports
   four functions of WASI (`fd_write`, `fd_seek`, `fd_close`,
-  `clock_time_get`), with nothing given to them. 81 KB gzipped; two
+  `clock_time_get`), with nothing given to them. 69 KB with zstd (81 KB
+  gzipped); two
   builds are the same byte for byte.
 - **Sandbox** (`pkg/cmark`): 192 MB of memory (Telegram Desktop's parser
   budget is 128 MB, plus the source and the tree), 5 s, 4 MB of source;

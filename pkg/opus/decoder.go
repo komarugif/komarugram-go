@@ -25,7 +25,7 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
-//go:embed opusdec.wasm.gz
+//go:embed opusdec.wasm.zst
 var opusWasm []byte
 
 // Rate is the sample rate the decoder puts out, the rate of every Opus
@@ -61,7 +61,7 @@ func NewRuntime(ctx context.Context) (*Runtime, error) {
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("wasi: %w", err)
 	}
-	compiled, err := rt.CompileGzipModule(ctx, opusWasm)
+	compiled, err := rt.CompileZstdModule(ctx, opusWasm)
 	if err != nil {
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("compile libopus: %w", err)

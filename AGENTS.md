@@ -110,7 +110,8 @@ places it touches, and remind the maintainer to look them over too.
 and `pkg/aac`'s and the M4A voice message's `KOMARUGRAM_AACDEC`, of an
 `aacdec.wasm` ([fdk-aac-wasm](https://github.com/komarugif/fdk-aac-wasm)): these
 modules are not in this repository, and the client fetches them
-(`internal/messenger/wasmmodule`).
+(`internal/messenger/wasmmodule`; the client also takes them as `.wasm.zst`,
+the tests as they are).
 
 ## Rules
 

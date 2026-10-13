@@ -6,7 +6,7 @@
 //     identifiers in Cyrillic or CJK are colored as Prism.js colors them.
 //   - No language is left out. libprisma leaves out nine whose patterns
 //     need ranges above U+00FF (1C:Enterprise, КуМир and others).
-//   - The output is grammars.dat.gz beside the package, which embeds it.
+//   - The output is grammars.dat.zst beside the package, which embeds it.
 //
 // Run it with Node.js 18 or newer, rarely, when Prism's grammars change:
 //
@@ -17,7 +17,6 @@
 // byte for byte; bun spells some \u escapes with capital hex digits.
 
 const fs = require('fs')
-const zlib = require('zlib')
 const isEqual = require('lodash.isequal')
 const Prism = require('prismjs')
 const components = require('prismjs/components.js')
@@ -498,14 +497,16 @@ async function generate() {
 
 async function saveBlob(blob, filename) {
     console.log(`Saving ${blob} to ${filename}`)
-    const buffer = zlib.gzipSync(Buffer.from(await blob.arrayBuffer()), { level: 9 })
-    // The header names the system it was made on; name none, so that the
-    // file is the same whichever system makes it.
-    buffer[9] = 0xff
-    fs.writeFileSync(filename, buffer)
+    // Written whole, then zstd-compressed from the file at its highest
+    // level, as the modules are: the frame tells its size (pkg/unpack
+    // checks it), and the same grammars give the same bytes.
+    const raw = filename.replace(/\.zst$/, '')
+    fs.writeFileSync(raw, Buffer.from(await blob.arrayBuffer()))
+    require('child_process').execFileSync('zstd', ['--ultra', '-22', '-q', '-f', raw, '-o', filename], { stdio: 'inherit' })
+    fs.unlinkSync(raw)
 }
 
-const filepath = require('path').join(__dirname, '..', 'grammars.dat.gz');
+const filepath = require('path').join(__dirname, '..', 'grammars.dat.zst');
 
 generate().then(blob => {
     saveBlob(blob, filepath).then(() => {

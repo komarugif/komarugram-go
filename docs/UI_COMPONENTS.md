@@ -436,8 +436,11 @@ size-stability fixes remain in place.
   WASM sandbox, one GIF at a time on hover. That decoder is not in the
   binary: `wasmmodule.AVCDec` downloads it the first time it is needed
   from [libavcodec-wasm](https://github.com/komarugif/libavcodec-wasm), at a
-  pinned commit, checks its SHA-256 and keeps it in the cache directory;
-  `KOMARUGRAM_AVCDEC` names a build of the user's instead (a path or a URL).
+  pinned commit, zstd-compressed (`avcdec.wasm.zst`, 419 KB instead of
+  2 MB), checks its SHA-256 and keeps it in the cache directory as it came,
+  unpacking it as it loads it; `KOMARUGRAM_AVCDEC` names a build of the
+  user's instead (a path or a URL, plain or `.zst`). MP4 GIFs played through
+  the compressed module were checked live by the maintainer on 2026-10-13.
   Every FFmpeg the client runs, voice messages' and the `ffprobe` beside it
   for videos sent as media included, is `video.ResolveFFmpeg` of the path in
   the settings, else PATH. Without one, the microphone (`composer_voice.go`)

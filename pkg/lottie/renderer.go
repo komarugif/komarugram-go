@@ -12,23 +12,21 @@
 package lottie
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
 	_ "embed"
 	"fmt"
 	"image"
-	"io"
 	"math"
 	"time"
 
 	"komarugram/pkg/sandbox"
+	"komarugram/pkg/unpack"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 )
 
-//go:embed tlottie.wasm.gz
+//go:embed tlottie.wasm.zst
 var tlottieWasm []byte
 
 // Limits bounds what a hostile animation can make the renderer take.
@@ -71,7 +69,7 @@ func NewRuntimeWithLimits(ctx context.Context, limits Limits) (*Runtime, error) 
 	if err != nil {
 		return nil, err
 	}
-	compiled, err := rt.CompileGzipModule(ctx, tlottieWasm)
+	compiled, err := rt.CompileZstdModule(ctx, tlottieWasm)
 	if err != nil {
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("compile tlottie: %w", err)
@@ -283,14 +281,9 @@ func gunzipIfNeeded(data []byte) ([]byte, error) {
 	if len(data) < 2 || data[0] != 0x1f || data[1] != 0x8b {
 		return data, nil
 	}
-	reader, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("gunzip: %w", err)
-	}
-	defer reader.Close()
 	// A sticker is small; the limit keeps a decompression bomb from taking the
 	// client down with it.
-	unpacked, err := io.ReadAll(io.LimitReader(reader, 32<<20))
+	unpacked, err := unpack.Gzip(data, 32<<20)
 	if err != nil {
 		return nil, fmt.Errorf("gunzip: %w", err)
 	}

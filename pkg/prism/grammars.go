@@ -3,18 +3,15 @@
 // Package prism tokenizes code as Prism.js does, for highlighting. It is a
 // port of libprisma's tokenizer, the one Telegram Desktop highlights code
 // with, to Go over regexp2, with Prism.js 1.29.0's grammars
-// (grammars.dat.gz, which generate/ makes). libprisma and Prism.js are MIT;
+// (grammars.dat.zst, which generate/ makes). libprisma and Prism.js are MIT;
 // see LICENSE.prism.
 package prism
 
 import (
-	"bytes"
-	"compress/gzip"
 	_ "embed"
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,9 +19,11 @@ import (
 	"unicode/utf16"
 
 	"github.com/dlclark/regexp2"
+
+	"komarugram/pkg/unpack"
 )
 
-//go:embed grammars.dat.gz
+//go:embed grammars.dat.zst
 var embedded []byte
 
 // Grammars are the patterns, grammars and languages of a grammars.dat. They
@@ -67,11 +66,7 @@ type pattern struct {
 // Embedded loads the grammars built into the package. matchTimeout bounds
 // each match of a pattern; zero means no bound.
 func Embedded(matchTimeout time.Duration) (*Grammars, error) {
-	r, err := gzip.NewReader(bytes.NewReader(embedded))
-	if err != nil {
-		return nil, err
-	}
-	data, err := io.ReadAll(r)
+	data, err := unpack.Zstd(embedded)
 	if err != nil {
 		return nil, err
 	}

@@ -1,7 +1,8 @@
 #!/bin/sh
-# Builds opusdec.wasm.gz: libopus's decoder as a WebAssembly reactor module.
+# Builds opusdec.wasm.zst: libopus's decoder as a WebAssembly reactor module.
 #
-# Needs clang with a wasm32 backend, wasm-ld, and the WASI sysroot plus the
+# Needs zstd, which compresses the module, and
+# clang with a wasm32 backend, wasm-ld, and the WASI sysroot plus the
 # wasm32 compiler-rt builtins from https://github.com/WebAssembly/wasi-sdk
 # (see ../../vp9/build/build.sh), and libopus's sources
 # (https://github.com/xiph/opus, v1.6.1):
@@ -40,9 +41,10 @@ sources() {
 	$(sources OPUS_SOURCES OPUS_SOURCES_FLOAT CELT_SOURCES SILK_SOURCES SILK_SOURCES_FLOAT) \
 	"$here/opusshim.c" \
 	-o "$here/opusdec.wasm"
-# Embedded gzipped, without a name or a time, so that the same build
-# gives the same bytes.
-gzip -9 -n -c "$here/opusdec.wasm" >"$here/../opusdec.wasm.gz"
+# Embedded zstd-compressed at its highest level, from the file, so that
+# the frame tells its size (pkg/unpack checks it); zstd writes no name or
+# time, and the same build gives the same bytes.
+zstd --ultra -22 -q -f "$here/opusdec.wasm" -o "$here/../opusdec.wasm.zst"
 rm "$here/opusdec.wasm"
 
-echo "built $(cd "$here/.." && pwd)/opusdec.wasm.gz"
+echo "built $(cd "$here/.." && pwd)/opusdec.wasm.zst"

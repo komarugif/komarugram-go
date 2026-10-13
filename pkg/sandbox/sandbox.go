@@ -26,18 +26,17 @@
 package sandbox
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"sync"
 	"time"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/experimental"
+
+	"komarugram/pkg/unpack"
 )
 
 const pageSize = 64 << 10
@@ -111,15 +110,12 @@ func (r *Runtime) CompileModule(ctx context.Context, binary []byte) (wazero.Comp
 	return compiled, nil
 }
 
-// CompileGzipModule compiles a module embedded gzipped, as the modules of
-// this program are: unpacked for the compiling only, so that the program
-// carries a third of their size and keeps none of them unpacked.
-func (r *Runtime) CompileGzipModule(ctx context.Context, gz []byte) (wazero.CompiledModule, error) {
-	zr, err := gzip.NewReader(bytes.NewReader(gz))
-	if err != nil {
-		return nil, err
-	}
-	binary, err := io.ReadAll(zr)
+// CompileZstdModule compiles a module embedded zstd-compressed, as the
+// modules of this program are: unpacked for the compiling only, so that the
+// program carries about a quarter of their size and keeps none of them
+// unpacked.
+func (r *Runtime) CompileZstdModule(ctx context.Context, zst []byte) (wazero.CompiledModule, error) {
+	binary, err := unpack.Zstd(zst)
 	if err != nil {
 		return nil, err
 	}

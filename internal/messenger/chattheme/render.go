@@ -4,18 +4,17 @@ package chattheme
 
 import (
 	"bytes"
-	"compress/gzip"
 	"errors"
 	"image"
 	"image/color"
 	"image/draw"
 	_ "image/jpeg"
 	_ "image/png"
-	"io"
 	"math"
 
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/resample"
+	"komarugram/pkg/unpack"
 
 	"github.com/srwiley/oksvg"
 	"github.com/srwiley/rasterx"
@@ -113,19 +112,11 @@ func gzipped(data []byte) ([]byte, error) {
 	if len(data) <= 2 || data[0] != 0x1f || data[1] != 0x8b {
 		return data, nil
 	}
-	z, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	defer z.Close()
-	data, err = io.ReadAll(io.LimitReader(z, MaxBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > MaxBytes {
+	data, err := unpack.Gzip(data, MaxBytes)
+	if errors.Is(err, unpack.ErrTooLarge) {
 		return nil, errors.New("expanded wallpaper exceeds 16 MiB")
 	}
-	return data, nil
+	return data, err
 }
 
 func isSVG(data []byte) bool { return bytes.Contains(data[:min(len(data), 1024)], []byte("<svg")) }
