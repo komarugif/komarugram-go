@@ -47,7 +47,8 @@ type loginPage struct {
 	protect scroll.List
 
 	phone             *phoneField
-	code, password    *textField
+	code              *codeInput
+	password          *textField
 	next, back, retry *button.Button
 
 	// seen is the Seq of the state the fields were last prepared for.
@@ -62,7 +63,7 @@ func newLoginPage(l *login.Login, security *securityView, invalidate func()) *lo
 		skip:     button.Text(),
 		protect:  scroll.List{List: layout.List{Axis: layout.Vertical}},
 		phone:    newPhoneField(),
-		code:     newTextField(0, "0123456789 "),
+		code:     newCodeInput(),
 		password: newTextField('•', ""),
 		next:     button.Filled(),
 		back:     button.Text(),
@@ -104,6 +105,7 @@ func (p *loginPage) Update(gtx layout.Context, l localization.Catalog) {
 		p.install.Update(gtx, p.login, l)
 		return
 	}
+	p.code.setLength(st.CodeLength)
 	field := p.field(st.Step)
 
 	if st.Seq != p.seen {
@@ -158,6 +160,10 @@ func canSubmit(st login.State, text string) bool {
 	if st.Step == login.StepPhone {
 		// A plus alone is no number.
 		return countries.Digits(text) != ""
+	}
+	if st.Step == login.StepCode && st.CodeLength > 0 && st.CodeLength <= codeMaxLength {
+		// The code has as many digits as it was said to have.
+		return len(countries.Digits(text)) == st.CodeLength
 	}
 	return strings.TrimSpace(text) != ""
 }
@@ -219,8 +225,12 @@ func (p *loginPage) layoutStep(gtx layout.Context, st login.State, l localizatio
 			login.StepPassword: "login.field_password",
 		}[st.Step])
 		rows = append(rows, vspace(20), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			if phone, ok := field.(*phoneField); ok {
-				return phone.Layout(gtx, l, title, problem != "")
+			switch f := field.(type) {
+			case *phoneField:
+				return f.Layout(gtx, l, title, problem != "")
+			case *codeInput:
+				f.setLength(st.CodeLength)
+				return f.Layout(gtx, title, problem != "")
 			}
 			return field.(*textField).Layout(gtx, title, problem != "")
 		}))
