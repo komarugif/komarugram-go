@@ -462,3 +462,14 @@ func (m *Manager) unprotectSessions() error {
 	}
 	return removeDatabase(m.registry.securePath())
 }
+
+// askingCode is an authAPI that tells when the code is about to be asked for.
+type askingCode struct {
+	authAPI
+	asking func()
+}
+
+func (a askingCode) SendCode(ctx context.Context, phone string, options auth.SendCodeOptions) (tg.AuthSentCodeClass, error) {
+	a.asking()
+	return a.authAPI.SendCode(ctx, phone, options)
+}

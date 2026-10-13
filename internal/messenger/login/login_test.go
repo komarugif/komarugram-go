@@ -5,6 +5,7 @@ package login
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -238,5 +239,33 @@ func TestInstallOffer(t *testing.T) {
 		if r := <-done; r.err != nil || r.exe != exe {
 			t.Fatalf("offer: %+v, want %q", r, exe)
 		}
+	}
+}
+
+// TestProxyChangeConnectsAgainAtOnce checks that a connection that was ended
+// for a proxy chosen is made again without the user asking, and is not shown
+// as a failure.
+func TestProxyChangeConnectsAgainAtOnce(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	l := New(nil)
+	attempts := 0
+	done := make(chan error, 1)
+	go func() {
+		done <- l.Run(ctx, func(ctx context.Context, p account.Prompter) error {
+			attempts++
+			if attempts == 1 {
+				return fmt.Errorf("connecting: %w", account.ErrProxyChanged)
+			}
+			l.Finish()
+			return nil
+		})
+	}()
+	waitFor(t, l, "done", atStep(StepDone))
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 2 {
+		t.Errorf("%d attempts, want 2", attempts)
 	}
 }

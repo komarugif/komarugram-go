@@ -10,6 +10,7 @@ package login
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 
@@ -172,11 +173,16 @@ func (l *Login) set(s State) {
 
 // Run calls connect until it succeeds or ctx ends, passing the Login as the
 // Prompter. A failure is shown as StepFailed, and connect runs again when the
-// user asks for it with Retry.
+// user asks for it with Retry, or at once where it was only the proxy that was
+// changed.
 func (l *Login) Run(ctx context.Context, connect func(ctx context.Context, p account.Prompter) error) error {
 	for {
 		l.set(State{Step: StepStarting})
 		err := connect(ctx, l)
+		if errors.Is(err, account.ErrProxyChanged) && ctx.Err() == nil {
+			// The proxy was chosen while it connected: connect through it.
+			continue
+		}
 		if err == nil || ctx.Err() != nil {
 			return err
 		}

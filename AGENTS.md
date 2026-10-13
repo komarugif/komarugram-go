@@ -23,6 +23,7 @@ Russian; code, comments and docs are in English.
 | `internal/messenger/historycache` | Per-account SQLite cache: messages (JSON), media, layouts, FTS5 search index |
 | `internal/messenger/{fonts,emojipacks}` | Font files of the user's own; emoji packs of a catalog, installed beside the settings |
 | `internal/messenger/account` | Registry, sign-in, tdata import, one client per auth key |
+| `internal/messenger/proxy` | The proxies the user keeps (MTProto, SOCKS5, Telegram over WebSocket): links, the resolvers that connect through them, ping, the saved list |
 | `internal/messenger/model` | Data types and the interfaces the UI reads |
 | `internal/messenger/{security,securedb}` | TPM-sealed key, encrypted SQLite (Adiantum VFS) |
 | `internal/messenger/mockstore` | Demo store for `-demo` |

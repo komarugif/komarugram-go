@@ -29,6 +29,7 @@ import (
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/preferences"
+	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/miniappprefs"
 	"komarugram/internal/motion"
 	"komarugram/pkg/miniapp"
@@ -82,7 +83,17 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	p.overlays = func() preferences.Overlays { return overlays }
 	p.setOverlays = func(o preferences.Overlays) { overlays = o }
 	p.uninstall = func() {}
+	proxies := proxy.NewStore("", nil)
+	proxies.Add(proxy.Proxy{Kind: proxy.SOCKS5, Host: "127.0.0.1", Port: 2080})
+	proxies.Add(proxy.Proxy{Kind: proxy.MTProto, Host: "mt.example.org", Port: 443, Secret: "dddf83f4ddaee1f1171b2e7a6e7403c60d"})
+	proxies.Select(proxy.Telegram().ID())
+	p.proxy = newProxyView(proxies, (&pingLog{fail: map[string]error{"mtproto|mt.example.org|443|": context.DeadlineExceeded}}).ping, nil)
 	size := image.Pt(900, 1300)
+	if os.Getenv("SETTINGS_SECTION") == "proxy" {
+		p.section = settingsProxy
+		p.proxy.Open()
+		size.Y = 900
+	}
 	if os.Getenv("SETTINGS_SECTION") == "appearance" {
 		p.section = settingsAppearance
 		// One font is picked and gone since, the others are the system's.

@@ -69,6 +69,8 @@ const (
 	// settingsNotify is how new messages are told of, as Telegram Desktop's
 	// Notifications and Sounds.
 	settingsNotify
+	// settingsProxy is the proxies Telegram is connected through.
+	settingsProxy
 	// settingsAbout is the program, the system it runs on and its links.
 	settingsAbout
 )
@@ -80,6 +82,7 @@ func settingsTitles(l localization.Catalog) map[settingsSection]string {
 		settingsPremium: l.T("premium.title"), settingsIntegrations: l.T("settings.integrations"),
 		settingsDevices: l.T("settings.devices"), settingsChats: l.T("settings.chats"),
 		settingsNotify: l.T("settings.notify"), settingsAbout: l.T("settings.about"),
+		settingsProxy: l.T("settings.proxy"),
 	}
 }
 
@@ -93,6 +96,7 @@ var settingsIcons = map[settingsSection]wdk.IconWidget{
 	settingsDevices:      iconDevices,
 	settingsChats:        iconChats,
 	settingsNotify:       iconNotifications,
+	settingsProxy:        iconProxy,
 	settingsAbout:        iconInfo,
 }
 
@@ -125,10 +129,12 @@ type settingsPage struct {
 	theme    *radio.Radios[themeMode]
 	language *radio.Radios[string]
 	// worded is the catalog animations and privacy took their texts from.
-	worded      localization.Catalog
-	animations  *motion.View
-	privacy     *miniappprefs.View
-	security    *securityView
+	worded     localization.Catalog
+	animations *motion.View
+	privacy    *miniappprefs.View
+	security   *securityView
+	// proxy is the proxies; nil hides their section.
+	proxy       *proxyView
 	accounts    model.Accounts
 	accountID   func() string
 	accountRows map[string]*settingsItem
@@ -254,6 +260,7 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			settingsDevices:      new(settingsItem),
 			settingsChats:        new(settingsItem),
 			settingsNotify:       new(settingsItem),
+			settingsProxy:        new(settingsItem),
 		},
 		back:          button.Text(),
 		motion:        m,
@@ -422,6 +429,9 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 			if section == settingsAbout {
 				p.about.open()
 			}
+			if section == settingsProxy && p.proxy != nil {
+				p.proxy.Open()
+			}
 		}
 	}
 	if p.back.Clicked(gtx) {
@@ -544,6 +554,9 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 	if p.section == settingsAbout {
 		p.about.Update(gtx)
 	}
+	if p.section == settingsProxy && p.proxy != nil {
+		p.proxy.Update(gtx)
+	}
 }
 
 func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appearance.Scheme, dark bool, l localization.Catalog) layout.Dimensions {
@@ -646,6 +659,10 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 			content = func(gtx layout.Context) layout.Dimensions { return p.layoutChats(gtx, l) }
 		case settingsAbout:
 			content = func(gtx layout.Context) layout.Dimensions { return p.about.Layout(gtx, l) }
+		case settingsProxy:
+			content = func(gtx layout.Context) layout.Dimensions {
+				return p.cardHeight("layoutProxy").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.proxy.Layout(gtx, l) }, defaultCardPadding)
+			}
 		case settingsNotify:
 			// The accounts are as the main page last listed them.
 			content = func(gtx layout.Context) layout.Dimensions { return p.notifyView.Layout(gtx, l, len(p.shownAccounts)) }
@@ -745,6 +762,9 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 		settingsChats:        p.chats.subtitle(l),
 		settingsNotify:       p.notifyView.subtitle(l),
 	}
+	if p.proxy != nil {
+		subtitles[settingsProxy] = p.proxy.Summary(l)
+	}
 	if n := p.sessions.count(); n > 0 {
 		subtitles[settingsDevices] = l.Count("sessions.count", n, nil)
 	}
@@ -820,6 +840,9 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 					sections = append(sections, settingsNotify)
 				}
 				sections = append(sections, settingsPrivacy, settingsPower)
+				if p.proxy != nil {
+					sections = append(sections, settingsProxy)
+				}
 				if p.sessions != nil {
 					sections = append(sections, settingsDevices)
 				}

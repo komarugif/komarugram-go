@@ -330,3 +330,20 @@ func TestFileStorage(t *testing.T) {
 		t.Errorf("%d files left in the session directory, want only the session", len(entries))
 	}
 }
+
+// TestAskingCodeTellsBeforeTheCodeIsAskedFor checks the moment after which a
+// change of proxy no longer starts the sign-in again: when the code is asked
+// for, and not at the phone number, which loses nothing.
+func TestAskingCodeTellsBeforeTheCodeIsAskedFor(t *testing.T) {
+	server := &fakeAuth{}
+	var told []int
+	asked := askingCode{server, func() { told = append(told, len(server.sent)) }}
+	user := &script{phones: []step{{text: "+1"}}, codes: []step{{text: "12345"}}}
+	if err := signIn(context.Background(), asked, user); err != nil {
+		t.Fatal(err)
+	}
+	// Told once, with the code not yet sent.
+	if len(told) != 1 || told[0] != 0 || len(server.sent) != 1 {
+		t.Errorf("told with %v codes sent beforehand, %d sent in all", told, len(server.sent))
+	}
+}

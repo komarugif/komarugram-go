@@ -37,6 +37,7 @@ import (
 	"komarugram/internal/messenger/login"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/preferences"
+	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/messenger/security"
 	"komarugram/internal/miniappprefs"
 	"komarugram/pkg/miniapp"
@@ -136,7 +137,9 @@ type App struct {
 
 	// signIn is the sign-in window shown instead of everything else until
 	// the account is signed in; nil when no sign-in is needed.
-	signIn       *loginPage
+	signIn *loginPage
+	// proxies are the proxies of the window, for its settings and its sign-in.
+	proxies      *proxyView
 	security     *securityView
 	windowLocked *atomic.Bool
 	visualLock   *visualLockView
@@ -166,6 +169,12 @@ type Services struct {
 	// where the program installs itself (Windows and Linux), whether or
 	// not this copy was installed.
 	Uninstall func()
+	// Proxies are the proxies the user keeps, and the one in use; without them
+	// the window keeps a list of its own, in memory, that nothing connects through.
+	Proxies *proxy.Store
+	// PingProxy measures how long a proxy takes to answer; nil measures it
+	// for real, which a demo, that reaches nothing, does not.
+	PingProxy func(ctx context.Context, p *proxy.Proxy) (time.Duration, error)
 }
 
 // New creates the messenger UI.
@@ -264,6 +273,8 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		}
 	}
 	a.settings = newSettingsPage(w.Motion, services.MiniApps, services.Security, w.Invalidate, services.Accounts, currentAccount, themeMode(global.Theme), global.Language, a.setThemeMode, a.setLanguage)
+	a.proxies = newProxyView(services.Proxies, services.PingProxy, w.Invalidate)
+	a.settings.proxy = a.proxies
 	a.settings.uninstall = services.Uninstall
 	a.settings.security.SetPreferences(services.Preferences)
 	a.settings.images = &a.images
@@ -627,6 +638,13 @@ func (a *App) Close() {
 // the messenger after that.
 func (a *App) RequireLogin(l *login.Login) {
 	a.signIn = newLoginPage(l, a.security, a.window.Invalidate)
+	a.signIn.corner = &loginCorner{
+		mode:        func() themeMode { return themeMode(a.preferences.Global().Theme) },
+		setMode:     a.setThemeMode,
+		language:    func() string { return a.preferences.Global().Language },
+		setLanguage: a.setLanguage,
+		proxy:       newProxyDialog(a.proxies),
+	}
 }
 
 // signingIn reports whether the sign-in window is what to show.

@@ -45,6 +45,9 @@ type loginPage struct {
 	install *installView
 	// protect scrolls the text of the offer to protect local data.
 	protect scroll.List
+	// corner is the language, the theme and the proxy, in the window's
+	// corner; nil where the window has no preferences to change.
+	corner *loginCorner
 
 	phone             *phoneField
 	code              *codeInput
@@ -100,6 +103,9 @@ func (p *loginPage) field(step login.Step) inputField {
 
 // Update handles input for the current state.
 func (p *loginPage) Update(gtx layout.Context, l localization.Catalog) {
+	if p.corner != nil {
+		p.corner.Update(gtx)
+	}
 	st := p.login.State()
 	if st.Step == login.StepInstall {
 		p.install.Update(gtx, p.login, l)
@@ -168,6 +174,15 @@ func canSubmit(st login.State, text string) bool {
 	return strings.TrimSpace(text) != ""
 }
 
+// inset is the room around the card: with the controls of the corner, enough
+// above and below it that it never reaches them.
+func (p *loginPage) inset() layout.Inset {
+	if p.corner == nil {
+		return layout.UniformInset(16)
+	}
+	return layout.Inset{Top: cornerMargin, Bottom: cornerMargin, Left: 16, Right: 16}
+}
+
 // Layout draws the sign-in card centered on the window.
 // With private set, the phone number the code went to is not shown.
 func (p *loginPage) Layout(gtx layout.Context, l localization.Catalog, private bool) layout.Dimensions {
@@ -178,7 +193,7 @@ func (p *loginPage) Layout(gtx layout.Context, l localization.Catalog, private b
 	st := p.login.State()
 	layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min = layout.Constraints{}.Min
-		return layout.UniformInset(16).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return p.inset().Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(loginWidth))
 			return p.height.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 				switch st.Step {
@@ -198,6 +213,10 @@ func (p *loginPage) Layout(gtx layout.Context, l localization.Catalog, private b
 		p.phone.Dialog(gtx, l)
 	} else {
 		p.phone.picker.modal.Hide()
+	}
+	if p.corner != nil {
+		p.corner.Layout(gtx, l)
+		p.corner.proxy.Layout(gtx, l)
 	}
 	return layout.Dimensions{Size: size}
 }

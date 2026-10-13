@@ -77,7 +77,7 @@ go run ./cmd/haiku-build -o ~/apps/KomaruGram
 
 | Переменная | Что делает |
 |---|---|
-| `KOMARUGRAM_PROXY` | Ссылка MTProxy, `tg://proxy?server=…&port=…&secret=…`: значение флага `-proxy` по умолчанию. |
+| `KOMARUGRAM_PROXY` | Ссылка на прокси, действует поверх списка из настроек: `tg://proxy?server=…&port=…&secret=…` (MTProto), `socks5://user:pass@host:port` или `socks5://host:port` (SOCKS5), `wss://web.telegram.org` (Telegram через WebSocket): значение флага `-proxy` по умолчанию. |
 | `KOMARUGRAM_FONT`, `KOMARUGRAM_FONT_EXTRA`, `KOMARUGRAM_FONT_MONO`, `KOMARUGRAM_FONT_EMOJI` | Файл шрифта для текста, для символов, которых в нём нет, для кода и для эмодзи, поверх шрифтов из настроек. |
 | `KOMARUGRAM_EMOJI_SET` | Папка набора эмодзи, которым рисовать эмодзи, поверх выбранного в настройках. |
 | `KOMARUGRAM_EMOJI_PACKS` | Каталог наборов эмодзи, папка или http(s)-адрес, который настройки предложат вместо вшитого. |

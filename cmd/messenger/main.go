@@ -36,6 +36,7 @@ import (
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/preferences"
+	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/messenger/security"
 	"komarugram/internal/messenger/tgstore"
 	"komarugram/internal/messenger/ui"
@@ -65,7 +66,7 @@ func main() {
 	var tdataPaths pathsFlag
 	flag.Var(&tdataPaths, "tdata", "import a Telegram Desktop tdata zip or every zip in a directory; may be repeated")
 	check := flag.Bool("check", false, "import/load accounts without windows, print counts and exit")
-	proxy := flag.String("proxy", os.Getenv("KOMARUGRAM_PROXY"), "connect through this MTProxy link, tg://proxy?server=…&port=…&secret=… (default: $KOMARUGRAM_PROXY)")
+	proxyLink := flag.String("proxy", os.Getenv("KOMARUGRAM_PROXY"), "connect through this proxy, over the ones kept in the settings: tg://proxy?server=…&port=…&secret=… for MTProto, socks5://user:pass@host:port or socks5://host:port for SOCKS5, wss://web.telegram.org for Telegram over WebSocket (default: $KOMARUGRAM_PROXY)")
 	profile := flag.Bool("profile", false, "open performance profiler in a separate window")
 	profileDir := flag.String("profile-dir", "profiles", "directory for explicitly exported profiler artifacts")
 	profileExport := flag.Duration("profile-export", 0, "automatically export JSON at this interval (e.g. 2s); enables collection without profiler UI")
@@ -213,11 +214,15 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
-	manager, err := newManager(*proxy, protection)
+	manager, err := newManager(*proxyLink, protection)
 	if err != nil {
 		fail(err)
 	}
 	defer manager.Close()
+	proxies, err := newProxies(manager, protection, *proxyLink)
+	if err != nil {
+		fail(err)
+	}
 	var imports []*account.TData
 	if len(tdataPaths) > 0 {
 		paths, err := expandTDataPaths(tdataPaths)
@@ -248,7 +253,7 @@ func main() {
 			w.Quit()
 		}
 	})
-	accounts := newAccountWindows(process, windowOptions(sharedPreferences), manager, protection, sharedPreferences, sharedMiniApps, imports)
+	accounts := newAccountWindows(process, windowOptions(sharedPreferences), manager, proxies, protection, sharedPreferences, sharedMiniApps, imports)
 	balloon := &trayBalloon{}
 	notifier := notify.New(catalog.T("app.title"), balloon)
 	accounts.notifier = notifier
@@ -432,9 +437,13 @@ func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive
 			}
 		}()
 	}
+	// The proxies of the demo are kept in memory, and measured by no one.
+	proxies := proxy.NewStore("", nil)
 	process.Open(appwindow.Spec{Options: opts, Closed: stop, Build: func(w *appwindow.Window) appwindow.Content {
 		content := ui.New(w, store, ui.Services{
 			Preferences: prefs,
+			Proxies:     proxies,
+			PingProxy:   demoPing,
 			MiniApps:    miniApps(prefs),
 			Security:    protection,
 			OpenWindow:  process.Open,
@@ -560,17 +569,56 @@ func checkAccounts(manager *account.Manager, imports []*account.TData) error {
 	return nil
 }
 
-// newManager returns an account manager that connects through the MTProxy
-// in proxy, or directly if it is empty.
-func newManager(proxy string, protection *security.Manager) (*account.Manager, error) {
+// newManager returns an account manager that connects through the proxy the
+// link names, or directly if it is empty.
+func newManager(link string, protection *security.Manager) (*account.Manager, error) {
 	manager, err := account.NewManager(account.TDesktop(), protection)
 	if err != nil {
 		return nil, err
 	}
-	if err := manager.SetProxy(proxy); err != nil {
+	if link == "" {
+		return manager, nil
+	}
+	p, err := proxy.Parse(link)
+	if err != nil {
+		return nil, fmt.Errorf("-proxy: %w", err)
+	}
+	if err := manager.UseProxy(&p); err != nil {
 		return nil, err
 	}
 	return manager, nil
+}
+
+// newProxies returns the proxies the user keeps, which the manager connects
+// through, the one in use at any time. The link of the command line or of the
+// environment is the one in use, over the list's, and is not kept in it.
+func newProxies(manager *account.Manager, protection *security.Manager, link string) (*proxy.Store, error) {
+	path, err := proxy.DefaultPath()
+	if err != nil {
+		return nil, err
+	}
+	store := proxy.NewStore(path, protection)
+	if link != "" {
+		p, err := proxy.Parse(link)
+		if err != nil {
+			return nil, fmt.Errorf("-proxy: %w", err)
+		}
+		if err := store.Force(&p); err != nil {
+			return nil, err
+		}
+	}
+	follow := func() {
+		var use *proxy.Proxy
+		if p, ok := store.Active(); ok {
+			use = &p
+		}
+		if err := manager.UseProxy(use); err != nil {
+			log.Printf("proxy: %v", err)
+		}
+	}
+	follow()
+	store.Subscribe(follow)
+	return store, nil
 }
 
 // printSummary tells what was loaded without printing anything personal.

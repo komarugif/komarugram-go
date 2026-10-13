@@ -77,7 +77,7 @@ These variables replace a setting for one run, or name a file the application wo
 
 | Variable | What it does |
 |---|---|
-| `KOMARUGRAM_PROXY` | An MTProxy link, `tg://proxy?server=…&port=…&secret=…`: the default of the `-proxy` flag. |
+| `KOMARUGRAM_PROXY` | A proxy link, used over the ones kept in the settings: `tg://proxy?server=…&port=…&secret=…` (MTProto), `socks5://user:pass@host:port` or `socks5://host:port` (SOCKS5), `wss://web.telegram.org` (Telegram over WebSocket): the default of the `-proxy` flag. |
 | `KOMARUGRAM_FONT`, `KOMARUGRAM_FONT_EXTRA`, `KOMARUGRAM_FONT_MONO`, `KOMARUGRAM_FONT_EMOJI` | A font file for the text, for the characters it lacks, for code and for emoji, over the fonts of the settings. |
 | `KOMARUGRAM_EMOJI_SET` | The directory of an emoji pack to draw emoji with, over the one chosen in the settings. |
 | `KOMARUGRAM_EMOJI_PACKS` | A catalog of emoji packs, a directory or an http(s) URL, for the settings to offer in place of the one built in. |

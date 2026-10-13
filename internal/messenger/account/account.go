@@ -26,7 +26,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -38,10 +37,15 @@ import (
 	"github.com/gotd/td/telegram/dcs"
 	"github.com/gotd/td/tg"
 
+	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/messenger/security"
 	"komarugram/pkg/dcpool"
 	"komarugram/pkg/tdata"
 )
+
+// ErrProxyChanged is what Add returns when the proxy was changed while it was
+// still connecting: the sign-in is to be started again, through the new one.
+var ErrProxyChanged = errors.New("account: the proxy was changed")
 
 // ErrInUse is returned when an account is already connected, in this process
 // or in another one.
@@ -95,23 +99,45 @@ type Manager struct {
 	mu       sync.Mutex
 	loaded   bool
 	accounts []*Account
-	// resolver, if set, connects through a proxy instead of directly.
-	resolver dcs.Resolver
+	// resolver, if set, connects through a proxy instead of directly; it and
+	// proxyChanged, which is closed when the proxy is changed, are under proxyMu.
+	proxyMu      sync.RWMutex
+	resolver     dcs.Resolver
+	proxyChanged chan struct{}
 }
 
-// SetProxy makes every connection of the manager go through the MTProxy in
-// link (see ParseProxy); an empty link means connecting directly.
-func (m *Manager) SetProxy(link string) error {
-	if strings.TrimSpace(link) == "" {
-		m.resolver = nil
-		return nil
+// UseProxy makes the connections made from now on go through p; nil is
+// connecting directly. The ones made already stay as they are: ProxyChanged
+// tells whoever is to make them again.
+func (m *Manager) UseProxy(p *proxy.Proxy) error {
+	var resolver dcs.Resolver
+	if p != nil {
+		var err error
+		if resolver, err = p.Resolver(); err != nil {
+			return err
+		}
 	}
-	resolver, err := ParseProxy(link)
-	if err != nil {
-		return err
-	}
+	m.proxyMu.Lock()
 	m.resolver = resolver
+	close(m.proxyChanged)
+	m.proxyChanged = make(chan struct{})
+	m.proxyMu.Unlock()
 	return nil
+}
+
+// ProxyChanged returns a channel that is closed when UseProxy is called
+// next.
+func (m *Manager) ProxyChanged() <-chan struct{} {
+	_, changed := m.proxyState()
+	return changed
+}
+
+// proxyState is the resolver in use, and the channel that is closed when it
+// is replaced.
+func (m *Manager) proxyState() (dcs.Resolver, <-chan struct{}) {
+	m.proxyMu.RLock()
+	defer m.proxyMu.RUnlock()
+	return m.resolver, m.proxyChanged
 }
 
 // NewManager returns a manager of the accounts in the user's config
@@ -141,6 +167,7 @@ func newManager(identity Identity, protection *security.Manager, dir, lockDir st
 	m := &Manager{
 		identity: identity, security: protection, lockDir: lockDir, accountsDir: accountsDir,
 		registry: &registry{path: filepath.Join(dir, "accounts.db"), protection: protection},
+		proxyChanged: make(chan struct{}),
 	}
 	if protection != nil {
 		protection.SetMigration(m.protectSessions)
@@ -421,11 +448,12 @@ func (m *Manager) RunClient(ctx context.Context, a *Account, handler telegram.Up
 	defer unlock()
 
 	identity := m.identity.withTimeZone(time.Now())
+	resolver, _ := m.proxyState()
 	client := telegram.NewClient(identity.APIID, identity.APIHash, telegram.Options{
 		DC:             a.DC,
 		SessionStorage: a.storage,
 		Device:         identity.Device,
-		Resolver:       m.resolver,
+		Resolver:       resolver,
 		UpdateHandler:  handler,
 		Middlewares:    append(diagnostics.Middleware(a.ID, a.DC), middlewares...),
 		OnTransfer:     dcpool.OnTransfer,
@@ -451,26 +479,41 @@ func (m *Manager) Add(ctx context.Context, p Prompter) (*Account, error) {
 	storage := m.fileStorage(filepath.Join(pending, "session.json"))
 
 	identity := m.identity.withTimeZone(time.Now())
+	resolver, proxyChanged := m.proxyState()
 	client := telegram.NewClient(identity.APIID, identity.APIHash, telegram.Options{
 		SessionStorage: storage,
 		Middlewares:    diagnostics.Middleware("sign-in", 0),
 		Device:         identity.Device,
-		Resolver:       m.resolver,
+		Resolver:       resolver,
 	})
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var timedOut atomic.Bool
+	var codeAsked, proxyWasChanged atomic.Bool
 	timer := time.AfterFunc(connectTimeout, func() {
 		timedOut.Store(true)
 		cancel()
 	})
 	defer timer.Stop()
+	// A proxy chosen before the code was asked for is what the sign-in is to be
+	// through: it starts again, as nothing was done that it would lose. The code
+	// is the server's answer to the connection it was asked on.
+	go func() {
+		select {
+		case <-proxyChanged:
+			if !codeAsked.Load() {
+				proxyWasChanged.Store(true)
+				cancel()
+			}
+		case <-runCtx.Done():
+		}
+	}()
 	// The phone number is asked for while the connection is made.
 	early := askPhoneEarly(runCtx, p)
 	var self *tg.User
 	err = client.Run(runCtx, func(ctx context.Context) error {
 		timer.Stop()
-		if err := signIn(ctx, gotdAuth{client.Auth(), client.API()}, early); err != nil {
+		if err := signIn(ctx, askingCode{gotdAuth{client.Auth(), client.API()}, func() { codeAsked.Store(true) }}, early); err != nil {
 			return err
 		}
 		var err error
@@ -488,6 +531,9 @@ func (m *Manager) Add(ctx context.Context, p Prompter) (*Account, error) {
 		}
 		return nil
 	})
+	if proxyWasChanged.Load() && ctx.Err() == nil {
+		return nil, ErrProxyChanged
+	}
 	if timedOut.Load() && ctx.Err() == nil {
 		return nil, ErrNoConnection
 	}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,7 +23,7 @@ type fakeTray struct{ available bool }
 func (t *fakeTray) Available() bool { return t.available }
 
 func TestKeepInBackground(t *testing.T) {
-	h := newAccountWindows(nil, appwindow.Options{}, nil, nil, preferences.Memory(), nil, nil)
+	h := newAccountWindows(nil, appwindow.Options{}, nil, nil, nil, preferences.Memory(), nil, nil)
 	if h.keepInBackground("a") {
 		t.Fatal("kept without a tray")
 	}
@@ -72,7 +73,7 @@ func TestKeepConnected(t *testing.T) {
 			}
 			<-ctx.Done()
 			return ctx.Err()
-		}, c)
+		}, c, nil)
 	}()
 	if err := <-c.failed; err != broken {
 		t.Fatalf("told %v", err)
@@ -94,7 +95,7 @@ func TestKeepConnected(t *testing.T) {
 
 	// An ended session is not a connection to make again.
 	ended := tgerr.New(401, "SESSION_REVOKED")
-	keepConnected(context.Background(), func(context.Context) error { return ended }, c)
+	keepConnected(context.Background(), func(context.Context) error { return ended }, c, nil)
 	select {
 	case err := <-c.failed:
 		t.Fatalf("the ended session told as a failure: %v", err)
@@ -144,5 +145,77 @@ func TestHandOffLetsTheWorkerGo(t *testing.T) {
 	}
 	if gone.Value() != nil {
 		t.Fatal("what the handing worker held outlives it")
+	}
+}
+
+// fakeProxy is the proxy of the connections, which a test changes.
+type fakeProxy struct {
+	mu sync.Mutex
+	ch chan struct{}
+}
+
+func newFakeProxy() *fakeProxy { return &fakeProxy{ch: make(chan struct{})} }
+
+func (p *fakeProxy) ProxyChanged() <-chan struct{} {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.ch
+}
+
+func (p *fakeProxy) change() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	close(p.ch)
+	p.ch = make(chan struct{})
+}
+
+// TestKeepConnectedFollowsTheProxy checks that a change of the proxy makes
+// the connection again at once, whether it is running or was told as failed,
+// and tells nothing as a failure.
+func TestKeepConnectedFollowsTheProxy(t *testing.T) {
+	for name, failing := range map[string]bool{"running": false, "failed": true} {
+		t.Run(name, func(t *testing.T) {
+			c := &fakeConnection{failed: make(chan error, 2), reconnects: make(chan struct{})}
+			p := newFakeProxy()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var calls atomic.Int32
+			started := make(chan int32, 4)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				keepConnected(ctx, func(ctx context.Context) error {
+					n := calls.Add(1)
+					started <- n
+					if failing && n == 1 {
+						return errors.New("no connection")
+					}
+					<-ctx.Done()
+					return ctx.Err()
+				}, c, p)
+			}()
+			if n := <-started; n != 1 {
+				t.Fatalf("call %d first", n)
+			}
+			if failing {
+				<-c.failed
+			}
+			p.change()
+			select {
+			case n := <-started:
+				if n != 2 {
+					t.Fatalf("call %d second", n)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("the connection was not made again for the proxy")
+			}
+			cancel()
+			<-done
+			select {
+			case err := <-c.failed:
+				t.Fatalf("the change of the proxy told as a failure: %v", err)
+			default:
+			}
+		})
 	}
 }
