@@ -90,6 +90,11 @@ animate as Material 3 describes, and every animation can be turned off.
   - `indicator`: progress animates with a `FloatTween`;
     `CircularIndeterminate` (`indeterminate.go`) is the rotating spinner,
     where upstream had a TODO. `indeterminate_test.go`.
+  - `slider`: the handle slides between the stops (a `FloatTween` of the
+    stop's index, fractional on the way, which the tracks, the stops and the
+    handle are drawn from) instead of jumping, whether a drag, a click or
+    `SetValue` moved it; the handle narrows and widens as it is pressed and
+    released. `slider_test.go`.
 
 ## Surfaces
 
