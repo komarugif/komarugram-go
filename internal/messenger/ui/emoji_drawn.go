@@ -21,6 +21,8 @@ type emojiDrawn struct {
 	shaper   *text.Shaper
 	typeface font.Typeface
 	known    map[string]bool
+	// seen are the answers of shows.
+	seen map[string]bool
 	// sections are the static sections without what is not drawn.
 	sections *[len(emojiSections)][]model.PickerItem
 }
@@ -30,7 +32,7 @@ func (d *emojiDrawn) use(theme *token.Theme) {
 	if theme == nil || d.shaper == theme.TextShaper {
 		return
 	}
-	*d = emojiDrawn{shaper: theme.TextShaper, typeface: theme.Typescale[token.TypestyleBodyLarge].Font, known: map[string]bool{}}
+	*d = emojiDrawn{shaper: theme.TextShaper, typeface: theme.Typescale[token.TypestyleBodyLarge].Font, known: map[string]bool{}, seen: map[string]bool{}}
 }
 
 // draws reports whether the fonts draw emoji as one glyph. Without a theme
@@ -58,6 +60,33 @@ func (d *emojiDrawn) draws(emoji string) bool {
 	drawn = drawn && glyphs == 1
 	d.known[emoji] = drawn
 	return drawn
+}
+
+// shows reports whether the fonts show something for emoji that a reader can
+// take in: a picture, or the letters that a font without flags draws a flag
+// as, and not the box of a character no font has. Without a theme everything
+// is taken for shown.
+func (d *emojiDrawn) shows(emoji string) bool {
+	if d.shaper == nil || emoji == "" {
+		return true
+	}
+	if shown, ok := d.seen[emoji]; ok {
+		return shown
+	}
+	d.shaper.LayoutString(text.Parameters{Font: font.Font{Typeface: d.typeface}, PxPerEm: fixed.I(16), MaxWidth: 1 << 20}, emoji)
+	glyphs, shown := 0, true
+	for g, ok := d.shaper.NextGlyph(); ok; g, ok = d.shaper.NextGlyph() {
+		if g.Advance <= 0 {
+			continue
+		}
+		glyphs++
+		if g.ID.Notdef() {
+			shown = false
+		}
+	}
+	shown = shown && glyphs > 0
+	d.seen[emoji] = shown
+	return shown
 }
 
 // filter returns the items without the emoji that are not drawn; stickers

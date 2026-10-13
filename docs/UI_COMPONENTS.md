@@ -57,6 +57,7 @@ put it next to these, and add it to this page.
 | `drawBadge`, `drawBadgeRight` | Unread counters. |
 | `flatEditor` | A borderless one-line editor with a hint, as in the composer and the picker's search. |
 | `textField` | A one-line outlined field with a label, which can mask what is typed (passwords). |
+| `phoneField` (`phone_field.go`) | The phone number of the sign-in, as Telegram's web client has it: a country field over the number, which finds the country from the calling code as it is typed (`internal/messenger/countries`, where several countries share a code the digits after it tell them, and a country picked from the list stays the one of its code) and opens `countryPicker` (`country_picker.go`, a `modal` with a search that takes names in the language and in English, and calling codes) on a click; the number is written in groups as it is typed or pasted, "+7 900 123 45 67", the caret staying after the digit it was after, and a Backspace or Delete over a separator taking the digit beside it. The list shows each country's flag emoji (`Country.Flag`): where the font has no flags, as Windows' has not (0 of 231 are drawn there), it is the two letters of the country's code, and an emoji set that has flags (Apple, Twemoji, Android, JoyPixels) draws them as pictures; where the fonts show not even letters, only the box of a missing character (a system with no emoji font, as Haiku), the column is left out (`emojiDrawn.shows`). The names of the countries are the keys `country.<ISO>`. `PHONE_PNG_DIR` renders the step. |
 | `openBrowser` | Opening a link in the system browser; call it off the frame goroutine. |
 
 ## Containers and navigation
@@ -548,7 +549,7 @@ new piece sits next to its neighbours.
   and emoji pack states; `TestRenderMessageMenu`, the message menu over a
   reply, with a floating and a classic composer. They are skipped unless their
   variable (`COMPOSER_PNG`, `COMPOSER_MOTION_PNG`, `SETTINGS_PNG`,
-  `ACCOUNTS_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `SESSIONS_PNG`, `FORUM_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
+  `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `SESSIONS_PNG`, `FORUM_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
   first dialog exists. `COMPOSER_VIEW=emoji-search`, the picker's emoji found for a word;
   `COMPOSER_VIEW=featured-stickers` or `featured-emoji`
   with `COMPOSER_PNG` shows the picker's recommendations; `COMPOSER_VIEW=voice`,

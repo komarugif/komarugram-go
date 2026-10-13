@@ -17,6 +17,7 @@ import (
 	"gioui.org/unit"
 
 	"komarugram/internal/messenger/account"
+	"komarugram/internal/messenger/countries"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/login"
 	"komarugram/internal/messenger/security"
@@ -36,8 +37,9 @@ type loginPage struct {
 	// install draws the offer to install the program, at StepInstall.
 	install *installView
 
-	phone, code, password *textField
-	next, back, retry     *button.Button
+	phone             *phoneField
+	code, password    *textField
+	next, back, retry *button.Button
 
 	// seen is the Seq of the state the fields were last prepared for.
 	seen int
@@ -49,7 +51,7 @@ func newLoginPage(l *login.Login, security *securityView, invalidate func()) *lo
 		security: security,
 		install:  newInstallView(invalidate),
 		skip:     button.Text(),
-		phone:    newTextField(0, "0123456789+-() "),
+		phone:    newPhoneField(),
 		code:     newTextField(0, "0123456789 "),
 		password: newTextField('•', ""),
 		next:     button.Filled(),
@@ -64,8 +66,16 @@ func (p *loginPage) done() bool {
 	return p.login.State().Step == login.StepDone
 }
 
+// inputField is what the sign-in asks of the field of a step.
+type inputField interface {
+	Text() string
+	Clear()
+	Focus(gtx layout.Context)
+	Submitted(gtx layout.Context) bool
+}
+
 // field returns the field of the step, nil for a step without one.
-func (p *loginPage) field(step login.Step) *textField {
+func (p *loginPage) field(step login.Step) inputField {
 	switch step {
 	case login.StepPhone:
 		return p.phone
@@ -118,6 +128,9 @@ func (p *loginPage) Update(gtx layout.Context, l localization.Catalog) {
 	if p.retry.Clicked(gtx) {
 		p.login.Retry()
 	}
+	if st.Step == login.StepPhone {
+		p.phone.Update(gtx)
+	}
 	submitted := field != nil && field.Submitted(gtx)
 	if (p.next.Clicked(gtx) || submitted) && field != nil && canSubmit(st, field.Text()) {
 		p.login.Submit(field.Text())
@@ -131,6 +144,10 @@ func canSubmit(st login.State, text string) bool {
 	}
 	if st.Step == login.StepPassword {
 		return text != ""
+	}
+	if st.Step == login.StepPhone {
+		// A plus alone is no number.
+		return countries.Digits(text) != ""
 	}
 	return strings.TrimSpace(text) != ""
 }
@@ -161,6 +178,11 @@ func (p *loginPage) Layout(gtx layout.Context, l localization.Catalog, private b
 			}, defaultCardPadding)
 		})
 	})
+	if st.Step == login.StepPhone {
+		p.phone.Dialog(gtx, l)
+	} else {
+		p.phone.picker.modal.Hide()
+	}
 	return layout.Dimensions{Size: size}
 }
 
@@ -187,7 +209,10 @@ func (p *loginPage) layoutStep(gtx layout.Context, st login.State, l localizatio
 			login.StepPassword: "login.field_password",
 		}[st.Step])
 		rows = append(rows, vspace(20), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return field.Layout(gtx, title, problem != "")
+			if phone, ok := field.(*phoneField); ok {
+				return phone.Layout(gtx, l, title, problem != "")
+			}
+			return field.(*textField).Layout(gtx, title, problem != "")
 		}))
 	}
 	if problem != "" {

@@ -47,6 +47,7 @@ func renders() []render {
 		render{"article", "TestRenderArticle", []string{"ARTICLE_PNG_DIR={out}"}},
 		render{"window-surfaces", "TestWindowSurfacePixels", []string{"WINDOW_SURFACES_PNG_DIR={out}"}},
 		render{"accounts", "TestRenderAccountScreens", []string{"ACCOUNTS_PNG_DIR={out}"}},
+		render{"phone", "TestRenderPhoneStep", []string{"PHONE_PNG_DIR={out}"}},
 		render{"session-ended", "TestRenderSessionEnded", []string{"SESSION_PNG_DIR={out}"}},
 		render{"sessions", "TestRenderSessions", []string{"SESSIONS_PNG={out}/sessions.png"}},
 		render{"sticker-set", "TestRenderStickerSet", []string{"STICKER_SET_PNG_DIR={out}"}},
