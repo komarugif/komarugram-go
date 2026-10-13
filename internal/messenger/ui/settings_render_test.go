@@ -189,6 +189,12 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		on := os.Getenv("LOCAL_PREMIUM") != "off"
 		p.localPremium = func() bool { return on }
 		p.setLocalPremium = func(v bool) { on = v }
+		if os.Getenv("PREMIUM_ACTIVE") == "on" {
+			p.premium = activePremium{}
+			media := true
+			p.premiumMedia = func() bool { return media }
+			p.setPremiumMedia = func(v bool) { media = v }
+		}
 		size.Y = 1500
 	}
 	if os.Getenv("SETTINGS_SECTION") == "about" {
@@ -257,6 +263,13 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	if err := png.Encode(f, img); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// activePremium is an account that has Premium.
+type activePremium struct{}
+
+func (activePremium) Premium() model.Premium {
+	return model.PremiumFromConfig(true, map[string]any{})
 }
 
 // plainPremium is an account without Premium.

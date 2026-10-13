@@ -10,9 +10,20 @@ import (
 	xproxy "golang.org/x/net/proxy"
 )
 
+// Options are what a connection is made by besides the proxy.
+type Options struct {
+	// PremiumMedia, if set, tells at each connection whether the files over
+	// WebSocket are asked for at the address of Premium accounts, as Telegram's
+	// web clients ask for them.
+	PremiumMedia func() bool
+}
+
 // Resolver makes the resolver that connects to Telegram through the proxy.
 // The proxy is not asked for anything until a connection is made.
-func (p Proxy) Resolver() (dcs.Resolver, error) {
+func (p Proxy) Resolver() (dcs.Resolver, error) { return p.ResolverWith(Options{}) }
+
+// ResolverWith is Resolver with o.
+func (p Proxy) ResolverWith(o Options) (dcs.Resolver, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
@@ -24,7 +35,7 @@ func (p Proxy) Resolver() (dcs.Resolver, error) {
 		}
 		return dcs.MTProxy(p.Address(), key, dcs.MTProxyOptions{})
 	case WebSocket:
-		return newWebSocketResolver(p), nil
+		return newWebSocketResolver(p, o), nil
 	case SOCKS5:
 		dial, err := p.socksDialer()
 		if err != nil {

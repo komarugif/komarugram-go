@@ -104,6 +104,9 @@ type Manager struct {
 	proxyMu      sync.RWMutex
 	resolver     dcs.Resolver
 	proxyChanged chan struct{}
+	// premiumMedia tells whether files over WebSocket go to the address of
+	// Premium accounts; nil for no.
+	premiumMedia func() bool
 }
 
 // UseProxy makes the connections made from now on go through p; nil is
@@ -113,7 +116,7 @@ func (m *Manager) UseProxy(p *proxy.Proxy) error {
 	var resolver dcs.Resolver
 	if p != nil {
 		var err error
-		if resolver, err = p.Resolver(); err != nil {
+		if resolver, err = p.ResolverWith(proxy.Options{PremiumMedia: m.premiumMediaNow}); err != nil {
 			return err
 		}
 	}
@@ -123,6 +126,21 @@ func (m *Manager) UseProxy(p *proxy.Proxy) error {
 	m.proxyChanged = make(chan struct{})
 	m.proxyMu.Unlock()
 	return nil
+}
+
+// SetPremiumMedia sets what tells, at each connection over WebSocket, whether
+// files are asked for at the address of Premium accounts.
+func (m *Manager) SetPremiumMedia(f func() bool) {
+	m.proxyMu.Lock()
+	m.premiumMedia = f
+	m.proxyMu.Unlock()
+}
+
+func (m *Manager) premiumMediaNow() bool {
+	m.proxyMu.RLock()
+	f := m.premiumMedia
+	m.proxyMu.RUnlock()
+	return f != nil && f()
 }
 
 // ProxyChanged returns a channel that is closed when UseProxy is called

@@ -228,6 +228,11 @@ type settingsPage struct {
 	localPremium       func() bool
 	setLocalPremium    func(bool)
 	localPremiumToggle *toggle.Toggle[string]
+	// premiumMedia and setPremiumMedia read and switch the Premium address for
+	// files over WebSocket, which the Premium page offers to who has Premium.
+	premiumMedia       func() bool
+	setPremiumMedia    func(bool)
+	premiumMediaToggle *toggle.Toggle[string]
 	subscribe          *button.Button
 	// players chooses the external player for videos and audio; browser,
 	// the browser Mini Apps run in.
@@ -295,6 +300,11 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 	p.localPremiumToggle = toggle.NewToggle([]string{"local"}, nil, func(values []string) {
 		if p.setLocalPremium != nil {
 			p.setLocalPremium(len(values) == 1)
+		}
+	})
+	p.premiumMediaToggle = toggle.NewToggle([]string{"media"}, nil, func(values []string) {
+		if p.setPremiumMedia != nil {
+			p.setPremiumMedia(len(values) == 1)
 		}
 	})
 	p.ghostOpts = toggle.NewToggle(ghostOptions, nil, func(values []string) {
@@ -1309,6 +1319,15 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 			}
 		}
 	}
+	if p.premiumMediaToggle != nil && p.premiumMedia != nil {
+		if want := p.premiumMedia(); want != (len(p.premiumMediaToggle.GetValues()) == 1) {
+			if want {
+				p.premiumMediaToggle.SetValues([]string{"media"})
+			} else {
+				p.premiumMediaToggle.SetValues(nil)
+			}
+		}
+	}
 	var offer []layout.FlexChild
 	switch {
 	case premium.Active:
@@ -1386,6 +1405,26 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 			}, defaultCardPadding)
 		}),
 		vspace(12),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			// A lever for those who have Premium: nothing is known of what it
+			// changes, and an account without it has no use of it.
+			if !premium.Active || p.premiumMediaToggle == nil || p.setPremiumMedia == nil {
+				return layout.Dimensions{}
+			}
+			return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return p.cardHeight("layoutPremium-4").Card(gtx, func(gtx layout.Context) layout.Dimensions {
+					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return p.premiumMediaToggle.Layout(gtx, map[string]string{"media": l.T("premium.media")})
+						}),
+						vspace(4),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return label(gtx, l.T("premium.media_body"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
+						}),
+					)
+				}, defaultCardPadding)
+			})
+		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			if p.localPremiumToggle == nil || p.setLocalPremium == nil {
 				return layout.Dimensions{}

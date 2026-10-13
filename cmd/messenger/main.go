@@ -219,6 +219,9 @@ func main() {
 		fail(err)
 	}
 	defer manager.Close()
+	if sharedPreferences != nil {
+		manager.SetPremiumMedia(func() bool { return sharedPreferences.Global().PremiumMedia })
+	}
 	proxies, err := newProxies(manager, protection, *proxyLink)
 	if err != nil {
 		fail(err)

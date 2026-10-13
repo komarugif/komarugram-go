@@ -970,6 +970,8 @@
 "premium.local" = "Local Telegram Premium";
 "premium.local_active" = "You are using local Telegram Premium. It gives no benefits: the star is shown here only.";
 "premium.local_body" = "Shows the Premium star beside the names of your accounts in this app. Telegram does not know of it: limits, emoji, reactions and upload size stay as they are, and nobody else sees the star.";
+"premium.media" = "Premium address for files";
+"premium.media_body" = "Telegram's web clients take the files of Premium accounts to a separate address. With this on, the client does the same where it is connected over WebSocket, and goes back to the usual address if the connection is not taken there. It is not known whether this changes anything: try it, and see whether files come faster.";
 "premium.off" = "Not subscribed";
 "premium.on" = "Active";
 "premium.on_local" = "Local";

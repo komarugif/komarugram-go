@@ -77,13 +77,16 @@ type websocketResolver struct {
 	rand   io.Reader
 	// client dials; nil for the default one, which tests replace.
 	client *http.Client
+	// premium, if set, tells whether the files are to be asked for at the
+	// address of Premium accounts, as it is each time a connection is made.
+	premium func() bool
 }
 
 var _ dcs.Resolver = websocketResolver{}
 
-func newWebSocketResolver(p Proxy) websocketResolver {
+func newWebSocketResolver(p Proxy, o Options) websocketResolver {
 	cdc := codec.Intermediate{}
-	return websocketResolver{domain: p.Host, port: p.Port, tag: cdc.ObfuscatedTag(), cdc: cdc, rand: crypto.DefaultRand()}
+	return websocketResolver{domain: p.Host, port: p.Port, tag: cdc.ObfuscatedTag(), cdc: cdc, rand: crypto.DefaultRand(), premium: o.PremiumMedia}
 }
 
 // urls are the addresses to try for a server, the first that answers is used:
@@ -99,14 +102,16 @@ func (r websocketResolver) urls(dc int, media bool) []string {
 	} else {
 		host = hostLiteral(host)
 	}
-	names := []string{fmt.Sprintf("kws%d.%s", dc, host)}
+	var urls []string
 	if media && strings.EqualFold(r.domain, telegramDomain) {
-		names = append([]string{fmt.Sprintf("kws%d-1.%s", dc, host)}, names...)
+		// The web clients take the files of a Premium account to a path of its
+		// own; where that is not taken, the usual one is.
+		if r.premium != nil && r.premium() {
+			urls = append(urls, fmt.Sprintf("wss://kws%d-1.%s/apiws_premium", dc, host))
+		}
+		urls = append(urls, fmt.Sprintf("wss://kws%d-1.%s/apiws", dc, host))
 	}
-	for i, name := range names {
-		names[i] = "wss://" + name + "/apiws"
-	}
-	return names
+	return append(urls, fmt.Sprintf("wss://kws%d.%s/apiws", dc, host))
 }
 
 func hostOrBare(h string) string { return strings.Trim(h, "[]") }

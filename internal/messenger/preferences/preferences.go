@@ -70,6 +70,10 @@ type Global struct {
 	// and the Premium section of the settings. Telegram does not know of it,
 	// so nothing else changes.
 	LocalPremium bool `json:"local_premium,omitempty"`
+	// PremiumMedia has the WebSocket connections for files go to the address
+	// Telegram's web clients take them to for Premium accounts, which no other
+	// account is known to need: a lever for those who have Premium to try.
+	PremiumMedia bool `json:"premium_media,omitempty"`
 	// Window locking only covers the UI; account connections stay running.
 	AutoLockMinutes int           `json:"auto_lock_minutes,omitempty"`
 	LockOnMinimize  bool          `json:"lock_on_minimize,omitempty"`
@@ -563,6 +567,11 @@ func (s *Store) SetVisualPrivacy(on bool) error {
 // SetLocalPremium makes the accounts look Premium to themselves, or not.
 func (s *Store) SetLocalPremium(on bool) error {
 	return s.change(func(g *Global) { g.LocalPremium = on })
+}
+
+// SetPremiumMedia switches the Premium address for files over WebSocket.
+func (s *Store) SetPremiumMedia(on bool) error {
+	return s.change(func(g *Global) { g.PremiumMedia = on })
 }
 
 // SetStreamerMode hides the windows from screen capture, or shows them.

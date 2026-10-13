@@ -617,3 +617,22 @@ func TestUseProxyTellsOfTheChange(t *testing.T) {
 	}
 	<-next
 }
+
+// TestPremiumMediaIsAskedAtEachConnection checks that the manager reads what
+// tells the Premium address when it is asked, so that a switch in the settings
+// takes effect without the resolver being made again.
+func TestPremiumMediaIsAskedAtEachConnection(t *testing.T) {
+	m := testManager(t, t.TempDir(), nil)
+	if m.premiumMediaNow() {
+		t.Fatal("on before it was set")
+	}
+	on := false
+	m.SetPremiumMedia(func() bool { return on })
+	if m.premiumMediaNow() {
+		t.Error("on while the setting is off")
+	}
+	on = true
+	if !m.premiumMediaNow() {
+		t.Error("off after the setting was turned on")
+	}
+}

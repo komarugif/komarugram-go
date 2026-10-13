@@ -432,3 +432,24 @@ func TestDefaultMotionOffKeepsModeSet(t *testing.T) {
 		t.Fatalf("mode chosen by the user: %v after DefaultMotionOff, want auto", g.MotionMode)
 	}
 }
+
+func TestPremiumMediaIsKeptAndOffByDefault(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	s, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Global().PremiumMedia {
+		t.Fatal("the Premium address is on before it is chosen")
+	}
+	if err := s.SetPremiumMedia(true); err != nil {
+		t.Fatal(err)
+	}
+	again, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !again.Global().PremiumMedia {
+		t.Error("the Premium address was not kept")
+	}
+}

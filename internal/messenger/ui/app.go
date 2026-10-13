@@ -350,6 +350,12 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			log.Printf("save settings: %v", err)
 		}
 	}
+	a.settings.premiumMedia = func() bool { return a.preferences.Global().PremiumMedia }
+	a.settings.setPremiumMedia = func(on bool) {
+		if err := services.Preferences.SetPremiumMedia(on); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
 	a.settings.confirmations = func() (bool, bool) {
 		g := a.preferences.Global()
 		return g.ConfirmSticker, g.ConfirmGIF

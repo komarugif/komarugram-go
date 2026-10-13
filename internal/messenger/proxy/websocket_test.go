@@ -43,9 +43,9 @@ func TestParseWebSocket(t *testing.T) {
 // the media servers of Telegram's own domain have names of their own, which
 // are asked for first, and a domain of a user's has only the plain ones.
 func TestWebSocketAddresses(t *testing.T) {
-	tg := newWebSocketResolver(Telegram())
-	own := newWebSocketResolver(Proxy{Kind: WebSocket, Host: "example.org", Port: 443})
-	odd := newWebSocketResolver(Proxy{Kind: WebSocket, Host: "example.org", Port: 8443})
+	tg := newWebSocketResolver(Telegram(), Options{})
+	own := newWebSocketResolver(Proxy{Kind: WebSocket, Host: "example.org", Port: 443}, Options{})
+	odd := newWebSocketResolver(Proxy{Kind: WebSocket, Host: "example.org", Port: 8443}, Options{})
 	for _, tc := range []struct {
 		r     websocketResolver
 		dc    int
@@ -85,7 +85,7 @@ func TestWebSocketTriesTheNextAddress(t *testing.T) {
 		},
 	}}
 
-	r := newWebSocketResolver(Telegram())
+	r := newWebSocketResolver(Telegram(), Options{})
 	r.client = client
 	if _, err := r.MediaOnly(context.Background(), 3, dcsList()); err == nil {
 		t.Fatal("a server that has no WebSocket was connected to")
@@ -103,3 +103,34 @@ func TestWebSocketTriesTheNextAddress(t *testing.T) {
 }
 
 func dcsList() dcs.List { return dcs.List{} }
+
+// TestWebSocketPremiumAddress checks that the address of Premium accounts is
+// asked for first, for files alone and on Telegram's own domain, and that the
+// usual ones stay behind it, for where it is not taken.
+func TestWebSocketPremiumAddress(t *testing.T) {
+	on := func() bool { return true }
+	off := func() bool { return false }
+	tg := newWebSocketResolver(Telegram(), Options{PremiumMedia: on})
+	for _, tc := range []struct {
+		r     websocketResolver
+		media bool
+		want  []string
+	}{
+		{tg, true, []string{"wss://kws4-1.web.telegram.org/apiws_premium", "wss://kws4-1.web.telegram.org/apiws", "wss://kws4.web.telegram.org/apiws"}},
+		{tg, false, []string{"wss://kws4.web.telegram.org/apiws"}},
+		{newWebSocketResolver(Telegram(), Options{PremiumMedia: off}), true, []string{"wss://kws4-1.web.telegram.org/apiws", "wss://kws4.web.telegram.org/apiws"}},
+		{newWebSocketResolver(Proxy{Kind: WebSocket, Host: "example.org", Port: 443}, Options{PremiumMedia: on}), true, []string{"wss://kws4.example.org/apiws"}},
+	} {
+		if got := tc.r.urls(4, tc.media); !slices.Equal(got, tc.want) {
+			t.Errorf("media %v: %v, want %v", tc.media, got, tc.want)
+		}
+	}
+	// The choice is made at each connection, not once.
+	flag := false
+	r := newWebSocketResolver(Telegram(), Options{PremiumMedia: func() bool { return flag }})
+	before := len(r.urls(2, true))
+	flag = true
+	if after := len(r.urls(2, true)); after != before+1 {
+		t.Errorf("%d addresses before the switch and %d after", before, after)
+	}
+}
