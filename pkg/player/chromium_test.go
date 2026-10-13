@@ -54,7 +54,7 @@ func serveFile(t *testing.T, path string) *player.Stream {
 	return stream
 }
 
-// TestChromium plays a video in the browser of Mini Apps, KITCHEN_MINIAPP_BROWSER
+// TestChromium plays a video in the browser of Mini Apps, KOMARUGRAM_MINIAPP_BROWSER
 // or the one found, and checks that it reports its state and takes commands.
 func TestChromium(t *testing.T) {
 	if !miniapp.Available() {

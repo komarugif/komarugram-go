@@ -89,3 +89,23 @@ func TestChromiumVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestBrowserChoice(t *testing.T) {
+	for _, tc := range []struct{ name, legacy, want string }{
+		{"", "", ""},
+		{"firefox", "", "firefox"},
+		// The name the kitchen had stays understood.
+		{"", "chromium", "chromium"},
+		// The new name wins over the old one.
+		{"firefox", "chromium", "firefox"},
+	} {
+		t.Setenv(BrowserEnv, tc.name)
+		t.Setenv(legacyBrowserEnv, tc.legacy)
+		if got := BrowserChoice(); got != tc.want {
+			t.Errorf("%s=%q, %s=%q: chose %q, want %q", BrowserEnv, tc.name, legacyBrowserEnv, tc.legacy, got, tc.want)
+		}
+	}
+	if BrowserEnv != "KOMARUGRAM_MINIAPP_BROWSER" {
+		t.Errorf("BrowserEnv is %q", BrowserEnv)
+	}
+}

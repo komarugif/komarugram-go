@@ -716,10 +716,11 @@ Mini App — a page from a stranger — runs inside, and whether the flatpak or 
 distribution's package is ahead cannot be told from how it was installed, so
 the version decides; Brave reveals only its Chromium major, so it ties with
 every Chromium of that major, and ties go to native programs first.
-`KITCHEN_MINIAPP_BROWSER` names one directly, by program or by application id,
-which is how the same suite is run against each of them; in the messenger, the
-user can pick one in the settings, which is kept only when it answers
-`--version` as a Chromium-based browser. A snap sees a `/tmp` of its own and no hidden directory of the home, the
+`KOMARUGRAM_MINIAPP_BROWSER` names one directly, by program or by application id,
+which is how the same suite is run against each of them. It is for the
+messenger as well as the kitchen, and it wins over the browser picked in the
+settings, which is kept only when it answers `--version` as a Chromium-based
+browser; the video player, which plays in the same browser, follows both. A snap sees a `/tmp` of its own and no hidden directory of the home, the
 cache and the configuration among them: for a browser run by snap (a command
 in `/snap/bin`, or a script that runs one, as Ubuntu's `/usr/bin/firefox`),
 profiles go under `~/snap/<name>/common/komarugram-go/miniapp`, one directory

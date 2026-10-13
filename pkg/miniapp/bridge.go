@@ -240,7 +240,7 @@ func OpenPage(ctx context.Context, url string, page Page) (*Bridge, error) {
 func launch(ctx context.Context, url string, profile Profile, page Page, telegram bool) (*Bridge, error) {
 	chosen := findBrowser()
 	if !chosen.found {
-		if choice := os.Getenv(BrowserEnv); choice != "" {
+		if choice := BrowserChoice(); choice != "" {
 			return nil, fmt.Errorf("%s names %q, which is neither a program nor an installed flatpak",
 				BrowserEnv, choice)
 		}
