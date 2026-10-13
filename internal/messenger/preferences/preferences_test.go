@@ -41,6 +41,9 @@ func TestPersistsAndNotifies(t *testing.T) {
 	if err := s.SetComposerBlur(false); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.SetPauseInactive(false); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.SetPlayer(player.VLC); err != nil {
 		t.Fatal(err)
 	}
@@ -57,15 +60,15 @@ func TestPersistsAndNotifies(t *testing.T) {
 	if err := s.SetTheme(ThemeLight); err != nil {
 		t.Fatal(err)
 	}
-	if called != 10 {
-		t.Fatalf("notifications = %d, want 10", called)
+	if called != 11 {
+		t.Fatalf("notifications = %d, want 11", called)
 	}
 
 	loaded, err := OpenPath(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Global{WindowBlur: true, Theme: ThemeLight, Language: "en", LastAccountID: "account-b", MotionMode: powersave.ModeOff, LowBattery: 25, MiniAppStorage: miniapp.PerApp, Composer: ComposerClassic, AudioVolume: 100, Player: player.VLC, VLCPath: "/opt/vlc/vlc", BrowserPath: "/opt/chromium/chrome", Ghost: Ghost{SendRead: true, SendOnline: true, SendTyping: true, ReadOnInteract: true}, Overlays: Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true}, Keep: Keep{Deleted: true, Edits: true}, Notify: Notify{Desktop: true, Sound: true, Name: true, Text: true, Private: true, Groups: true, Channels: true, AllAccounts: true}, Look: Look{BubbleRadius: BubbleRadiusMax, AvatarCorners: AvatarRound}}
+	want := Global{WindowBlur: true, Theme: ThemeLight, Language: "en", LastAccountID: "account-b", MotionMode: powersave.ModeOff, MotionSet: true, LowBattery: 25, MiniAppStorage: miniapp.PerApp, Composer: ComposerClassic, AudioVolume: 100, Player: player.VLC, VLCPath: "/opt/vlc/vlc", BrowserPath: "/opt/chromium/chrome", Ghost: Ghost{SendRead: true, SendOnline: true, SendTyping: true, ReadOnInteract: true}, Overlays: Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true}, Keep: Keep{Deleted: true, Edits: true}, Notify: Notify{Desktop: true, Sound: true, Name: true, Text: true, Private: true, Groups: true, Channels: true, AllAccounts: true}, Look: Look{BubbleRadius: BubbleRadiusMax, AvatarCorners: AvatarRound}}
 	if got := loaded.Global(); !got.Equal(want) {
 		t.Fatalf("loaded %+v, want %+v", got, want)
 	}
@@ -390,5 +393,24 @@ func TestFontsPersist(t *testing.T) {
 	}
 	if got := again.Global().Fonts; got != want {
 		t.Errorf("fonts read back: %+v, want %+v", got, want)
+	}
+}
+
+func TestDefaultMotionOffKeepsModeSet(t *testing.T) {
+	s := Memory()
+	if err := s.DefaultMotionOff(); err != nil {
+		t.Fatal(err)
+	}
+	if g := s.Global(); g.MotionMode != powersave.ModeOff || !g.MotionSet {
+		t.Fatalf("software default: mode %v, set %v; want off, set", g.MotionMode, g.MotionSet)
+	}
+	if err := s.SetMotion(powersave.ModeAuto, powersave.DefaultLowBattery); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DefaultMotionOff(); err != nil {
+		t.Fatal(err)
+	}
+	if g := s.Global(); g.MotionMode != powersave.ModeAuto {
+		t.Fatalf("mode chosen by the user: %v after DefaultMotionOff, want auto", g.MotionMode)
 	}
 }

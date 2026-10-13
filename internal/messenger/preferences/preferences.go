@@ -46,12 +46,18 @@ const (
 // Global contains preferences which currently apply to every account and
 // every window.
 type Global struct {
-	Theme          Theme           `json:"theme"`
-	Language       string          `json:"language"`
-	LastAccountID  string          `json:"last_account_id,omitempty"`
-	MotionMode     powersave.Mode  `json:"motion_mode"`
+	Theme         Theme          `json:"theme"`
+	Language      string         `json:"language"`
+	LastAccountID string         `json:"last_account_id,omitempty"`
+	MotionMode    powersave.Mode `json:"motion_mode"`
+	// MotionSet is true once MotionMode was set: by the user, or to off for
+	// windows drawn by a software rasterizer (DefaultMotionOff).
+	MotionSet      bool            `json:"motion_set,omitempty"`
 	LowBattery     int             `json:"low_battery"`
 	MiniAppStorage miniapp.Storage `json:"mini_app_storage"`
+	// PauseInactive stops stickers, GIFs, animated emoji and video avatars
+	// while the window is not active, as Telegram Desktop does.
+	PauseInactive bool `json:"pause_inactive"`
 	// VisualPrivacy hides phone numbers from the interface and covers the
 	// account's identifiers in its profile with spoilers, for showing the
 	// screen to others: streams, recordings, screenshots.
@@ -334,6 +340,7 @@ func defaults() Global {
 		MotionMode:     powersave.ModeAuto,
 		LowBattery:     powersave.DefaultLowBattery,
 		MiniAppStorage: miniapp.Shared,
+		PauseInactive:  true,
 		ComposerBlur:   true,
 		AudioVolume:    100,
 		WindowBlur:     true,
@@ -512,8 +519,27 @@ func (s *Store) SetLastAccount(id string) error {
 func (s *Store) SetMotion(mode powersave.Mode, lowBattery int) error {
 	return s.change(func(g *Global) {
 		g.MotionMode = mode
+		g.MotionSet = true
 		g.LowBattery = lowBattery
 	})
+}
+
+// DefaultMotionOff turns animations off unless their mode was set before:
+// for windows drawn by a software rasterizer (llvmpipe, WARP), where nothing
+// animates smoothly and every frame of an animation costs the CPU.
+func (s *Store) DefaultMotionOff() error {
+	return s.change(func(g *Global) {
+		if !g.MotionSet {
+			g.MotionMode = powersave.ModeOff
+			g.MotionSet = true
+		}
+	})
+}
+
+// SetPauseInactive switches whether media animations stop while the window
+// is not active.
+func (s *Store) SetPauseInactive(on bool) error {
+	return s.change(func(g *Global) { g.PauseInactive = on })
 }
 
 // SetVisualPrivacy switches visual privacy mode for every window.

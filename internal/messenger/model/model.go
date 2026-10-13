@@ -22,16 +22,37 @@ const (
 	KindSaved
 )
 
+// Preview is the last message of a chat or a topic as its list shows it.
+// The interface words what is not the message's own words: Media and
+// Service, and the account as the sender.
+type Preview struct {
+	// Text is the message's text on one line, or a line the interface
+	// worded already.
+	Text string `json:",omitempty"`
+	// Sender is who wrote it, in a group; Outgoing is set when the account
+	// did there.
+	Sender   string `json:",omitempty"`
+	Outgoing bool   `json:",omitempty"`
+	// Media is the key of the interface's text naming what the message
+	// carries ("preview.photo"), shown before Text; Emoji is a sticker's,
+	// or what a dice message carries when Media is empty.
+	Media string `json:",omitempty"`
+	Emoji string `json:",omitempty"`
+	// Service is the message when it is a service one.
+	Service *Message `json:",omitempty"`
+}
+
 type Chat struct {
-	ID          int64
-	Kind        ChatKind
-	Title       string
-	LastMessage string
-	// LastSender is shown before LastMessage in groups; empty otherwise.
-	LastSender string
-	LastTime   time.Time
-	Unread     int
-	Muted      bool
+	ID   int64
+	Kind ChatKind
+	// Title is the chat's name; empty for Saved Messages and a deleted
+	// account, which the interface names.
+	Title string
+	// Last is the chat's last message, as the list shows it.
+	Last     Preview
+	LastTime time.Time
+	Unread   int
+	Muted    bool
 	// Pinned chats stay at the top of the list, in the order PinRank gives:
 	// 1 for the first, 0 for a chat that is not pinned.
 	Pinned  bool

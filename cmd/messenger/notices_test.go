@@ -16,9 +16,9 @@ import (
 func TestNoticeFor(t *testing.T) {
 	l := localization.For("en")
 	all := preferences.Notify{Desktop: true, Sound: true, Name: true, Text: true, Private: true, Groups: true, Channels: true, AllAccounts: true}
-	group := model.MessageNotice{Chat: model.Chat{ID: -7, Kind: model.KindGroup, Title: "Team"}, Sender: "Alice", Text: "hello"}
-	private := model.MessageNotice{Chat: model.Chat{ID: 5, Kind: model.KindBot, Title: "Bot"}, Text: "hi"}
-	channel := model.MessageNotice{Chat: model.Chat{ID: -9, Kind: model.KindChannel, Title: "News"}, Text: "post"}
+	group := model.MessageNotice{Chat: model.Chat{ID: -7, Kind: model.KindGroup, Title: "Team"}, Message: model.Preview{Sender: "Alice", Text: "hello"}}
+	private := model.MessageNotice{Chat: model.Chat{ID: 5, Kind: model.KindBot, Title: "Bot"}, Message: model.Preview{Text: "hi"}}
+	channel := model.MessageNotice{Chat: model.Chat{ID: -9, Kind: model.KindChannel, Title: "News"}, Message: model.Preview{Text: "post"}}
 	with := func(f func(*preferences.Notify)) preferences.Global {
 		g := preferences.Global{Notify: all, LastAccountID: "a"}
 		f(&g.Notify)
@@ -41,7 +41,7 @@ func TestNoticeFor(t *testing.T) {
 		{"no text", with(func(n *preferences.Notify) { n.Text = false }), "a", noticeView{}, group, "Team", "You have a new message", true},
 		{"locked", with(same), "a", noticeView{locked: true}, group, l.T("app.title"), "You have a new message", true},
 		{"no sound", with(func(n *preferences.Notify) { n.Sound = false }), "a", noticeView{}, private, "Bot", "hi", false},
-		{"silent", with(same), "a", noticeView{}, model.MessageNotice{Chat: private.Chat, Text: "hi", Silent: true}, "Bot", "hi", false},
+		{"silent", with(same), "a", noticeView{}, model.MessageNotice{Chat: private.Chat, Message: model.Preview{Text: "hi"}, Silent: true}, "Bot", "hi", false},
 		{"this account only", with(func(n *preferences.Notify) { n.AllAccounts = false }), "a", noticeView{}, channel, "News", "post", true},
 	} {
 		note, ok := noticeFor(c.g, c.account, c.view, c.n, l)

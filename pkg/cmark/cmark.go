@@ -29,8 +29,8 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
-//go:embed cmark.wasm.gz
-var moduleGz []byte
+//go:embed cmark.wasm.zst
+var moduleZst []byte
 
 // Limits bounds what a hostile document can make the parser take.
 type Limits struct {
@@ -75,7 +75,7 @@ func NewRuntime(ctx context.Context, limits Limits) (*Runtime, error) {
 		sb.Close(ctx)
 		return nil, fmt.Errorf("cmark: wasi: %w", err)
 	}
-	compiled, err := sb.CompileGzipModule(ctx, moduleGz)
+	compiled, err := sb.CompileZstdModule(ctx, moduleZst)
 	if err != nil {
 		sb.Close(ctx)
 		return nil, err

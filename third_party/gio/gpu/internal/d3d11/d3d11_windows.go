@@ -134,6 +134,7 @@ func newDirect3D11Device(api driver.Direct3D11) (driver.Device, error) {
 	case featLvl >= d3d11.FEATURE_LEVEL_9_3:
 		b.caps.MaxTextureSize = 4096
 	}
+	b.caps.Software = d3d11.IsSoftware(dev)
 	if fmt, ok := detectFloatFormat(dev); ok {
 		b.floatFormat = fmt
 		b.caps.Features |= driver.FeatureFloatRenderTargets

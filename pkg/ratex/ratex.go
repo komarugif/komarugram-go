@@ -30,8 +30,8 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
-//go:embed ratex.wasm.gz
-var moduleGz []byte
+//go:embed ratex.wasm.zst
+var moduleZst []byte
 
 // Limits bounds what a hostile formula can make the layout take.
 type Limits struct {
@@ -73,7 +73,7 @@ func NewRuntime(ctx context.Context, limits Limits) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	compiled, err := sb.CompileGzipModule(ctx, moduleGz)
+	compiled, err := sb.CompileZstdModule(ctx, moduleZst)
 	if err != nil {
 		sb.Close(ctx)
 		return nil, err

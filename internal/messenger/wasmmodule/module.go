@@ -6,11 +6,14 @@
 // decoder (LGPL), fdk-aac (patents). Each lives in a repository of its own
 // with its sources, and is fetched the first time it is needed, from the
 // commit this version was tested with, checked against its SHA-256 and
-// kept in the cache directory. A variable of the environment names a build
-// of the user's instead: a path, or an http(s) URL.
+// kept in the cache directory as it came. A variable of the environment
+// names a build of the user's instead: a path, or an http(s) URL. A module
+// may come zstd-compressed (`zstd --ultra -22`, from the file, so that the
+// frame tells its size): it is unpacked as it is loaded.
 package wasmmodule
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -21,6 +24,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"komarugram/pkg/unpack"
 )
 
 // Module is one fetched module.
@@ -48,7 +53,26 @@ var (
 // Load returns the module: the build the environment names, or the tested
 // one, from the cache or downloaded.
 func (m Module) Load(ctx context.Context) ([]byte, error) {
-	return m.load(ctx, os.Getenv(m.Env))
+	module, err := m.load(ctx, os.Getenv(m.Env))
+	if err != nil {
+		return nil, err
+	}
+	return unpacked(m.Name, module)
+}
+
+// zstdMagic starts a zstd frame; a WebAssembly module starts with "\0asm".
+var zstdMagic = []byte{0x28, 0xb5, 0x2f, 0xfd}
+
+// unpacked is module unpacked when it came zstd-compressed.
+func unpacked(name string, module []byte) ([]byte, error) {
+	if !bytes.HasPrefix(module, zstdMagic) {
+		return module, nil
+	}
+	module, err := unpack.Zstd(module)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	return module, nil
 }
 
 // load returns the module named by source, m.Env's value, or the tested
@@ -84,11 +108,38 @@ func (m Module) load(ctx context.Context, source string) ([]byte, error) {
 		}
 		return module, err
 	}
-	path := filepath.Join(dir, m.Name+"-"+m.SHA256[:16]+".wasm")
+	path := filepath.Join(dir, m.Name+"-"+m.SHA256[:16]+m.ext())
 	if module, err := os.ReadFile(path); err == nil && sha256Hex(module) == m.SHA256 {
 		return module, nil
 	}
-	return m.download(ctx, source, m.SHA256, path)
+	module, err := m.download(ctx, source, m.SHA256, path)
+	if err == nil {
+		m.forgetOthers(dir, path)
+	}
+	return module, err
+}
+
+// ext is the extension of the tested build's file, as .wasm.zst.
+func (m Module) ext() string {
+	name := m.URL[strings.LastIndex(m.URL, "/")+1:]
+	if i := strings.Index(name, "."); i >= 0 {
+		return name[i:]
+	}
+	return ".wasm"
+}
+
+// forgetOthers removes the module's tested builds kept before the one at
+// keep: those of an older version of the client, which nothing loads
+// again. The user's own builds stay.
+func (m Module) forgetOthers(dir, keep string) {
+	kept, _ := filepath.Glob(filepath.Join(dir, m.Name+"-*"))
+	for _, path := range kept {
+		rest := strings.TrimPrefix(filepath.Base(path), m.Name+"-")
+		hash, _, _ := strings.Cut(rest, ".")
+		if path != keep && len(hash) == 16 && strings.Trim(hash, "0123456789abcdef") == "" {
+			os.Remove(path)
+		}
+	}
 }
 
 // download fetches url, checks it against want unless want is empty, and
@@ -106,7 +157,14 @@ func (m Module) download(ctx context.Context, url, want, path string) ([]byte, e
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download %s: %s", m.Name, resp.Status)
 	}
-	module, err := io.ReadAll(io.LimitReader(resp.Body, maxModule+1))
+	// Read into a buffer of the size the server tells, not one doubled as
+	// it fills.
+	var body bytes.Buffer
+	if n := resp.ContentLength; n > 0 && n <= maxModule {
+		body.Grow(int(n) + bytes.MinRead)
+	}
+	_, err = body.ReadFrom(io.LimitReader(resp.Body, maxModule+1))
+	module := body.Bytes()
 	if err != nil {
 		return nil, fmt.Errorf("download %s: %w", m.Name, err)
 	}
@@ -137,8 +195,8 @@ func sha256Hex(b []byte) string {
 var AVCDec = Module{
 	Name:   "avcdec",
 	Env:    "KOMARUGRAM_AVCDEC",
-	URL:    "https://raw.githubusercontent.com/komarugif/libavcodec-wasm/51a13afa567d51a5f3f6d469de6a2761a1cd2aec/avcdec.wasm",
-	SHA256: "f4a66e79f3aa20b12b264bb86413e1ad8be82f5455a588f6bf79d6a862e8088e",
+	URL:    "https://raw.githubusercontent.com/komarugif/libavcodec-wasm/199f1e982d62562b379a802b9ea89233e64dac81/avcdec.wasm.zst",
+	SHA256: "816854953193c042dda7b1e36a33d9f2c3d36c4d930a0b983f7e9c25099cb92f",
 }
 
 // AACDec is the decoder of fdk-aac, from fdk-aac-wasm, for voice messages
@@ -149,6 +207,6 @@ var AVCDec = Module{
 var AACDec = Module{
 	Name:   "aacdec",
 	Env:    "KOMARUGRAM_AACDEC",
-	URL:    "https://raw.githubusercontent.com/komarugif/fdk-aac-wasm/68c53cefce6ccf620e31ea96281623a63f175e7e/aacdec.wasm",
-	SHA256: "26d138ef82075b7de3ab838002b0f7000082736f8ba698b2aa0366fdefb5c4d7",
+	URL:    "https://raw.githubusercontent.com/komarugif/fdk-aac-wasm/1a5f63b8a2782161bd9b4c2fcb6bb2a600463415/aacdec.wasm.zst",
+	SHA256: "508c2f14030fa74206d74ab6927f36b9edf3194d2b00c264c049885bbb9d9ffe",
 }

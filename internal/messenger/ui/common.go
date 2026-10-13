@@ -152,20 +152,6 @@ func chatTime(t, now time.Time, l localization.Catalog) string {
 	}
 }
 
-// plural picks the Russian plural form for n: one (1, 21), few (2-4, 22-24)
-// or many (0, 5-20, 25).
-func plural(n int, one, few, many string) string {
-	n10, n100 := n%10, n%100
-	switch {
-	case n10 == 1 && n100 != 11:
-		return one
-	case n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14):
-		return few
-	default:
-		return many
-	}
-}
-
 // groupDigits formats n with spaces between thousands: 48 210.
 func groupDigits(n int) string {
 	s := fmt.Sprint(n)
@@ -247,8 +233,20 @@ func card(gtx layout.Context, content layout.Widget, padding unit.Dp) layout.Dim
 }
 
 func vspace(dp unit.Dp) layout.FlexChild {
+	if i := int(dp); float32(i) == float32(dp) && i >= 0 && i < len(vspaces) {
+		return layout.Rigid(vspaces[i])
+	}
 	return layout.Rigid(layout.Spacer{Height: dp}.Layout)
 }
+
+// vspaces are the spacers of whole dp up to 32, made once: a method value
+// made for each spacer, in every frame, was a closure on the heap.
+var vspaces = func() (spaces [33]layout.Widget) {
+	for i := range spaces {
+		spaces[i] = layout.Spacer{Height: unit.Dp(i)}.Layout
+	}
+	return spaces
+}()
 
 // inRect lays w out to fill rect exactly.
 func inRect(gtx layout.Context, rect image.Rectangle, w layout.Widget) layout.Dimensions {

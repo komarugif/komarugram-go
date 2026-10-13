@@ -47,15 +47,15 @@ The Go modules linked into `messenger` and `kitchen`, as `go version -m` lists t
 
 | Component | License |
 |---|---|
-| `pkg/vp9/vpxdec.wasm.gz`: [libvpx](https://github.com/webmproject/libvpx) with [SIMDe](https://github.com/simd-everywhere/simde) | BSD-3-Clause (libvpx), MIT (SIMDe) |
-| `pkg/opus/opusdec.wasm.gz`: [libopus](https://github.com/xiph/opus) (notice in `pkg/opus/COPYING.libopus`) | BSD-3-Clause |
-| `pkg/drdec/drdec.wasm.gz`: [dr_libs](https://github.com/mackron/dr_libs) (dr_mp3, dr_flac, dr_wav; `pkg/drdec/LICENSE.dr_libs`) | Unlicense OR MIT-0 |
-| `pkg/lottie/tlottie.wasm.gz`: [tlottie](https://github.com/dkaraush/tlottie) and the Rust standard library | MIT; MIT OR Apache-2.0 |
+| `pkg/vp9/vpxdec.wasm.zst`: [libvpx](https://github.com/webmproject/libvpx) with [SIMDe](https://github.com/simd-everywhere/simde) | BSD-3-Clause (libvpx), MIT (SIMDe) |
+| `pkg/opus/opusdec.wasm.zst`: [libopus](https://github.com/xiph/opus) (notice in `pkg/opus/COPYING.libopus`) | BSD-3-Clause |
+| `pkg/drdec/drdec.wasm.zst`: [dr_libs](https://github.com/mackron/dr_libs) (dr_mp3, dr_flac, dr_wav; `pkg/drdec/LICENSE.dr_libs`) | Unlicense OR MIT-0 |
+| `pkg/lottie/tlottie.wasm.zst`: [tlottie](https://github.com/dkaraush/tlottie) and the Rust standard library | MIT; MIT OR Apache-2.0 |
 | WASI libc and compiler-rt inside the modules above ([wasi-sdk](https://github.com/WebAssembly/wasi-sdk)) | MIT, Apache-2.0 WITH LLVM-exception |
-| `pkg/ratex/ratex.wasm.gz`: [RaTeX](https://github.com/erweixin/RaTeX), its Rust crates and the Rust standard library (built by `pkg/ratex/build`) | MIT; MIT OR Apache-2.0; Unlicense OR MIT; Zlib OR Apache-2.0 OR MIT |
+| `pkg/ratex/ratex.wasm.zst`: [RaTeX](https://github.com/erweixin/RaTeX), its Rust crates and the Rust standard library (built by `pkg/ratex/build`) | MIT; MIT OR Apache-2.0; Unlicense OR MIT; Zlib OR Apache-2.0 OR MIT |
 | `pkg/ratex/fonts`: [KaTeX](https://github.com/KaTeX/KaTeX)'s fonts (`pkg/ratex/fonts/OFL.txt`, `NOTICE`) | SIL OFL 1.1 |
-| `pkg/cmark/cmark.wasm.gz`: [cmark-gfm](https://github.com/desktop-app/cmark-gfm) (desktop-app's fork, built by `pkg/cmark/build`; `pkg/cmark/LICENSE.cmark-gfm`) | BSD-2-Clause, parts MIT |
-| `pkg/prism/grammars.dat.gz`: [Prism.js](https://prismjs.com) 1.29.0's grammars, with `pkg/prism`, a port of [libprisma](https://github.com/desktop-app/libprisma)'s tokenizer (`pkg/prism/LICENSE.prism`) | MIT |
+| `pkg/cmark/cmark.wasm.zst`: [cmark-gfm](https://github.com/desktop-app/cmark-gfm) (desktop-app's fork, built by `pkg/cmark/build`; `pkg/cmark/LICENSE.cmark-gfm`) | BSD-2-Clause, parts MIT |
+| `pkg/prism/grammars.dat.zst`: [Prism.js](https://prismjs.com) 1.29.0's grammars, with `pkg/prism`, a port of [libprisma](https://github.com/desktop-app/libprisma)'s tokenizer (`pkg/prism/LICENSE.prism`) | MIT |
 | `pkg/miniapp/assets/telegram-web-app.js`: Telegram's Mini App SDK | © Telegram, no license stated |
 | `avcdec.wasm`, downloaded at run time: FFmpeg's H.264 decoder ([libavcodec-wasm](https://github.com/komarugif/libavcodec-wasm)) | LGPL-2.1-or-later |
 | `aacdec.wasm`, downloaded at run time: the Fraunhofer FDK AAC decoder ([fdk-aac-wasm](https://github.com/komarugif/fdk-aac-wasm)) | Fraunhofer FDK AAC license, no patent grant |

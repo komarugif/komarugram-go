@@ -3,16 +3,16 @@
 package sandbox
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
 	"testing"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 )
 
-// A module embedded gzipped compiles as itself; what is not gzip is an
-// error, and compiles nothing.
-func TestCompileGzipModule(t *testing.T) {
+// A module embedded zstd-compressed compiles as itself; what is not zstd
+// is an error, and compiles nothing.
+func TestCompileZstdModule(t *testing.T) {
 	ctx := context.Background()
 	rt, err := NewRuntime(ctx, Limits{Memory: 1 << 20, Slow: time.Second})
 	if err != nil {
@@ -28,18 +28,18 @@ func TestCompileGzipModule(t *testing.T) {
 		0x07, 0x05, 0x01, 0x01, 'f', 0x00, 0x00, // export "f"
 		0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // its body
 	}
-	var gz bytes.Buffer
-	zw := gzip.NewWriter(&gz)
-	zw.Write(module)
-	zw.Close()
-	compiled, err := rt.CompileGzipModule(ctx, gz.Bytes())
+	zw, err := zstd.NewWriter(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := rt.CompileZstdModule(ctx, zw.EncodeAll(module, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := compiled.ExportedFunctions()["f"]; !ok {
 		t.Fatalf("exports %v", compiled.ExportedFunctions())
 	}
-	if _, err := rt.CompileGzipModule(ctx, module); err == nil {
-		t.Fatal("a module not gzipped compiled")
+	if _, err := rt.CompileZstdModule(ctx, module); err == nil {
+		t.Fatal("a module not compressed compiled")
 	}
 }

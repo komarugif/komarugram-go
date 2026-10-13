@@ -14,6 +14,7 @@ require (
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/google/go-tpm v0.9.8
 	github.com/gotd/td v0.162.0
+	github.com/klauspost/compress v1.19.1
 	github.com/ncruces/go-sqlite3 v0.35.5
 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c
 	github.com/srwiley/rasterx v0.0.0-20210519020934-456a8d69b780
@@ -43,7 +44,6 @@ require (
 	github.com/gotd/log v0.1.0 // indirect
 	github.com/gotd/neo v0.1.5 // indirect
 	github.com/jfreymuth/pulse v0.1.3 // indirect
-	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/ncruces/go-sqlite3-wasm/v6 v6.2.35304 // indirect

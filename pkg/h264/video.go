@@ -117,6 +117,15 @@ func (v *Video) Picture(size image.Point) *image.RGBA {
 	return v.scaler.Resize(v.picture, nil, size.X, size.Y)
 }
 
+// PictureInto is Picture scaled into dst, an image at the origin of the
+// size to scale to, instead of a new image; nil before the first picture.
+func (v *Video) PictureInto(dst *image.RGBA) *image.RGBA {
+	if v.picture == nil {
+		return nil
+	}
+	return v.scaler.ResizeInto(dst, v.picture, nil)
+}
+
 // Close releases the decoder's sandbox.
 func (v *Video) Close(ctx context.Context) {
 	v.picture = nil

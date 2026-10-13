@@ -107,13 +107,15 @@ func noticeText(n model.MessageNotice, p preferences.Notify, locked bool, l loca
 	if locked || !p.Name {
 		return l.T("app.title"), l.T("notify.new_message")
 	}
+	title = l.ChatTitle(n.Chat)
 	if !p.Text {
-		return n.Chat.Title, l.T("notify.new_message")
+		return title, l.T("notify.new_message")
 	}
-	if n.Sender != "" {
-		return n.Chat.Title, n.Sender + ": " + n.Text
+	sender, text := l.Preview(n.Message, title, n.Chat.Kind == model.KindChannel)
+	if sender != "" {
+		return title, sender + ": " + text
 	}
-	return n.Chat.Title, n.Text
+	return title, text
 }
 
 // openChat brings the account's window, opened again if it was closed, and

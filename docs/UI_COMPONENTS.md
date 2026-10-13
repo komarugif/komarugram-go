@@ -20,9 +20,13 @@ put it next to these, and add it to this page.
 - **Colors and type come from the theme.** `scheme(gtx)` returns the MD3
   color scheme; text uses `token.Typestyle…`. No literal colors.
 - **Text comes from the catalog.** Every string is a key of
-  `localization.Catalog` (`l.T`, `l.Format`, `l.Count`), with Russian and
-  English values. When Telegram Desktop shows the same text, the key maps to
-  its `lng_…` key in `TelegramKeys`, and the server's language pack wins.
+  `localization.Catalog` (`l.T`, `l.Format`, `l.Count`), with a value in
+  each file of `localization/languages`. When Telegram Desktop shows the
+  same text, the key maps to its `lng_…` key in `telegram_keys.strings`,
+  and the server's language pack wins. A store hands data, not words: a
+  chat's last message is a `model.Preview` the interface words
+  (`l.Preview`), Saved Messages' title is `l.ChatTitle`. See
+  `docs/LOCALIZATION.md`.
 - **Motion follows the settings.** Animations use `wdk` tweens with `token`
   durations and easings; pass `animate` (from `Window.Motion`) where a
   component can do without, as the spoiler does.
@@ -432,8 +436,11 @@ size-stability fixes remain in place.
   WASM sandbox, one GIF at a time on hover. That decoder is not in the
   binary: `wasmmodule.AVCDec` downloads it the first time it is needed
   from [libavcodec-wasm](https://github.com/komarugif/libavcodec-wasm), at a
-  pinned commit, checks its SHA-256 and keeps it in the cache directory;
-  `KOMARUGRAM_AVCDEC` names a build of the user's instead (a path or a URL).
+  pinned commit, zstd-compressed (`avcdec.wasm.zst`, 419 KB instead of
+  2 MB), checks its SHA-256 and keeps it in the cache directory as it came,
+  unpacking it as it loads it; `KOMARUGRAM_AVCDEC` names a build of the
+  user's instead (a path or a URL, plain or `.zst`). MP4 GIFs played through
+  the compressed module were checked live by the maintainer on 2026-10-13.
   Every FFmpeg the client runs, voice messages' and the `ffprobe` beside it
   for videos sent as media included, is `video.ResolveFFmpeg` of the path in
   the settings, else PATH. Without one, the microphone (`composer_voice.go`)
@@ -555,6 +562,8 @@ new piece sits next to its neighbours.
   themes, the wallpaper, the composer and the look of messages;
   `wallpapers`, the gallery of wallpapers over it. `SHARED_PNG` saves the
   page of a chat's theme (`-themes`) and the chat in the theme (`-chat`).
+  `SETTINGS_SECTION=power` with `SETTINGS_PNG` shows Power Saving: the
+  animations, and the switch that pauses them in an inactive window.
   `SETTINGS_SECTION=integrations` with `SETTINGS_PNG` shows the choice of the
   external player; `PLAYER_PNG`, the dialog that asks for it. `MENU_PNG` also
   saves the menu with reactions (`-reactions*.png`); `COMMENTS_PNG`, the

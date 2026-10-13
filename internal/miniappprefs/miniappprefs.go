@@ -61,45 +61,13 @@ func (s *Settings) SetPreferenceChanged(changed func(miniapp.Storage)) {
 	s.mu.Unlock()
 }
 
-// Strings are the texts of View.
+// Strings are the texts of View; the application words them.
 type Strings struct {
 	Title    string
 	Storage  map[miniapp.Storage]string
 	Hints    map[miniapp.Storage]string
 	Browser  string // Followed by the browser that will run Mini Apps.
 	NoneSeen string
-}
-
-var English = Strings{
-	Title: "Mini Apps",
-	Storage: map[miniapp.Storage]string{
-		miniapp.Ephemeral: "Keep nothing",
-		miniapp.PerApp:    "Separate storage for each app",
-		miniapp.Shared:    "One storage for all apps of the account",
-	},
-	Hints: map[miniapp.Storage]string{
-		miniapp.Ephemeral: "Cookies and site data are deleted when the Mini App window closes.",
-		miniapp.PerApp:    "Every Mini App finds its own data again, and no app can read another's.",
-		miniapp.Shared:    "All Mini Apps of the account share one profile, as Telegram Desktop does.",
-	},
-	Browser:  "Mini Apps open in: ",
-	NoneSeen: "no Chromium-based browser or Firefox found",
-}
-
-var Russian = Strings{
-	Title: "Mini Apps",
-	Storage: map[miniapp.Storage]string{
-		miniapp.Ephemeral: "Ничего не хранить",
-		miniapp.PerApp:    "Отдельное хранилище для каждого приложения",
-		miniapp.Shared:    "Общее хранилище для всех приложений аккаунта",
-	},
-	Hints: map[miniapp.Storage]string{
-		miniapp.Ephemeral: "Cookies и данные сайтов удаляются, когда окно Mini App закрывается.",
-		miniapp.PerApp:    "Каждое приложение находит свои данные снова, и ни одно не видит чужие.",
-		miniapp.Shared:    "Все Mini Apps аккаунта используют один профиль, как в Telegram Desktop.",
-	},
-	Browser:  "Mini Apps открываются в: ",
-	NoneSeen: "браузер на основе Chromium не найден",
 }
 
 // View is the settings UI for Settings.

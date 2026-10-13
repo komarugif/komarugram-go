@@ -5,8 +5,6 @@ package tgstore
 import (
 	"time"
 
-	"komarugram/internal/messenger/localization"
-
 	"github.com/gotd/td/tg"
 	"komarugram/internal/messenger/model"
 )
@@ -128,23 +126,12 @@ func serviceAction(action tg.MessageActionClass, names map[int64]string) *model.
 	return a
 }
 
-// servicePreview words a service message as the last message of chat in
-// the list, which, as the rest of the list's texts, is in Russian.
-func (l *list) servicePreview(m *tg.MessageService, chat model.Chat) string {
+// serviceMessage is a service message as the chat list words it.
+func (l *list) serviceMessage(m *tg.MessageService) *model.Message {
 	names := map[int64]string{}
 	for id, u := range l.users {
-		names[id] = userName(u)
+		names[id] = personName(u)
 	}
 	msg, _ := convertMessage("", m, names)
-	return serviceSummary(msg, chat)
-}
-
-// serviceSummary words a service message for the chat list: a pin names
-// the message pinned only when it is loaded, which the list's is not.
-func serviceSummary(m model.Message, chat model.Chat) string {
-	l := localization.For("ru")
-	if m.Service != nil && m.Service.Kind == model.ServicePin {
-		return l.PinnedSummary(m, chat.Title)
-	}
-	return l.Service(m, localization.ServiceContext{Chat: chat.Title, Channel: chat.Kind == model.KindChannel})
+	return &msg
 }

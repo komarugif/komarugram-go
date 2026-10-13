@@ -112,6 +112,9 @@ type Caps struct {
 	BottomLeftOrigin bool
 	Features         Features
 	MaxTextureSize   int
+	// Software is true if the device draws on the CPU: llvmpipe and the
+	// other software rasterizers of OpenGL, WARP of Direct3D.
+	Software bool
 }
 
 type VertexShader interface {

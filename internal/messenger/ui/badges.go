@@ -110,11 +110,12 @@ func (a *App) layoutCustomEmoji(gtx layout.Context, id int64, size unit.Dp) layo
 		return layout.Dimensions{}
 	}
 	emoji := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d", id), MIMEType: "application/x-custom-emoji"}}
-	frame, _ := a.avatars.media.Frame(emoji, a.window.Motion.AnimationsEnabled())
+	// Drawn in the pixels it takes on screen: its loop is kept decoded.
+	px := gtx.Dp(size)
+	frame := a.avatars.media.StatusFit(emoji, a.window.Motion.AnimationsEnabled(), image.Pt(px, px), false).Frame
 	if frame == nil {
 		return layout.Dimensions{}
 	}
-	px := gtx.Dp(size)
 	return drawImage(gtx, &a.images, frame, image.Pt(px, px))
 }
 
@@ -189,6 +190,13 @@ func layoutPremiumStar(gtx layout.Context, size unit.Dp) layout.Dimensions {
 // beside it almost to the middle — Telegram Premium's mark.
 func premiumStarIcon(gtx layout.Context, col token.MatColor, size unit.Dp) layout.Dimensions {
 	px := gtx.Dp(size)
+	drawShape(gtx, shapeKey{kind: shapePremiumStar, size: image.Pt(px, px), color: col.AsNRGBA()}, func(gtx layout.Context) {
+		drawPremiumStar(gtx, col, px)
+	})
+	return layout.Dimensions{Size: image.Pt(px, px)}
+}
+
+func drawPremiumStar(gtx layout.Context, col token.MatColor, px int) {
 	scale := float32(px) / 18
 	center := f32.Pt(float32(px)/2, float32(px)/2+0.4*scale)
 	// Larger and fuller than Telegram Desktop's 6 dp star: its thin points
@@ -257,7 +265,6 @@ func premiumStarIcon(gtx layout.Context, col token.MatColor, size unit.Dp) layou
 	}
 	path.Close()
 	paint.FillShape(gtx.Ops, col.AsNRGBA(), clip.Outline{Path: path.End()}.Op())
-	return layout.Dimensions{Size: image.Pt(px, px)}
 }
 
 // signedArea is twice the signed area of polygon, positive when it winds
@@ -294,6 +301,13 @@ func roundedPolygon(path *clip.Path, points []f32.Point, round func(i int) float
 // size.
 func layoutVerified(gtx layout.Context, size unit.Dp) layout.Dimensions {
 	px := gtx.Dp(size)
+	drawShape(gtx, shapeKey{kind: shapeVerified, size: image.Pt(px, px), color: telegramBlue}, func(gtx layout.Context) {
+		drawVerified(gtx, px)
+	})
+	return layout.Dimensions{Size: image.Pt(px, px)}
+}
+
+func drawVerified(gtx layout.Context, px int) {
 	scale := float32(px) / 18
 	center := f32.Pt(float32(px)/2, float32(px)/2)
 	radius := 6.6 * scale
@@ -322,7 +336,6 @@ func layoutVerified(gtx layout.Context, size unit.Dp) layout.Dimensions {
 	check.LineTo(at(-0.1, 0.3))
 	check.LineTo(at(0.4, -0.26))
 	paint.FillShape(gtx.Ops, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}, clip.Stroke{Path: check.End(), Width: 0.2 * radius}.Op())
-	return layout.Dimensions{Size: image.Pt(px, px)}
 }
 
 // layoutTextBadge draws SCAM or FAKE: red capitals in a thin red frame.
@@ -333,8 +346,11 @@ func layoutTextBadge(gtx layout.Context, text string) layout.Dimensions {
 		return label(gtx, text, token.TypestyleLabelSmallEmphasized, col, 1)
 	})
 	call := macro.Stop()
-	border := clip.UniformRRect(image.Rectangle{Max: dims.Size}, gtx.Dp(3))
-	paint.FillShape(gtx.Ops, col.AsNRGBA(), clip.Stroke{Path: border.Path(gtx.Ops), Width: float32(max(gtx.Dp(1), 1))}.Op())
+	radius := gtx.Dp(3)
+	drawShape(gtx, shapeKey{kind: shapeTextBadgeFrame, size: dims.Size, color: col.AsNRGBA(), radius: radius}, func(gtx layout.Context) {
+		border := clip.UniformRRect(image.Rectangle{Max: dims.Size}, radius)
+		paint.FillShape(gtx.Ops, col.AsNRGBA(), clip.Stroke{Path: border.Path(gtx.Ops), Width: float32(max(gtx.Dp(1), 1))}.Op())
+	})
 	call.Add(gtx.Ops)
 	return dims
 }

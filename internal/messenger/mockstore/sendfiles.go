@@ -78,7 +78,7 @@ func (s *Store) appendFiles(chat int64, h model.History, first model.MessageID, 
 	last := messages[len(messages)-1]
 	for i := range s.chats {
 		if s.chats[i].ID == chat {
-			s.chats[i].LastMessage = last.Text
+			s.chats[i].Last.Text = last.Text
 			s.chats[i].LastTime = last.Date
 		}
 	}

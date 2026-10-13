@@ -283,7 +283,7 @@ func TestJoinPreservesPeerMetadata(t *testing.T) {
 			if after.Members != wantCount || after.Badges != before.Badges || after.Kind != before.Kind || after.Forum != before.Forum || after.Title != before.Title {
 				t.Fatalf("metadata lost after join:\nbefore %+v\nafter  %+v", before, after)
 			}
-			if scenario == "message" && after.LastMessage != "Latest post" {
+			if scenario == "message" && after.Last.Text != "Latest post" {
 				t.Fatal("join dropped received message preview")
 			}
 			var dialogs []model.Chat
@@ -324,7 +324,7 @@ func TestMembershipRefreshPreservesDialogState(t *testing.T) {
 	ch.SetParticipantsCount(15)
 	ch.Verified = true
 	s.rememberPeers(nil, []tg.ChatClass{ch})
-	original := model.Chat{ID: id, Kind: model.KindChannel, Title: ch.Title, Members: 14, Unread: 3, Muted: true, Pinned: true, PinRank: 2, LastMessage: "Keep preview"}
+	original := model.Chat{ID: id, Kind: model.KindChannel, Title: ch.Title, Members: 14, Unread: 3, Muted: true, Pinned: true, PinRank: 2, Last: model.Preview{Text: "Keep preview"}}
 	s.chats = []model.Chat{original}
 	s.setMembership(context.Background(), id, false)
 	updated := s.Chats()[0]
@@ -341,7 +341,7 @@ func TestJoinKeepsLoadedPreview(t *testing.T) {
 	last := model.Message{Key: model.MessageKey{ChatID: id, MessageID: 9}, Text: "Already loaded post", Date: time.Unix(1000, 0)}
 	s.history.histories[id] = &model.History{Messages: []model.Message{last}}
 	s.setMembership(context.Background(), id, false)
-	if c := s.Chats()[0]; c.LastMessage != last.Text || !c.LastTime.Equal(last.Date) {
+	if c := s.Chats()[0]; c.Last.Text != last.Text || !c.LastTime.Equal(last.Date) {
 		t.Fatalf("loaded preview discarded: %+v", c)
 	}
 }

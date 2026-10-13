@@ -301,7 +301,13 @@ type VideoScaler struct {
 // only colours out of the RGB gamut come out other than when converting
 // first.
 func (s *VideoScaler) Resize(im, alpha *image.YCbCr, w, h int) *image.RGBA {
-	dst := image.NewRGBA(image.Rect(0, 0, w, h))
+	return s.ResizeInto(image.NewRGBA(image.Rect(0, 0, w, h)), im, alpha)
+}
+
+// ResizeInto is Resize into dst, an image at the origin whose size is the
+// one to scale to, every pixel of which it writes; it returns dst.
+func (s *VideoScaler) ResizeInto(dst *image.RGBA, im, alpha *image.YCbCr) *image.RGBA {
+	w, h := dst.Rect.Dx(), dst.Rect.Dy()
 	sw, sh := im.Rect.Dx(), im.Rect.Dy()
 	if w <= 0 || h <= 0 || sw <= 0 || sh <= 0 {
 		return dst

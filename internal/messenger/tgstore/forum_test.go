@@ -160,10 +160,10 @@ func TestForumTopics(t *testing.T) {
 	}
 	release, chatTopic, general := list.Topics[0], list.Topics[1], list.Topics[2]
 	if !release.Pinned || release.Unread != 3 || release.Mentions != 1 || !release.Muted || release.IconColor != 0xCB86DB || release.IconEmoji != 555 ||
-		release.LastMessage != "ship it" || release.LastSender != "Анна" || release.LastTime.IsZero() {
+		topicText(release) != "ship it" || topicSender(release) != "Анна" || release.LastTime.IsZero() {
 		t.Fatalf("release %+v", release)
 	}
-	if chatTopic.LastSender != "Вы" || chatTopic.LastMessage != "ok" || chatTopic.Muted || chatTopic.Pinned {
+	if topicSender(chatTopic) != "Вы" || topicText(chatTopic) != "ok" || chatTopic.Muted || chatTopic.Pinned {
 		t.Fatalf("chat %+v", chatTopic)
 	}
 	if !general.General || general.ID != model.GeneralTopic {
@@ -342,7 +342,7 @@ func TestTopicsFollowMessages(t *testing.T) {
 	}
 	s.mergeUpdate(message(60, 9, "hi", false))
 	list := s.Topics(chat)
-	if got := titles(list); got != "Release;Chat;General;" || list.Topics[1].LastMessage != "hi" || list.Topics[1].Unread != 1 || list.Topics[1].LastSender != "" {
+	if got := titles(list); got != "Release;Chat;General;" || topicText(list.Topics[1]) != "hi" || list.Topics[1].Unread != 1 || topicSender(list.Topics[1]) != "" {
 		t.Fatalf("after a message in Chat: %q %+v", titles(list), list.Topics[1])
 	}
 	// A newer message in General puts it before Chat, after the pinned.

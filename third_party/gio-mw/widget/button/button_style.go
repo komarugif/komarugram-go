@@ -10,6 +10,7 @@ import (
 
 	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/unit"
@@ -336,7 +337,7 @@ func (s *widgetStyle) drawStateLayer(gtx layout.Context, baseBox wdk.Box) {
 		wdk.Ripple{
 			Color:  s.bTheme.PressedStateLayerColor.SetOpacity(s.bTheme.PressedStateLayerOpacity),
 			Bounds: image.Rectangle{Min: baseBox.StartPoint, Max: baseBox.EndPoint},
-			Clip:   baseBox.Outline(gtx),
+			Clip:   func() clip.Op { return baseBox.Outline(gtx) },
 		}.Draw(gtx, s.bClickable.History())
 	}
 }

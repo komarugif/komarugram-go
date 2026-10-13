@@ -76,7 +76,7 @@ func TestFFmpegStickerAlphaAndHover(t *testing.T) {
 	m := NewShared(&fakeSource{data: data}, func() {})
 	defer m.Close()
 	e := &entry{ffmpeg: path, box: image.Pt(64, 64)}
-	frame, ok := m.ffmpegSticker(context.Background(), e, data)
+	frame, _, ok := m.ffmpegSticker(context.Background(), e, data)
 	if !ok {
 		t.Fatal("FFmpeg sticker rejected")
 	}

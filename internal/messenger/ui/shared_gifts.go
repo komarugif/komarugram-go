@@ -86,7 +86,8 @@ func (p *chatInfo) giftArt(gtx layout.Context, m model.Message, animate bool) la
 	if m.Media == nil {
 		return layout.Dimensions{Size: size}
 	}
-	st := p.renderer.media.StatusFit(m, animate, size, false)
+	// As Telegram Desktop plays gifts: up to 60 pictures a second.
+	st := p.renderer.media.StatusFullRate(m, animate, size, false)
 	im := st.Frame
 	if im == nil {
 		im = st.Preview
@@ -316,7 +317,7 @@ func (p *chatInfo) giftDetails(gtx layout.Context, d *giftDialog, l localization
 			})
 		}), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			if m.Media != nil {
-				st := p.renderer.media.StatusFit(m, animate, image.Pt(gtx.Dp(224), gtx.Dp(224)), false)
+				st := p.renderer.media.StatusFullRate(m, animate, image.Pt(gtx.Dp(224), gtx.Dp(224)), false)
 				if st.Err != nil && st.Err != d.told {
 					d.modal.Toast(mediaErrorText(st.Err))
 				}

@@ -547,7 +547,7 @@ func (s *Store) Reacted(ctx context.Context, msg model.Message, reaction model.R
 	names := map[int64]string{}
 	for _, u := range res.Users {
 		if u, ok := u.(*tg.User); ok {
-			names[peerID(&tg.PeerUser{UserID: u.ID})] = userName(u)
+			names[peerID(&tg.PeerUser{UserID: u.ID})] = personName(u)
 		}
 	}
 	for _, ch := range res.Chats {

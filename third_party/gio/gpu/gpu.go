@@ -362,6 +362,13 @@ func NewWithDevice(d driver.Device) (GPU, error) {
 	return nil, errors.New("no available GPU driver")
 }
 
+// Software reports whether g draws on the CPU: its device is a software
+// rasterizer such as llvmpipe or WARP.
+func Software(g GPU) bool {
+	gg, ok := g.(*gpu)
+	return ok && gg.ctx.Caps().Software
+}
+
 func newGPU(ctx driver.Device) *gpu {
 	g := &gpu{
 		cache: newTextureCache(),

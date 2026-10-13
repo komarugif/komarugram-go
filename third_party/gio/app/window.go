@@ -197,6 +197,10 @@ func (w *Window) validateAndProcess(size image.Point, sync bool, frame *op.Ops, 
 				return err
 			}
 			w.gpu = gpu
+			if sw := gpuSoftware(gpu); softwareRendered.Swap(sw) != sw {
+				// What was laid out for this frame was decided without it.
+				w.Invalidate()
+			}
 		}
 		if w.gpu != nil {
 			if err := w.frame(frame, size); err != nil {

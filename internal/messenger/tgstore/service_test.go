@@ -21,11 +21,11 @@ func TestServiceMessage(t *testing.T) {
 	l := newList(self)
 	l.add(page)
 	chats, _ := l.snapshot(nil)
-	if got, want := chats[4].LastMessage, "Anna S добавил(а) Stranger"; got != want {
+	if got, want := chatText(chats[4]), "Anna S добавил(а) Stranger"; got != want {
 		t.Errorf("the group's last message reads %q, want %q", got, want)
 	}
-	if chats[4].LastSender != "" {
-		t.Errorf("an action names its sender itself, not as %q", chats[4].LastSender)
+	if chatSender(chats[4]) != "" {
+		t.Errorf("an action names its sender itself, not as %q", chatSender(chats[4]))
 	}
 
 	m, _ := convertMessage("a", added, map[int64]string{2: "Anna", 3: "Bob"})
@@ -41,8 +41,8 @@ func TestServiceMessage(t *testing.T) {
 	}
 	chat := model.Chat{Kind: model.KindGroup, Title: "Group"}
 	setPreview(&chat, m)
-	if chat.LastMessage != "Group закрепил(а) сообщение" {
-		t.Errorf("a pin reads %q in the list", chat.LastMessage)
+	if chatText(chat) != "Group закрепил(а) сообщение" {
+		t.Errorf("a pin reads %q in the list", chatText(chat))
 	}
 
 	call := &tg.MessageService{ID: 52, Out: true, PeerID: &tg.PeerUser{UserID: 2}, Date: now, Action: &tg.MessageActionPhoneCall{Video: true, Reason: &tg.PhoneCallDiscardReasonMissed{}}}

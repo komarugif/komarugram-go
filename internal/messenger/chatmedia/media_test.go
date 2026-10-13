@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"komarugram/internal/messenger/model"
+	"komarugram/pkg/h264"
 	"komarugram/pkg/vp9"
 	"komarugram/pkg/webm"
 )
@@ -747,5 +749,380 @@ func TestHiddenDecodersAskForFrames(t *testing.T) {
 	m.EndFrame()
 	if n := asked.Load(); n != 0 {
 		t.Fatalf("stopped decoders asked for %d frames", n)
+	}
+}
+
+// TestPausedAnimationHoldsItsFrame pauses an animation that plays: it stops
+// where it is, not on its first frame, and plays again once let.
+func TestPausedAnimationHoldsItsFrame(t *testing.T) {
+	m := New(&fakeSource{}, func() {})
+	defer m.Close()
+	still, current := image.NewRGBA(image.Rect(0, 0, 8, 8)), image.NewRGBA(image.Rect(0, 0, 8, 8))
+	e := &entry{animated: true, still: still, frame: current, box: image.Pt(1024, 1024), wake: make(chan struct{}, 1), cancel: func() {}}
+	m.entries["gif"] = e
+	msg := model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "gif"}}
+	frame := func() image.Image {
+		m.BeginFrame()
+		defer m.EndFrame()
+		im, _ := m.Frame(msg, true)
+		return im
+	}
+	if frame() != current || !e.animate {
+		t.Fatal("the animation does not play")
+	}
+	m.SetPaused(true)
+	if got := frame(); got != current {
+		t.Fatal("a paused animation jumped to its first frame")
+	}
+	if e.animate {
+		t.Fatal("a paused animation goes on playing")
+	}
+	m.SetPaused(false)
+	if frame() != current || !e.animate {
+		t.Fatal("the animation does not play again")
+	}
+}
+
+// TestOneFrameLottieDrawsOnce plays a Lottie animation of one frame, as some
+// emoji statuses are: it is a picture, published once, and never wakes the
+// window again.
+func TestOneFrameLottieDrawsOnce(t *testing.T) {
+	data, err := os.ReadFile("../../../assets/stickers/sample.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = bytes.Replace(data, []byte(`"op":180`), []byte(`"op":1`), 1)
+	var changed atomic.Int32
+	m := New(&fakeSource{data: data}, func() { changed.Add(1) })
+	defer m.Close()
+	msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "status", MIMEType: "application/x-tgsticker"}}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		m.BeginFrame()
+		frame, err := m.Frame(msg, true)
+		m.EndFrame()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if frame != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the frame never came")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	before := changed.Load()
+	for range 30 {
+		m.BeginFrame()
+		m.Frame(msg, true)
+		m.EndFrame()
+		time.Sleep(10 * time.Millisecond)
+	}
+	if woke := changed.Load() - before; woke > 0 {
+		t.Fatalf("a still picture woke the window %d times", woke)
+	}
+}
+
+// TestStatusLoopsPlayOnTheFrameClock plays emoji statuses, Lottie and video
+// ones, as the avatars' manager does: decoded once in the pixels they take,
+// they wake the window no more, and each frame shows the picture of its own
+// time, the next one, of them all at once, scheduled by NextFrame.
+func TestStatusLoopsPlayOnTheFrameClock(t *testing.T) {
+	for _, tc := range []struct{ file, mime string }{
+		{"sample.tgs", "application/x-tgsticker"},
+		{"circle.webm", "video/webm"},
+	} {
+		t.Run(tc.mime, func(t *testing.T) {
+			data, err := os.ReadFile("../../../assets/stickers/" + tc.file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var woke atomic.Int32
+			m := NewAvatars(&fakeSource{data: data}, func() { woke.Add(1) })
+			defer m.Close()
+			var msgs []model.Message
+			for i := range 5 {
+				msgs = append(msgs, model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprint("status", i), MIMEType: tc.mime}})
+			}
+			want := image.Pt(16, 16)
+			now := time.Unix(1000, 0)
+			draw := func() []image.Image {
+				m.BeginFrameAt(now)
+				defer m.EndFrame()
+				var frames []image.Image
+				for _, msg := range msgs {
+					frames = append(frames, m.StatusFit(msg, true, want, false).Frame)
+				}
+				return frames
+			}
+			deadline := time.Now().Add(10 * time.Second)
+			for {
+				draw()
+				ready := 0
+				for _, msg := range msgs {
+					e := m.entries[msg.Media.ID]
+					e.mu.Lock()
+					if e.clip != nil {
+						ready++
+					}
+					e.mu.Unlock()
+				}
+				if ready == len(msgs) {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("%d of %d loops decoded", ready, len(msgs))
+				}
+				time.Sleep(10 * time.Millisecond)
+				now = now.Add(10 * time.Millisecond)
+			}
+			first := draw()
+			if got := first[0].Bounds().Size(); got.X > want.X || got.Y > want.Y {
+				t.Fatalf("a status is drawn in %v, on screen in %v", got, want)
+			}
+			before := woke.Load()
+			time.Sleep(300 * time.Millisecond)
+			if n := woke.Load() - before; n > 0 {
+				t.Fatalf("decoded loops woke the window %d times", n)
+			}
+			next := m.NextFrame()
+			if next.IsZero() || !next.After(now) || next.Sub(now) > time.Second/10 {
+				t.Fatalf("next frame at %v, the frame drawn at %v", next, now)
+			}
+			// Before the next picture of any is due the frame shows the same
+			// ones, and once it is due another.
+			changed := func(frames []image.Image) int {
+				n := 0
+				for i := range frames {
+					if frames[i] != first[i] {
+						n++
+					}
+				}
+				return n
+			}
+			now = next.Add(-time.Millisecond)
+			if n := changed(draw()); n > 0 {
+				t.Fatalf("%d pictures changed before they were due", n)
+			}
+			// The loops started apart, and still change together: on the
+			// tick of the clock they share, in one frame.
+			now = next
+			if n := changed(draw()); n != len(first) {
+				t.Fatalf("%d of %d pictures changed in the frame due", n, len(first))
+			}
+		})
+	}
+}
+
+// TestAnimationsShareTheFrameClock plays Lottie stickers, drawn by workers,
+// for a view on the frame's clock: once their first pictures are shown they
+// wake the window no more, and the frames NextFrame asks for, one per tick
+// for them all, show 30 pictures a second, or 60 at full rate.
+func TestAnimationsShareTheFrameClock(t *testing.T) {
+	data, err := os.ReadFile("../../../assets/stickers/sample.tgs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	play := func(fullRate bool) (frames, pictures int, woke int32) {
+		var wakes atomic.Int32
+		m := NewShared(&fakeSource{data: data}, func() { wakes.Add(1) })
+		defer m.Close()
+		var msgs []model.Message
+		for i := range 5 {
+			msgs = append(msgs, model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprint("sticker", i), MIMEType: "application/x-tgsticker"}})
+		}
+		status := m.StatusFit
+		if fullRate {
+			status = m.StatusFullRate
+		}
+		var shown image.Image
+		draw := func(counting bool) {
+			m.BeginFrameAt(time.Now())
+			for i, msg := range msgs {
+				im := status(msg, true, image.Pt(64, 64), false).Frame
+				if i == 0 && counting && im != shown {
+					pictures++
+				}
+				if i == 0 {
+					shown = im
+				}
+			}
+			m.EndFrame()
+			if counting {
+				frames++
+			}
+		}
+		// As a window would: a frame when woken, or when one is due.
+		run := func(d time.Duration, counting bool) {
+			end := time.Now().Add(d)
+			last := wakes.Load()
+			draw(counting)
+			for time.Now().Before(end) {
+				next := m.NextFrame()
+				if w := wakes.Load(); w != last || !next.IsZero() && !time.Now().Before(next) {
+					last = w
+					draw(counting)
+				}
+				time.Sleep(200 * time.Microsecond)
+			}
+		}
+		run(time.Second, false)
+		before := wakes.Load()
+		run(2*time.Second, true)
+		return frames / 2, pictures / 2, wakes.Load() - before
+	}
+	frames, pictures, woke := play(false)
+	t.Logf("30 a second: %d frames, %d pictures a second", frames, pictures)
+	if woke > 0 {
+		t.Fatalf("playing animations woke the window %d times", woke)
+	}
+	if frames > 33 || pictures < 20 {
+		t.Fatalf("%d frames a second showed %d pictures, want 30 of both", frames, pictures)
+	}
+	frames, pictures, _ = play(true)
+	t.Logf("full rate: %d frames, %d pictures a second", frames, pictures)
+	if frames > 63 || pictures < 36 {
+		t.Fatalf("%d frames a second showed %d pictures at full rate, want 60 of both", frames, pictures)
+	}
+}
+
+// TestPicturesReuseTheirPixels plays animations of every kind a worker
+// draws for a view on the frame's clock: Lottie, a VP9 sticker too large to
+// keep its loop, and GIFs played by ffmpeg and by the H.264 decoder. Each
+// picture is drawn into pixels of a picture no longer shown, not into new
+// ones, so that playing makes next to no garbage, and the pictures shown
+// share a few pixel buffers.
+func TestPicturesReuseTheirPixels(t *testing.T) {
+	file := func(name string) func(t *testing.T) []byte {
+		return func(t *testing.T) []byte {
+			data, err := os.ReadFile("../../../assets/" + name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return data
+		}
+	}
+	cases := []struct {
+		name string
+		msg  model.Message
+		want image.Point
+		data func(t *testing.T) []byte
+		set  func(t *testing.T, m *Manager)
+		// warming is set for a decoder whose own memory in its sandbox
+		// grows over its first few hundred pictures, longer than the test
+		// plays: only the pictures' buffers are counted.
+		warming bool
+	}{
+		{"lottie", model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "lottie", MIMEType: "application/x-tgsticker"}}, image.Pt(128, 128),
+			func(t *testing.T) []byte {
+				// A loop of half a second: the renderer's own memory in its
+				// sandbox grows while the animation plays its first loops.
+				return bytes.Replace(file("stickers/sample.json")(t), []byte(`"op":180`), []byte(`"op":30`), 1)
+			}, nil, false},
+		{"vp9", model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "webm", MIMEType: "video/webm"}}, image.Pt(512, 512),
+			file("stickers/circle.webm"), nil, false},
+		{"ffmpeg", model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "gif", MIMEType: "image/gif"}}, image.Pt(100, 100),
+			func(t *testing.T) []byte { return gifData(t, 24) },
+			func(t *testing.T, m *Manager) {
+				if _, err := exec.LookPath("ffmpeg"); err != nil {
+					t.Skip("no ffmpeg")
+				}
+				m.ConfigureDecoders(false, false, "")
+			}, false},
+		{"h264", model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "mp4", MIMEType: "video/mp4"}}, image.Pt(100, 100),
+			file("video.mp4"),
+			func(t *testing.T, m *Manager) {
+				// The module is not in this repository: KOMARUGRAM_AVCDEC
+				// names a build of it.
+				path := os.Getenv("KOMARUGRAM_AVCDEC")
+				if path == "" {
+					t.Skip("set KOMARUGRAM_AVCDEC to an avcdec.wasm")
+				}
+				m.avc.open = func(ctx context.Context) (*h264.Runtime, error) {
+					module, err := os.ReadFile(path)
+					if err != nil {
+						return nil, err
+					}
+					return h264.NewRuntime(ctx, module)
+				}
+				m.ConfigureDecoders(false, true, "")
+			}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var wakes atomic.Int32
+			m := NewShared(&fakeSource{data: tc.data(t)}, func() { wakes.Add(1) })
+			defer m.Close()
+			if tc.set != nil {
+				tc.set(t, m)
+			}
+			pictures := 0
+			var shown image.Image
+			var seen []*image.RGBA
+			draw := func() {
+				m.BeginFrameAt(time.Now())
+				im := m.StatusFit(tc.msg, true, tc.want, false).Frame
+				m.EndFrame()
+				if im != shown {
+					pictures++
+					shown = im
+					if rgba, ok := im.(*image.RGBA); ok && rgba != nil {
+						seen = append(seen, rgba)
+					}
+				}
+			}
+			// As a window would: a frame when woken, or when one is due.
+			run := func(d time.Duration) {
+				end := time.Now().Add(d)
+				last := wakes.Load()
+				draw()
+				for time.Now().Before(end) {
+					next := m.NextFrame()
+					if w := wakes.Load(); w != last || !next.IsZero() && !time.Now().Before(next) {
+						last = w
+						draw()
+					}
+					time.Sleep(200 * time.Microsecond)
+				}
+			}
+			run(2 * time.Second)
+			pictures, seen = 0, nil
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			run(2 * time.Second)
+			runtime.ReadMemStats(&after)
+			if pictures < 20 || len(seen) == 0 {
+				t.Fatalf("%d pictures in two seconds", pictures)
+			}
+			size := len(seen[0].Pix)
+			perPicture := int(after.TotalAlloc-before.TotalAlloc) / pictures
+			t.Logf("%d pictures of %d KB in two seconds, %d KB allocated for each", pictures, size>>10, perPicture>>10)
+			if perPicture > size/4 && !tc.warming {
+				t.Fatalf("each picture of %d KB made %d KB of garbage", size>>10, perPicture>>10)
+			}
+			buffers := map[*uint8]bool{}
+			for _, im := range seen {
+				buffers[&im.Pix[0]] = true
+			}
+			if len(buffers) > 6 {
+				t.Fatalf("%d pictures had %d pixel buffers", len(seen), len(buffers))
+			}
+		})
+	}
+}
+
+// Asking for a picture that is loaded allocates nothing: the message was
+// moved to the heap on every call, for the loader that only a new entry
+// starts, every frame, for each picture shown.
+func TestStatusOfLoadedMediaDoesNotAllocate(t *testing.T) {
+	m, _, msg := loadedManager(t)
+	allocs := testing.AllocsPerRun(100, func() {
+		m.BeginFrame()
+		m.Status(msg, false)
+		m.EndFrame()
+	})
+	if allocs != 0 {
+		t.Fatalf("%v allocations a frame, want none", allocs)
 	}
 }

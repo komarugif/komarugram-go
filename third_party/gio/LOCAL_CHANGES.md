@@ -579,3 +579,17 @@ Run the focused check from the project root:
   `SendInput`, on-screen keyboards and the like, is put together and
   inserted. Each half failed `unicode.IsPrint` and was dropped. Found on
   Windows 7; the code is the same on every Windows. `TestCharOfSurrogatePair`.
+
+- `app.SoftwareRendered` reports whether windows are drawn by a software
+  rasterizer, for the messenger to turn animations off by default
+  (`preferences.Store.DefaultMotionOff`). `driver.Caps.Software` is set by the backends:
+  OpenGL from `GL_RENDERER` (llvmpipe, softpipe, swrast's "Software
+  Rasterizer", SwiftShader, Apple's software renderer, Windows' "GDI
+  Generic"; `TestSoftwareRenderer`), Direct3D 11 from the adapter of the
+  device (`d3d11.IsSoftware`: Microsoft Basic Render Driver, vendor
+  0x1414, device 0x8c, which WARP is, whether asked for or as the system's
+  only adapter). Vulkan never picks a CPU device for a window, and Metal has
+  none. `gpu.Software` reads it of a `GPU`; `app/window.go` stores it when
+  a window makes its GPU and invalidates the window when it changed, so the
+  frame laid out before is laid out again. Checked on Linux with llvmpipe;
+  WARP not checked.

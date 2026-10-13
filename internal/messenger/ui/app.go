@@ -21,6 +21,7 @@ import (
 	"gio-mw/widget/button"
 	"gio-mw/widget/overlay"
 
+	"gioui.org/app"
 	"gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -51,6 +52,9 @@ type App struct {
 	windowEffectsSet, windowBlurWanted, windowTransparentWanted bool
 
 	preferences *preferences.Store
+	// softwareChecked is set once the window was found drawn by a software
+	// rasterizer, and animations were turned off if their mode was not set.
+	softwareChecked bool
 	// ownUsers are the users of the accounts signed in here, which Local
 	// Premium marks.
 	ownUsers atomic.Pointer[map[int64]bool]
@@ -356,6 +360,12 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			log.Printf("save settings: %v", err)
 		}
 	}
+	a.settings.pauseInactive = func() bool { return a.preferences.Global().PauseInactive }
+	a.settings.setPauseInactive = func(on bool) {
+		if err := services.Preferences.SetPauseInactive(on); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
 	a.settings.windowBlur = func() bool { return a.preferences.Global().WindowBlur }
 	a.settings.setWindowBlur = func(on bool) {
 		if err := services.Preferences.SetWindowBlur(on); err != nil {
@@ -639,21 +649,28 @@ func (a *App) setLanguage(language string) {
 	}
 }
 
+// catalog is the language's texts, with Telegram's pack for it when one
+// is loaded; the store loads it.
 func (a *App) catalog() localization.Catalog {
 	language := a.preferences.Global().Language
-	catalog := localization.For(language)
-	if source, ok := a.store.(interface {
-		LanguagePack(string) map[string]string
-	}); ok {
-		catalog = catalog.WithTelegram(source.LanguagePack(language))
+	if source, ok := a.store.(interface{ RequestLanguagePack(string) }); ok {
+		source.RequestLanguagePack(language)
 	}
-	return catalog
+	return localization.For(language)
 }
 
 // Locale lets appwindow expose the selected language to Gio's text shaper and
 // accessibility semantics on the very next frame.
-func (a *App) Locale() system.Locale {
-	return system.Locale{Language: string(a.catalog().Language()), Direction: system.LTR}
+func (a *App) Locale() system.Locale { return WindowLocale(a.catalog()) }
+
+// WindowLocale is the locale of a window in the language: its code and
+// the direction its text runs in.
+func WindowLocale(l localization.Catalog) system.Locale {
+	direction := system.LTR
+	if l.RTL() {
+		direction = system.RTL
+	}
+	return system.Locale{Language: string(l.Language()), Direction: direction}
 }
 
 // private reports whether visual privacy mode is on.
@@ -849,6 +866,7 @@ func (a *App) savedChat() int64 {
 func (a *App) selectedChat() (model.Chat, bool) {
 	for _, c := range a.store.Chats() {
 		if c.ID == a.selected {
+			c.Title = a.catalog().ChatTitle(c)
 			return c, true
 		}
 	}
@@ -890,6 +908,12 @@ func (a *App) Layout(gtx layout.Context) {
 
 // layoutWindow paints the main window using the transparency granted by the backend.
 func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
+	if !a.softwareChecked && app.SoftwareRendered() {
+		a.softwareChecked = true
+		if err := a.preferences.DefaultMotionOff(); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
 	withWindowSurfaceOpacity(gtx, a.preferences.Global().WindowTransparency, transparent)
 	withLook(gtx, a.preferences.Global().Look)
 	if trace := diagnostics.From(gtx.Values); trace != nil && trace.Recorder.Due(trace.Window, "cache-gauges", time.Second) {
@@ -914,8 +938,10 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 		}()
 	}
 	decoderPrefs := a.preferences.Global()
+	paused := decoderPrefs.PauseInactive && !a.focused
 	configureMedia := func(m *chatmedia.Manager) {
 		m.ConfigureDecoders(decoderPrefs.StickerPlayer == "wasm", decoderPrefs.AnimationPlayer == "wasm", decoderPrefs.FFmpegPath)
+		m.SetPaused(paused)
 	}
 	if a.info != nil {
 		configureMedia(a.info.renderer.media)
@@ -924,18 +950,15 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	defer a.images.EndFrame()
 	if a.avatars != nil {
 		configureMedia(a.avatars.media)
-		a.avatars.media.BeginFrame()
-		defer a.avatars.media.EndFrame()
+		defer mediaFrame(gtx, a.avatars.media)()
 	}
 	if a.history != nil {
 		configureMedia(a.history.media)
-		a.history.media.BeginFrame()
-		defer a.history.media.EndFrame()
+		defer mediaFrame(gtx, a.history.media)()
 	}
 	if a.comments != nil {
 		configureMedia(a.comments.media)
-		a.comments.media.BeginFrame()
-		defer a.comments.media.EndFrame()
+		defer mediaFrame(gtx, a.comments.media)()
 	}
 	// The comments belong to the channel they were opened over.
 	if a.thread != nil && a.thread.from != a.selected {
@@ -1223,8 +1246,19 @@ func (a *App) SetSuspended(hidden bool) {
 	a.images.Release()
 }
 
-// SetFocused is called on the UI goroutine when the window gains or loses
-// the focus: the account shows online while it has it, if Ghost allows.
+// mediaFrame begins the frame of m on the frame's clock and returns what
+// ends it: animations change on the ticks of one clock, and the window draws
+// again when the next picture of any of them is due, once for them all.
+func mediaFrame(gtx layout.Context, m *chatmedia.Manager) func() {
+	m.BeginFrameAt(gtx.Now)
+	return func() {
+		m.EndFrame()
+		if next := m.NextFrame(); !next.IsZero() {
+			gtx.Execute(op.InvalidateCmd{At: next})
+		}
+	}
+}
+
 // OpenChat opens chat in the window, as a click in the chat list would; it
 // may be called from any goroutine.
 func (a *App) OpenChat(chat int64) {
@@ -1238,10 +1272,15 @@ func (a *App) Showing() (chat int64, focused bool) {
 	return a.shownChat.Load(), a.shownFocus.Load()
 }
 
+// SetFocused is called on the UI goroutine when the window gains or loses
+// the focus: the account shows online while it has it, if Ghost allows, and
+// its animations play, if the settings pause them in an inactive window.
 func (a *App) SetFocused(focused bool) {
 	a.focused = focused
 	a.shownFocus.Store(focused)
 	a.tellGhost()
+	// A frame drawn now pauses the animations, or plays them again.
+	a.window.Invalidate()
 }
 
 // tellGhost gives the store what Ghost allows, and whether the window is

@@ -94,8 +94,13 @@ type Player struct {
 	ffmpeg       string
 	info         Info
 
-	mu         sync.Mutex
-	frame      *image.RGBA
+	mu    sync.Mutex
+	frame *image.RGBA
+	// taken is set once Frame has given the frame away; free holds the
+	// pixels of frames given back with Release, or never given away, for
+	// the frames to come.
+	taken      bool
+	free       [][]uint8
 	userPaused bool
 	autoPaused bool
 	lastPoll   time.Time
@@ -219,9 +224,9 @@ func (p *Player) decode() error {
 			return nil
 		}
 
-		// Gio caches uploaded textures by image identity, so each frame gets
-		// its own buffer instead of being decoded in place.
-		frame := image.NewRGBA(image.Rect(0, 0, p.info.Width, p.info.Height))
+		// Gio caches uploaded textures by image identity, so each frame is
+		// an image of its own, over pixels given back if there are any.
+		frame := p.newFrame(frameSize)
 		if _, err := io.ReadFull(stdout, frame.Pix[:frameSize]); err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
 				return nil // the stream ended: the caller starts it again
@@ -235,7 +240,11 @@ func (p *Player) decode() error {
 		p.mu.Lock()
 		stopped := p.stopped
 		if !stopped {
-			p.frame = frame
+			// A frame nobody took is nobody's: its pixels serve again.
+			if p.frame != nil && !p.taken {
+				p.recycleLocked(p.frame.Pix)
+			}
+			p.frame, p.taken = frame, false
 		}
 		p.mu.Unlock()
 		if stopped {
@@ -292,7 +301,45 @@ func (p *Player) Frame() (*image.RGBA, error) {
 		p.autoPaused = false
 		p.wakeLocked()
 	}
+	if p.frame != nil {
+		p.taken = true
+	}
 	return p.frame, p.err
+}
+
+// maxFreeFrames bounds the pixels a player keeps for the frames to come.
+const maxFreeFrames = 4
+
+// Release gives back a frame Frame returned, which the caller no longer
+// shows and will not draw again: its pixels serve a frame to come. A frame
+// not given back is simply the caller's.
+func (p *Player) Release(frame *image.RGBA) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if frame == nil || frame == p.frame {
+		return
+	}
+	p.recycleLocked(frame.Pix)
+}
+
+func (p *Player) recycleLocked(pix []uint8) {
+	if len(pix) == p.info.Width*p.info.Height*4 && len(p.free) < maxFreeFrames {
+		p.free = append(p.free, pix)
+	}
+}
+
+// newFrame returns an image for the next frame, over given back pixels if
+// there are any.
+func (p *Player) newFrame(size int) *image.RGBA {
+	rect := image.Rect(0, 0, p.info.Width, p.info.Height)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if n := len(p.free); n > 0 && len(p.free[n-1]) == size {
+		pix := p.free[n-1]
+		p.free = p.free[:n-1]
+		return &image.RGBA{Pix: pix, Stride: p.info.Width * 4, Rect: rect}
+	}
+	return image.NewRGBA(rect)
 }
 
 // SetPaused pauses or resumes playback. While paused the pipe fills up and

@@ -25,13 +25,13 @@ const forumThreadBase = demoThreadBase - (int64(1) << 40)
 func demoTopics(now time.Time) []model.Topic {
 	ago := func(d time.Duration) time.Time { return now.Add(-d) }
 	return []model.Topic{
-		{ID: 2, Title: "Новости релизов", IconColor: 0xFFD67E, Pinned: true, Closed: true, LastSender: "Игорь", LastMessage: "Go 1.27 вышел: заметки к релизу", LastTime: ago(3 * time.Hour)},
-		{ID: 1, Title: "General", General: true, Pinned: true, Unread: 3, LastSender: "Анна", LastMessage: "Всем привет, это общий чат клуба", LastTime: ago(50 * time.Minute)},
-		{ID: 3, Title: "Вопросы новичков", IconColor: 0x6FB9F0, Unread: 4, Mentions: 1, LastSender: "Дмитрий", LastMessage: "Как правильно завершать горутины?", LastTime: ago(35 * time.Minute)},
-		{ID: 4, Title: "Оффтоп", IconColor: 0xCB86DB, Muted: true, Unread: 12, LastSender: "Вы", LastMessage: "Кто смотрел вчерашний матч?", LastTime: ago(2 * time.Hour)},
-		{ID: 5, Title: "Вакансии", IconColor: 0x8EEE98, LastSender: "Ольга", LastMessage: "Ищем разработчика на Go в команду платформы", LastTime: ago(26 * time.Hour)},
-		{ID: 6, Title: "Встречи", IconColor: 0xFF93B2, LastSender: "Павел", LastMessage: "Митап в четверг, регистрация открыта", LastTime: ago(3 * 24 * time.Hour)},
-		{ID: 7, Title: "Архитектура и проектирование", IconColor: 0xFB6F5F, IconEmoji: 0, LastSender: "Сергей", LastMessage: "Обсуждаем, как делить сервис на модули", LastTime: ago(6 * 24 * time.Hour)},
+		{ID: 2, Title: "Новости релизов", IconColor: 0xFFD67E, Pinned: true, Closed: true, Last: model.Preview{Sender: "Игорь", Text: "Go 1.27 вышел: заметки к релизу"}, LastTime: ago(3 * time.Hour)},
+		{ID: 1, Title: "General", General: true, Pinned: true, Unread: 3, Last: model.Preview{Sender: "Анна", Text: "Всем привет, это общий чат клуба"}, LastTime: ago(50 * time.Minute)},
+		{ID: 3, Title: "Вопросы новичков", IconColor: 0x6FB9F0, Unread: 4, Mentions: 1, Last: model.Preview{Sender: "Дмитрий", Text: "Как правильно завершать горутины?"}, LastTime: ago(35 * time.Minute)},
+		{ID: 4, Title: "Оффтоп", IconColor: 0xCB86DB, Muted: true, Unread: 12, Last: model.Preview{Outgoing: true, Text: "Кто смотрел вчерашний матч?"}, LastTime: ago(2 * time.Hour)},
+		{ID: 5, Title: "Вакансии", IconColor: 0x8EEE98, Last: model.Preview{Sender: "Ольга", Text: "Ищем разработчика на Go в команду платформы"}, LastTime: ago(26 * time.Hour)},
+		{ID: 6, Title: "Встречи", IconColor: 0xFF93B2, Last: model.Preview{Sender: "Павел", Text: "Митап в четверг, регистрация открыта"}, LastTime: ago(3 * 24 * time.Hour)},
+		{ID: 7, Title: "Архитектура и проектирование", IconColor: 0xFB6F5F, IconEmoji: 0, Last: model.Preview{Sender: "Сергей", Text: "Обсуждаем, как делить сервис на модули"}, LastTime: ago(6 * 24 * time.Hour)},
 	}
 }
 

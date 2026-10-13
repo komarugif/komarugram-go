@@ -216,12 +216,27 @@ func newOpenGLDevice(api driver.OpenGL) (driver.Device, error) {
 		b.feats.Features |= driver.FeatureTimers
 	}
 	b.feats.MaxTextureSize = f.GetInteger(gl.MAX_TEXTURE_SIZE)
+	b.feats.Software = softwareRenderer(f.GetString(gl.RENDERER))
 	if !b.sharedCtx {
 		// We have exclusive access to the context, so query the GL state once
 		// instead of at each frame.
 		b.glstate = b.queryState()
 	}
 	return b, nil
+}
+
+// softwareRenderer reports whether the GL_RENDERER string names a renderer
+// that draws on the CPU: Mesa's llvmpipe and softpipe (zink over lavapipe
+// names llvmpipe as well), its old swrast ("Software Rasterizer"),
+// SwiftShader, Apple's "Software Renderer", and Windows' "GDI Generic".
+func softwareRenderer(renderer string) bool {
+	r := strings.ToLower(renderer)
+	for _, name := range []string{"llvmpipe", "softpipe", "software", "swiftshader", "gdi generic"} {
+		if strings.Contains(r, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *Backend) BeginFrame(target driver.RenderTarget, clear bool, viewport image.Point) driver.Texture {

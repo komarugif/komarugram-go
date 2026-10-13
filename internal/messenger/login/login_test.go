@@ -5,12 +5,10 @@ package login
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/gotd/td/telegram/auth"
 	"github.com/gotd/td/tgerr"
 
 	"komarugram/internal/messenger/account"
@@ -66,7 +64,7 @@ func TestAnswersReachThePrompter(t *testing.T) {
 	waitFor(t, l, "phone", atStep(StepPhone))
 	l.Submit("+7 900")
 	s := waitFor(t, l, "code", atStep(StepCode))
-	if s.CodeLength != 5 || !strings.Contains(s.Delivery, "SMS") {
+	if s.CodeLength != 5 || s.Delivery != account.CodeSMS {
 		t.Errorf("code step %+v", s)
 	}
 	l.Submit("12345")
@@ -105,13 +103,13 @@ func TestBackAndProblems(t *testing.T) {
 	waitFor(t, l, "phone", atStep(StepPhone))
 	l.Submit("+1")
 	s := waitFor(t, l, "code", atStep(StepCode))
-	if s.Problem != "Неверный код." {
-		t.Errorf("problem %q", s.Problem)
+	if !tgerr.Is(s.Problem, "PHONE_CODE_INVALID") {
+		t.Errorf("problem %v", s.Problem)
 	}
 	l.Back()
 	s = waitFor(t, l, "phone again", atStep(StepPhone))
-	if s.Problem != "" {
-		t.Errorf("phone step after back shows %q", s.Problem)
+	if s.Problem != nil {
+		t.Errorf("phone step after back shows %v", s.Problem)
 	}
 	cancel()
 	if err := <-errs; !errors.Is(err, context.Canceled) {
@@ -161,8 +159,8 @@ func TestFailureAndRetry(t *testing.T) {
 	}()
 
 	s := waitFor(t, l, "failure", atStep(StepFailed))
-	if !strings.Contains(s.Problem, "no network") {
-		t.Errorf("problem %q", s.Problem)
+	if s.Problem == nil || !strings.Contains(s.Problem.Error(), "no network") {
+		t.Errorf("problem %v", s.Problem)
 	}
 	l.Retry()
 	waitFor(t, l, "done", atStep(StepDone))
@@ -188,26 +186,6 @@ func TestNormalizePhone(t *testing.T) {
 	} {
 		if got := normalizePhone(in); got != want {
 			t.Errorf("normalizePhone(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-func TestExplain(t *testing.T) {
-	for _, c := range []struct {
-		err  error
-		want string
-	}{
-		{nil, ""},
-		{tgerr.New(400, "PHONE_NUMBER_INVALID"), "Неверный номер телефона."},
-		{tgerr.New(400, "PHONE_CODE_EXPIRED"), "Код устарел. Запросите новый."},
-		{fmt.Errorf("%w: locked", account.ErrInUse), "Этот сеанс уже открыт в другом окне приложения."},
-		{auth.ErrPasswordInvalid, "Неверный пароль."},
-		{tgerr.New(420, "FLOOD_WAIT_30"), "Слишком много попыток. Подождите 30 с."},
-		{tgerr.New(420, "FLOOD_WAIT_600"), "Слишком много попыток. Подождите 10 мин."},
-		{account.ErrNoAccount, "Для этого номера нет аккаунта Telegram. Регистрация здесь не поддерживается."},
-	} {
-		if got := explain(c.err); got != c.want {
-			t.Errorf("explain(%v) = %q, want %q", c.err, got, c.want)
 		}
 	}
 }

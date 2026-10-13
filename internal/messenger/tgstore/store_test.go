@@ -8,6 +8,7 @@ import (
 
 	"github.com/gotd/td/tg"
 
+	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
 
@@ -70,7 +71,7 @@ func TestDialogs(t *testing.T) {
 		last   string
 		sender string
 	}{
-		{model.KindSaved, "Избранное", "note", ""},
+		{model.KindSaved, "", "note", ""},
 		{model.KindUser, "Anna S", "hi there", ""},
 		{model.KindUser, "Stranger", "Фото", ""},
 		{model.KindBot, "Bot", "/start", ""},
@@ -79,7 +80,7 @@ func TestDialogs(t *testing.T) {
 	}
 	for i, w := range want {
 		c := chats[i]
-		if c.Kind != w.kind || c.Title != w.title || c.LastMessage != w.last || c.LastSender != w.sender {
+		if c.Kind != w.kind || c.Title != w.title || chatText(c) != w.last || chatSender(c) != w.sender {
 			t.Errorf("chat %d: %+v, want %+v", i, c, w)
 		}
 	}
@@ -113,7 +114,7 @@ func TestFolders(t *testing.T) {
 		return titles
 	}
 	for i, want := range [][]string{
-		{"Избранное", "Anna S", "Channel"},
+		{"", "Anna S", "Channel"},
 		nil,
 		nil,
 		{"Group"},
@@ -133,4 +134,26 @@ func TestFolders(t *testing.T) {
 	if folders[0].Kinds[0] != model.KindUser {
 		t.Error("a contacts folder should show the personal icon")
 	}
+}
+
+// chatText and chatSender are what a Russian chat list shows of c's last
+// message; topicText and topicSender, of a topic's.
+func chatText(c model.Chat) string {
+	_, text := localization.For("ru").Preview(c.Last, c.Title, c.Kind == model.KindChannel)
+	return text
+}
+
+func chatSender(c model.Chat) string {
+	sender, _ := localization.For("ru").Preview(c.Last, c.Title, c.Kind == model.KindChannel)
+	return sender
+}
+
+func topicText(t model.Topic) string {
+	_, text := localization.For("ru").Preview(t.Last, "", false)
+	return text
+}
+
+func topicSender(t model.Topic) string {
+	sender, _ := localization.For("ru").Preview(t.Last, "", false)
+	return sender
 }

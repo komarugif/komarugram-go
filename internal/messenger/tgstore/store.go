@@ -21,6 +21,7 @@ import (
 	"github.com/gotd/td/tg"
 
 	"komarugram/internal/crash"
+	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
 
@@ -378,7 +379,7 @@ func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 			e.contact = u.Contact || u.Self
 			switch {
 			case u.Self:
-				chat.Kind, chat.Title = model.KindSaved, "Избранное"
+				chat.Kind, chat.Title = model.KindSaved, ""
 				chat.Badges = model.Badges{}
 			case u.Bot:
 				chat.Kind = model.KindBot
@@ -406,110 +407,121 @@ func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 	}
 
 	if m, ok := l.messages[[2]int64{id, int64(d.TopMessage)}]; ok {
-		chat.LastMessage, chat.LastTime = preview(m)
+		chat.Last, chat.LastTime = preview(m)
 		if service, ok := m.(*tg.MessageService); ok {
-			chat.LastMessage = l.servicePreview(service, chat)
+			chat.Last = model.Preview{Service: l.serviceMessage(service)}
 		}
 		if chat.Kind == model.KindGroup {
-			chat.LastSender = l.sender(m)
+			chat.Last.Sender, chat.Last.Outgoing = l.sender(m)
 		}
 	}
 	return chat, e
 }
 
-// sender names who wrote m, for the line under a group's title.
-func (l *list) sender(m tg.MessageClass) string {
+// sender names who wrote m, for the line under a group's title, or says
+// the account did.
+func (l *list) sender(m tg.MessageClass) (name string, outgoing bool) {
 	var from tg.PeerClass
 	switch m := m.(type) {
 	case *tg.Message:
 		if m.Out {
-			return "Вы"
+			return "", true
 		}
 		from, _ = m.GetFromID()
 	case *tg.MessageService:
-		return ""
+		return "", false
 	}
 	if user, ok := from.(*tg.PeerUser); ok {
 		if u := l.users[user.UserID]; u != nil {
-			return u.FirstName
+			return u.FirstName, false
 		}
 	}
-	return ""
+	return "", false
 }
 
+// userName is a user's name, empty for a deleted account: the interface
+// names it as a chat's title.
 func userName(u *tg.User) string {
 	if u.Deleted {
-		return "Удалённый аккаунт"
+		return ""
 	}
 	return strings.TrimSpace(u.FirstName + " " + u.LastName)
 }
 
-// preview is the text shown for a chat's last message, and its time.
-func preview(m tg.MessageClass) (string, time.Time) {
-	switch m := m.(type) {
-	case *tg.Message:
-		text := strings.Join(strings.Fields(m.Message), " ")
-		if rich, ok := m.GetRichMessage(); ok {
-			page := convertRich(rich)
-			text = strings.Join(strings.Fields(page.Summary().Text), " ")
-			if text == "" {
-				text = richFallbackName(*page)
-			}
-		}
-		if media := mediaName(m.Media); media != "" {
-			if text == "" {
-				text = media
-			} else {
-				text = media + ", " + text
-			}
-		}
-		return text, time.Unix(int64(m.Date), 0)
-	case *tg.MessageService:
-		return "Служебное сообщение", time.Unix(int64(m.Date), 0)
+// personName is a user's name where it goes into what the store keeps of
+// messages, reactions and the like, a deleted account's in the
+// interface's language when it was kept.
+func personName(u *tg.User) string {
+	if u.Deleted {
+		return localization.For(interfaceLanguage()).T("chat.deleted_account")
 	}
-	return "", time.Time{}
+	return userName(u)
 }
 
-func mediaName(media tg.MessageMediaClass) string {
+// preview is what the chat list shows of m, and its time.
+func preview(m tg.MessageClass) (model.Preview, time.Time) {
+	switch m := m.(type) {
+	case *tg.Message:
+		p := model.Preview{Text: strings.Join(strings.Fields(m.Message), " ")}
+		if rich, ok := m.GetRichMessage(); ok {
+			page := convertRich(rich)
+			p.Text = strings.Join(strings.Fields(page.Summary().Text), " ")
+			if p.Text == "" {
+				p.Media = richFallbackKey(*page)
+			}
+		}
+		if media, emoji := mediaKey(m.Media); media != "" || emoji != "" {
+			p.Media, p.Emoji = media, emoji
+		}
+		return p, time.Unix(int64(m.Date), 0)
+	case *tg.MessageService:
+		return model.Preview{Media: "preview.service"}, time.Unix(int64(m.Date), 0)
+	}
+	return model.Preview{}, time.Time{}
+}
+
+// mediaKey is the key of the text naming what a message carries, and an
+// emoji shown before it (a sticker's) or alone (a dice's).
+func mediaKey(media tg.MessageMediaClass) (key, emoji string) {
 	switch media := media.(type) {
 	case nil, *tg.MessageMediaEmpty, *tg.MessageMediaWebPage:
-		return ""
+		return "", ""
 	case *tg.MessageMediaPhoto:
-		return "Фото"
+		return "preview.photo", ""
 	case *tg.MessageMediaGeo, *tg.MessageMediaGeoLive, *tg.MessageMediaVenue:
-		return "Геопозиция"
+		return "preview.location", ""
 	case *tg.MessageMediaContact:
-		return "Контакт"
+		return "preview.contact", ""
 	case *tg.MessageMediaPoll:
-		return "Опрос"
+		return "preview.poll", ""
 	case *tg.MessageMediaDice:
-		return media.Emoticon
+		return "", media.Emoticon
 	case *tg.MessageMediaDocument:
 		doc, ok := media.Document.(*tg.Document)
 		if !ok {
-			return "Файл"
+			return "preview.file", ""
 		}
 		for _, a := range doc.Attributes {
 			switch a := a.(type) {
 			case *tg.DocumentAttributeSticker:
-				return strings.TrimSpace(a.Alt + " Стикер")
+				return "preview.sticker", a.Alt
 			case *tg.DocumentAttributeAudio:
 				if a.Voice {
-					return "Голосовое сообщение"
+					return "preview.voice", ""
 				}
-				return "Музыка"
+				return "preview.music", ""
 			case *tg.DocumentAttributeVideo:
 				if a.RoundMessage {
-					return "Видеосообщение"
+					return "preview.round", ""
 				}
-				return "Видео"
+				return "preview.video", ""
 			case *tg.DocumentAttributeAnimated:
-				return "GIF"
+				return "preview.gif", ""
 			}
 		}
-		return "Файл"
+		return "preview.file", ""
 	}
-	return "Вложение"
+	return "preview.attachment", ""
 }
 
 // page is where the next messages.getDialogs starts.

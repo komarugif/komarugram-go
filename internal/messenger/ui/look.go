@@ -4,6 +4,7 @@ package ui
 
 import (
 	"image"
+	"sync"
 
 	"gioui.org/layout"
 	"gioui.org/op/clip"
@@ -19,8 +20,26 @@ const lookKey = "komarugram/ui.look"
 // withLook makes l the look of the frame of gtx.
 func withLook(gtx layout.Context, l preferences.Look) {
 	if gtx.Values != nil {
-		gtx.Values[lookKey] = l
+		gtx.Values[lookKey] = boxedLook(l)
 	}
+}
+
+// looks keeps the look made a value of Values last: put there as it is,
+// in every frame, a look was copied to the heap each time. Windows set it
+// from their own goroutines.
+var looks struct {
+	mu    sync.Mutex
+	look  preferences.Look
+	boxed any
+}
+
+func boxedLook(l preferences.Look) any {
+	looks.mu.Lock()
+	defer looks.mu.Unlock()
+	if looks.boxed == nil || looks.look != l {
+		looks.look, looks.boxed = l, l
+	}
+	return looks.boxed
 }
 
 // lookOf is the look of the frame, or the default one.

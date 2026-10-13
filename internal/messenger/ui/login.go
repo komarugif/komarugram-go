@@ -3,8 +3,12 @@
 package ui
 
 import (
-	"fmt"
+	"errors"
 	"strings"
+	"time"
+
+	"github.com/gotd/td/telegram/auth"
+	"github.com/gotd/td/tgerr"
 
 	"gio-mw/token"
 	"gio-mw/widget/button"
@@ -12,8 +16,10 @@ import (
 	"gioui.org/layout"
 	"gioui.org/unit"
 
+	"komarugram/internal/messenger/account"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/login"
+	"komarugram/internal/messenger/security"
 )
 
 const loginWidth = unit.Dp(420)
@@ -151,16 +157,17 @@ func (p *loginPage) Layout(gtx layout.Context, l localization.Catalog, private b
 				if private {
 					st.Phone = ""
 				}
-				return p.layoutStep(gtx, st)
+				return p.layoutStep(gtx, st, l)
 			}, defaultCardPadding)
 		})
 	})
 	return layout.Dimensions{Size: size}
 }
 
-func (p *loginPage) layoutStep(gtx layout.Context, st login.State) layout.Dimensions {
+func (p *loginPage) layoutStep(gtx layout.Context, st login.State, l localization.Catalog) layout.Dimensions {
 	sc := scheme(gtx)
-	title, body := loginTexts(st)
+	title, body := loginTexts(st, l)
+	problem := loginProblem(st.Problem, l)
 	field := p.field(st.Step)
 
 	rows := []layout.FlexChild{
@@ -174,22 +181,22 @@ func (p *loginPage) layoutStep(gtx layout.Context, st login.State) layout.Dimens
 		}))
 	}
 	if field != nil {
-		title := map[login.Step]string{
-			login.StepPhone:    "Номер телефона",
-			login.StepCode:     "Код",
-			login.StepPassword: "Пароль",
-		}[st.Step]
+		title := l.T(map[login.Step]string{
+			login.StepPhone:    "login.field_phone",
+			login.StepCode:     "login.field_code",
+			login.StepPassword: "login.field_password",
+		}[st.Step])
 		rows = append(rows, vspace(20), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return field.Layout(gtx, title, st.Problem != "")
+			return field.Layout(gtx, title, problem != "")
 		}))
 	}
-	if st.Problem != "" {
+	if problem != "" {
 		color := sc.Error.Color
 		if st.Step == login.StepFailed {
 			color = sc.Surface.OnColor
 		}
 		rows = append(rows, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, st.Problem, token.TypestyleBodyMedium, color, 0)
+			return label(gtx, problem, token.TypestyleBodyMedium, color, 0)
 		}))
 	}
 
@@ -204,12 +211,12 @@ func (p *loginPage) layoutStep(gtx layout.Context, st login.State) layout.Dimens
 		} else {
 			p.next.Disable()
 		}
-		nextLabel := "Далее"
+		nextLabel := l.T("login.next")
 		switch {
 		case st.Busy:
-			nextLabel = "Проверяем…"
+			nextLabel = l.T("login.checking")
 		case st.Step != login.StepPhone:
-			nextLabel = "Войти"
+			nextLabel = l.T("login.sign_in")
 		}
 		rows = append(rows, vspace(20), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
@@ -217,7 +224,7 @@ func (p *loginPage) layoutStep(gtx layout.Context, st login.State) layout.Dimens
 					if st.Step == login.StepPhone {
 						return layout.Dimensions{}
 					}
-					return p.back.Layout(gtx, "Назад")
+					return p.back.Layout(gtx, l.T("login.back"))
 				}),
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 					return layout.Dimensions{Size: gtx.Constraints.Min}
@@ -231,7 +238,7 @@ func (p *loginPage) layoutStep(gtx layout.Context, st login.State) layout.Dimens
 		rows = append(rows, vspace(20), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Spacing: layout.SpaceStart}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return p.retry.Layout(gtx, "Повторить")
+					return p.retry.Layout(gtx, l.T("login.retry"))
 				}),
 			)
 		}))
@@ -264,27 +271,88 @@ func (p *loginPage) layoutProtect(gtx layout.Context, l localization.Catalog) la
 }
 
 // loginTexts returns the title and the explanation of a step.
-func loginTexts(st login.State) (title, body string) {
+func loginTexts(st login.State, l localization.Catalog) (title, body string) {
 	switch st.Step {
 	case login.StepPhone:
-		return "Вход в Telegram", "Введите номер телефона в международном формате, например +7 900 123-45-67. На него придёт код."
+		return l.T("login.title_phone"), l.T("login.body_phone")
 	case login.StepCode:
-		body = st.Delivery
+		body = l.T(map[account.CodeKind]string{
+			account.CodeApp:  "login.sent_app",
+			account.CodeSMS:  "login.sent_sms",
+			account.CodeCall: "login.sent_call",
+		}[st.Delivery])
+		if body == "" {
+			body = l.T("login.sent")
+		}
 		if st.Phone != "" {
-			body += " Номер: " + st.Phone + "."
+			body += " " + l.Format("login.number", map[string]string{"phone": st.Phone})
 		}
 		if st.CodeLength > 0 {
-			body += fmt.Sprintf(" В коде %d %s.", st.CodeLength, plural(st.CodeLength, "цифра", "цифры", "цифр"))
+			body += " " + l.Count("login.code_length", st.CodeLength, nil)
 		}
-		return "Введите код", body
+		return l.T("login.title_code"), body
 	case login.StepPassword:
-		body = "Аккаунт защищён облачным паролем (двухфакторная аутентификация). Введите его."
+		body = l.T("login.body_password")
 		if st.Hint != "" {
-			body += " Подсказка: " + st.Hint + "."
+			body += " " + l.Format("login.hint", map[string]string{"password_hint": st.Hint})
 		}
-		return "Облачный пароль", body
+		return l.T("login.title_password"), body
 	case login.StepFailed:
-		return "Нет подключения", ""
+		return l.T("login.title_failed"), ""
 	}
-	return "Подключение…", "Проверяем сохранённый сеанс."
+	return l.T("login.title_connecting"), l.T("login.body_connecting")
+}
+
+// loginProblem says what went wrong with a sign-in; empty for no error.
+func loginProblem(err error, l localization.Catalog) string {
+	if err == nil {
+		return ""
+	}
+	if wait, ok := tgerr.AsFloodWait(err); ok {
+		return l.Format("login.flood_wait", map[string]string{"time": waitText(wait, l)})
+	}
+	key := ""
+	switch {
+	case errors.Is(err, account.ErrNoConnection):
+		key = "login.no_connection"
+	case errors.Is(err, account.ErrAccountExists):
+		key = "login.account_exists"
+	case errors.Is(err, security.ErrLocked):
+		key = "login.locked"
+	case errors.Is(err, account.ErrInUse):
+		key = "login.in_use"
+	case errors.Is(err, auth.ErrPasswordInvalid):
+		key = "login.password_invalid"
+	case errors.Is(err, account.ErrNoAccount):
+		key = "login.no_account"
+	case errors.Is(err, account.ErrCodeUnsupported):
+		key = "login.code_unsupported"
+	case tgerr.Is(err, "PHONE_NUMBER_INVALID"):
+		key = "login.phone_invalid"
+	case tgerr.Is(err, "PHONE_NUMBER_BANNED"):
+		key = "login.phone_banned"
+	case tgerr.Is(err, "PHONE_CODE_INVALID", "PHONE_CODE_EMPTY"):
+		key = "login.code_invalid"
+	case tgerr.Is(err, "PHONE_CODE_EXPIRED"):
+		key = "login.code_expired"
+	case tgerr.Is(err, "PHONE_NUMBER_FLOOD", "PHONE_PASSWORD_FLOOD"):
+		key = "login.flood"
+	case tgerr.Is(err, "API_ID_INVALID", "API_ID_PUBLISHED_FLOOD"):
+		key = "login.api_id"
+	default:
+		return l.Format("login.failed", map[string]string{"error": err.Error()})
+	}
+	return l.T(key)
+}
+
+// waitText is how long to wait, rounded up to seconds, minutes or hours.
+func waitText(d time.Duration, l localization.Catalog) string {
+	switch secs := int(d.Round(time.Second) / time.Second); {
+	case secs < 60:
+		return l.Count("duration.seconds", max(secs, 1), nil)
+	case secs < 3600:
+		return l.Count("duration.minutes", (secs+59)/60, nil)
+	default:
+		return l.Count("duration.hours", (secs+3599)/3600, nil)
+	}
 }

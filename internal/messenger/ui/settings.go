@@ -27,6 +27,7 @@ import (
 
 	"komarugram/internal/appwindow"
 	"komarugram/internal/messenger/localization"
+	"komarugram/internal/messenger/localization/viewtexts"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/preferences"
 	"komarugram/internal/messenger/security"
@@ -119,10 +120,12 @@ type settingsPage struct {
 	items     map[settingsSection]*settingsItem
 	back      *button.Button
 
-	motion      *motion.Settings
-	miniapps    *miniappprefs.Settings
-	theme       *radio.Radios[themeMode]
-	language    *radio.Radios[string]
+	motion   *motion.Settings
+	miniapps *miniappprefs.Settings
+	theme    *radio.Radios[themeMode]
+	language *radio.Radios[string]
+	// worded is the catalog animations and privacy took their texts from.
+	worded      localization.Catalog
 	animations  *motion.View
 	privacy     *miniappprefs.View
 	security    *securityView
@@ -190,6 +193,12 @@ type settingsPage struct {
 	setOverlays  func(preferences.Overlays)
 	blur         *checkbox.Checkboxes[string]
 	transparency *slider.Slider
+	// pauseInactive and setPauseInactive read and switch whether media
+	// animations stop in an inactive window; without them the checkbox is
+	// hidden.
+	pauseInactive         func() bool
+	setPauseInactive      func(bool)
+	pauseInactiveCheckbox *checkbox.Checkboxes[string]
 	// Compositor blur is independent of in-app animation and overlay blur.
 	windowBlur                  func() bool
 	setWindowBlur               func(bool)
@@ -226,9 +235,10 @@ type settingsPage struct {
 }
 
 func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protection *security.Manager, invalidate func(), accounts model.Accounts, accountID func() string, mode themeMode, language string, setMode func(themeMode), setLanguage func(string)) *settingsPage {
-	animations := motion.NewView(m, motion.Russian)
+	l := localization.For(language)
+	animations := motion.NewView(m, viewtexts.Motion(l))
 	animations.TitleStyle = token.TypestyleTitleMedium
-	privacy := miniappprefs.NewView(miniapps, miniappprefs.Russian)
+	privacy := miniappprefs.NewView(miniapps, viewtexts.MiniApps(l))
 	privacy.TitleStyle = token.TypestyleTitleMedium
 	p := &settingsPage{
 		about: newAboutView(invalidate),
@@ -247,7 +257,7 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 		motion:        m,
 		miniapps:      miniapps,
 		theme:         radio.NewRadios([]themeMode{themeAuto, themeLight, themeDark}, mode, setMode),
-		language:      radio.NewRadios([]string{"ru", "en"}, language, setLanguage),
+		language:      radio.NewRadios(languageCodes(), language, setLanguage),
 		animations:    animations,
 		privacy:       privacy,
 		security:      newSecurityView(protection, invalidate),
@@ -319,6 +329,11 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 	for v := 0; v <= preferences.TransparencyMax; v += 5 {
 		steps = append(steps, v)
 	}
+	p.pauseInactiveCheckbox = checkbox.NewCheckboxes([]string{"pause"}, nil, func(values []string) {
+		if p.setPauseInactive != nil {
+			p.setPauseInactive(slices.Contains(values, "pause"))
+		}
+	})
 	p.windowBlurCheckbox = checkbox.NewCheckboxes([]string{"window"}, nil, func(values []string) {
 		if p.setWindowBlur != nil {
 			p.setWindowBlur(slices.Contains(values, "window"))
@@ -353,12 +368,10 @@ func (p *settingsPage) open() {
 }
 
 func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language string) {
-	if language == "en" {
-		p.animations.SetStrings(motion.English)
-		p.privacy.SetStrings(miniappprefs.English)
-	} else {
-		p.animations.SetStrings(motion.Russian)
-		p.privacy.SetStrings(miniappprefs.Russian)
+	if l := localization.For(language); l != p.worded {
+		p.worded = l
+		p.animations.SetStrings(viewtexts.Motion(l))
+		p.privacy.SetStrings(viewtexts.MiniApps(l))
 	}
 	for _, account := range p.shownAccounts {
 		if row := p.accountRows[account.ID]; row != nil && row.click.Clicked(gtx) {
@@ -480,6 +493,17 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		p.confirmBoxes.Update(gtx)
 	}
 	p.animations.Update(gtx)
+	if p.pauseInactive != nil {
+		// Another window may have changed the shared preference.
+		var want []string
+		if p.pauseInactive() {
+			want = []string{"pause"}
+		}
+		if !slices.Equal(p.pauseInactiveCheckbox.GetValues(), want) {
+			p.pauseInactiveCheckbox.SetValues(want)
+		}
+		p.pauseInactiveCheckbox.Update(gtx)
+	}
 	p.privacy.Update(gtx)
 	if p.section == settingsIntegrations {
 		p.players.Update(gtx)
@@ -582,7 +606,19 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 			}
 		case settingsPower:
 			content = func(gtx layout.Context) layout.Dimensions {
-				return p.cardHeight("Layout-8").Card(gtx, p.animations.Layout, defaultCardPadding)
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return p.cardHeight("Layout-8").Card(gtx, p.animations.Layout, defaultCardPadding)
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						if p.pauseInactive == nil {
+							return layout.Dimensions{}
+						}
+						return layout.Inset{Top: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return p.cardHeight("Layout-9").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutPauseInactive(gtx, l) }, defaultCardPadding)
+						})
+					}),
+				)
 			}
 		case settingsPremium:
 			content = func(gtx layout.Context) layout.Dimensions { return p.layoutPremium(gtx, l) }
@@ -878,7 +914,7 @@ func (p *settingsPage) layoutAppearance(gtx layout.Context, mode themeMode, syst
 		vspace(12),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return settingsChoiceCard(gtx, p.cardHeight("choice-language"), l.T("settings.language"), "", func(gtx layout.Context) layout.Dimensions {
-				return p.language.Layout(gtx, radio.LeadingKind, map[string]string{"ru": "Русский", "en": "English"})
+				return p.language.Layout(gtx, radio.LeadingKind, languageNames())
 			})
 		}),
 	}
@@ -940,6 +976,21 @@ func (p *settingsPage) layoutChats(gtx layout.Context, l localization.Catalog) l
 		}))
 	}
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, cards...)
+}
+
+// layoutPauseInactive draws the card of the switch that pauses media
+// animations while the window is not active.
+func (p *settingsPage) layoutPauseInactive(gtx layout.Context, l localization.Catalog) layout.Dimensions {
+	sc := scheme(gtx)
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return p.pauseInactiveCheckbox.Layout(gtx, map[string]string{"pause": l.T("settings.pause_inactive")})
+		}),
+		vspace(4),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, l.T("settings.pause_inactive_hint"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
+		}),
+	)
 }
 
 // blurAvailable reports whether the blur checkboxes have an effect: it costs
@@ -1301,10 +1352,7 @@ func limitValue(key string, value int, l localization.Catalog) string {
 		return strconv.Itoa(value)
 	}
 	gb := float64(value) * model.UploadPartSize / (1 << 20) / 1000
-	number := strconv.FormatFloat(math.Round(gb*10)/10, 'f', -1, 64)
-	if l.Language() == localization.Russian {
-		number = strings.Replace(number, ".", ",", 1)
-	}
+	number := strings.Replace(strconv.FormatFloat(math.Round(gb*10)/10, 'f', -1, 64), ".", l.T("number.decimal"), 1)
 	return fmt.Sprintf(l.T("premium.gb"), number)
 }
 

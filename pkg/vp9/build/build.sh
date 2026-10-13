@@ -1,7 +1,8 @@
 #!/bin/sh
-# Builds vpxdec.wasm.gz: libvpx's VP9 decoder as a WebAssembly reactor module.
+# Builds vpxdec.wasm.zst: libvpx's VP9 decoder as a WebAssembly reactor module.
 #
-# Needs clang with a wasm32 backend, wasm-ld, and the WASI sysroot plus the
+# Needs zstd, which compresses the module, and
+# clang with a wasm32 backend, wasm-ld, and the WASI sysroot plus the
 # wasm32 compiler-rt builtins from https://github.com/WebAssembly/wasi-sdk
 # (the "wasi-sysroot" and "libclang_rt" assets of a release are enough; the
 # full SDK works too), and the headers of SIMDe
@@ -69,9 +70,10 @@ make -j"$(nproc)"
   -I"$LIBVPX" -I"$LIBVPX/build-wasm" -I"$here" \
   "$here/vpxshim.c" "$LIBVPX/build-wasm/libvpx.a" \
   -o "$here/vpxdec.wasm"
-# Embedded gzipped, without a name or a time, so that the same build
-# gives the same bytes.
-gzip -9 -n -c "$here/vpxdec.wasm" >"$here/../vpxdec.wasm.gz"
+# Embedded zstd-compressed at its highest level, from the file, so that
+# the frame tells its size (pkg/unpack checks it); zstd writes no name or
+# time, and the same build gives the same bytes.
+zstd --ultra -22 -q -f "$here/vpxdec.wasm" -o "$here/../vpxdec.wasm.zst"
 rm "$here/vpxdec.wasm"
 
-echo "built $(cd "$here/.." && pwd)/vpxdec.wasm.gz"
+echo "built $(cd "$here/.." && pwd)/vpxdec.wasm.zst"

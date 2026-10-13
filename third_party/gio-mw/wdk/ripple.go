@@ -38,8 +38,11 @@ type Ripple struct {
 	// Bounds is the area the ripple spreads over, in the same coordinates as
 	// the press positions unless Centered is set.
 	Bounds image.Rectangle
-	// Clip is the shape the ripple is clipped to, usually the state layer.
-	Clip clip.Op
+	// Clip makes the shape the ripple is clipped to, usually the state
+	// layer's. It is called only when a ripple is visible: a shape recorded
+	// for every widget in every frame, unused but for a second after a
+	// press, made most of the operations of a row in a list.
+	Clip func() clip.Op
 	// Centered starts the ripple at the center of Bounds instead of at the
 	// press position, for small targets such as radio buttons.
 	Centered bool
@@ -66,6 +69,8 @@ func (r Ripple) Draw(gtx layout.Context, presses []widget.Press) {
 	}
 
 	active := false
+	var shape clip.Op
+	shaped := false
 	for _, p := range presses {
 		alpha, running := rippleAlpha(gtx.Now, p)
 		active = active || running
@@ -82,7 +87,10 @@ func (r Ripple) Draw(gtx layout.Context, presses []widget.Press) {
 
 		color := r.Color
 		color.A = uint8(float32(color.A)*alpha + 0.5)
-		stack := r.Clip.Push(gtx.Ops)
+		if !shaped {
+			shape, shaped = r.Clip(), true
+		}
+		stack := shape.Push(gtx.Ops)
 		circle := clip.Ellipse{
 			Min: image.Pt(int(c.X-radius), int(c.Y-radius)),
 			Max: image.Pt(int(math.Ceil(float64(c.X+radius))), int(math.Ceil(float64(c.Y+radius)))),

@@ -119,8 +119,9 @@ func TestForumSearchOpensTheTopicAtAMessage(t *testing.T) {
 	}
 	first := s.found[0]
 	// The row names the sender once, apart from the text.
-	if row := foundTopicRow(first, localization.For("ru")); row.LastSender == "" || strings.Contains(row.LastMessage, row.LastSender) {
-		t.Fatalf("the row says %q: %q", row.LastSender, row.LastMessage)
+	l := localization.For("ru")
+	if sender, text := l.Preview(foundTopicRow(first, l).Last, "", false); sender == "" || strings.Contains(text, sender) {
+		t.Fatalf("the row says %q: %q", sender, text)
 	}
 	h.click(200, int(chatHeaderSize)+int(chatRowHeight)/2)
 	thread := h.app.thread

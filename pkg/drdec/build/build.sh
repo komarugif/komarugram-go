@@ -1,8 +1,9 @@
 #!/bin/sh
-# Builds drdec.wasm.gz: dr_libs's MP3, FLAC and WAV decoders as a WebAssembly
+# Builds drdec.wasm.zst: dr_libs's MP3, FLAC and WAV decoders as a WebAssembly
 # reactor module.
 #
-# Needs clang with a wasm32 backend, wasm-ld, and the WASI sysroot plus the
+# Needs zstd, which compresses the module, and
+# clang with a wasm32 backend, wasm-ld, and the WASI sysroot plus the
 # wasm32 compiler-rt builtins from https://github.com/WebAssembly/wasi-sdk
 # (see ../../vp9/build/build.sh), and dr_libs's headers
 # (https://github.com/mackron/dr_libs, dfe8377, 2026-09-01: dr_mp3 v0.7.4,
@@ -28,9 +29,10 @@ here=$(cd "$(dirname "$0")" && pwd)
 	-O2 -msimd128 -mexec-model=reactor -Wl,--strip-all \
 	-I"$DR_LIBS" "$here/drshim.c" \
 	-o "$here/drdec.wasm"
-# Embedded gzipped, without a name or a time, so that the same build
-# gives the same bytes.
-gzip -9 -n -c "$here/drdec.wasm" >"$here/../drdec.wasm.gz"
+# Embedded zstd-compressed at its highest level, from the file, so that
+# the frame tells its size (pkg/unpack checks it); zstd writes no name or
+# time, and the same build gives the same bytes.
+zstd --ultra -22 -q -f "$here/drdec.wasm" -o "$here/../drdec.wasm.zst"
 rm "$here/drdec.wasm"
 
-echo "built $(cd "$here/.." && pwd)/drdec.wasm.gz"
+echo "built $(cd "$here/.." && pwd)/drdec.wasm.zst"

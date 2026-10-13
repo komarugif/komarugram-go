@@ -4,25 +4,21 @@ package vp9_test
 
 import (
 	"bytes"
-	"compress/gzip"
 	"encoding/binary"
-	"io"
 	"os"
 	"testing"
+
+	"komarugram/pkg/unpack"
 )
 
-// TestModuleUsesSIMD checks that vpxdec.wasm.gz was built with WebAssembly
+// TestModuleUsesSIMD checks that vpxdec.wasm.zst was built with WebAssembly
 // SIMD, as build.sh does: without it, decoding takes three times as long.
 func TestModuleUsesSIMD(t *testing.T) {
-	gz, err := os.ReadFile("vpxdec.wasm.gz")
+	zst, err := os.ReadFile("vpxdec.wasm.zst")
 	if err != nil {
 		t.Fatal(err)
 	}
-	zr, err := gzip.NewReader(bytes.NewReader(gz))
-	if err != nil {
-		t.Fatal(err)
-	}
-	module, err := io.ReadAll(zr)
+	module, err := unpack.Zstd(zst)
 	if err != nil {
 		t.Fatal(err)
 	}

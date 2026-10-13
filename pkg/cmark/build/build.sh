@@ -1,11 +1,12 @@
 #!/bin/sh
-# Builds cmark.wasm.gz: cmark-gfm, the CommonMark and GitHub Flavored
+# Builds cmark.wasm.zst: cmark-gfm, the CommonMark and GitHub Flavored
 # Markdown parser, from desktop-app's fork that Telegram Desktop builds
 # (https://github.com/desktop-app/cmark-gfm, branch tdesktop, d7d4a24,
 # 2026-08-14: cmark-gfm 0.29.0.gfm.13), behind cmshim.c, as a WebAssembly
 # reactor module.
 #
-# Needs clang with a wasm32 backend, wasm-ld, and the WASI sysroot plus the
+# Needs zstd, which compresses the module, and
+# clang with a wasm32 backend, wasm-ld, and the WASI sysroot plus the
 # wasm32 compiler-rt builtins from https://github.com/WebAssembly/wasi-sdk
 # (see ../../vp9/build/build.sh), and the fork's source:
 #
@@ -33,6 +34,9 @@ sources=$(ls "$CMARK"/src/*.c "$CMARK"/extensions/*.c | grep -v '/main\.c$')
 	-I"$here/include" -I"$CMARK/src" -I"$CMARK/extensions" \
 	$sources "$here/cmshim.c" \
 	-o "$here/cmark.wasm"
-gzip -9 -n -c "$here/cmark.wasm" >"$here/../cmark.wasm.gz"
+# Embedded zstd-compressed at its highest level, from the file, so that
+# the frame tells its size (pkg/unpack checks it); zstd writes no name or
+# time, and the same build gives the same bytes.
+zstd --ultra -22 -q -f "$here/cmark.wasm" -o "$here/../cmark.wasm.zst"
 rm "$here/cmark.wasm"
-echo "built $(cd "$here/.." && pwd)/cmark.wasm.gz"
+echo "built $(cd "$here/.." && pwd)/cmark.wasm.zst"

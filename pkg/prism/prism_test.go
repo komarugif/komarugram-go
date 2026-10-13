@@ -3,16 +3,15 @@
 package prism
 
 import (
-	"bytes"
-	"compress/gzip"
 	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"komarugram/pkg/unpack"
 )
 
 func embeddedGrammars(t testing.TB) *Grammars {
@@ -159,11 +158,7 @@ func TestJoinSurrogates(t *testing.T) {
 }
 
 func rawGrammars(t testing.TB) []byte {
-	r, err := gzip.NewReader(bytes.NewReader(embedded))
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := io.ReadAll(r)
+	b, err := unpack.Zstd(embedded)
 	if err != nil {
 		t.Fatal(err)
 	}

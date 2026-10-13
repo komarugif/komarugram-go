@@ -224,7 +224,7 @@ func (p *chatPage) openForwardParts(gtx layout.Context, parts []model.Message, s
 
 // forwardTargets are the chats messages may be forwarded to, matching the
 // search, Saved Messages first.
-func (p *chatPage) forwardTargets() []model.Chat {
+func (p *chatPage) forwardTargets(l localization.Catalog) []model.Chat {
 	if p.chats == nil {
 		return nil
 	}
@@ -235,7 +235,7 @@ func (p *chatPage) forwardTargets() []model.Chat {
 		if rights != nil && !rights.CanSend(c.ID) {
 			continue
 		}
-		if query != "" && !strings.Contains(strings.ToLower(c.Title), query) {
+		if query != "" && !strings.Contains(strings.ToLower(l.ChatTitle(c)), query) {
 			continue
 		}
 		if c.Kind == model.KindSaved {
@@ -264,7 +264,7 @@ func (p *chatPage) updateForward(l localization.Catalog) {
 			if f.from == p.chat && f.selection {
 				p.clearSelection()
 			}
-			p.toast.Show(l.Format("history.forwarded", map[string]string{"chat": f.target.Title}))
+			p.toast.Show(l.Format("history.forwarded", map[string]string{"chat": l.ChatTitle(f.target)}))
 		}
 	default:
 	}
@@ -297,7 +297,7 @@ func (p *chatPage) forwardDialog(gtx layout.Context, l localization.Catalog) {
 	if !f.modal.Shown() {
 		return
 	}
-	targets := p.forwardTargets()
+	targets := p.forwardTargets(l)
 	if !f.busy {
 		if f.cancel.Clicked(gtx) {
 			f.modal.Close()
@@ -342,7 +342,7 @@ func (p *chatPage) forwardDialog(gtx layout.Context, l localization.Catalog) {
 						})
 					}
 					return f.list.Layout(gtx, len(targets), func(gtx layout.Context, i int) layout.Dimensions {
-						return p.forwardRow(gtx, targets[i])
+						return p.forwardRow(gtx, targets[i], l)
 					})
 				}),
 				vspace(8),
@@ -360,7 +360,7 @@ func (p *chatPage) forwardDialog(gtx layout.Context, l localization.Catalog) {
 }
 
 // forwardRow draws a chat of the picker: its avatar and title.
-func (p *chatPage) forwardRow(gtx layout.Context, c model.Chat) layout.Dimensions {
+func (p *chatPage) forwardRow(gtx layout.Context, c model.Chat, l localization.Catalog) layout.Dimensions {
 	f := &p.forwarding
 	r := f.rows[c.ID]
 	if r == nil {
@@ -374,15 +374,15 @@ func (p *chatPage) forwardRow(gtx layout.Context, c model.Chat) layout.Dimension
 		avatarPx := gtx.Dp(40)
 		offset(gtx, image.Pt(gtx.Dp(6), (size.Y-avatarPx)/2), func(gtx layout.Context) layout.Dimensions {
 			if p.avatar != nil {
-				return p.avatar(gtx, c.ID, c.Kind, c.Title, 40)
+				return p.avatar(gtx, c.ID, c.Kind, l.ChatTitle(c), 40)
 			}
-			return avatar(gtx, c.ID, c.Kind, c.Title, 40)
+			return avatar(gtx, c.ID, c.Kind, l.ChatTitle(c), 40)
 		})
 		textX := gtx.Dp(6) + avatarPx + gtx.Dp(12)
 		text := gtx
 		text.Constraints = layout.Constraints{Max: image.Pt(max(size.X-textX-gtx.Dp(6), 0), size.Y)}
 		macro := op.Record(gtx.Ops)
-		dims := label(text, c.Title, token.TypestyleBodyLarge, sc.Surface.OnColor, 1)
+		dims := label(text, l.ChatTitle(c), token.TypestyleBodyLarge, sc.Surface.OnColor, 1)
 		call := macro.Stop()
 		offset(gtx, image.Pt(textX, (size.Y-dims.Size.Y)/2), func(gtx layout.Context) layout.Dimensions {
 			call.Add(gtx.Ops)

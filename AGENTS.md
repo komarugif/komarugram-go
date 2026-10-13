@@ -27,7 +27,7 @@ Russian; code, comments and docs are in English.
 | `internal/messenger/{security,securedb}` | TPM-sealed key, encrypted SQLite (Adiantum VFS) |
 | `internal/messenger/mockstore` | Demo store for `-demo` |
 | `pkg/*` | Reusable parts: `dcpool` (download connections), `tdata`, media decoders |
-| `third_party/gio`, `third_party/gio-mw` | Forks, wired with `replace`; changes to Gio go in `third_party/gio/LOCAL_CHANGES.md` |
+| `third_party/gio`, `third_party/gio-mw` | Forks, wired with `replace`; changes to each go in its `LOCAL_CHANGES.md` (`third_party/gio/…`, `third_party/gio-mw/…`) |
 | `tdesktop`, `ayugram`, `materialgram`, `telegram-android` | Not in the repository, and ignored by git: local clones of Telegram Desktop, two of its forks and Telegram for Android, made when needed (see "Telegram sources") |
 
 ## Read before
@@ -45,8 +45,9 @@ Russian; code, comments and docs are in English.
   Telegram for Android is the second reference, for what Telegram Desktop
   lacks or does differently (`TMessagesProj/src/main/java/org/telegram`;
   its strings in `TMessagesProj/src/main/res/values/strings.xml`).
-  Texts shown to the user map to tdesktop's `lng_…` keys in
-  `internal/messenger/localization` (`TelegramKeys`).
+  Texts shown to the user are keys of `internal/messenger/localization`,
+  in its `languages/*.strings`, and map to tdesktop's `lng_…` keys in its
+  `telegram_keys.strings`: `docs/LOCALIZATION.md`.
 - Performance or memory: `docs/PROFILING.md`; README "Pitfalls".
 
 ## Commands
@@ -109,7 +110,8 @@ places it touches, and remind the maintainer to look them over too.
 and `pkg/aac`'s and the M4A voice message's `KOMARUGRAM_AACDEC`, of an
 `aacdec.wasm` ([fdk-aac-wasm](https://github.com/komarugif/fdk-aac-wasm)): these
 modules are not in this repository, and the client fetches them
-(`internal/messenger/wasmmodule`).
+(`internal/messenger/wasmmodule`; the client also takes them as `.wasm.zst`,
+the tests as they are).
 
 ## Rules
 

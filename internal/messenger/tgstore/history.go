@@ -17,6 +17,7 @@ import (
 	"komarugram/internal/crash"
 	"komarugram/internal/diagnostics"
 	"komarugram/internal/messenger/historycache"
+	"komarugram/internal/messenger/langpack"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/security"
 	"komarugram/pkg/dcpool"
@@ -100,18 +101,15 @@ type conversation struct {
 	// message (see Reveal); a page asked for in an earlier epoch is dropped.
 	epochs map[int64]uint64
 	// reveals are the messages the next history of a chat opens at.
-	reveals     map[int64]model.MessageID
-	views       map[int64]model.Viewport
-	refs        map[string]fileLocation
-	touched     map[model.MessageKey]uint64
-	deleted     map[model.MessageKey]bool
-	generation  uint64
-	wg          sync.WaitGroup
-	saves       chan viewSave
-	closing     bool
-	packs       map[string]map[string]string
-	packNext    map[string]time.Time
-	packLoading map[string]bool
+	reveals    map[int64]model.MessageID
+	views      map[int64]model.Viewport
+	refs       map[string]fileLocation
+	touched    map[model.MessageKey]uint64
+	deleted    map[model.MessageKey]bool
+	generation uint64
+	wg         sync.WaitGroup
+	saves      chan viewSave
+	closing    bool
 	// watch polls the channels on screen that push no updates.
 	watch channelPolls
 	// threads are the discussions of channel posts, by their chat ids, and
@@ -141,7 +139,7 @@ type viewSave struct {
 }
 
 func newConversation() *conversation {
-	return &conversation{top: map[int64]int{}, globalDeleted: map[int]bool{}, ctx: context.Background(), peers: map[int64]peerRecord{}, histories: map[int64]*model.History{}, epochs: map[int64]uint64{}, reveals: map[int64]model.MessageID{}, views: map[int64]model.Viewport{}, refs: map[string]fileLocation{}, touched: map[model.MessageKey]uint64{}, deleted: map[model.MessageKey]bool{}, packs: map[string]map[string]string{}, packLoading: map[string]bool{}, saves: make(chan viewSave, 64), live: map[int64]bool{}, firsts: map[int64]int{}}
+	return &conversation{top: map[int64]int{}, globalDeleted: map[int]bool{}, ctx: context.Background(), peers: map[int64]peerRecord{}, histories: map[int64]*model.History{}, epochs: map[int64]uint64{}, reveals: map[int64]model.MessageID{}, views: map[int64]model.Viewport{}, refs: map[string]fileLocation{}, touched: map[model.MessageKey]uint64{}, deleted: map[model.MessageKey]bool{}, saves: make(chan viewSave, 64), live: map[int64]bool{}, firsts: map[int64]int{}}
 }
 func (s *Store) Configure(ctx context.Context, account, path string, p *security.Manager) error {
 	c := s.history
@@ -170,8 +168,8 @@ func (s *Store) Configure(ctx context.Context, account, path string, p *security
 	}
 	c.account = account
 	c.ctx = ctx
-	var chats []model.Chat
-	if _, e = cache.Get(ctx, "dialogs", &chats); e != nil {
+	chats, e := cachedDialogs(ctx, cache)
+	if e != nil {
 		return e
 	}
 	if _, e = cache.Get(ctx, "peers", &c.peers); e != nil {
@@ -202,6 +200,7 @@ func (s *Store) Close() (err error) {
 		return nil
 	}
 	c.closing = true
+	langpack.Unwatch(s)
 	c.watch.stopPolls()
 	close(c.saves)
 	pool, cache := c.pool, c.cache
@@ -327,9 +326,9 @@ func (s *Store) rememberPeers(users []tg.UserClass, chats []tg.ChatClass) {
 		if u, ok := u.(*tg.User); ok {
 			key := peerID(&tg.PeerUser{UserID: u.ID})
 			if old, ok := c.peers[key]; !u.Min || !ok {
-				c.peers[key] = peerRecord{ID: u.ID, Hash: u.AccessHash, Kind: "user", Name: userName(u), Rights: peerRights{Known: true, Bot: u.Bot, Self: u.Self, Muted: u.Deleted}, Username: userUsername(u), Metadata: peerMetadata{Known: true, Badges: userBadges(u, time.Now())}}
+				c.peers[key] = peerRecord{ID: u.ID, Hash: u.AccessHash, Kind: "user", Name: personName(u), Rights: peerRights{Known: true, Bot: u.Bot, Self: u.Self, Muted: u.Deleted}, Username: userUsername(u), Metadata: peerMetadata{Known: true, Badges: userBadges(u, time.Now())}}
 			} else {
-				old.Name = userName(u)
+				old.Name = personName(u)
 				if name := userUsername(u); name != "" {
 					old.Username = name
 				}
@@ -1148,6 +1147,10 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			chat = peerID(&tg.PeerChannel{ChannelID: u.ChannelID})
 		case *tg.UpdateMessageReactions:
 			s.applyReactions(peerID(u.Peer), u.MsgID, u.Reactions)
+		case *tg.UpdateLangPack:
+			langpack.Changed(u.Difference.LangCode)
+		case *tg.UpdateLangPackTooLong:
+			langpack.Changed(u.LangCode)
 		case *tg.UpdatePeerBlocked:
 			s.applyBlocked(u)
 		case *tg.UpdateDialogPinned:
@@ -1434,77 +1437,87 @@ func (s *Store) replacePreview(chat int64, top int, m *model.Message) int {
 			setPreview(&chats[i], *m)
 		} else {
 			// The time keeps the chat's place in the list.
-			chats[i].LastMessage, chats[i].LastSender = "", ""
+			chats[i].Last = model.Preview{}
 		}
 	}
 	s.chats = chats
 	return top
 }
 
+// cachedDialogs reads the chat list kept in the cache. One kept before
+// previews were words of the interface's has its last messages as lines
+// already worded: they are shown as text until the list is loaded again.
+func cachedDialogs(ctx context.Context, cache *historycache.Cache) ([]model.Chat, error) {
+	var kept []struct {
+		model.Chat
+		LastMessage, LastSender string
+	}
+	if _, err := cache.Get(ctx, "dialogs", &kept); err != nil {
+		return nil, err
+	}
+	var chats []model.Chat
+	for _, c := range kept {
+		if c.Last == (model.Preview{}) && c.LastMessage != "" {
+			c.Last = model.Preview{Text: c.LastMessage, Sender: c.LastSender}
+		}
+		chats = append(chats, c.Chat)
+	}
+	return chats, nil
+}
+
 // setPreview shows m as the chat's last message, the way dialogs loaded
 // from Telegram show it.
 func setPreview(chat *model.Chat, m model.Message) {
-	text := strings.Join(strings.Fields(m.Text), " ")
-	if m.Kind == model.MessageService && m.Service != nil {
-		text = serviceSummary(m, *chat)
-	}
-	if kind := messageKindName(m); kind != "" {
-		if text == "" {
-			text = kind
-		} else if m.Kind != model.MessageService {
-			text = kind + ", " + text
-		}
-	}
-	chat.LastMessage, chat.LastTime, chat.LastSender = text, m.Date, ""
-	if chat.Kind == model.KindGroup && m.Kind != model.MessageService {
-		chat.LastSender = m.SenderName
-		if m.Outgoing {
-			chat.LastSender = "Вы"
-		}
-	}
+	chat.Last, chat.LastTime = messagePreview(m, chat.Kind == model.KindGroup), m.Date
 }
 
-func messageKindName(m model.Message) string {
+// messagePreview is what a list shows of m, with who wrote it in a group.
+func messagePreview(m model.Message, group bool) model.Preview {
+	if m.Kind == model.MessageService {
+		if m.Service == nil {
+			return model.Preview{Media: "preview.service"}
+		}
+		return model.Preview{Service: &m}
+	}
+	p := model.Preview{Text: strings.Join(strings.Fields(m.Text), " "), Media: messageKindKey(m)}
+	if group {
+		p.Sender, p.Outgoing = m.SenderName, m.Outgoing
+		if m.Outgoing {
+			p.Sender = ""
+		}
+	}
+	return p
+}
+
+func messageKindKey(m model.Message) string {
 	if m.Rich != nil && strings.TrimSpace(m.Text) == "" {
-		return richFallbackName(*m.Rich)
+		return richFallbackKey(*m.Rich)
 	}
 	switch m.Kind {
 	case model.MessagePhoto:
-		return "Фото"
+		return "preview.photo"
 	case model.MessageVideo:
-		return "Видео"
+		return "preview.video"
 	case model.MessageFile:
-		return "Файл"
+		return "preview.file"
 	case model.MessageVoice:
-		return "Голосовое сообщение"
+		return "preview.voice"
 	case model.MessageSticker:
-		return "Стикер"
+		return "preview.sticker"
 	case model.MessageGIF:
-		return "GIF"
-	case model.MessageService:
-		return "Служебное сообщение"
+		return "preview.gif"
 	}
 	return ""
 }
 
-// richFallbackName names what a rich message without text shows, as
+// richFallbackKey names what a rich message without text shows, as
 // Telegram Desktop's summary does.
-func richFallbackName(p model.RichPage) string {
+func richFallbackKey(p model.RichPage) string {
 	switch p.Fallback() {
-	case "photo":
-		return "Фото"
-	case "video":
-		return "Видео"
-	case "album":
-		return "Альбом"
-	case "audio":
-		return "Аудиофайл"
-	case "file":
-		return "Файл"
+	case "photo", "video", "album", "audio", "file", "table":
+		return "preview." + p.Fallback()
 	case "map":
-		return "Геопозиция"
-	case "table":
-		return "Таблица"
+		return "preview.location"
 	}
 	return ""
 }

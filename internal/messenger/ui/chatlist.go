@@ -95,7 +95,6 @@ type chatRow struct {
 
 func newChatList() *chatList {
 	bar := search.Bar()
-	bar.SupportingText = "Поиск чатов"
 	bar.LeadingIcon.Icon = iconSearch
 	return &chatList{
 		list:   scroll.List{List: layout.List{Axis: layout.Vertical}},
@@ -114,7 +113,7 @@ func (l *chatList) row(id int64) *chatRow {
 }
 
 // visible returns the chats the section lists.
-func (l *chatList) visible(sec section, folders []model.Folder, chats []model.Chat) []model.Chat {
+func (l *chatList) visible(sec section, folders []model.Folder, chats []model.Chat, catalog localization.Catalog) []model.Chat {
 	var match func(model.Chat) bool
 	switch sec.kind {
 	case sectionFolder:
@@ -126,7 +125,7 @@ func (l *chatList) visible(sec section, folders []model.Folder, chats []model.Ch
 	case sectionSearch:
 		query := strings.ToLower(strings.TrimSpace(l.search.GetText()))
 		if query != "" {
-			match = func(c model.Chat) bool { return strings.Contains(strings.ToLower(c.Title), query) }
+			match = func(c model.Chat) bool { return strings.Contains(strings.ToLower(catalog.ChatTitle(c)), query) }
 		}
 	}
 	if match == nil {
@@ -235,7 +234,7 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 	}
 	l.items = l.items[:0]
 
-	visible := l.visible(sec, folders, chats)
+	visible := l.visible(sec, folders, chats, catalog)
 	l.menu.update(gtx, sec, chats, l.shown, &l.toast, catalog)
 	listGtx := gtx
 	listGtx.Constraints = layout.Exact(image.Pt(size.X, max(size.Y-headerHeight, 0)))
@@ -293,12 +292,12 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 // withMembersLine gives c, a chat found by a search or remembered from one,
 // how big it is as its line, when it has no message to show.
 func withMembersLine(c model.Chat, catalog localization.Catalog) model.Chat {
-	if c.LastMessage == "" && c.Members > 0 {
+	if c.Last == (model.Preview{}) && c.Members > 0 {
 		key := "status.members"
 		if c.Kind == model.KindChannel {
 			key = "status.subscribers"
 		}
-		c.LastMessage = catalog.Count(key, c.Members, nil)
+		c.Last.Text = catalog.Count(key, c.Members, nil)
 	}
 	return c
 }
@@ -376,9 +375,9 @@ func (l *chatList) layoutRowWith(gtx layout.Context, r *surface, c model.Chat, s
 		avatarX := gtx.Dp(chatAvatarInset)
 		offset(gtx, image.Pt(avatarX, avatarY), func(gtx layout.Context) layout.Dimensions {
 			if l.avatar != nil {
-				return l.avatar(gtx, c.ID, c.Kind, c.Title, chatAvatarSize)
+				return l.avatar(gtx, c.ID, c.Kind, catalog.ChatTitle(c), chatAvatarSize)
 			}
-			return avatar(gtx, c.ID, c.Kind, c.Title, chatAvatarSize)
+			return avatar(gtx, c.ID, c.Kind, catalog.ChatTitle(c), chatAvatarSize)
 		})
 
 		badgeBackground, badgeText := sc.Primary.Color, sc.Primary.OnColor
@@ -430,7 +429,7 @@ func (l *chatList) layoutRowText(gtx layout.Context, c model.Chat, area image.Re
 		return withBadges(gtx, before, func(gtx layout.Context) layout.Dimensions {
 			kind := chatKindIcon(c.Kind)
 			if kind == nil {
-				return label(gtx, c.Title, token.TypestyleTitleSmallEmphasized, titleColor, 1)
+				return label(gtx, catalog.ChatTitle(c), token.TypestyleTitleSmallEmphasized, titleColor, 1)
 			}
 			// As materialgram marks them: groups, channels and bots have
 			// an icon of their kind before the title.
@@ -442,7 +441,7 @@ func (l *chatList) layoutRowText(gtx layout.Context, c model.Chat, area image.Re
 				}),
 				layout.Rigid(layout.Spacer{Width: 4}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, c.Title, token.TypestyleTitleSmallEmphasized, titleColor, 1)
+					return label(gtx, catalog.ChatTitle(c), token.TypestyleTitleSmallEmphasized, titleColor, 1)
 				}),
 			)
 		}, after)
@@ -469,11 +468,12 @@ func (l *chatList) layoutRowText(gtx layout.Context, c model.Chat, area image.Re
 		messageWidth -= px + gtx.Dp(8)
 	}
 	x := area.Min.X
-	if c.LastSender != "" {
+	sender, message := catalog.Preview(c.Last, catalog.ChatTitle(c), c.Kind == model.KindChannel)
+	if sender != "" {
 		senderGtx := gtx
 		senderGtx.Constraints.Max.X = max(messageWidth/2, 0)
 		dims := offset(senderGtx, image.Pt(x, lineY), func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, c.LastSender+": ", token.TypestyleBodyMedium, accent, 1)
+			return label(gtx, sender+": ", token.TypestyleBodyMedium, accent, 1)
 		})
 		x += dims.Size.X
 		messageWidth -= dims.Size.X
@@ -481,7 +481,7 @@ func (l *chatList) layoutRowText(gtx layout.Context, c model.Chat, area image.Re
 	messageGtx := gtx
 	messageGtx.Constraints.Max.X = max(messageWidth, 0)
 	offset(messageGtx, image.Pt(x, lineY), func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, c.LastMessage, token.TypestyleBodyMedium, textColor, 1)
+		return label(gtx, message, token.TypestyleBodyMedium, textColor, 1)
 	})
 }
 
