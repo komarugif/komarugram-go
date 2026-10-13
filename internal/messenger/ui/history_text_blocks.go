@@ -11,6 +11,7 @@ import (
 
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/styledtext"
+	"komarugram/pkg/ratex"
 
 	"gioui.org/font"
 	"gioui.org/text"
@@ -40,6 +41,28 @@ type messageTextBlock struct {
 	// style is how a flow of an article is set; a message's text is set
 	// with the zero style.
 	style flowStyle
+	// scratch is what textFlow works out of the block in every frame, kept
+	// to be filled again rather than made anew.
+	scratch flowScratch
+}
+
+// flowScratch holds textFlow's lists of a block between frames.
+type flowScratch struct {
+	styles, flowStyles      []styledtext.SpanStyle
+	indices, flowRuns, base []int
+	frames                  []image.Image
+	formulas                []*ratex.List
+	formulaEm               []float32
+}
+
+// zeroed returns s with n zero elements, in its own array when it holds them.
+func zeroed[T any](s []T, n int) []T {
+	if cap(s) < n {
+		return make([]T, n)
+	}
+	s = s[:n]
+	clear(s)
+	return s
 }
 
 // flowStyle is how a flow of an article is set, against a message's text:

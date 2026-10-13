@@ -21,7 +21,6 @@ import (
 	"komarugram/internal/messenger/preferences"
 	"komarugram/internal/messenger/styledtext"
 	"komarugram/pkg/player"
-	"komarugram/pkg/ratex"
 
 	"gio-mw/token"
 	"gio-mw/wdk"
@@ -39,6 +38,12 @@ import (
 )
 
 type messageRow struct {
+	// shown is the message as the row was drawn last, which what draws it
+	// reads in its closures instead of capturing a copy of its own.
+	shown model.Message
+	// children is what bubbleContent made of the row last, kept to be filled
+	// again.
+	children []layout.FlexChild
 	// mediaTold is the failure to load the row's media told in the toast
 	// last, so that a failure is told once, not on every frame.
 	mediaTold   error
@@ -959,14 +964,20 @@ func (p *chatPage) textFlow(gtx layout.Context, r *messageRow, block *messageTex
 	fragmentStart := len(r.text.fragments)
 	theme := wdk.GetMaterialTheme(gtx)
 	ty := theme.Typescale[token.TypestyleBodyLarge]
-	styles := make([]styledtext.SpanStyle, len(runs))
-	styleIndices := make([]int, 0, len(runs))
+	sc := &block.scratch
+	styles := zeroed(sc.styles, len(runs))
+	styleIndices := sc.indices[:0]
 	runeStart := block.runeStart
-	frames := make([]image.Image, len(runs))
+	frames := zeroed(sc.frames, len(runs))
 	// formulas are the inline formulas laid out, drawn em px to an em in
 	// boxes of their spans.
-	formulas := make([]*ratex.List, len(runs))
-	formulaEm := make([]float32, len(runs))
+	formulas := zeroed(sc.formulas, len(runs))
+	formulaEm := zeroed(sc.formulaEm, len(runs))
+	defer func() {
+		// The pictures are let go, not kept until the next frame.
+		clear(frames)
+		sc.styles, sc.indices, sc.frames, sc.formulas, sc.formulaEm = styles, styleIndices, frames, formulas, formulaEm
+	}()
 	size, fg := ty.Size, scheme(gtx).Surface.OnColor.AsNRGBA()
 	if s := block.style; s.scale != 0 {
 		size = unit.Sp(float32(size) * s.scale)
@@ -1042,10 +1053,12 @@ func (p *chatPage) textFlow(gtx layout.Context, r *messageRow, block *messageTex
 	if runs[0].Pre {
 		colors = p.codeSpans(r, block)
 	}
-	flowStyles := make([]styledtext.SpanStyle, 0, len(styleIndices))
-	flowRuns := make([]int, 0, len(styleIndices))
+	flowStyles := sc.flowStyles[:0]
+	flowRuns := sc.flowRuns[:0]
 	base := 0
-	runBase := make([]int, len(runs))
+	runBase := zeroed(sc.base, len(runs))
+	sc.base = runBase
+	defer func() { sc.flowStyles, sc.flowRuns = flowStyles[:0], flowRuns[:0] }()
 	for i, run := range runs {
 		runBase[i] = base
 		base += len(run.Text)

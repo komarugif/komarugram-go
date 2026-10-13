@@ -7,6 +7,7 @@ import (
 	"image"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gio-mw/token"
@@ -306,36 +307,44 @@ func (p *chatPage) bubble(gtx layout.Context, r *messageRow, m model.Message, jo
 // forward came from, the message replied to, media, the text, buttons,
 // reactions and the line of its time.
 func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Message, join bubbleJoin, l localization.Catalog, animate bool) []layout.FlexChild {
+	// The closures below, kept in what this returns, read the message from
+	// the row: captured, m itself would be moved to the heap, 480 bytes for
+	// each message drawn in each frame.
+	r.shown = m
+	msg := &r.shown
 	sc := scheme(gtx)
-	var children []layout.FlexChild
-	if m.SenderName != "" && !m.Outgoing && join&joinAbove == 0 {
+	// The row keeps what it held last, for this frame to fill again: grown
+	// from nothing, the list was made anew in each frame.
+	children := r.children[:0]
+	defer func() { r.children = children[:0] }()
+	if msg.SenderName != "" && !msg.Outgoing && join&joinAbove == 0 {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, m.SenderName, token.TypestyleLabelLargeEmphasized, senderColor(gtx, m.SenderID), 1)
+			return label(gtx, msg.SenderName, token.TypestyleLabelLargeEmphasized, senderColor(gtx, msg.SenderID), 1)
 		}), vspace(3))
 	}
-	if !m.ForwardDate.IsZero() {
+	if !msg.ForwardDate.IsZero() {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			text := l.T("history.forward")
-			if m.ForwardName != "" {
-				text = l.Format("history.forwarded_from", map[string]string{"name": m.ForwardName, "user": m.ForwardName})
+			if msg.ForwardName != "" {
+				text = l.Format("history.forwarded_from", map[string]string{"name": msg.ForwardName, "user": msg.ForwardName})
 			}
 			return label(gtx, text, token.TypestyleLabelMedium, sc.Primary.Color, 1)
 		}), vspace(4))
 	}
 	// In a thread, as the comments to a post, what replies to its root
 	// quotes nothing, as in Telegram Desktop: all of it does.
-	if m.ReplyToMessageID != 0 && m.ReplyToMessageID != p.threadRoot {
+	if msg.ReplyToMessageID != 0 && msg.ReplyToMessageID != p.threadRoot {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return p.replyQuote(gtx, r, m, l)
+			return p.replyQuote(gtx, r, *msg, l)
 		}), vspace(6))
 	}
-	if len(m.Attachments) > 1 {
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.albumLayout(gtx, r, m, l, animate) }), vspace(6))
-	} else if m.Media != nil {
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.mediaLayout(gtx, r, m, l, animate) }), vspace(6))
+	if len(msg.Attachments) > 1 {
+		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.albumLayout(gtx, r, *msg, l, animate) }), vspace(6))
+	} else if msg.Media != nil {
+		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.mediaLayout(gtx, r, *msg, l, animate) }), vspace(6))
 	}
-	if m.Poll != nil {
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return pollLayout(gtx, m.Poll, l) }))
+	if msg.Poll != nil {
+		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return pollLayout(gtx, msg.Poll, l) }))
 	}
 	if r.article != nil {
 		// What is over the article is measured, for links to its anchors.
@@ -344,13 +353,13 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 			dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx, above...)
 			r.articleAbove = dims.Size.Y
 			return dims
-		}), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.articleLayout(gtx, r, m, l, animate) })}
+		}), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.articleLayout(gtx, r, *msg, l, animate) })}
 		if r.article.part && p.openArticle != nil {
-			children = append(children, vspace(6), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.showMore(gtx, r, m, l) }))
+			children = append(children, vspace(6), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.showMore(gtx, r, *msg, l) }))
 		}
-	} else if len(m.Attachments) > 1 {
+	} else if len(msg.Attachments) > 1 {
 		seen := map[string]bool{}
-		for _, member := range m.Attachments {
+		for _, member := range msg.Attachments {
 			if member.Text != "" && !seen[member.Text] {
 				seen[member.Text] = true
 				member := member
@@ -359,41 +368,41 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 				}), vspace(4))
 			}
 		}
-	} else if m.Text != "" {
+	} else if msg.Text != "" {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.richText(gtx, r, l, animate) }))
-	} else if m.Media == nil && m.Poll == nil {
+	} else if msg.Media == nil && msg.Poll == nil {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			if m.Kind == model.MessageService {
-				return label(gtx, p.serviceText(m, l), token.TypestyleBodyMedium, sc.Surface.OnColor, 0)
+			if msg.Kind == model.MessageService {
+				return label(gtx, p.serviceText(*msg, l), token.TypestyleBodyMedium, sc.Surface.OnColor, 0)
 			}
 			text := l.T("history.empty_message")
-			if m.Rich != nil {
-				if kind := m.Rich.Fallback(); kind != "" {
+			if msg.Rich != nil {
+				if kind := msg.Rich.Fallback(); kind != "" {
 					text = l.T("rich." + kind)
 				}
 			}
 			return label(gtx, text, token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
 		}))
 	}
-	if m.WebPage != nil && m.Rich == nil {
-		children = append(children, vspace(6), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.webPreview(gtx, r, m, l, animate) }))
+	if msg.WebPage != nil && msg.Rich == nil {
+		children = append(children, vspace(6), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.webPreview(gtx, r, *msg, l, animate) }))
 	}
-	if len(m.Reactions) > 0 {
+	if len(msg.Reactions) > 0 {
 		children = append(children, vspace(8), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return p.reactions(gtx, r, m, animate)
+			return p.reactions(gtx, r, *msg, animate)
 		}))
 	}
 	children = append(children, vspace(4), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 		return layout.E.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			if m.Streaming {
+			if msg.Streaming {
 				// A draft a bot streams turns a ring before its time while
 				// the bot writes it.
 				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.writing.sized(gtx, l, 12) }),
 					layout.Rigid(layout.Spacer{Width: 6}.Layout),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return messageFooter(gtx, m, l, false) }))
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return messageFooter(gtx, *msg, l, false) }))
 			}
-			return messageFooter(gtx, m, l, !p.showsComments(m))
+			return messageFooter(gtx, *msg, l, !p.showsComments(*msg))
 		})
 	}))
 	return children
@@ -434,27 +443,68 @@ func messageFooterIn(gtx layout.Context, m model.Message, l localization.Catalog
 // footerText is the line of a message's time: who signed it, whether it
 // was edited or deleted, with the look's marks, and the time.
 func footerText(gtx layout.Context, m model.Message, l localization.Catalog) string {
-	var parts []string
-	if m.PostAuthor != "" {
-		parts = append(parts, m.PostAuthor)
-	}
 	look := lookOf(gtx)
+	key := footerKey{date: m.Date.Unix(), format: timeFormat(gtx), author: m.PostAuthor}
+	_, key.zone = m.Date.Local().Zone()
 	if !m.EditedAt.IsZero() {
-		mark := look.EditedMark
-		if mark == "" {
-			mark = l.T("history.edited")
+		key.edited = look.EditedMark
+		if key.edited == "" {
+			key.edited = l.T("history.edited")
 		}
-		parts = append(parts, mark)
 	}
 	if m.Deleted {
-		// Kept after Telegram deleted it, with AyuGram's mark.
-		mark := look.DeletedMark
-		if mark == "" {
-			mark = l.T("history.deleted_mark")
+		key.deleted = look.DeletedMark
+		if key.deleted == "" {
+			key.deleted = l.T("history.deleted_mark")
 		}
-		parts = append(parts, mark)
 	}
-	parts = append(parts, m.Date.Local().Format(timeFormat(gtx)))
+	footers.mu.Lock()
+	defer footers.mu.Unlock()
+	if text, ok := footers.texts[key]; ok {
+		return text
+	}
+	if footers.texts == nil || len(footers.texts) >= footersKept {
+		footers.texts = make(map[footerKey]string)
+	}
+	text := writeFooter(m, key)
+	footers.texts[key] = text
+	return text
+}
+
+// footerKey is what the line of a message's time is made of.
+type footerKey struct {
+	date            int64
+	zone            int
+	format, author  string
+	edited, deleted string
+}
+
+// footersKept is how many lines of time footers keeps before it starts
+// afresh: those of the messages of a few screens.
+const footersKept = 1024
+
+// footers keeps the lines of time written, which every message shown asked
+// for in every frame, each a slice and two strings made anew. Windows ask
+// from their own goroutines.
+var footers struct {
+	mu    sync.Mutex
+	texts map[footerKey]string
+}
+
+// writeFooter writes the line of time of m that key describes.
+func writeFooter(m model.Message, key footerKey) string {
+	var parts []string
+	if key.author != "" {
+		parts = append(parts, key.author)
+	}
+	if key.edited != "" {
+		parts = append(parts, key.edited)
+	}
+	if key.deleted != "" {
+		// Kept after Telegram deleted it, with AyuGram's mark.
+		parts = append(parts, key.deleted)
+	}
+	parts = append(parts, m.Date.Local().Format(key.format))
 	return strings.Join(parts, " · ")
 }
 

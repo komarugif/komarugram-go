@@ -149,7 +149,6 @@ func (p *chatPage) jumpButtons(gtx layout.Context, size image.Point, end, viewpo
 		icon  wdk.IconWidget
 		label string
 		show  bool
-		do    func()
 	}
 	// At the bottom, or near it, the ones that scroll are not there: they
 	// would be over the message that has just come. A failure still has its
@@ -157,15 +156,25 @@ func (p *chatPage) jumpButtons(gtx layout.Context, size image.Point, end, viewpo
 	reserve := gtx.Dp(jumpReserve)
 	nearEnd := p.atEnd(history, viewport, reserve)
 	buttons := []button{
-		{&p.toEnd, iconToBottom, l.T("history.to_end"), len(p.messages) > 0 && !nearEnd, func() { p.scrollToEnd(history) }},
-		{&p.toStart, iconToTop, l.T("history.to_top"), len(p.messages) > 0 && !nearEnd && !p.atStart(history, reserve) && !p.oneRequest(history) && !history.LoadingOlder, func() { p.scrollToStart(history) }},
-		{&p.retry, iconRefresh, l.T("history.retry"), history.Err != nil, func() {
+		{&p.toEnd, iconToBottom, l.T("history.to_end"), len(p.messages) > 0 && !nearEnd},
+		{&p.toStart, iconToTop, l.T("history.to_top"), len(p.messages) > 0 && !nearEnd && !p.atStart(history, reserve) && !p.oneRequest(history) && !history.LoadingOlder},
+		{&p.retry, iconRefresh, l.T("history.retry"), history.Err != nil},
+	}
+	// What a button does is told by which it is, not a closure of each: the
+	// closures, over the history, were made in every frame.
+	do := func(s *surface) {
+		switch s {
+		case &p.toEnd:
+			p.scrollToEnd(history)
+		case &p.toStart:
+			p.scrollToStart(history)
+		case &p.retry:
 			if s, ok := p.source.(interface{ Reload(int64) }); ok {
 				s.Reload(p.chat)
 			} else {
 				p.source.LoadOlder(p.chat)
 			}
-		}},
+		}
 	}
 	sc := scheme(gtx)
 	btn := gtx.Dp(jumpButtonSize)
@@ -188,7 +197,7 @@ func (p *chatPage) jumpButtons(gtx layout.Context, size image.Point, end, viewpo
 			continue
 		}
 		if b.s.Clicked(gtx) {
-			b.do()
+			do(b.s)
 			continue
 		}
 		offset(gtx, image.Pt(x, y), func(gtx layout.Context) layout.Dimensions {

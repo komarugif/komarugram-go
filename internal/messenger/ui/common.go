@@ -233,8 +233,20 @@ func card(gtx layout.Context, content layout.Widget, padding unit.Dp) layout.Dim
 }
 
 func vspace(dp unit.Dp) layout.FlexChild {
+	if i := int(dp); float32(i) == float32(dp) && i >= 0 && i < len(vspaces) {
+		return layout.Rigid(vspaces[i])
+	}
 	return layout.Rigid(layout.Spacer{Height: dp}.Layout)
 }
+
+// vspaces are the spacers of whole dp up to 32, made once: a method value
+// made for each spacer, in every frame, was a closure on the heap.
+var vspaces = func() (spaces [33]layout.Widget) {
+	for i := range spaces {
+		spaces[i] = layout.Spacer{Height: unit.Dp(i)}.Layout
+	}
+	return spaces
+}()
 
 // inRect lays w out to fill rect exactly.
 func inRect(gtx layout.Context, rect image.Rectangle, w layout.Widget) layout.Dimensions {

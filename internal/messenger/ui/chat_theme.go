@@ -103,10 +103,22 @@ type chatThemeController struct {
 	phase  int64
 	// contexts are the themed values of the contexts of the frame drawn
 	// at contextsAt, made once for each map of values rather than for each
-	// message. A map of another frame may have the address of one gone.
-	contexts   map[contextKey]map[string]any
+	// message; the first used of them, filled again in the next frame rather
+	// than made anew. A map of another frame may have the address of one
+	// gone.
+	contexts   []*themedValues
+	used       int
 	contextsAt time.Time
 	page       chatThemePage
+}
+
+// themedValues are the values of a context with its theme's scheme
+// changed, and the theme they hold.
+type themedValues struct {
+	key    contextKey
+	values map[string]any
+	theme  token.Theme
+	scheme token.Scheme
 }
 
 type contextKey struct {
@@ -139,7 +151,7 @@ func (t *chatThemeController) Close() {
 func (t *chatThemeController) Release() {
 	t.image, t.background, t.key = nil, nil, ""
 	t.bubble = nil
-	t.contexts = nil
+	t.contexts, t.used = nil, 0
 	t.reload()
 	t.page.release()
 }
@@ -192,7 +204,7 @@ func (t *chatThemeController) drain() {
 			t.problem = r.err
 			t.appearance, t.style = r.appearance, r.style
 			t.bubble = nil
-			t.contexts = nil
+			t.contexts, t.used = nil, 0
 			if r.key != t.key {
 				t.key, t.background = r.key, r.background
 				t.image, t.size = r.image, r.size
@@ -409,27 +421,32 @@ func (t *chatThemeController) Bubble(gtx layout.Context, outgoing, animate bool,
 // values once for each map of values of the frame.
 func (t *chatThemeController) themed(gtx layout.Context, kind int, edit func(*token.Scheme)) layout.Context {
 	if !gtx.Now.Equal(t.contextsAt) {
-		t.contexts, t.contextsAt = nil, gtx.Now
+		// The values of the last frame are no longer read.
+		t.used, t.contextsAt = 0, gtx.Now
 	}
 	key := contextKey{reflect.ValueOf(gtx.Values).UnsafePointer(), kind}
-	if values, ok := t.contexts[key]; ok {
-		gtx.Values = values
-		return gtx
+	for _, c := range t.contexts[:t.used] {
+		if c.key == key {
+			gtx.Values = c.values
+			return gtx
+		}
 	}
-	theme := *wdk.GetMaterialTheme(gtx)
-	sc := *theme.Scheme
-	theme.Scheme = &sc
-	edit(&sc)
-	values := make(map[string]any, len(gtx.Values))
+	if t.used == len(t.contexts) {
+		t.contexts = append(t.contexts, &themedValues{values: make(map[string]any, len(gtx.Values))})
+	}
+	c := t.contexts[t.used]
+	t.used++
+	c.key = key
+	c.theme = *wdk.GetMaterialTheme(gtx)
+	c.scheme = *c.theme.Scheme
+	c.theme.Scheme = &c.scheme
+	edit(&c.scheme)
+	clear(c.values)
 	for k, v := range gtx.Values {
-		values[k] = v
+		c.values[k] = v
 	}
-	values[wdk.ThemeNamespace] = &theme
-	if t.contexts == nil {
-		t.contexts = map[contextKey]map[string]any{}
-	}
-	t.contexts[key] = values
-	gtx.Values = values
+	c.values[wdk.ThemeNamespace] = &c.theme
+	gtx.Values = c.values
 	return gtx
 }
 

@@ -117,14 +117,18 @@ func isEmoji(g string) bool {
 
 // unwrappedBody draws m, a message without a bubble.
 func (p *chatPage) unwrappedBody(gtx layout.Context, r *messageRow, m model.Message, join bubbleJoin, l localization.Catalog, animate bool) layout.Dimensions {
+	// The closures read the message from the row: captured, m itself would
+	// be moved to the heap in each frame (see bubbleContent).
+	r.shown = m
+	msg := &r.shown
 	picture := func(gtx layout.Context) layout.Dimensions {
-		if m.Kind == model.MessageSticker {
-			return p.mediaLayout(gtx, r, m, l, animate)
+		if msg.Kind == model.MessageSticker {
+			return p.mediaLayout(gtx, r, *msg, l, animate)
 		}
-		return p.largeEmoji(gtx, m, animate)
+		return p.largeEmoji(gtx, *msg, animate)
 	}
-	info := func(gtx layout.Context) layout.Dimensions { return infoPlate(gtx, m, l) }
-	side := p.unwrappedSide(m, join, l, r)
+	info := func(gtx layout.Context) layout.Dimensions { return infoPlate(gtx, *msg, l) }
+	side := p.unwrappedSide(msg, join, l, r)
 
 	// The picture, with its time over the corner for the account's own.
 	media := func(gtx layout.Context) layout.Dimensions {
@@ -132,7 +136,7 @@ func (p *chatPage) unwrappedBody(gtx layout.Context, r *messageRow, m model.Mess
 		dims := picture(gtx)
 		call := macro.Stop()
 		call.Add(gtx.Ops)
-		if !m.Outgoing {
+		if !msg.Outgoing {
 			return dims
 		}
 		imacro := op.Record(gtx.Ops)
@@ -147,13 +151,13 @@ func (p *chatPage) unwrappedBody(gtx layout.Context, r *messageRow, m model.Mess
 		return dims
 	}
 	column := []layout.FlexChild{layout.Rigid(media)}
-	if len(m.Reactions) > 0 {
+	if len(msg.Reactions) > 0 {
 		column = append(column, vspace(6), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return p.reactions(gtx, r, m, animate)
+			return p.reactions(gtx, r, *msg, animate)
 		}))
 	}
 	mediaColumn := func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Axis: layout.Vertical, Alignment: alignFor(m)}.Layout(gtx, column...)
+		return layout.Flex{Axis: layout.Vertical, Alignment: alignFor(*msg)}.Layout(gtx, column...)
 	}
 	macro := op.Record(gtx.Ops)
 	mdims := mediaColumn(gtx)
@@ -169,12 +173,12 @@ func (p *chatPage) unwrappedBody(gtx layout.Context, r *messageRow, m model.Mess
 			top = side(gtx)
 		}
 		width, height := top.Size.X, top.Size.Y
-		if !m.Outgoing {
+		if !msg.Outgoing {
 			imacro := op.Record(gtx.Ops)
 			idims := info(gtx)
 			icall := imacro.Stop()
 			y := max(height+gtx.Dp(4), mdims.Size.Y-idims.Size.Y)
-			if len(m.Reactions) > 0 {
+			if len(msg.Reactions) > 0 {
 				// Level with the picture, not the reactions under it.
 				y = max(height+gtx.Dp(4), mdims.Size.Y-idims.Size.Y-gtx.Dp(40))
 			}
@@ -191,7 +195,7 @@ func (p *chatPage) unwrappedBody(gtx layout.Context, r *messageRow, m model.Mess
 		mcall.Add(gtx.Ops)
 		return mdims
 	})
-	if m.Outgoing {
+	if msg.Outgoing {
 		return layout.Flex{Alignment: layout.Start}.Layout(gtx, layout.Rigid(sideColumn), gap, mediaChild)
 	}
 	return layout.Flex{Alignment: layout.Start}.Layout(gtx, mediaChild, gap, layout.Rigid(sideColumn))
@@ -207,7 +211,7 @@ func alignFor(m model.Message) layout.Alignment {
 // unwrappedSide is the card beside a message without a bubble: the sender
 // in a group, where a forward came from and the message replied to; nil
 // when there is none of them.
-func (p *chatPage) unwrappedSide(m model.Message, join bubbleJoin, l localization.Catalog, r *messageRow) layout.Widget {
+func (p *chatPage) unwrappedSide(m *model.Message, join bubbleJoin, l localization.Catalog, r *messageRow) layout.Widget {
 	forward := !m.ForwardDate.IsZero()
 	reply := m.ReplyToMessageID != 0 && m.ReplyToMessageID != p.threadRoot
 	if !forward && !reply {
@@ -235,7 +239,7 @@ func (p *chatPage) unwrappedSide(m model.Message, join bubbleJoin, l localizatio
 				children = append(children, vspace(4))
 			}
 			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return p.replyQuote(gtx, r, m, l)
+				return p.replyQuote(gtx, r, *m, l)
 			}))
 		}
 		bubble := sc.Surface.Color

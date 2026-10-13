@@ -518,6 +518,9 @@ func (v *audioPlayer) showWaveform(p *chatPage, m model.Message) {
 	}
 	v.busy, v.shown[m.Media.ID] = true, true
 	v.mu.Unlock()
+	// The worker takes a copy of its own: captured, m itself would be moved
+	// to the heap on every call, every frame, for each voice message shown.
+	voiceMessage := m
 	go func() {
 		defer func() {
 			v.mu.Lock()
@@ -528,12 +531,12 @@ func (v *audioPlayer) showWaveform(p *chatPage, m model.Message) {
 		defer crash.Recover("voice waveform", nil)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		data, err := p.source.Media(ctx, m)
+		data, err := p.source.Media(ctx, voiceMessage)
 		if err != nil {
 			// Offline, say: it is tried again when played.
 			return
 		}
-		v.workOutWaveform(ctx, p.source, m, fileOf(data))
+		v.workOutWaveform(ctx, p.source, voiceMessage, fileOf(data))
 	}()
 }
 
@@ -636,6 +639,19 @@ type audioRow struct {
 	width   int
 	drag    float32
 	pressed bool
+	// bars are the waveform's bars, worked out of waveform once rather than
+	// in every frame.
+	waveform []byte
+	bars     []int
+}
+
+// waveformBars returns the bars of waveform, kept from the last frame while
+// it is the same.
+func (r *audioRow) waveformBars(waveform []byte) []int {
+	if r.bars == nil || !bytes.Equal(r.waveform, waveform) {
+		r.waveform, r.bars = waveform, voice.Bars(waveform)
+	}
+	return r.bars
 }
 
 // update takes the clicks on the row's button and the presses on its
@@ -747,7 +763,7 @@ func (p *chatPage) voiceLayout(gtx layout.Context, r *messageRow, m model.Messag
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(22))
-					drawWaveform(gtx, voice.Bars(p.audio.waveform(m)), size, progress, sc.Primary.Color, sc.OutlineVariant)
+					drawWaveform(gtx, vr.waveformBars(p.audio.waveform(m)), size, progress, sc.Primary.Color, sc.OutlineVariant)
 					vr.seekArea(gtx, size)
 					return layout.Dimensions{Size: size}
 				}),
