@@ -465,10 +465,12 @@ func (m *Manager) Add(ctx context.Context, p Prompter) (*Account, error) {
 		cancel()
 	})
 	defer timer.Stop()
+	// The phone number is asked for while the connection is made.
+	early := askPhoneEarly(runCtx, p)
 	var self *tg.User
 	err = client.Run(runCtx, func(ctx context.Context) error {
 		timer.Stop()
-		if err := signIn(ctx, gotdAuth{client.Auth(), client.API()}, p); err != nil {
+		if err := signIn(ctx, gotdAuth{client.Auth(), client.API()}, early); err != nil {
 			return err
 		}
 		var err error

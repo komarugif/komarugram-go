@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gotd/td/session"
 	"github.com/gotd/td/telegram/auth"
@@ -214,6 +215,93 @@ func TestSignInContextEndsIt(t *testing.T) {
 	cancel()
 	p := &script{phones: []step{{err: ctx.Err()}}}
 	if err := signIn(ctx, &fakeAuth{}, p); !errors.Is(err, context.Canceled) {
+		t.Errorf("error %v, want canceled", err)
+	}
+}
+
+// askedScript is a script that tells when it is asked for the phone number.
+type askedScript struct {
+	*script
+	asked chan struct{}
+}
+
+func (s *askedScript) Phone(ctx context.Context, problem error) (string, error) {
+	select {
+	case s.asked <- struct{}{}:
+	default:
+	}
+	return s.script.Phone(ctx, problem)
+}
+
+// slowServer is a server that answers Status only once opened: the
+// connection is still being made till then.
+type slowServer struct {
+	*fakeAuth
+	open chan struct{}
+}
+
+func (s *slowServer) Status(ctx context.Context) (*auth.Status, error) {
+	select {
+	case <-s.open:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return s.fakeAuth.Status(ctx)
+}
+
+func TestEarlyPhoneIsAskedBeforeTheConnection(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p := &askedScript{script: &script{phones: []step{{text: "+1"}}, codes: []step{{text: "12345"}}}, asked: make(chan struct{}, 1)}
+	server := &slowServer{fakeAuth: &fakeAuth{}, open: make(chan struct{})}
+	early := askPhoneEarly(ctx, p)
+
+	// The connection is not there, and the number is asked for.
+	select {
+	case <-p.asked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the phone number is not asked for before the connection is made")
+	}
+	done := make(chan error, 1)
+	go func() { done <- signIn(ctx, server, early) }()
+	select {
+	case err := <-done:
+		t.Fatalf("signed in without a connection: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// Once it is, the answer is used, and the user is not asked again.
+	close(server.open)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !server.authorized {
+		t.Error("not authorized")
+	}
+	if len(p.problems) != 2 {
+		t.Errorf("asked %d times, want the number once and the code once", len(p.problems))
+	}
+}
+
+func TestEarlyPhoneIsAskedAgainAfterARefusal(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p := &askedScript{script: &script{phones: []step{{text: "+2"}, {text: "+1"}}, codes: []step{{text: "12345"}}}, asked: make(chan struct{}, 2)}
+	server := &fakeAuth{}
+	if err := signIn(ctx, server, askPhoneEarly(ctx, p)); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.problems) != 3 || p.problems[0] != nil || !tgerr.Is(p.problems[1], "PHONE_NUMBER_INVALID") {
+		t.Errorf("problems %v, want the refusal shown at the second asking of the number", p.problems)
+	}
+}
+
+func TestEarlyPhoneEndsWithItsContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	p := &askedScript{script: &script{phones: []step{{err: context.Canceled}}}, asked: make(chan struct{}, 1)}
+	early := askPhoneEarly(ctx, p)
+	cancel()
+	if _, err := early.Phone(ctx, nil); !errors.Is(err, context.Canceled) {
 		t.Errorf("error %v, want canceled", err)
 	}
 }

@@ -299,7 +299,9 @@ in a directory of its own that is removed when the demo ends
 (`cmd/messenger/demo_signin.go`).
 
 `internal/messenger/account` keeps the registry, does the sign-in on top of
-gotd (`Add`, asking through the `Prompter` interface), imports tdata
+gotd (`Add`, asking through the `Prompter` interface; it asks for the phone
+number while the connection to Telegram is still being made, which takes a
+couple of seconds, and a number sent sooner waits for the connection), imports tdata
 (`ReadTData`, `ImportTData`), logs out (`LogOut`, `Remove`) and uses `Run` for
 a connection. `-check` cannot ask for the master password, so it refuses
 protected data. `internal/messenger/login` holds sign-in state for the UI, and

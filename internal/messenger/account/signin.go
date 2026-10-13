@@ -66,6 +66,51 @@ type Prompter interface {
 	Password(ctx context.Context, hint string, problem error) (string, error)
 }
 
+// earlyPhone is a Prompter whose first question, for the phone number, was
+// asked when it was made, not when signIn came to it. Connecting to Telegram
+// takes seconds, and the user can type the number meanwhile: if they are
+// done before the connection is, signIn takes the answer as soon as it is
+// there, and the user only waits for what is left.
+type earlyPhone struct {
+	Prompter
+	answer chan phoneAnswer
+	// asked is set once the early answer was taken. Phone is called by
+	// signIn alone, one call at a time.
+	asked bool
+}
+
+type phoneAnswer struct {
+	phone string
+	err   error
+}
+
+// askPhoneEarly asks p for the phone number now, and returns the Prompter
+// that gives that answer to the first Phone. The question ends with ctx,
+// whether it is taken or not.
+func askPhoneEarly(ctx context.Context, p Prompter) *earlyPhone {
+	e := &earlyPhone{Prompter: p, answer: make(chan phoneAnswer, 1)}
+	go func() {
+		phone, err := p.Phone(ctx, nil)
+		e.answer <- phoneAnswer{phone, err}
+	}()
+	return e
+}
+
+// Phone returns the early answer the first time, and asks p after that: a
+// number that was refused, or the user going back to it.
+func (e *earlyPhone) Phone(ctx context.Context, problem error) (string, error) {
+	if e.asked {
+		return e.Prompter.Phone(ctx, problem)
+	}
+	e.asked = true
+	select {
+	case a := <-e.answer:
+		return a.phone, a.err
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
 // authAPI is the part of the gotd client that signing in uses.
 type authAPI interface {
 	Status(ctx context.Context) (*auth.Status, error)
