@@ -43,8 +43,11 @@ type entry struct {
 	ffmpeg string
 	// sandboxGIF plays the GIF with the H.264 decoder in its sandbox, for
 	// want of an FFmpeg.
-	sandboxGIF        bool
-	wake              chan struct{}
+	sandboxGIF bool
+	wake       chan struct{}
+	// check is the ticker offer waits for a picture to be taken with, kept
+	// rather than made for each picture; only the entry's worker uses it.
+	check             *time.Ticker
 	clip              *stickerClip
 	err               error
 	seen              uint64
@@ -237,6 +240,9 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 		ctx, cancel := context.WithCancel(m.ctx)
 		e = &entry{wake: make(chan struct{}, 1), consumed: make(chan struct{}, 1), wasm: wasm, ffmpeg: m.ffmpeg, sandboxGIF: m.SandboxGIFs(), seen: m.generation, animate: animate, cancel: cancel, cancelled: m.cancelled[key], frame: previous, preview: preview, still: still, clip: clip, box: box, cover: cover, sticker: animatedSticker || msg.Kind == model.MessageSticker}
 		m.entries[key] = e
+		// The loader takes a copy of its own: captured, msg itself would be
+		// moved to the heap on every call, every frame, for each picture.
+		loading := msg
 		m.wg.Go(func() {
 			defer crash.Recover("chatmedia load "+key, func(p *crash.Panic) {
 				e.mu.Lock()
@@ -244,7 +250,7 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 				e.mu.Unlock()
 				m.changed()
 			})
-			m.load(ctx, e, msg)
+			m.load(ctx, e, loading)
 		})
 	}
 	if m.paused {
@@ -1150,7 +1156,12 @@ func (m *Manager) offer(ctx context.Context, e *entry, im image.Image, at time.T
 		return true
 	}
 	// Stopped, it is not taken: the worker is to see it has to wait.
-	check := time.NewTicker(gifIdle / 4)
+	if e.check == nil {
+		e.check = time.NewTicker(gifIdle / 4)
+	} else {
+		e.check.Reset(gifIdle / 4)
+	}
+	check := e.check
 	defer check.Stop()
 	for {
 		select {

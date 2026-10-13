@@ -1111,3 +1111,18 @@ func TestPicturesReuseTheirPixels(t *testing.T) {
 		})
 	}
 }
+
+// Asking for a picture that is loaded allocates nothing: the message was
+// moved to the heap on every call, for the loader that only a new entry
+// starts, every frame, for each picture shown.
+func TestStatusOfLoadedMediaDoesNotAllocate(t *testing.T) {
+	m, _, msg := loadedManager(t)
+	allocs := testing.AllocsPerRun(100, func() {
+		m.BeginFrame()
+		m.Status(msg, false)
+		m.EndFrame()
+	})
+	if allocs != 0 {
+		t.Fatalf("%v allocations a frame, want none", allocs)
+	}
+}
