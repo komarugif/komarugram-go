@@ -7,6 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"gio-mw/defaults"
+	"gio-mw/defaults/schemes"
+	"gio-mw/wdk"
+
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
@@ -189,5 +193,33 @@ func TestCountryPickerSearch(t *testing.T) {
 	p.refresh(l)
 	if len(p.shown) != 0 {
 		t.Errorf("%q finds %d countries", "zzz", len(p.shown))
+	}
+}
+
+// TestPasswordEyeShowsWhatIsTypedWhileItIsHeld checks that the eye of a new
+// password shows it for as long as it is held down, and that the fields that
+// ask for a password already chosen have none.
+func TestPasswordEyeShowsWhatIsTypedWhileItIsHeld(t *testing.T) {
+	view := newSecurityView(nil, func() {})
+	if view.master.peek == nil || view.confirm.peek == nil {
+		t.Fatal("the fields of a new master password have no eye")
+	}
+	if view.unlock.peek != nil || view.decryptPassword.peek != nil {
+		t.Error("a password already chosen has an eye")
+	}
+	gtx := phoneContext()
+	gtx.Values = map[string]any{}
+	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	field := view.master
+	for _, held := range []bool{false, true, false} {
+		field.peek.down = held
+		field.Layout(gtx, "Master password", false)
+		want := '•'
+		if held {
+			want = 0
+		}
+		if field.editor.Mask != want {
+			t.Errorf("held %v: mask %q, want %q", held, field.editor.Mask, want)
+		}
 	}
 }

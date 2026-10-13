@@ -4,6 +4,7 @@ package ui
 
 import (
 	"errors"
+	"image"
 	"strings"
 	"time"
 
@@ -12,8 +13,10 @@ import (
 
 	"gio-mw/token"
 	"gio-mw/widget/button"
+	"gio-mw/widget/scroll"
 
 	"gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/unit"
 
 	"komarugram/internal/messenger/account"
@@ -24,6 +27,10 @@ import (
 )
 
 const loginWidth = unit.Dp(420)
+
+// protectEdge is how far the scrolling part of the offer to protect reaches
+// past the card's content on each side, for the edges of its fields.
+const protectEdge = unit.Dp(4)
 
 // loginPage is the sign-in window: the phone number, then the code, then the
 // 2FA password if the account has one. It shows what login.Login says and
@@ -36,6 +43,8 @@ type loginPage struct {
 	skip     *button.Button
 	// install draws the offer to install the program, at StepInstall.
 	install *installView
+	// protect scrolls the text of the offer to protect local data.
+	protect scroll.List
 
 	phone             *phoneField
 	code, password    *textField
@@ -51,6 +60,7 @@ func newLoginPage(l *login.Login, security *securityView, invalidate func()) *lo
 		security: security,
 		install:  newInstallView(invalidate),
 		skip:     button.Text(),
+		protect:  scroll.List{List: layout.List{Axis: layout.Vertical}},
 		phone:    newPhoneField(),
 		code:     newTextField(0, "0123456789 "),
 		password: newTextField('•', ""),
@@ -272,27 +282,72 @@ func (p *loginPage) layoutStep(gtx layout.Context, st login.State, l localizatio
 }
 
 // layoutProtect offers to protect local data before the account is added.
+// The title and the buttons stay in sight, and what lies between them, the
+// text and the form, scrolls where the window is too low to show all of it.
 func (p *loginPage) layoutProtect(gtx layout.Context, l localization.Catalog) layout.Dimensions {
 	sc := scheme(gtx)
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, l.T("protect.title"), token.TypestyleHeadlineSmall, sc.Surface.OnColor, 0)
-		}),
-		vspace(8),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			body := "protect.body"
-			if p.security != nil && p.security.manager != nil {
-				body = passwordOnly(p.security.manager.State(), body)
-			}
-			return label(gtx, l.T(body), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
-		}),
-		vspace(20),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return p.security.SetupLayout(gtx, l, func(gtx layout.Context) layout.Dimensions {
-				return p.skip.Layout(gtx, l.T("protect.skip"))
-			})
-		}),
-	)
+	form, buttons := p.security.setupParts(gtx, l, func(gtx layout.Context) layout.Dimensions {
+		return p.skip.Layout(gtx, l.T("protect.skip"))
+	})
+	// part lays a widget out as it is, to place it once the room is known.
+	part := func(w layout.Widget) (op.CallOp, image.Point) {
+		gtx := gtx
+		gtx.Constraints.Min = image.Point{}
+		macro := op.Record(gtx.Ops)
+		dims := w(gtx)
+		return macro.Stop(), dims.Size
+	}
+	titleCall, titleSize := part(func(gtx layout.Context) layout.Dimensions {
+		return label(gtx, l.T("protect.title"), token.TypestyleHeadlineSmall, sc.Surface.OnColor, 0)
+	})
+	var buttonsCall op.CallOp
+	var buttonsSize image.Point
+	if buttons != nil {
+		buttonsCall, buttonsSize = part(buttons)
+	}
+	gap := gtx.Dp(8)
+	room := max(gtx.Constraints.Max.Y-titleSize.Y-gap-buttonsSize.Y, 0)
+
+	// The list clips what is outside it, and the outline of a field is drawn
+	// on its edge, half of it outside: the list reaches a little past the
+	// card's content, into its padding, and what it holds is kept inside.
+	edge := gtx.Dp(protectEdge)
+	listGtx := gtx
+	listGtx.Constraints.Max.X += 2 * edge
+	listGtx.Constraints.Min = image.Pt(listGtx.Constraints.Max.X, 0)
+	listGtx.Constraints.Max.Y = room
+	macro := op.Record(gtx.Ops)
+	listDims := p.protect.Layout(listGtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
+		rows := []layout.FlexChild{
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				body := "protect.body"
+				if p.security != nil && p.security.manager != nil {
+					body = passwordOnly(p.security.manager.State(), body)
+				}
+				return label(gtx, l.T(body), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
+			}),
+			vspace(20),
+		}
+		return layout.Inset{Left: protectEdge, Right: protectEdge}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, append(rows, form...)...)
+		})
+	})
+	listCall := macro.Stop()
+
+	place := func(x, y int, call op.CallOp, size image.Point) {
+		offset(gtx, image.Pt(x, y), func(gtx layout.Context) layout.Dimensions {
+			call.Add(gtx.Ops)
+			return layout.Dimensions{Size: size}
+		})
+	}
+	place(0, 0, titleCall, titleSize)
+	place(-edge, titleSize.Y+gap, listCall, listDims.Size)
+	bottom := titleSize.Y + gap + listDims.Size.Y
+	if buttons != nil {
+		place(0, bottom, buttonsCall, buttonsSize)
+		bottom += buttonsSize.Y
+	}
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, bottom)}
 }
 
 // loginTexts returns the title and the explanation of a step.

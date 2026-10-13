@@ -34,6 +34,8 @@ type securityView struct {
 	autoLock       *slider.Slider
 	autoLockValues []int
 	lockOptions    *checkbox.Checkboxes[string]
+	// strength shows how strong the master password being typed is.
+	strength strengthMeter
 
 	master, confirm, unlock               *textField
 	decryptPassword                       *textField
@@ -105,7 +107,7 @@ func (v *securityView) setAutoLockSlider(minutes int) {
 func newSecurityView(manager *security.Manager, invalidate func()) *securityView {
 	return &securityView{
 		manager: manager, invalidate: invalidate,
-		master: newTextField('•', ""), confirm: newTextField('•', ""), unlock: newTextField('•', ""),
+		master: newPasswordField(), confirm: newPasswordField(), unlock: newTextField('•', ""),
 		decryptPassword: newTextField('•', ""),
 		enable:          button.Filled(), open: button.Filled(), result: make(chan error, 1),
 		decrypt: button.Outlined(), decryptSubmit: button.Filled(), decryptCancel: button.Text(),
@@ -372,12 +374,23 @@ func (v *securityView) WindowLockLayout(gtx layout.Context, l localization.Catal
 // form when the TPM can be used, and how to make it usable when it cannot.
 // other, if set, is a button put at the start of the row of its buttons.
 func (v *securityView) SetupLayout(gtx layout.Context, l localization.Catalog, other layout.Widget) layout.Dimensions {
-	if v == nil || v.manager == nil {
+	form, buttons := v.setupParts(gtx, l, other)
+	if buttons == nil {
 		return layout.Dimensions{}
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, append(form, layout.Rigid(buttons))...)
+}
+
+// setupParts is what SetupLayout draws, in two: the form, and the row of
+// buttons under it, which a caller short of room may keep in sight while the
+// form scrolls. Both are nil without a manager.
+func (v *securityView) setupParts(gtx layout.Context, l localization.Catalog, other layout.Widget) ([]layout.FlexChild, layout.Widget) {
+	if v == nil || v.manager == nil {
+		return nil, nil
 	}
 	state := v.manager.State()
 	if !state.Available {
-		return v.accessLayout(gtx, l, other)
+		return v.accessParts(gtx, l, other)
 	}
 	sc := scheme(gtx)
 	invalid := v.localProblem != "" || state.Problem != ""
@@ -388,6 +401,10 @@ func (v *securityView) SetupLayout(gtx layout.Context, l localization.Catalog, o
 	rows = append(rows,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return v.master.Layout(gtx, l.T("security.password"), invalid)
+		}),
+		vspace(8),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return v.strength.Layout(gtx, l, v.master.Text())
 		}),
 		vspace(12),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -409,7 +426,7 @@ func (v *securityView) SetupLayout(gtx layout.Context, l localization.Catalog, o
 	} else {
 		v.enable.Enable()
 	}
-	rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+	return rows, func(gtx layout.Context) layout.Dimensions {
 		return buttonRow(gtx, other, func(gtx layout.Context) layout.Dimensions {
 			text := l.T("security.enable")
 			if state.Busy || v.running {
@@ -417,8 +434,7 @@ func (v *securityView) SetupLayout(gtx layout.Context, l localization.Catalog, o
 			}
 			return v.enable.Layout(gtx, text)
 		})
-	}))
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, rows...)
+	}
 }
 
 // passwordOnly is key, or its variant for protection by the password
@@ -494,6 +510,12 @@ func accessCommand(access security.Access) string {
 
 // accessLayout explains why the TPM cannot be used and how to change that.
 func (v *securityView) accessLayout(gtx layout.Context, l localization.Catalog, other layout.Widget) layout.Dimensions {
+	form, buttons := v.accessParts(gtx, l, other)
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, append(form, layout.Rigid(buttons))...)
+}
+
+// accessParts is accessLayout in two parts, as setupParts is SetupLayout.
+func (v *securityView) accessParts(gtx layout.Context, l localization.Catalog, other layout.Widget) ([]layout.FlexChild, layout.Widget) {
 	sc := scheme(gtx)
 	access := v.manager.Access()
 	var text string
@@ -526,15 +548,12 @@ func (v *securityView) accessLayout(gtx layout.Context, l localization.Catalog, 
 			return label(gtx, l.T("security.tpm_later"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
 		}))
 	}
-	rows = append(rows,
-		vspace(16),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return buttonRow(gtx, other, func(gtx layout.Context) layout.Dimensions {
-				return v.recheck.Layout(gtx, l.T("security.check_again"))
-			})
-		}),
-	)
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, rows...)
+	rows = append(rows, vspace(16))
+	return rows, func(gtx layout.Context) layout.Dimensions {
+		return buttonRow(gtx, other, func(gtx layout.Context) layout.Dimensions {
+			return v.recheck.Layout(gtx, l.T("security.check_again"))
+		})
+	}
 }
 
 // layoutCommand draws a shell command on a panel of its own, with a button

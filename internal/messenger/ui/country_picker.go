@@ -149,7 +149,7 @@ func (c *countryPicker) Layout(gtx layout.Context, l localization.Catalog) (stri
 			gtx.Constraints.Min = gtx.Constraints.Max
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, l.T("login.field_country"), token.TypestyleTitleMedium, sc.Surface.OnColor, 1)
+					return label(gtx, l.T("login.field_country"), token.TypestyleTitleLarge, sc.Surface.OnColor, 1)
 				}),
 				vspace(12),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {

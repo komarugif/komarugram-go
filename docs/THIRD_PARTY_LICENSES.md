@@ -56,6 +56,7 @@ The Go modules linked into `messenger` and `kitchen`, as `go version -m` lists t
 | `pkg/ratex/fonts`: [KaTeX](https://github.com/KaTeX/KaTeX)'s fonts (`pkg/ratex/fonts/OFL.txt`, `NOTICE`) | SIL OFL 1.1 |
 | `pkg/cmark/cmark.wasm.zst`: [cmark-gfm](https://github.com/desktop-app/cmark-gfm) (desktop-app's fork, built by `pkg/cmark/build`; `pkg/cmark/LICENSE.cmark-gfm`) | BSD-2-Clause, parts MIT |
 | `pkg/prism/grammars.dat.zst`: [Prism.js](https://prismjs.com) 1.29.0's grammars, with `pkg/prism`, a port of [libprisma](https://github.com/desktop-app/libprisma)'s tokenizer (`pkg/prism/LICENSE.prism`) | MIT |
+| `internal/messenger/passwordstrength/top1000.go`: the 1000 most common passwords, from [SecLists](https://github.com/danielmiessler/SecLists)'s `Pwdb_top-1000.txt`, made from many published leaks | MIT |
 | `pkg/miniapp/assets/telegram-web-app.js`: Telegram's Mini App SDK | © Telegram, no license stated |
 | `avcdec.wasm`, downloaded at run time: FFmpeg's H.264 decoder ([libavcodec-wasm](https://github.com/komarugif/libavcodec-wasm)) | LGPL-2.1-or-later |
 | `aacdec.wasm`, downloaded at run time: the Fraunhofer FDK AAC decoder ([fdk-aac-wasm](https://github.com/komarugif/fdk-aac-wasm)) | Fraunhofer FDK AAC license, no patent grant |

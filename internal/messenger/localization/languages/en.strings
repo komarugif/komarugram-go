@@ -1013,8 +1013,8 @@
 "program.unsupported_system" = "it is not supported on this system yet";
 "program.wrong" = "the program does not answer as {program}";
 
-"protect.body" = "Before adding an account you can turn on encryption: sessions, the account list and history are encrypted with a key kept in this computer's TPM. The master password opens it at every start, and copied files cannot be opened on another machine.";
-"protect.body_password" = "Before adding an account you can turn on encryption: sessions, the account list and history are encrypted with a key the master password opens at every start. No TPM is available to this application, so the password is all the protection: whoever copies the files can try passwords on their own computer. Choose a long one, four or five random words for one.";
+"protect.body" = "Sessions, the account list and history will be encrypted with a key kept in this computer's TPM. The master password opens it at every start, and copied files cannot be opened on another machine.";
+"protect.body_password" = "Sessions, the account list and history will be encrypted, and the master password opens the key at every start. Without a TPM the password is all the protection.";
 "protect.skip" = "Continue without protection";
 "protect.title" = "Protect local data";
 
@@ -1133,7 +1133,7 @@
 "security.enable" = "Enable protection";
 "security.enabling" = "Encrypting…";
 "security.explanation" = "Sessions, the account list and history are encrypted with a random key sealed by this computer's TPM and opened with the master password. Copied files cannot be opened on another machine even with the password.";
-"security.explanation_password" = "Sessions, the account list and history are encrypted with a random key that the master password encrypts: no TPM is available to this application. The password is all the protection: whoever copies the files can try passwords on their own computer, so it has to be long, four or five random words for one.";
+"security.explanation_password" = "Sessions, the account list and history are encrypted with a random key that the master password encrypts: no TPM is available to this application. The password is all the protection: whoever copies the files can try passwords on their own computer.";
 "security.failed" = "The operation failed. Check the password, TPM access and system log.";
 "security.failed_password" = "Wrong master password.";
 "security.forgotten" = "The master password cannot be recovered. If it is forgotten, the accounts have to be added again.";
@@ -1148,10 +1148,16 @@
 "security.on_short" = "encryption enabled";
 "security.password" = "Master password";
 "security.recovery_warning" = "While data is encrypted, clearing or replacing the TPM makes it inaccessible. Decrypt it on this computer before transferring it.";
+"security.strength_0" = "Strength: very low";
+"security.strength_1" = "Strength: low";
+"security.strength_2" = "Strength: fair";
+"security.strength_3" = "Strength: good";
+"security.strength_4" = "Strength: high";
+"security.strength_none" = "Password strength";
 "security.tpm_failed" = "The TPM could not be reached: %s";
-"security.tpm_instead" = "With access to the TPM, the key would be kept in it, and the protection would be stronger.";
+"security.tpm_instead" = "With a TPM the protection would be stronger.";
 "security.tpm_later" = "Without the TPM data is stored unencrypted; protection can be enabled later in Settings.";
-"security.tpm_missing" = "No TPM 2.0 was found. It usually has to be enabled in the UEFI settings (fTPM on AMD, Intel PTT on Intel), followed by a restart.";
+"security.tpm_missing" = "No TPM 2.0 was found. If the computer has one, turn it on in the UEFI (BIOS) settings.";
 "security.tpm_no_group" = "The group “%[2]s” may use %[1]s, and your account is not in it. Add yourself to the group:";
 "security.tpm_no_rule" = "The device %s exists, but the system gives no group of users access to it. Install the TPM udev rules and add yourself to the tss group:";
 "security.tpm_relogin" = "You are already in the group “%s”, but the current login session started before that. Log out and log in again.";

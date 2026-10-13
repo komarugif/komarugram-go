@@ -39,6 +39,7 @@ var (
 	iconClear         = wdk.RequireIconWidget(icons.ContentClear)
 	iconChevron       = wdk.RequireIconWidget(icons.NavigationChevronRight)
 	iconExpandMore    = wdk.RequireIconWidget(icons.NavigationExpandMore)
+	iconPeek          = wdk.RequireIconWidget(icons.ImageRemoveRedEye)
 	iconExpandLess    = wdk.RequireIconWidget(icons.NavigationExpandLess)
 	iconToTop         = wdk.RequireIconWidget(icons.NavigationArrowUpward)
 	iconToBottom      = wdk.RequireIconWidget(icons.NavigationArrowDownward)
