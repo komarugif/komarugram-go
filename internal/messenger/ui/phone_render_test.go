@@ -14,6 +14,7 @@ import (
 
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/login"
+	"komarugram/internal/messenger/preferences"
 )
 
 // TestRenderPhoneStep draws the phone number step of the sign-in, empty,
@@ -26,6 +27,9 @@ func TestRenderPhoneStep(t *testing.T) {
 	if dir == "" {
 		t.Skip("set PHONE_PNG_DIR to a directory")
 	}
+	// The fonts named by KOMARUGRAM_FONT_EMOJI and the like are the ones drawn with.
+	applyFonts(preferences.Fonts{}, nil)
+	t.Cleanup(func() { applyFonts(preferences.Fonts{}, nil) })
 	size := image.Pt(900, 620)
 	for _, lang := range []string{"ru", "en"} {
 		l := localization.For(lang)
