@@ -27,6 +27,10 @@ const (
 	modalEnterScale    = 0.9
 )
 
+// modalRadius is the corner radius of a dialog's card, which its shadow
+// follows.
+const modalRadius = unit.Dp(16)
+
 // modal frames a modal dialog: a scrim over the area, which takes all the
 // input under the dialog, and the dialog in the middle of it. Escape and a
 // click on the scrim close it, and the dialog animates in and out.
@@ -142,6 +146,7 @@ func (m *modal) Layout(gtx layout.Context, locked bool, content layout.Widget) b
 	event.Op(gtx.Ops, &m.panel)
 	area.Pop()
 	if visibility == 1 {
+		drawShadow(gtx, image.Rectangle{Max: dims.Size}, gtx.Dp(modalRadius), dialogShadow)
 		call.Add(gtx.Ops)
 		m.layoutToast(gtx, size, dims.Size)
 		return true
@@ -150,6 +155,7 @@ func (m *modal) Layout(gtx layout.Context, locked bool, content layout.Widget) b
 	center := layout.FPt(dims.Size).Mul(.5)
 	defer op.Affine(f32.AffineId().Scale(center, f32.Pt(scale, scale))).Push(gtx.Ops).Pop()
 	defer paint.PushOpacity(gtx.Ops, visibility).Pop()
+	drawShadow(gtx, image.Rectangle{Max: dims.Size}, gtx.Dp(modalRadius), dialogShadow)
 	call.Add(gtx.Ops)
 	m.layoutToast(gtx, size, dims.Size)
 	return true

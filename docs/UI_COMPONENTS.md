@@ -66,7 +66,8 @@ put it next to these, and add it to this page.
 | `tabRow` (`tabs.go`) | Tabs of equal width: centered titles, the active one in the primary color, an indicator that slides to the tab switched to, ripple on each tab. `Slide` brings in the content of the tab switched to from its side. Used by the composer's picker and the search. |
 | `folderChip` (`folderbar.go`) | A capsule that is selected or not, with an optional counter: folders in the compact layout, sections of the search. Put several in a horizontal `scroll.List`. |
 | `modal` (`modal.go`) | A dialog over a scrim: animates in and out, closes on Escape or a click beside it, takes the focus. The owner keeps what it shows until `Layout` reports it closed. Examples: `sessionEndedDialog`, `connectionFailedDialog`, `emojiOffer`, `frozenView`, the delete dialog. |
-| `contextMenu` (`contextmenu.go`) | A menu that grows from a corner of a rectangle, such as the attachment menu. |
+| `contextMenu` (`contextmenu.go`) | A menu that grows from a corner of a rectangle, such as the attachment menu. Draws its own shadow. |
+| `drawShadow` (`shadow.go`) | The soft shadow of a rounded rectangle, with `dialogShadow` and `menuShadow`: `modal` and `contextMenu` draw them, so a dialog or a menu built on those needs nothing more. Darker on dark themes; faint where the page is nearly black already. |
 | `scrollPage` (`pages.go`) | A centered scrollable column for a page, such as the profile. |
 | `settingsItem`, `settingsChoiceCard` (`settings.go`) | A settings row with an icon, title and subtitle; a card with a title, choices and a hint. |
 | `buttonRow` (`security.go`) | A secondary action at the start of a row and the main one at its end. |

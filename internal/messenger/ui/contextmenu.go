@@ -91,6 +91,7 @@ func (m *contextMenu) Layout(gtx layout.Context, open bool, rect image.Rectangle
 		gtx = gtx.Disabled()
 	}
 	if visibility == 1 {
+		drawShadow(gtx, rect, radius, menuShadow)
 		inRect(gtx, rect, content)
 		return true
 	}
@@ -111,7 +112,12 @@ func (m *contextMenu) Layout(gtx layout.Context, open bool, rect image.Rectangle
 		area = area.Add(image.Pt(0, size.Y-shown.Y))
 	}
 	defer op.Offset(rect.Min).Push(gtx.Ops).Pop()
-	defer clip.UniformRRect(area, min(radius, shown.X/2, shown.Y/2)).Push(gtx.Ops).Pop()
+	radius = min(radius, shown.X/2, shown.Y/2)
+	// The shadow follows the menu as it grows, and fades with it.
+	opacity := paint.PushOpacity(gtx.Ops, visibility)
+	drawShadow(gtx, area, radius, menuShadow)
+	opacity.Pop()
+	defer clip.UniformRRect(area, radius).Push(gtx.Ops).Pop()
 	defer paint.PushOpacity(gtx.Ops, visibility).Pop()
 	call.Add(gtx.Ops)
 	return true
