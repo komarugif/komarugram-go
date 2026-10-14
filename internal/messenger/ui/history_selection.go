@@ -169,7 +169,8 @@ func (p *chatPage) selectionEvents(gtx layout.Context) {
 	}
 }
 
-// Register only the free gutters alongside bubbles. Text, media, dates and
+// Register only the free gutters alongside bubbles. They select by a click
+// or a drag but keep the ordinary cursor, as in Telegram Desktop. Text, media, dates and
 // the scrollbar keep their own input handling.
 func (p *chatPage) selectionAreas(gtx layout.Context) {
 	first := p.list.Position.First
@@ -193,7 +194,6 @@ func (p *chatPage) selectionAreas(gtx layout.Context) {
 				}
 				pass := pointer.PassOp{}.Push(gtx.Ops)
 				area := clip.Rect(rect).Push(gtx.Ops)
-				pointer.CursorPointer.Add(gtx.Ops)
 				event.Op(gtx.Ops, &p.selection)
 				area.Pop()
 				pass.Pop()

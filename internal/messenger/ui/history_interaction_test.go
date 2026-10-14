@@ -213,6 +213,11 @@ func TestGutterDragRoutesToSelectionAndChatSwitchClears(t *testing.T) {
 		router.Queue(pointer.Event{Kind: kind, Source: pointer.Mouse, Position: f32.Pt(2, ypos), Buttons: pointer.ButtonPrimary})
 		render(1)
 	}
+	router.Queue(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: f32.Pt(2, y(0))})
+	render(1)
+	if got := router.Cursor(); got != pointer.CursorDefault {
+		t.Fatalf("cursor over the gutter = %v, want the default", got)
+	}
 	event(pointer.Press, y(0))
 	event(pointer.Move, y(2))
 	event(pointer.Release, y(2))
