@@ -16,6 +16,7 @@ import (
 
 	"gio-mw/token"
 	"gio-mw/wdk"
+	"gio-mw/widget/scroll"
 
 	"gioui.org/f32"
 	"gioui.org/io/clipboard"
@@ -57,6 +58,7 @@ const (
 // messageMenu is the context menu a right click opens on a message.
 type messageMenu struct {
 	menu contextMenu
+	list scroll.List
 	open bool
 	// id is the message the menu is about, the first of an album; at is
 	// where the menu opened, and top where the history starts, in the
@@ -119,6 +121,7 @@ func (p *chatPage) openMenu(gtx layout.Context, pos f32.Point, top int) {
 	msg := p.messages[i]
 	m.open, m.id, m.top = true, msg.Key.MessageID, top
 	m.menu = contextMenu{}
+	m.list.Position = layout.Position{}
 	m.reactions.expanded = false
 	m.at = image.Pt(int(pos.X), int(pos.Y)+top)
 	m.packs.start(p, msg)
@@ -264,7 +267,11 @@ func (p *chatPage) menuActions(m model.Message) []menuAction {
 	if g, ok := p.source.(model.GhostStore); ok && !g.Ghost().SendRead && !m.Outgoing && p.kind != model.KindSaved && p.threadRoot == 0 && m.Key.MessageID > 0 {
 		out = append(out, actionRead)
 	}
-	return out
+	return arrangeMenu(p.menus, menuMessage, out, p.messageActionID)
+}
+
+func (m *messageMenu) item(a menuAction) *surface {
+	return &m.items[a]
 }
 
 // menuUpdate does what was chosen in the menu. It runs before the page is
@@ -288,8 +295,17 @@ func (p *chatPage) menuUpdate(gtx layout.Context, l localization.Catalog) {
 		gtx.Execute(op.InvalidateCmd{})
 		return
 	}
+	// Re-evaluate availability and visibility before accepting queued clicks.
+	available := p.menuActions(msg)
 	for _, a := range m.shown {
-		if m.items[a].Clicked(gtx) {
+		valid := false
+		for _, current := range available {
+			if current == a {
+				valid = true
+				break
+			}
+		}
+		if valid && m.item(a).Clicked(gtx) {
 			p.closeMenu()
 			p.menuDo(gtx, a, msg, l)
 			gtx.Execute(op.InvalidateCmd{})
@@ -501,6 +517,9 @@ func (p *chatPage) menuLayout(gtx layout.Context, l localization.Catalog) {
 			m.shown = p.menuActions(msg)
 			m.reactions.shown = p.menuReactions(msg)
 			m.reactedOf = msg.Reactions
+			if len(m.shown) == 0 && len(m.reactions.shown) == 0 {
+				p.closeMenu()
+			}
 			m.rect, m.corner = menuRect(gtx, &m.menu, m.at, size, m.shown, m.reactions.height(gtx))
 		}
 	}
@@ -528,7 +547,8 @@ func (p *chatPage) menuLayout(gtx layout.Context, l localization.Catalog) {
 			m.reactions.layoutHeight(gtx, p, menuSize.X, strip, p.animate)
 			y = strip
 		}
-		for _, a := range shown {
+		draw := func(gtx layout.Context, a menuAction) layout.Dimensions {
+			y := 0
 			height := gtx.Dp(menuItemHeight)
 			if a == actionEmojiPacks {
 				// A separator sets the packs apart, as in Telegram Desktop.
@@ -542,7 +562,7 @@ func (p *chatPage) menuLayout(gtx layout.Context, l localization.Catalog) {
 				row := gtx.Constraints.Max
 				text := p.menuLabel(a, l)
 				style := surfaceStyle{background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor, button: text}
-				return m.items[a].Layout(gtx, row, style, func(gtx layout.Context) layout.Dimensions {
+				return m.item(a).Layout(gtx, row, style, func(gtx layout.Context) layout.Dimensions {
 					return layout.Inset{Left: 16, Right: 16}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions { return menuIcon(a)(gtx, sc.SurfaceVariant.OnColor) }),
@@ -561,7 +581,14 @@ func (p *chatPage) menuLayout(gtx layout.Context, l localization.Catalog) {
 				})
 			})
 			y += height
+			return layout.Dimensions{Size: image.Pt(menuSize.X, y)}
 		}
+		offset(gtx, image.Pt(0, y), func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min.Y = 0
+			gtx.Constraints.Max.Y = max(0, menuSize.Y-y-gtx.Dp(menuPadding))
+			m.list.Axis = layout.Vertical
+			return m.list.Layout(gtx, len(shown), func(gtx layout.Context, i int) layout.Dimensions { return draw(gtx, shown[i]) })
+		})
 		return layout.Dimensions{Size: menuSize}
 	})
 }

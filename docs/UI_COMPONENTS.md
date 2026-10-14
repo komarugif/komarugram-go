@@ -77,6 +77,8 @@ put it next to these, and add it to this page.
 | `contextMenu` (`contextmenu.go`) | A menu that grows from a corner of a rectangle, such as the attachment menu. Draws its own shadow. |
 | `drawShadow` (`shadow.go`) | The soft shadow of a rounded rectangle, with `dialogShadow` and `menuShadow`: `modal` and `contextMenu` draw them, so a dialog or a menu built on those needs nothing more. Its intensity is a setting of the appearance section (`preferences.Overlays.Shadow`, in percent of the usual shadow, put in the frame by `withShadowIntensity`). Darker on dark themes; faint where the page is nearly black already. It is a picture made once per radius, blur and color and drawn in nine pieces: a shadow made of a fill per layer cost 20 times the frame without it on a rasterizer without a GPU (`BenchmarkDialogShadowFrame`). |
 | `scrollPage` (`pages.go`) | A centered scrollable column for a page, such as the profile. |
+| `shortcutSettings` (`settings_shortcuts.go`) | Context-grouped command cards, physical-key recording and manual-entry dialog, local collision validation and asynchronous desktop collision checks. |
+| `menuSettings` (`settings_menus.go`) | One card per menu, stable action IDs, drag handles and hide/show controls. Applies user order only after host availability checks; unknown contributions keep their saved position. |
 | `settingsItem`, `settingsChoiceCard` (`settings.go`) | A settings row with an icon, title and subtitle; a card with a title, choices and a hint. |
 | `buttonRow` (`security.go`) | A secondary action at the start of a row and the main one at its end. |
 | `navButton`, `sidebar` | The sidebar's sections and folders. |
@@ -650,3 +652,41 @@ zero. Full peer refreshes can change or clear these facts without overwriting
 unread counts, pins, notification settings or message previews. Leave notices
 use the operation's captured channel/group kind and are delivered to the chat
 list, which remains visible after the dialog is removed.
+
+### Menu customization
+
+Settings → Menu item order uses `menuSettings`, with separate cards for the sidebar,
+navigation drawer, message menu, chat list, chat header, attachments, recent
+searches, sticker sets, phone numbers, bank cards and dates. Conditional pairs
+(pin/unpin, forward/forward selected, delete/delete selected, copy text/selection,
+select/clear selection) share a user-facing slot. Bank-provided links share one
+slot while retaining their server order. Folder slots include the local account
+ID, so equal folder numbers on different accounts do not collide.
+
+The grabbed row follows the pointer above its neighbors, which slide into the
+new slots. Release persists the order and settles the row into its slot; cancel
+discards the preview. Motion follows the global animation/power-saving setting.
+Labels and icons share the vertical center of the row. The right
+`ContentRemoveCircleOutline` / `ContentRemoveCircle` button hides or restores a row, which remains in the settings. Reset affects
+only that menu. `Ctrl+,` (`⌘,` on macOS) opens settings even if its menu entry is
+hidden. The sidebar anchors only the trailing group of utility buttons; any
+button can be dragged above or below chat folders. The compact drawer has its
+own layout.
+
+`SETTINGS_SECTION=menus SETTINGS_PNG=/tmp/menus.png go test
+./internal/messenger/ui -run TestRenderSettingsAccounts` renders every menu card;
+`cmd/render-all -only settings-menus` runs the same scene.
+
+### Keyboard shortcuts
+
+`shortcutSettings` lists shared stable command IDs from `internal/messenger/shortcuts`,
+Record is a `modal` with an explicit
+keyboard focus tag; a `textField` permits manual entry of intercepted system
+combinations. The application command route pauses while recording. Standard
+editing/navigation keys remain read-only. Local conflicts block Save; KDE
+system matches are advisory and shown before Save. Desktop probes run as
+cancellable jobs. Full architecture and
+manual KDE/Wayland checks: `KEYBOARD_SHORTCUTS.md`.
+
+`SETTINGS_SECTION=shortcuts` and `shortcut-record` use `SETTINGS_PNG` with
+`TestRenderSettingsAccounts`; `cmd/render-all -only settings-shortcut` runs both.

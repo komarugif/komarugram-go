@@ -11,6 +11,9 @@ import (
 )
 
 var (
+	iconReset         = wdk.RequireIconWidget(icons.ActionRestore)
+	iconKeyboard      = wdk.RequireIconWidget(icons.HardwareKeyboard)
+	iconReorder       = wdk.RequireIconWidget(icons.ActionReorder)
 	iconAttach        = wdk.RequireIconWidget(icons.EditorAttachFile)
 	iconSkipPrevious  = wdk.RequireIconWidget(icons.AVSkipPrevious)
 	iconSkipNext      = wdk.RequireIconWidget(icons.AVSkipNext)

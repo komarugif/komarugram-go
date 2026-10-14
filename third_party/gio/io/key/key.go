@@ -15,6 +15,9 @@ import (
 
 // Filter matches any [Event] that matches the parameters.
 type Filter struct {
+	// Physical matches an unshifted US hardware position independently of Name.
+	// Empty preserves the usual logical-key matching behavior.
+	Physical Name
 	// Focus is the tag that must be focused for the filter to match. It has no effect
 	// if it is nil.
 	Focus event.Tag
@@ -101,6 +104,9 @@ type FocusEvent struct {
 // An Event is generated when a key is pressed. For text input
 // use EditEvent.
 type Event struct {
+	// Physical is the unshifted US name of the hardware key position.
+	// Empty means the backend could not identify that position.
+	Physical Name
 	// Name of the key.
 	Name Name
 	// Modifiers is the set of active modifiers when the key was pressed.

@@ -34,7 +34,8 @@ import (
 // viewer: a window draws on its own GPU context and runs on its own
 // goroutine, and shares only the store with the chat.
 type articleWindow struct {
-	w *appwindow.Window
+	shortcuts shortcutPreferences
+	w         *appwindow.Window
 	// invalidate asks for a frame: the window's, or a test's.
 	invalidate func()
 	page       *chatPage
@@ -86,10 +87,12 @@ const (
 // the theme's mode, the zoom kept in the settings, and the chats to share
 // to.
 type articleWindowHost struct {
-	mode    func() themeMode
-	zoom    func() int
-	setZoom func(int)
-	chats   func() []model.Chat
+	shortcuts shortcutPreferences
+	menus     menuPreferences
+	mode      func() themeMode
+	zoom      func() int
+	setZoom   func(int)
+	chats     func() []model.Chat
 }
 
 func newArticleWindow(w *appwindow.Window, source model.ConversationStore, catalog localization.Catalog, host articleWindowHost, m model.Message, fragment string) *articleWindow {
@@ -97,6 +100,11 @@ func newArticleWindow(w *appwindow.Window, source model.ConversationStore, catal
 	a.w, a.mode = w, host.mode
 	a.tools.zoom, a.tools.setZoom = host.zoom, host.setZoom
 	a.page.chats = host.chats
+	a.shortcuts = host.shortcuts
+	a.page.shortcuts = host.shortcuts
+	a.page.menus = host.menus
+	a.page.composer.menus = host.menus
+	a.page.stickers.menus = host.menus
 	return a
 }
 
@@ -222,7 +230,7 @@ func (a *articleWindow) layout(gtx layout.Context, animate bool) {
 		})
 	})
 	a.layoutSteps(gtx, l)
-	p.keyboardEvents(gtx)
+	p.keyboardEvents(gtx, a.catalog)
 	p.botUpdate(l)
 	p.errorMu.Lock()
 	if err := p.mediaError; err != nil {
@@ -351,17 +359,12 @@ func (a *articleWindow) steps(gtx layout.Context) {
 		a.step(false)
 	}
 	for {
-		ev, ok := gtx.Event(
-			key.Filter{Name: key.NameLeftArrow, Required: key.ModAlt},
-			key.Filter{Name: key.NameRightArrow, Required: key.ModAlt},
-			key.Filter{Name: "[", Required: key.ModShortcut},
-			key.Filter{Name: "]", Required: key.ModShortcut},
-		)
+		id, e, ok := a.shortcuts.next(gtx, nil, "article.back", "article.forward")
 		if !ok {
 			break
 		}
-		if e, ok := ev.(key.Event); ok && e.State == key.Press {
-			a.step(e.Name == key.NameLeftArrow || e.Name == "[")
+		if e.State == key.Press {
+			a.step(id == "article.back")
 		}
 	}
 }
@@ -523,9 +526,11 @@ func (a *App) openArticleWindowOf(m model.Message, fragment, title string, src a
 		Options: appwindow.Options{Title: title, Width: unit.Dp(articleWindowWidth + 2*articleWindowMargin + 40), Height: unit.Dp(860), Locale: a.Locale()},
 		Build: func(w *appwindow.Window) appwindow.Content {
 			host := articleWindowHost{
-				mode:  a.themeMode,
-				zoom:  func() int { return a.preferences.Global().ArticleZoom },
-				chats: a.store.Chats,
+				shortcuts: a.shortcutPrefs,
+				menus:     a.menuPrefs,
+				mode:      a.themeMode,
+				zoom:      func() int { return a.preferences.Global().ArticleZoom },
+				chats:     a.store.Chats,
 				setZoom: func(z int) {
 					if err := a.preferences.SetArticleZoom(z); err != nil {
 						log.Printf("save settings: %v", err)

@@ -14,6 +14,7 @@ import (
 	"gioui.org/gesture"
 	"github.com/go-text/typesetting/segmenter"
 
+	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/styledtext"
 
@@ -245,14 +246,16 @@ func (r *messageRow) selectedText() string {
 	return result.String()
 }
 
-func (p *chatPage) keyboardEvents(gtx layout.Context) {
+func (p *chatPage) keyboardEvents(gtx layout.Context, catalog ...localization.Catalog) {
+	l := localization.For("en")
+	if len(catalog) > 0 {
+		l = catalog[0]
+	}
+	p.selectionShortcutEvents(gtx, l)
 	for {
 		ev, ok := gtx.Event(
 			key.FocusFilter{Target: &p.keyboard},
-			key.Filter{Focus: &p.keyboard, Name: "C", Required: key.ModShortcut},
-			key.Filter{Focus: &p.keyboard, Name: "A", Required: key.ModShortcut},
-			key.Filter{Focus: &p.keyboard, Name: "С", Required: key.ModShortcut},
-			key.Filter{Focus: &p.keyboard, Name: "Ф", Required: key.ModShortcut},
+
 			key.Filter{Focus: &p.keyboard, Name: key.NameLeftArrow, Optional: key.ModShift | key.ModShortcutAlt},
 			key.Filter{Focus: &p.keyboard, Name: key.NameRightArrow, Optional: key.ModShift | key.ModShortcutAlt},
 			key.Filter{Focus: &p.keyboard, Name: key.NameUpArrow, Optional: key.ModShift},
@@ -282,17 +285,7 @@ func (p *chatPage) keyboardEvents(gtx layout.Context) {
 			continue
 		}
 		r := p.activeText
-		switch e.Name {
-		case "C", "С":
-			copySelection(gtx, r)
-		case "A", "Ф":
-			r.text.anchor, r.text.caret = 0, 0
-			for _, run := range r.runs {
-				r.text.caret += len([]rune(run.Text))
-			}
-		default:
-			r.moveSelection(e)
-		}
+		r.moveSelection(e)
 	}
 	// A keyboard-only tag still adds a hit area to Gio. Keep it empty so it
 	// cannot cover controls laid out earlier elsewhere in the window.

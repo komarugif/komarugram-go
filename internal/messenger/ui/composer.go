@@ -65,6 +65,8 @@ type featuredPackResult struct {
 	err        error
 }
 type messageComposer struct {
+	shortcuts         shortcutPreferences
+	menus             menuPreferences
 	join              surface
 	mute, discussion  surface
 	muted             map[int64]bool
@@ -484,7 +486,7 @@ drained:
 		}
 		c.attachOpen = false
 	}
-	for i := range c.attachmentActions {
+	for _, i := range c.attachmentOrder() {
 		if c.attachmentActions[i].Clicked(gtx) && permissions.Any(model.SendAttachments) && (i != 2 || permissions.Allows(model.SendText)) {
 			c.attachOpen = false
 			c.pickerOpen = false
@@ -547,7 +549,7 @@ drained:
 			c.request(l, false)
 		}
 	}
-	if c.attach.Clicked(gtx) && permissions.Any(model.SendAttachments) {
+	if c.attach.Clicked(gtx) && permissions.Any(model.SendAttachments) && len(c.attachmentOrder()) > 0 {
 		c.attachOpen = !c.attachOpen
 		if c.attachOpen {
 			gtx.Execute(key.FocusCmd{Tag: &d.editor})
@@ -897,7 +899,8 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 	{
 		// The attachment menu opens from the paperclip, at the start.
 		w := min(gtx.Dp(264), size.X-2*pad)
-		h := min(gtx.Dp(144), max(0, above-gtx.Dp(8)))
+		order := c.attachmentOrder()
+		h := min(gtx.Dp(48)*len(order), max(0, above-gtx.Dp(8)))
 		area := image.Rect(pad, above-h-gtx.Dp(8), pad+w, above-gtx.Dp(8))
 		c.attachMenu.Layout(gtx, c.attachOpen, area, menuFromBottomLeft, gtx.Dp(12), func(gtx layout.Context) layout.Dimensions {
 			menuSize := gtx.Constraints.Max
@@ -908,15 +911,16 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			// and prevents the outside-click handler from closing the menu.
 			event.Op(gtx.Ops, &c.attachmentActions)
 			icons := []wdk.IconWidget{iconAttachPhoto, iconAttachFile, iconAttachTasks}
-			for i, k := range []string{"photo", "file", "tasks"} {
-				inRect(gtx, image.Rect(0, i*h/3, w, (i+1)*h/3), func(gtx layout.Context) layout.Dimensions {
+			for position, i := range order {
+				k := []string{"photo", "file", "tasks"}[i]
+				inRect(gtx, image.Rect(0, position*h/len(order), w, (position+1)*h/len(order)), func(gtx layout.Context) layout.Dimensions {
 					row := gtx.Constraints.Max
 					if i == 2 && !c.permissions(chat).Allows(model.SendText) {
 						gtx = gtx.Disabled()
 					}
 					style := surfaceStyle{background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor}
 					return c.attachmentActions[i].Layout(gtx, row, style, func(gtx layout.Context) layout.Dimensions {
-						if i > 0 {
+						if position > 0 {
 							fillRect(gtx, sc.OutlineVariant, image.Pt(row.X, gtx.Dp(1)))
 						}
 						return layout.Inset{Left: 16, Right: 16}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1040,4 +1044,8 @@ func (c *messageComposer) formLayout(gtx layout.Context, bar image.Rectangle, l 
 			)
 		})
 	})
+}
+
+func (c *messageComposer) attachmentOrder() []int {
+	return arrangeMenu(c.menus, menuAttachment, []int{0, 1, 2}, func(i int) string { return []string{"photo", "file", "tasks"}[i] })
 }

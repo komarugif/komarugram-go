@@ -58,7 +58,14 @@ func (h *interactionHarness) pointer(kind pointer.Kind, pos f32.Point) {
 	h.frame()
 }
 func (h *interactionHarness) shortcut(name key.Name) {
-	h.router.Queue(key.Event{Name: name, Modifiers: key.ModShortcut, State: key.Press})
+	position := name
+	if name == "Ф" {
+		position = "A"
+	}
+	if name == "С" {
+		position = "C"
+	}
+	h.router.Queue(key.Event{Name: name, Physical: position, Modifiers: key.ModShortcut, State: key.Press})
 	h.frame()
 }
 func TestTextSelectionAcrossFormattingAndWrapCopiesUnicode(t *testing.T) {

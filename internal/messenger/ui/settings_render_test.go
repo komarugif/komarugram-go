@@ -5,12 +5,14 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"gio-mw/exp"
 	"image"
 	"image/color"
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -24,12 +26,14 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
+	"gioui.org/io/key"
 	"komarugram/internal/messenger/emojipacks"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/preferences"
 	"komarugram/internal/messenger/proxy"
+	"komarugram/internal/messenger/shortcuts"
 	"komarugram/internal/miniappprefs"
 	"komarugram/internal/motion"
 	"komarugram/pkg/miniapp"
@@ -94,6 +98,30 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		p.proxy.Open()
 		size.Y = 900
 	}
+	if section := os.Getenv("SETTINGS_SECTION"); section == "shortcuts" || section == "shortcut-record" || section == "main" {
+		prefs := preferences.Memory()
+		_ = prefs.SetShortcuts(shortcuts.Bindings{"example.count": {{Key: "T", Modifiers: key.ModCtrl | key.ModAlt}}})
+		p.shortcuts = newShortcutSettings(func() shortcuts.Bindings { return prefs.Global().Shortcuts }, prefs.SetShortcuts, func() []shortcuts.Command {
+			return append(shortcuts.Commands(), shortcuts.Command{ID: "example.count", Label: "Пример команды", Scope: "history"})
+		}, func() {}, &p.toast)
+		p.shortcuts.check = func(context.Context, []shortcuts.Chord) shortcuts.SystemReport {
+			return shortcuts.SystemReport{KDE: true, PortalVersion: 2, Occupied: map[shortcuts.Chord]bool{{Key: "T", Modifiers: key.ModCtrl | key.ModAlt}: true}}
+		}
+		defer p.shortcuts.Close()
+		if section != "main" {
+			p.section = settingsShortcuts
+			size.Y = 6300
+		}
+		if section == "shortcut-record" {
+			size.Y = 900
+			p.shortcuts.editing = "example.count"
+			c := shortcuts.Chord{Key: "T", Modifiers: key.ModCtrl | key.ModAlt}
+			p.shortcuts.candidate = &c
+			p.shortcuts.report = shortcuts.SystemReport{KDE: true, Occupied: map[shortcuts.Chord]bool{c: true}}
+			p.shortcuts.dialog.Open()
+		}
+	}
+
 	if os.Getenv("SETTINGS_SECTION") == "appearance" {
 		p.section = settingsAppearance
 		// One font is picked and gone since, the others are the system's.
@@ -117,6 +145,40 @@ func TestRenderSettingsAccounts(t *testing.T) {
 			}
 		}
 		size.Y = 2700
+	}
+	if section := os.Getenv("SETTINGS_SECTION"); section == "main" || section == "menus" {
+		prefs := preferences.Memory()
+		_ = prefs.SetMenus(preferences.Menus{menuMessage: {Order: []string{"delete", "reply"}, Hidden: []string{"repeat"}}, menuSidebar: {Hidden: []string{"profile"}}})
+		p.menus = newMenuSettings(func() preferences.Menus { return prefs.Global().Menus }, prefs.SetMenus, func(l localization.Catalog) []menuCatalog {
+			return menuCatalogs([]model.Folder{{ID: 1, Title: "Личное"}, {ID: 2, Title: "Работа"}}, "demo", l)
+		}, &p.toast)
+		if section == "menus" {
+			p.section = settingsMenuOrder
+			size.Y = 5700
+		}
+	}
+	if p.shortcuts != nil {
+		var bindings []shortcuts.Chord
+		for _, c := range p.shortcuts.catalog() {
+			if c.ReadOnly {
+				continue
+			}
+			for _, b := range p.shortcuts.get().For(c) {
+				if !slices.Contains(bindings, b) {
+					bindings = append(bindings, b)
+				}
+			}
+		}
+		if p.shortcuts.candidate != nil && !slices.Contains(bindings, *p.shortcuts.candidate) {
+			bindings = append(bindings, *p.shortcuts.candidate)
+		}
+		p.shortcuts.signature = fmt.Sprint(bindings)
+		p.shortcuts.report = shortcuts.SystemReport{KDE: true, PortalVersion: 2, Occupied: map[shortcuts.Chord]bool{{Key: "T", Modifiers: key.ModCtrl | key.ModAlt}: true}}
+		if os.Getenv("SETTINGS_SECTION") == "shortcut-record" {
+			warm := layout.Context{Ops: new(op.Ops), Now: time.Now().Add(-time.Second), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
+			wdk.InitMaterialThemeInContext(warm, defaults.NewTheme(warm, schemes.SchemeBaselineLight()))
+			p.shortcuts.Overlay(warm, localization.For("ru"))
+		}
 	}
 	var chats *preferences.Store
 	if section := os.Getenv("SETTINGS_SECTION"); section == "chats" || section == "wallpapers" {

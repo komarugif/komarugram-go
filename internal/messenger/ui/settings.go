@@ -73,6 +73,8 @@ const (
 	settingsProxy
 	// settingsAbout is the program, the system it runs on and its links.
 	settingsAbout
+	settingsMenuOrder
+	settingsShortcuts
 )
 
 func settingsTitles(l localization.Catalog) map[settingsSection]string {
@@ -82,7 +84,9 @@ func settingsTitles(l localization.Catalog) map[settingsSection]string {
 		settingsPremium: l.T("premium.title"), settingsIntegrations: l.T("settings.integrations"),
 		settingsDevices: l.T("settings.devices"), settingsChats: l.T("settings.chats"),
 		settingsNotify: l.T("settings.notify"), settingsAbout: l.T("settings.about"),
-		settingsProxy: l.T("settings.proxy"),
+		settingsProxy:     l.T("settings.proxy"),
+		settingsMenuOrder: l.T("menus.title"),
+		settingsShortcuts: l.T("keys.title"),
 	}
 }
 
@@ -98,6 +102,8 @@ var settingsIcons = map[settingsSection]wdk.IconWidget{
 	settingsNotify:       iconNotifications,
 	settingsProxy:        iconProxy,
 	settingsAbout:        iconInfo,
+	settingsMenuOrder:    iconReorder,
+	settingsShortcuts:    iconKeyboard,
 }
 
 func storageShort(l localization.Catalog) map[miniapp.Storage]string {
@@ -116,6 +122,8 @@ func motionShort(l localization.Catalog) map[powersave.Mode]string {
 
 // settingsPage shows the main settings page or one of its sections.
 type settingsPage struct {
+	shortcuts   *shortcutSettings
+	menus       *menuSettings
 	cardHeights map[string]*heightTransition
 	scrollPage
 	section settingsSection
@@ -266,6 +274,8 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			settingsChats:        new(settingsItem),
 			settingsNotify:       new(settingsItem),
 			settingsProxy:        new(settingsItem),
+			settingsMenuOrder:    new(settingsItem),
+			settingsShortcuts:    new(settingsItem),
 		},
 		back:          button.Text(),
 		motion:        m,
@@ -553,6 +563,19 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		p.security.UpdateSettings(gtx)
 		p.filtersView.Update(gtx)
 	}
+	if p.shortcuts != nil {
+		if p.section == settingsShortcuts {
+			p.shortcuts.Update(gtx, localization.For(language))
+		} else if p.shortcuts.busy || p.shortcuts.dialog.Shown() {
+			p.shortcuts.Close()
+			p.shortcuts.signature = ""
+		}
+	}
+	if p.section == settingsMenuOrder && p.menus != nil {
+		p.menus.Update(gtx, localization.For(language))
+	} else if p.menus != nil {
+		p.menus.CancelDrag()
+	}
 	if p.section == settingsAppearance {
 		p.emojiView.Update(gtx)
 		p.fontsView.Update(gtx)
@@ -591,6 +614,20 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 		})
 		var content layout.Widget
 		switch p.section {
+		case settingsShortcuts:
+			content = func(gtx layout.Context) layout.Dimensions {
+				if p.shortcuts == nil {
+					return layout.Dimensions{}
+				}
+				return p.shortcuts.Layout(gtx, p, l)
+			}
+		case settingsMenuOrder:
+			content = func(gtx layout.Context) layout.Dimensions {
+				if p.menus == nil {
+					return layout.Dimensions{}
+				}
+				return p.menus.Layout(gtx, p, l)
+			}
 		case settingsAppearance:
 			content = func(gtx layout.Context) layout.Dimensions {
 				return p.layoutAppearance(gtx, mode, system, dark, l)
@@ -688,6 +725,9 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 		)
 	})
 	p.layingOut = false
+	if p.section == settingsShortcuts && p.shortcuts != nil {
+		p.shortcuts.Overlay(gtx, l)
+	}
 	return dims
 }
 
@@ -771,6 +811,8 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 		settingsDevices:      l.T("settings.devices_hint"),
 		settingsChats:        p.chats.subtitle(l),
 		settingsNotify:       p.notifyView.subtitle(l),
+		settingsMenuOrder:    l.T("menus.subtitle"),
+		settingsShortcuts:    l.T("keys.subtitle"),
 	}
 	if p.proxy != nil {
 		subtitles[settingsProxy] = p.proxy.Summary(l)
@@ -843,6 +885,12 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 			return p.cardHeight("layoutMain-2").Card(gtx, func(gtx layout.Context) layout.Dimensions {
 				var rows []layout.FlexChild
 				sections := []settingsSection{settingsAppearance}
+				if p.menus != nil {
+					sections = append(sections, settingsMenuOrder)
+				}
+				if p.shortcuts != nil {
+					sections = append(sections, settingsShortcuts)
+				}
 				if p.chats.available() || p.composerStyle != nil || p.lookView.look != nil {
 					sections = append(sections, settingsChats)
 				}

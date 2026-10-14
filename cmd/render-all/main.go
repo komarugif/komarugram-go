@@ -38,7 +38,7 @@ func renders() []render {
 		all = append(all, render{"composer-" + view, "TestRenderComposer", []string{"COMPOSER_VIEW=" + view, "COMPOSER_PNG={out}/composer-" + view + ".png"}})
 	}
 	all = append(all, render{"composer-motion", "TestRenderComposerMotion", []string{"COMPOSER_MOTION_PNG={out}/composer-motion"}})
-	for _, section := range []string{"main", "appearance", "chats", "wallpapers", "notify", "privacy", "premium", "integrations", "power"} {
+	for _, section := range []string{"main", "appearance", "menus", "shortcuts", "shortcut-record", "chats", "wallpapers", "notify", "privacy", "premium", "integrations", "power"} {
 		all = append(all, render{"settings-" + section, "TestRenderSettingsAccounts", []string{"SETTINGS_SECTION=" + section, "SETTINGS_PNG={out}/settings-" + section + ".png"}})
 	}
 	return append(all,

@@ -593,3 +593,12 @@ Run the focused check from the project root:
   a window makes its GPU and invalidates the window when it changed, so the
   frame laid out before is laid out again. Checked on Linux with llvmpipe;
   WARP not checked.
+
+- `io/key`, `io/input`, `app/internal/physical`, and desktop/web key backends:
+  `Event.Physical` and `Filter.Physical` expose unshifted US hardware positions
+  independently of text and logical names. XKB key names, Windows scan codes,
+  macOS key codes and DOM codes feed a common vocabulary; unsupported positions
+  remain empty. Existing logical filters and IME composition remain unchanged.
+  Tests compare platform mappings and dispatch real US/Dvorak/Russian/German XKB
+  maps, including modifiers and Shift. Messenger command remapping uses these
+  filters; text editing keeps the logical event stream.

@@ -38,6 +38,7 @@ type stickerSetResult struct {
 }
 
 type stickerSetDialog struct {
+	menus menuPreferences
 	modal modal
 	hover hoverPlay
 	ref   model.StickerSetRef
@@ -279,11 +280,11 @@ func (d *stickerSetDialog) layout(gtx layout.Context, p *chatPage, l localizatio
 		if !d.busy && d.pack != nil && d.more.Clicked(gtx) {
 			d.menuOpen = !d.menuOpen
 		}
-		if d.author.Clicked(gtx) && !d.busy && d.menuOpen && d.pack != nil && d.pack.AuthorID != 0 {
+		if d.menuVisible("author") && d.author.Clicked(gtx) && !d.busy && d.menuOpen && d.pack != nil && d.pack.AuthorID != 0 {
 			d.menuOpen = false
 			d.findAuthor(p)
 		}
-		chosen := d.download.Clicked(gtx)
+		chosen := d.menuVisible("download") && d.download.Clicked(gtx)
 		if !d.busy && d.menuOpen && chosen {
 			d.menuOpen = false
 			d.export(p)
@@ -418,9 +419,15 @@ func (d *stickerSetDialog) menuLayout(gtx layout.Context, l localization.Catalog
 		defer pointer.PassOp{}.Push(gtx.Ops).Pop()
 	}
 	w := min(size.X, gtx.Dp(menuWidth))
-	rows := 1
+	available := []string{"download"}
 	if d.pack.AuthorID != 0 {
-		rows++
+		available = append(available, "author")
+	}
+	order := arrangeMenu(d.menus, menuStickerSet, available, func(s string) string { return s })
+	rows := len(order)
+	if rows == 0 {
+		d.menuOpen = false
+		return
 	}
 	h := 2*gtx.Dp(menuPadding) + rows*gtx.Dp(menuItemHeight)
 	y := min(headerHeight, max(0, size.Y-h))
@@ -453,9 +460,12 @@ func (d *stickerSetDialog) menuLayout(gtx layout.Context, l localization.Catalog
 				})
 			})
 		}
-		row(0, &d.download, l.T("stickers.download_zip"), iconDownload)
-		if d.pack.AuthorID != 0 {
-			row(1, &d.author, l.T("stickers.author"), iconPersonal)
+		for i, id := range order {
+			if id == "download" {
+				row(i, &d.download, l.T("stickers.download_zip"), iconDownload)
+			} else {
+				row(i, &d.author, l.T("stickers.author"), iconPersonal)
+			}
 		}
 		return layout.Dimensions{Size: menuSize}
 	})
@@ -582,4 +592,8 @@ func (d *stickerSetDialog) findAuthor(p *chatPage) {
 		results <- stickerSetResult{authorID: id, author: &chat, err: err}
 		p.invalidate()
 	}()
+}
+
+func (d *stickerSetDialog) menuVisible(id string) bool {
+	return len(d.menus.layout(menuStickerSet).Arrange([]string{id}, false)) > 0
 }

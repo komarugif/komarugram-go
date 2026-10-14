@@ -117,6 +117,8 @@ type messageRow struct {
 	alone bool
 }
 type chatPage struct {
+	shortcuts  shortcutPreferences
+	menus      menuPreferences
 	membership membershipControl
 	// membershipNotice reports outcomes in the chat list after the dialog is removed.
 	membershipNotice func(string)
@@ -550,7 +552,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.link = ""
 		p.linkModal.Hide()
 	}
-	p.keyboardEvents(gtx)
+	p.keyboardEvents(gtx, l)
 	p.kind, p.title = c.Kind, c.Title
 	p.menuUpdate(gtx, l)
 	p.updateForward(l)

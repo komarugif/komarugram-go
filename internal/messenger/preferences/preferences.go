@@ -18,6 +18,7 @@ import (
 
 	"gio-mw/exp/powersave"
 
+	"komarugram/internal/messenger/shortcuts"
 	"komarugram/pkg/miniapp"
 	"komarugram/pkg/player"
 )
@@ -46,10 +47,12 @@ const (
 // Global contains preferences which currently apply to every account and
 // every window.
 type Global struct {
-	Theme         Theme          `json:"theme"`
-	Language      string         `json:"language"`
-	LastAccountID string         `json:"last_account_id,omitempty"`
-	MotionMode    powersave.Mode `json:"motion_mode"`
+	Shortcuts     shortcuts.Bindings `json:"shortcuts,omitempty"`
+	Menus         Menus              `json:"menus,omitempty"`
+	Theme         Theme              `json:"theme"`
+	Language      string             `json:"language"`
+	LastAccountID string             `json:"last_account_id,omitempty"`
+	MotionMode    powersave.Mode     `json:"motion_mode"`
 	// MotionSet is true once MotionMode was set: by the user, or to off for
 	// windows drawn by a software rasterizer (DefaultMotionOff).
 	MotionSet      bool            `json:"motion_set,omitempty"`
@@ -407,7 +410,16 @@ func Memory() *Store {
 	return &Store{global: defaults(), accounts: make(map[string]json.RawMessage), subscribers: make(map[uint64]func())}
 }
 
+var ErrSettingsAccess = errors.New("keep a menu entry or shortcut for settings")
+
 func validate(g Global) error {
+	if err := shortcuts.ValidateBindings(g.Shortcuts); err != nil {
+		return err
+	}
+	command, _ := shortcuts.Find("app.settings")
+	if len(g.Shortcuts.For(command)) == 0 && slices.Contains(g.Menus["sidebar"].Hidden, "settings") && slices.Contains(g.Menus["drawer"].Hidden, "settings") {
+		return ErrSettingsAccess
+	}
 	if g.Theme < ThemeAuto || g.Theme > ThemeDark {
 		return errors.New("invalid theme")
 	}
@@ -482,7 +494,10 @@ func validate(g Global) error {
 func (s *Store) Global() Global {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.global
+	g := s.global
+	g.Menus = g.Menus.Clone()
+	g.Shortcuts = g.Shortcuts.Clone()
+	return g
 }
 
 func (s *Store) SetFFmpegPath(path string) error {
@@ -887,4 +902,8 @@ func (s *Store) Subscribe(callback func()) func() {
 		delete(s.subscribers, id)
 		s.mu.Unlock()
 	}
+}
+
+func (s *Store) SetShortcuts(b shortcuts.Bindings) error {
+	return s.change(func(g *Global) { g.Shortcuts = b.Clone() })
 }

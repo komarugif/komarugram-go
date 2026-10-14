@@ -28,6 +28,7 @@ import (
 	"gioui.org/unit"
 	gowindows "golang.org/x/sys/windows"
 
+	"gioui.org/app/internal/physical"
 	"gioui.org/f32"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
@@ -314,9 +315,15 @@ func windowProc(hwnd syscall.Handle, msg uint32, wParam, lParam uintptr) uintptr
 		// Avoid flickering between GPU content and background color.
 		return windows.TRUE
 	case windows.WM_KEYDOWN, windows.WM_KEYUP, windows.WM_SYSKEYDOWN, windows.WM_SYSKEYUP:
-		if n, ok := convertKeyCode(wParam); ok {
+		n, ok := convertKeyCode(wParam)
+		position := physical.Windows(uint32(lParam>>16)&0xff, lParam&(1<<24) != 0)
+		if !ok && position != "" {
+			n, ok = position, true
+		}
+		if ok {
 			e := key.Event{
 				Name:      n,
+				Physical:  position,
 				Modifiers: getModifiers(),
 				State:     key.Press,
 			}

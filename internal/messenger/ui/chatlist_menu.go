@@ -50,6 +50,7 @@ var iconPinChat wdk.IconWidget = func(gtx layout.Context, color token.MatColor) 
 // chatRowMenu is the menu of a chat of the list, and what it asks of the
 // store.
 type chatRowMenu struct {
+	menus menuPreferences
 	// store does what the menu offers; nil leaves the menu off.
 	store model.ChatListActions
 	// premium tells the pin limit; nil skips the check.
@@ -109,7 +110,7 @@ func (m *chatRowMenu) actions(c model.Chat, sec section) []chatRowAction {
 	if c.Unread > 0 {
 		out = append(out, chatRowRead)
 	}
-	return out
+	return arrangeMenu(m.menus, menuChatRow, out, chatRowActionID)
 }
 
 func chatRowLabel(a chatRowAction, l localization.Catalog) string {
@@ -187,6 +188,10 @@ func (m *chatRowMenu) update(gtx layout.Context, sec section, chats []model.Chat
 		return
 	}
 	m.shown = m.actions(c, sec)
+	if len(m.shown) == 0 {
+		m.open = false
+		return
+	}
 	for _, a := range m.shown {
 		if !m.items[a].Clicked(gtx) {
 			continue

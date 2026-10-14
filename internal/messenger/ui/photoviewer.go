@@ -63,6 +63,7 @@ const (
 // a strip of thumbnails below. It pages the chat's photos, or the photos of
 // its profile, as the strip comes near either end.
 type photoViewer struct {
+	shortcuts  shortcutPreferences
 	source     model.ConversationStore
 	gallery    model.PhotoGallery
 	profiles   model.ProfilePhotoSource
@@ -541,57 +542,52 @@ func (v *photoViewer) keyEvents(gtx layout.Context, items []model.Message, i int
 		v.focus = false
 	}
 	for {
-		ev, ok := gtx.Event(
-			key.FocusFilter{Target: &v.keys},
-			key.Filter{Focus: &v.keys, Name: key.NameLeftArrow},
-			key.Filter{Focus: &v.keys, Name: key.NameRightArrow},
-			key.Filter{Focus: &v.keys, Name: key.NameHome},
-			key.Filter{Focus: &v.keys, Name: key.NameEnd},
-			key.Filter{Focus: &v.keys, Name: key.NameEscape},
-			key.Filter{Focus: &v.keys, Name: "=", Required: key.ModShortcut, Optional: key.ModShift},
-			key.Filter{Focus: &v.keys, Name: "+", Required: key.ModShortcut, Optional: key.ModShift},
-			key.Filter{Focus: &v.keys, Name: "-", Required: key.ModShortcut},
-			key.Filter{Focus: &v.keys, Name: "0", Required: key.ModShortcut},
-			// Copy and Save, as Telegram Desktop's viewer: also on a
-			// Russian layout.
-			key.Filter{Focus: &v.keys, Name: "C", Required: key.ModShortcut},
-			key.Filter{Focus: &v.keys, Name: "С", Required: key.ModShortcut},
-			key.Filter{Focus: &v.keys, Name: "S", Required: key.ModShortcut},
-			key.Filter{Focus: &v.keys, Name: "Ы", Required: key.ModShortcut},
-		)
+		id, e, ok := v.shortcuts.next(gtx, &v.keys, "viewer.previous", "viewer.next", "viewer.first", "viewer.last", "viewer.zoom_in", "viewer.zoom_out", "viewer.zoom_reset", "viewer.copy", "viewer.save")
+		// Escape stays a fixed dismiss key.
+		if !ok {
+			ev, found := gtx.Event(key.FocusFilter{Target: &v.keys}, key.Filter{Focus: &v.keys, Name: key.NameEscape})
+			if found {
+				var isKey bool
+				e, isKey = ev.(key.Event)
+				if !isKey {
+					continue
+				}
+				id = "viewer.close"
+				ok = true
+			}
+		}
 		if !ok {
 			return
 		}
-		e, ok := ev.(key.Event)
-		if !ok || e.State != key.Press {
+		if e.State != key.Press {
 			continue
 		}
-		switch e.Name {
-		case key.NameLeftArrow:
+		switch id {
+		case "viewer.previous":
 			v.show(items, i-1, true)
-		case key.NameRightArrow:
+		case "viewer.next":
 			v.show(items, i+1, true)
-		case key.NameHome:
+		case "viewer.first":
 			v.show(items, 0, true)
-		case key.NameEnd:
+		case "viewer.last":
 			v.show(items, len(items)-1, true)
-		case key.NameEscape:
+		case "viewer.close":
 			v.Close()
 			gtx.Execute(key.FocusCmd{})
 			return
-		case "=", "+":
+		case "viewer.zoom_in":
 			if photo != (image.Point{}) {
 				v.zoom.zoomBy(zoomStep, f32.Point{}, fitScale(photo, stage))
 			}
-		case "-":
+		case "viewer.zoom_out":
 			if v.zoom.active() {
 				v.zoom.zoomBy(1/zoomStep, f32.Point{}, fitScale(photo, stage))
 			}
-		case "0":
+		case "viewer.zoom_reset":
 			v.zoom.unzoom(fitScale(photo, stage))
-		case "C", "С":
+		case "viewer.copy":
 			v.copy.Click()
-		case "S", "Ы":
+		case "viewer.save":
 			v.save.Click()
 		}
 		i = indexOf(items, v.current)

@@ -50,7 +50,9 @@ type App struct {
 	// sprites are avatars as pictures, for motion blur.
 	sprites avatarSprites
 	window  *appwindow.Window
-	store   model.Store
+	// currentAccount is the ID of the account the window shows.
+	currentAccount func() string
+	store          model.Store
 
 	windowEffectsSet, windowBlurWanted, windowTransparentWanted bool
 
@@ -262,6 +264,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		id := services.AccountID
 		currentAccount = func() string { return id }
 	}
+	a.currentAccount = currentAccount
 	a.initMiniApps(store, services.MiniApps.Storage, currentAccount)
 	var leave func()
 	if services.Accounts != nil {
@@ -287,6 +290,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	a.proxies = newProxyView(services.Proxies, services.PingProxy, w.Invalidate)
 	a.settings.proxy = a.proxies
 	a.settings.uninstall = services.Uninstall
+	a.settings.shortcuts = newShortcutSettings(a.shortcutPrefs, a.preferences.SetShortcuts, a.shortcutCatalog, w.Invalidate, &a.settings.toast)
 	a.settings.security.SetPreferences(services.Preferences)
 	a.settings.images = &a.images
 	a.settings.private = a.private
@@ -472,6 +476,15 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.settings.sessions.toast = &a.settings.toast
 		a.settings.sessions.private = a.private
 	}
+	a.sidebar.menus = a.menuPrefs
+	a.sidebar.account = a.currentAccount
+	a.chats.menu.menus = a.menuPrefs
+	if a.chats.panel != nil {
+		a.chats.panel.recent.menus = a.menuPrefs
+	}
+	a.settings.menus = newMenuSettings(a.menuPrefs, a.preferences.SetMenus, func(l localization.Catalog) []menuCatalog {
+		return menuCatalogs(a.store.Folders(), a.currentAccount(), l)
+	}, &a.settings.toast)
 	a.security = a.settings.security
 	if services.Security != nil {
 		a.unsubscribe = append(a.unsubscribe, services.Security.Subscribe(w.Invalidate))
@@ -502,6 +515,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.avatars = newAvatarImages(source, w.Invalidate)
 		a.chats.avatar = a.layoutAvatar
 		a.viewer = newPhotoViewer(source, &a.images, w.Invalidate)
+		a.viewer.shortcuts = a.shortcutPrefs
 		a.history = a.newChatPage(source, store, w)
 		a.viewer.play = func(gtx layout.Context, m model.Message, l localization.Catalog) {
 			a.history.play(gtx, m, a.viewer.reportPlay, l)
@@ -584,6 +598,11 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 // window is.
 func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *appwindow.Window) *chatPage {
 	p := newChatPage(source, w.Invalidate)
+	p.menus = a.menuPrefs
+	p.shortcuts = a.shortcutPrefs
+	p.composer.shortcuts = a.shortcutPrefs
+	p.composer.menus = a.menuPrefs
+	p.stickers.menus = a.menuPrefs
 	p.membershipNotice = a.chats.toast.Show
 	p.frozen = a.frozen
 	p.chats = store.Chats
@@ -641,6 +660,9 @@ func (a *App) messageFilter() *messageFilter {
 
 // Close releases process-wide subscriptions when this window closes.
 func (a *App) Close() {
+	if a.settings != nil && a.settings.shortcuts != nil {
+		a.settings.shortcuts.Close()
+	}
 	a.closeMiniApps()
 	a.photoWindows.closeAll()
 	a.articleWindows.closeAll()
@@ -816,6 +838,7 @@ func (a *App) Update(gtx layout.Context) {
 	}
 	a.updateReturn(gtx)
 	a.shownChat.Store(a.selected)
+	a.shortcutEvents(gtx)
 	folders := a.store.Folders()
 	a.overlay.Update(gtx)
 	if a.compact {
@@ -873,7 +896,7 @@ func (a *App) toggleTheme() {
 
 // layoutDrawer is the content of the drawer overlay item.
 func (a *App) layoutDrawer(gtx layout.Context) layout.Dimensions {
-	entries := drawerEntries(a.store.Folders(), a.store.Chats(), a.dark(), a.catalog())
+	entries := arrangeMenu(a.menuPrefs, menuDrawer, drawerEntries(a.store.Folders(), a.store.Chats(), a.dark(), a.catalog()), func(e drawerEntry) string { return navigationID(e.key, a.currentAccount()) })
 	if key, ok := a.drawer.Update(gtx, entries); ok {
 		if key.theme {
 			a.toggleTheme()
@@ -886,6 +909,10 @@ func (a *App) layoutDrawer(gtx layout.Context) layout.Dimensions {
 }
 
 func (a *App) openSection(gtx layout.Context, sec section) {
+	if a.settings != nil && a.settings.shortcuts != nil {
+		a.settings.shortcuts.Close()
+		a.settings.shortcuts.signature = ""
+	}
 	if sec.kind == sectionSearch {
 		if a.section.kind == sectionSearch {
 			a.closeSearch()
@@ -1472,3 +1499,5 @@ func (a *App) takeUsername(r usernameResult) {
 		a.open(chatPick{ID: r.chat.ID, Chat: &r.chat})
 	}
 }
+
+func (a *App) menuPrefs() preferences.Menus { return a.preferences.Global().Menus }

@@ -128,3 +128,45 @@ func TestWaylandLayoutGroups(t *testing.T) {
 		}
 	}
 }
+
+func TestPhysicalPositionsSurviveLatinLayoutAndShift(t *testing.T) {
+	for _, layout := range []string{"us", "us(dvorak)", "ru", "de"} {
+		t.Run(layout, func(t *testing.T) {
+			x, err := New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer x.Destroy()
+			keymap := fmt.Sprintf(`xkb_keymap { xkb_keycodes { include "evdev+aliases(qwerty)" }; xkb_types { include "complete" }; xkb_compatibility { include "complete" }; xkb_symbols { include "pc+%s" }; };`, layout) + "\x00"
+			p := filepath.Join(t.TempDir(), "map")
+			if err := os.WriteFile(p, []byte(keymap), 0600); err != nil {
+				t.Fatal(err)
+			}
+			f, err := os.Open(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			if err := x.LoadKeymap(1, int(f.Fd()), len(keymap)); err != nil {
+				t.Fatal(err)
+			}
+			for _, mods := range []uint32{0, 1, 1 << 2, 1 << 3, (1 << 2) | 1} {
+				x.UpdateMask(mods, 0, 0, 0, 0, 0)
+				for _, k := range []struct {
+					code     uint32
+					position key.Name
+				}{{24, "Q"}, {54, "C"}, {59, ","}, {21, "="}} {
+					found := false
+					for _, e := range x.DispatchKey(k.code, key.Press) {
+						if event, ok := e.(key.Event); ok {
+							found = event.Physical == k.position
+						}
+					}
+					if !found {
+						t.Fatalf("%s modifiers %d position %s lost", layout, mods, k.position)
+					}
+				}
+			}
+		})
+	}
+}
