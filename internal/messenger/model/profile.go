@@ -57,15 +57,15 @@ func (e ProfileEdit) ValidateWith(bioLimit int) error {
 	if utf8.RuneCountInString(e.Bio) > bioLimit {
 		return ErrBioTooLong
 	}
-	if e.Username != "" && !validUsername(e.Username) {
+	if e.Username != "" && !ValidUsername(e.Username) {
 		return ErrUsernameInvalid
 	}
 	return nil
 }
 
-// validUsername follows Telegram: 5–32 Latin letters, digits and
+// ValidUsername follows Telegram: 5–32 Latin letters, digits and
 // underscores, starting with a letter and not ending with an underscore.
-func validUsername(s string) bool {
+func ValidUsername(s string) bool {
 	if len(s) < MinUsernameLength || len(s) > MaxUsernameLength {
 		return false
 	}

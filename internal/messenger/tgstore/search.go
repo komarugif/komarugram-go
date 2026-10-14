@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
 
 	"komarugram/internal/messenger/historycache"
 	"komarugram/internal/messenger/model"
@@ -42,6 +43,13 @@ type searchState struct {
 	offsetID   int
 	// offset is the local cursor: how many cached messages were read.
 	offset int
+
+	// usernames are the chats of the usernames searched for, by the name
+	// folded, 0 for a name nobody has: Telegram limits how often a name
+	// is resolved. None is resolved before resolveAfter, when Telegram
+	// asked to wait.
+	usernames    map[string]int64
+	resolveAfter time.Time
 }
 
 // Search implements model.Searcher.
@@ -351,6 +359,21 @@ func (s *Store) searchContacts(ctx context.Context, api *tg.Client, q model.Sear
 	for _, c := range out {
 		seen[c.ID] = true
 	}
+	// The chat whose username the query is comes first, as Telegram does
+	// not always put it: contacts.search finds names like the query, in an
+	// order of its own, and not always the one it is, as one of a user's
+	// several usernames or a channel it ranks low, which is resolved.
+	exact := int64(0)
+	if name, ok := usernameQuery(q.Text); ok {
+		exact = foundUsername(found, name)
+		if exact == 0 {
+			if c, ok := s.exactUsername(ctx, api, name); ok && !seen[c.ID] && (q.Section != model.SearchChannels || c.Kind == model.KindChannel) {
+				seen[c.ID] = true
+				out = append(out, c)
+				exact = c.ID
+			}
+		}
+	}
 	for _, p := range append(append([]tg.PeerClass(nil), found.MyResults...), found.Results...) {
 		c := s.chatFor(peerID(p), l)
 		if seen[c.ID] || c.Title == "" {
@@ -362,7 +385,98 @@ func (s *Store) searchContacts(ctx context.Context, api *tg.Client, q model.Sear
 		seen[c.ID] = true
 		out = append(out, c)
 	}
+	first(out, exact)
 	return out, nil
+}
+
+// usernameQuery is the username text names, as "name", "@name" or its
+// t.me link, and whether it may be one.
+func usernameQuery(text string) (string, bool) {
+	name := strings.TrimSpace(text)
+	for _, prefix := range []string{"https://", "http://", "t.me/", "telegram.me/", "@"} {
+		name = strings.TrimPrefix(name, prefix)
+	}
+	return name, model.ValidUsername(name)
+}
+
+// first moves the chat id of chats to the front, keeping the others'
+// order.
+func first(chats []model.Chat, id int64) {
+	for i, c := range chats {
+		if c.ID == id && id != 0 {
+			copy(chats[1:i+1], chats[:i])
+			chats[0] = c
+			return
+		}
+	}
+}
+
+// foundUsername is the chat of found whose username is name, among its
+// several too; 0 for none.
+func foundUsername(found *tg.ContactsFound, name string) int64 {
+	has := func(main string, more []tg.Username) bool {
+		if strings.EqualFold(main, name) {
+			return true
+		}
+		for _, u := range more {
+			if u.Active && strings.EqualFold(u.Username, name) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, raw := range found.Users {
+		if u, ok := raw.(*tg.User); ok && has(u.Username, u.Usernames) {
+			return peerID(&tg.PeerUser{UserID: u.ID})
+		}
+	}
+	for _, raw := range found.Chats {
+		if ch, ok := raw.(*tg.Channel); ok && has(ch.Username, ch.Usernames) {
+			return peerID(&tg.PeerChannel{ChannelID: ch.ID})
+		}
+	}
+	return 0
+}
+
+// exactUsername is the chat whose username is name, as Telegram resolves
+// it. What it answers is kept for the session; a failure other than none
+// having the name is not.
+func (s *Store) exactUsername(ctx context.Context, api *tg.Client, name string) (model.Chat, bool) {
+	key := strings.ToLower(name)
+	st := &s.search
+	st.mu.Lock()
+	id, known := st.usernames[key]
+	wait := time.Now().Before(st.resolveAfter)
+	st.mu.Unlock()
+	switch {
+	case known && id == 0:
+		return model.Chat{}, false
+	case known:
+		c := s.chatFor(id, nil)
+		return c, c.Title != ""
+	case wait:
+		return model.Chat{}, false
+	}
+	res, err := s.resolveUsername(ctx, api, name)
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.usernames == nil {
+		st.usernames = map[string]int64{}
+	}
+	if d, ok := tgerr.AsFloodWait(err); ok {
+		st.resolveAfter = time.Now().Add(d)
+	}
+	switch {
+	case errors.Is(err, model.ErrLinkNotFound):
+		st.usernames[key] = 0
+		return model.Chat{}, false
+	case err != nil:
+		return model.Chat{}, false
+	}
+	id = peerID(res.Peer)
+	st.usernames[key] = id
+	c := s.chatFor(id, nil)
+	return c, c.Title != ""
 }
 
 // searchFilter is the filter of messages.searchGlobal for a section.
