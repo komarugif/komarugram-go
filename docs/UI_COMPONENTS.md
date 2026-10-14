@@ -81,6 +81,7 @@ put it next to these, and add it to this page.
 | `splitter` | The draggable edge between the chat list and the page. |
 | `spoiler` | Covering a value, such as a phone number in visual privacy mode, until it is clicked. |
 | `loadingIndicator` | The circular progress indicator, labeled for accessibility: `page` fills a page, `sized` draws it d wide, `centered` in the middle of a line. Each place that loads keeps its own. |
+| `downloadRing` | A download in a circle (`download_ring.go`): an arc as long as the part received over a faint track, turning while the size is not known, around the mark of what a click does (cancel, load again). The media tiles and the file rows draw theirs in their own circle; each row keeps its own, for the arc to grow smoothly. |
 | `scroll.List`, `search.Bar` (gio-mw) | Scrolling lists with a scrollbar; the search field of the chat list. |
 | `toggle`, `checkbox`, `radio`, `slider` (gio-mw) | Settings controls. |
 

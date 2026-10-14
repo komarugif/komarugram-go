@@ -613,7 +613,8 @@ func (v *photoViewer) layoutPhoto(gtx layout.Context, item model.Message, stage,
 	}
 	var status chatmedia.Status
 	if decodable {
-		status = v.full.StatusFit(m, animate, box, false)
+		// A GIF opened plays, with animations off too: it was asked for.
+		status = v.full.StatusFit(m, animate || item.Kind == model.MessageGIF, box, false)
 	}
 	w, h := m.Media.Width, m.Media.Height
 	if status.Frame != nil && (w <= 0 || h <= 0) {

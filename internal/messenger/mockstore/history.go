@@ -10,6 +10,7 @@ import (
 	"image/color"
 	"image/gif"
 	"image/png"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -89,10 +90,11 @@ func (s *Store) History(chat int64) model.History {
 	messages[len(messages)-1].Poll = &model.Poll{Question: "Какое оформление выберем?", Total: 10, Answers: []model.PollAnswer{{Text: "Светлое", Voters: 6}, {Text: "Тёмное", Voters: 4, Chosen: true}}}
 
 	add("Изображение из локального кеша", model.MessagePhoto, &model.MessageMedia{ID: "demo/photo", MIMEType: "image/png", Width: 640, Height: 360}, nil, nil)
-	add("GIF воспроизводится прямо в чате", model.MessageGIF, &model.MessageMedia{ID: "demo/gif", MIMEType: "image/gif", Width: 240, Height: 140}, nil, nil)
+	// A GIF, as Telegram keeps them: a silent MP4, assets/video.mp4, 720×1280.
+	add("GIF воспроизводится прямо в чате", model.MessageGIF, &model.MessageMedia{ID: "demo/gifv", MIMEType: "video/mp4", Width: 720, Height: 1280, Size: 7789765, Duration: 36 * time.Second, Thumbnail: &model.MessageMedia{ID: "demo/portrait", MIMEType: "image/png", Width: 180, Height: 320}}, nil, nil)
 	add("", model.MessageSticker, &model.MessageMedia{ID: "demo/tgs", MIMEType: "application/x-tgsticker", Width: 512, Height: 512}, nil, nil)
 	add("", model.MessageSticker, &model.MessageMedia{ID: "demo/webm", MIMEType: "video/webm", Width: 512, Height: 512}, nil, nil)
-	add("Видео открывается в отдельном окне", model.MessageVideo, &model.MessageMedia{ID: "demo/video", MIMEType: "video/mp4", Width: 640, Height: 360, Size: 7789765, Thumbnail: &model.MessageMedia{ID: "demo/photo", MIMEType: "image/png", Width: 640, Height: 360}}, nil, nil)
+	add("Видео открывается в отдельном окне", model.MessageVideo, &model.MessageMedia{ID: "demo/video", MIMEType: "video/mp4", Width: 720, Height: 1280, Size: 7789765, Duration: 36 * time.Second, Thumbnail: &model.MessageMedia{ID: "demo/portrait", MIMEType: "image/png", Width: 180, Height: 320}}, nil, nil)
 	// Voice messages: one with the waveform Telegram sends, one without,
 	// whose waveform the player works out.
 	add("", model.MessageVoice, &model.MessageMedia{ID: "demo/voice", MIMEType: "audio/ogg", Size: int64(len(demoVoice)), Duration: 7 * time.Second, Waveform: demoVoiceWaveform}, nil, nil)
@@ -138,7 +140,7 @@ func (s *Store) History(chat int64) model.History {
 	add("Статья с мгновенным просмотром: https://telegram.org/blog/instant-view", model.MessageText, nil, []model.Entity{{Kind: "url", Offset: 32, Length: 38, URL: "https://telegram.org/blog/instant-view"}}, nil)
 	messages[len(messages)-1].WebPage = &model.WebPreview{URL: "https://telegram.org/blog/instant-view", DisplayURL: "telegram.org/blog/instant-view", Site: "Telegram", Title: "Instant View", Description: "Статьи из интернета открываются мгновенно, прямо в клиенте, даже без подключения.", InstantView: true}
 	add("https://www.youtube.com/watch?v=demo", model.MessageText, nil, []model.Entity{{Kind: "url", Offset: 0, Length: 36}}, nil)
-	messages[len(messages)-1].WebPage = &model.WebPreview{URL: "https://www.youtube.com/watch?v=demo", Site: "YouTube", Title: "Видео со ссылки", Description: "Telegram хранит видео страницы, и оно играет, как видео сообщения.", VideoKind: model.MessageVideo, Video: &model.MessageMedia{ID: "demo/video", MIMEType: "video/mp4", Width: 640, Height: 360, Size: 7789765, Thumbnail: &model.MessageMedia{ID: "demo/photo", MIMEType: "image/png", Width: 640, Height: 360}}}
+	messages[len(messages)-1].WebPage = &model.WebPreview{URL: "https://www.youtube.com/watch?v=demo", Site: "YouTube", Title: "Видео со ссылки", Description: "Telegram хранит видео страницы, и оно играет, как видео сообщения.", VideoKind: model.MessageVideo, Video: &model.MessageMedia{ID: "demo/video", MIMEType: "video/mp4", Width: 720, Height: 1280, Size: 7789765, Duration: 36 * time.Second, Thumbnail: &model.MessageMedia{ID: "demo/portrait", MIMEType: "image/png", Width: 180, Height: 320}}}
 	add("", model.MessageFile, &model.MessageMedia{ID: "demo/markdown", FileName: "Пример.md", MIMEType: "text/markdown", Size: int64(len(demoMarkdown))}, nil, nil)
 	blocksText, blocksEntities := TextBlocksExample()
 	add(blocksText, model.MessageText, nil, blocksEntities, nil)
@@ -168,7 +170,27 @@ func (s *Store) History(chat int64) model.History {
 	s.histories[chat] = h
 	return h
 }
+
+// Media implements model.ConversationStore: as Telegram's store, it reads
+// whole no more than model.MaxMediaBytes, which MediaStream streams.
 func (s *Store) Media(ctx context.Context, m model.Message) ([]byte, error) {
+	if !m.Media.Whole() {
+		return nil, model.ErrMediaTooLarge
+	}
+	return s.media(ctx, m)
+}
+
+// MediaStream streams m's media, of any size, as Telegram's store does a
+// video or a file to open.
+func (s *Store) MediaStream(ctx context.Context, m model.Message) (io.ReaderAt, int64, func(), error) {
+	data, err := s.media(ctx, m)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	return bytes.NewReader(data), int64(len(data)), func() {}, nil
+}
+
+func (s *Store) media(ctx context.Context, m model.Message) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -195,16 +217,14 @@ func (s *Store) Media(ctx context.Context, m model.Message) ([]byte, error) {
 		return os.ReadFile("assets/stickers/sample.tgs")
 	case "demo/webm":
 		return os.ReadFile("assets/stickers/circle.webm")
-	case "demo/video":
+	case "demo/video", "demo/gifv":
 		return os.ReadFile("assets/video.mp4")
 	case "demo/photo":
-		im := image.NewRGBA(image.Rect(0, 0, 640, 360))
-		for y := 0; y < 360; y++ {
-			for x := 0; x < 640; x++ {
-				im.SetRGBA(x, y, color.RGBA{uint8(30 + x/4), uint8(80 + y/3), 150, 255})
-			}
-		}
-		e := png.Encode(&b, im)
+		e := png.Encode(&b, gradient(640, 360))
+		return b.Bytes(), e
+	case "demo/portrait":
+		// The thumbnail of assets/video.mp4, which is upright.
+		e := png.Encode(&b, gradient(180, 320))
 		return b.Bytes(), e
 	case "demo/gif":
 		g := &gif.GIF{}
@@ -223,6 +243,17 @@ func (s *Store) Media(ctx context.Context, m model.Message) ([]byte, error) {
 		return b.Bytes(), e
 	}
 	return nil, errors.New("demo media unavailable")
+}
+
+// gradient is the demo's picture w×h, a gradient across it.
+func gradient(w, h int) *image.RGBA {
+	im := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			im.SetRGBA(x, y, color.RGBA{uint8(30 + x*160/w), uint8(80 + y*120/h), 150, 255})
+		}
+	}
+	return im
 }
 
 // Deterministic fixtures also exercise profile images and the energy policy.

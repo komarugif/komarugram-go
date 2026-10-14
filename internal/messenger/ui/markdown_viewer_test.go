@@ -53,8 +53,9 @@ func TestMarkdownFileOpens(t *testing.T) {
 	if opened.Rich == nil || len(opened.Rich.Blocks) != 2 || opened.Rich.Blocks[0].Kind != model.RichHeading || of.Key != file.Key || title != "README.md" || opened.Key != file.Key {
 		t.Fatalf("opened %+v of %+v as %q", opened.Rich, of.Key, title)
 	}
-	// The system's program would open the file: it is busy here.
-	p.files = &attachmentFiles{busy: true, cancel: func() {}}
+	// The system's program would open the file: here it is on its way
+	// already, which opening it again cancels.
+	p.files = &attachmentFiles{cancel: func() {}, downloads: map[model.MessageKey]*fileDownload{file.Key: {cancel: func() {}}}}
 	store.err = errors.New("gone")
 	opened = model.Message{}
 	p.openMarkdown(file)

@@ -60,3 +60,41 @@ func TestFileAlbumIsAList(t *testing.T) {
 		t.Fatalf("asked for %q whole, toast %q", store.asked, h.page.toast.Text())
 	}
 }
+
+// A GIF too large to be read whole shows its thumbnail, to be played as a
+// video: it is not asked for whole.
+func TestLargeGIFIsNotReadWhole(t *testing.T) {
+	var store *wholeMediaStore
+	h := newMenuHarnessOn(t, func(_ *menuStore, messages []model.Message) {
+		m := &messages[1]
+		m.Kind, m.Text = model.MessageGIF, ""
+		m.Media = &model.MessageMedia{ID: "document/gif", MIMEType: "video/mp4", Width: 640, Height: 360, Size: model.MaxMediaBytes + 1,
+			Thumbnail: &model.MessageMedia{ID: "document/gif/thumb", MIMEType: "image/jpeg", Width: 320, Height: 180}}
+	}, func(s *menuStore) model.ConversationStore {
+		store = &wholeMediaStore{menuStore: s}
+		return store
+	})
+	h.frames(5)
+	time.Sleep(100 * time.Millisecond)
+	h.frames(5)
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.asked) != 1 || store.asked[0] != "document/gif/thumb" {
+		t.Fatalf("asked for %q", store.asked)
+	}
+}
+
+// With animations off, a GIF plays while the pointer is on it, as a
+// sticker does; a photo or a video does not.
+func TestTileAnimatesOnHover(t *testing.T) {
+	for _, kind := range []model.MessageKind{model.MessageGIF, model.MessageSticker} {
+		if !tileAnimates(kind, false, true) || tileAnimates(kind, false, false) || !tileAnimates(kind, true, false) {
+			t.Errorf("kind %v", kind)
+		}
+	}
+	for _, kind := range []model.MessageKind{model.MessagePhoto, model.MessageVideo} {
+		if tileAnimates(kind, false, true) {
+			t.Errorf("kind %v plays on hover", kind)
+		}
+	}
+}

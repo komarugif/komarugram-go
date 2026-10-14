@@ -18,14 +18,16 @@ import (
 	"github.com/gotd/td/tgerr"
 )
 
-const MaxMediaBytes = 64 << 20
+// MaxMediaBytes is model.MaxMediaBytes, which downloads read whole stay
+// within.
+const MaxMediaBytes = model.MaxMediaBytes
 
 // cappedBuffer enforces the limit against server data, not just metadata.
 type cappedBuffer struct{ bytes.Buffer }
 
 func (b *cappedBuffer) Write(p []byte) (int, error) {
 	if b.Len()+len(p) > MaxMediaBytes {
-		return 0, errors.New("media exceeds 64 MiB limit")
+		return 0, model.ErrMediaTooLarge
 	}
 	return b.Buffer.Write(p)
 }
@@ -37,7 +39,7 @@ func (s *Store) MediaProgress(ctx context.Context, m model.Message, progress fun
 		return nil, errors.New("no media")
 	}
 	if m.Media.Size > MaxMediaBytes {
-		return nil, errors.New("media exceeds 64 MiB limit")
+		return nil, model.ErrMediaTooLarge
 	}
 	c := s.history
 	c.mu.Lock()
@@ -227,7 +229,7 @@ func (b *cappedFile) WriteAt(p []byte, off int64) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if off < 0 || off > MaxMediaBytes || int64(len(p)) > MaxMediaBytes-off {
-		return 0, errors.New("media exceeds 64 MiB limit")
+		return 0, model.ErrMediaTooLarge
 	}
 	end := int(off) + len(p)
 	if end > len(b.data) {

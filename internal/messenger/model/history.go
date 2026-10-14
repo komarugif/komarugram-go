@@ -5,6 +5,7 @@ package model
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"hash/fnv"
 	"time"
 )
@@ -36,6 +37,18 @@ const (
 	MessageMusic
 	MessagePoll
 )
+
+// MaxMediaBytes is the most of a file the client reads into memory whole,
+// to draw it: a larger one is streamed, as a video or a file is to open it.
+const MaxMediaBytes = 64 << 20
+
+// ErrMediaTooLarge is media larger than MaxMediaBytes, asked for whole.
+var ErrMediaTooLarge = fmt.Errorf("media exceeds %d MiB limit", MaxMediaBytes>>20)
+
+// Whole tells whether m's media is small enough to be read whole.
+func (m *MessageMedia) Whole() bool {
+	return m != nil && m.Size <= MaxMediaBytes
+}
 
 // MessageMedia contains durable presentation metadata. The Telegram download
 // location/file_reference belongs in the account database adapter because it

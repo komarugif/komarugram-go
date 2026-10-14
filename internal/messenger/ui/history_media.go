@@ -50,6 +50,18 @@ func (p *chatPage) mediaLayout(gtx layout.Context, r *messageRow, m model.Messag
 	size := fitMediaSize(m.Media.Width, m.Media.Height, maxW, maxH)
 	return p.mediaTile(gtx, r, m, size, false, l, animate)
 }
+
+// tileAnimates tells whether a tile of kind plays: as animations do, and,
+// with them off, a sticker or a GIF while the pointer is on it, as Telegram
+// Desktop's do with autoplay off.
+func tileAnimates(kind model.MessageKind, animate, hovered bool) bool {
+	switch kind {
+	case model.MessageSticker, model.MessageGIF:
+		return animate || hovered
+	}
+	return animate
+}
+
 func mediaErrorText(err error) string {
 	if err == nil {
 		return ""
@@ -68,11 +80,12 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	if stickerSet {
 		clicked = r.sticker.Clicked(gtx)
 	}
-	if m.Kind == model.MessageSticker {
-		animate = animate || r.media.Hovered() || r.sticker.click.Hovered()
-	}
+	animate = tileAnimates(m.Kind, animate, r.media.Hovered() || r.sticker.click.Hovered())
 	target := m
-	video := m.Kind == model.MessageVideo
+	// A GIF too large to be read whole plays as a video does, streamed in
+	// the player.
+	gif := m.Kind == model.MessageGIF && !m.Media.Whole()
+	video := m.Kind == model.MessageVideo || gif
 	if video {
 		target.Kind = model.MessagePhoto
 		target.Media = m.Media.Thumbnail
@@ -82,7 +95,8 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	var frame, preview image.Image
 	var err error
 	loading, cancelled := false, false
-	progress := float32(0)
+	// progress is below 0 while the size is not known.
+	progress := float32(-1)
 	if target.Media != nil {
 		fit := p.media.StatusFit
 		if m.Kind == model.MessageSticker {
@@ -135,7 +149,9 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			if crop {
 				fit = widget.Cover
 			}
-			widget.Image{Src: p.images.Op(im), Fit: fit}.Layout(gtx)
+			// A thumbnail of other proportions than the tile's lies in its
+			// middle.
+			widget.Image{Src: p.images.Op(im), Fit: fit, Position: layout.Center}.Layout(gtx)
 		}
 		if video || loading || cancelled || err != nil {
 			diameter := min(gtx.Dp(48), min(size.X, size.Y))
@@ -155,29 +171,46 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 					})
 					return layout.Dimensions{Size: image.Pt(diameter, diameter)}
 				}
-				symbol := "×"
+				// A click cancels it, or loads it again; the toast told
+				// why it failed.
+				mark := iconClear
 				switch {
 				case cancelled:
-					symbol = "↓"
+					mark = iconDownload
 				case err != nil:
-					// A click loads it again; the toast told why it failed.
-					symbol = "!"
+					mark = iconRefresh
 				}
-				box := gtx
-				box.Constraints = layout.Exact(image.Pt(diameter, diameter))
-				layout.Center.Layout(box, func(gtx layout.Context) layout.Dimensions {
-					gtx.Constraints.Min = image.Point{}
-					return label(gtx, symbol, token.TypestyleTitleLarge, white, 1)
-				})
-				if loading {
-					ring(gtx, diameter, progress, animate)
-				}
-				return layout.Dimensions{Size: image.Pt(diameter, diameter)}
+				return r.ring.layout(gtx, diameter, loading, progress, mark, white, animate)
 			})
 		}
+		// The plate of a video fades out while the pointer is over it, for
+		// the picture to be seen whole, and back in when it leaves.
+		shown := float32(0)
 		if video {
-			offset(gtx, image.Pt(8, max(0, size.Y-gtx.Dp(25))), func(gtx layout.Context) layout.Dimensions {
-				return pill(gtx, fmt.Sprintf("%s · %s", m.Media.Duration.Round(time.Second), l.T("history.video")))
+			shown = 1
+			if r.media.Hovered() {
+				shown = 0
+			}
+			r.plate.Duration = token.DurationShort2
+			shown = r.plate.Animate(gtx, shown)
+		}
+		if shown > 0 {
+			defer paint.PushOpacity(gtx.Ops, shown).Pop()
+			// In the corner, as far from the bottom as from the left.
+			macro := op.Record(gtx.Ops)
+			pgtx := gtx
+			pgtx.Constraints.Min = image.Point{}
+			var dims layout.Dimensions
+			if gif {
+				dims = pill(pgtx, l.T("history.gif"))
+			} else {
+				dims = pill(pgtx, fmt.Sprintf("%s · %s", m.Media.Duration.Round(time.Second), l.T("history.video")))
+			}
+			call := macro.Stop()
+			inset := gtx.Dp(8)
+			offset(gtx, image.Pt(inset, max(0, size.Y-inset-dims.Size.Y)), func(gtx layout.Context) layout.Dimensions {
+				call.Add(gtx.Ops)
+				return dims
 			})
 		}
 		return layout.Dimensions{Size: size}

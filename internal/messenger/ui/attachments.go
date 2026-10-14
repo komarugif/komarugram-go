@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"komarugram/internal/crash"
@@ -19,6 +20,7 @@ import (
 	"komarugram/internal/messenger/sendfiles"
 
 	"gio-mw/token"
+	"gio-mw/wdk"
 
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
@@ -34,7 +36,56 @@ type attachmentFiles struct {
 	mu     sync.Mutex
 	wg     sync.WaitGroup
 	dir    string
-	busy   bool
+	// downloads are the files on their way, by message: each its own,
+	// cancelled by a click on its row.
+	downloads map[model.MessageKey]*fileDownload
+}
+
+// fileDownload is a file on its way to be opened: done of its total bytes
+// are there.
+type fileDownload struct {
+	done, total int64
+	cancel      context.CancelFunc
+	// cancelled is set when the user cancelled it, which tells nothing.
+	cancelled atomic.Bool
+	// told is when the page was last asked to draw it.
+	told time.Time
+}
+
+// download is the file of message key on its way, nil when there is none.
+func (f *attachmentFiles) download(key model.MessageKey) (done, total int64, ok bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	d := f.downloads[key]
+	if d == nil {
+		return 0, 0, false
+	}
+	return d.done, d.total, true
+}
+
+// progressWriter counts what goes through it into d, and has the page drawn
+// again at most 30 times a second.
+type progressWriter struct {
+	w          io.Writer
+	f          *attachmentFiles
+	d          *fileDownload
+	invalidate func()
+}
+
+func (w *progressWriter) Write(b []byte) (int, error) {
+	n, err := w.w.Write(b)
+	w.f.mu.Lock()
+	w.d.done += int64(n)
+	now := time.Now()
+	tell := now.Sub(w.d.told) >= time.Second/30
+	if tell {
+		w.d.told = now
+	}
+	w.f.mu.Unlock()
+	if tell {
+		w.invalidate()
+	}
+	return n, err
 }
 
 func (f *attachmentFiles) Close() {
@@ -60,6 +111,8 @@ func (f *attachmentFiles) directory() (string, error) {
 	return f.dir, nil
 }
 
+// openAttachment downloads the file of m and opens it in the system's
+// program for it; while it downloads, it cancels that instead.
 func (p *chatPage) openAttachment(m model.Message) {
 	if p.files == nil {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -67,18 +120,29 @@ func (p *chatPage) openAttachment(m model.Message) {
 	}
 	f := p.files
 	f.mu.Lock()
-	if f.busy {
+	if d := f.downloads[m.Key]; d != nil {
 		f.mu.Unlock()
+		d.cancelled.Store(true)
+		d.cancel()
 		return
 	}
-	f.busy = true
+	ctx, cancel := context.WithCancel(f.ctx)
+	d := &fileDownload{total: m.Media.Size, cancel: cancel}
+	if f.downloads == nil {
+		f.downloads = map[model.MessageKey]*fileDownload{}
+	}
+	f.downloads[m.Key] = d
 	f.mu.Unlock()
 	p.reportMedia(nil)
 	f.wg.Go(func() {
-		defer func() { f.mu.Lock(); f.busy = false; f.mu.Unlock(); p.invalidate() }()
+		defer func() {
+			cancel()
+			f.mu.Lock()
+			delete(f.downloads, m.Key)
+			f.mu.Unlock()
+			p.invalidate()
+		}()
 		defer crash.Recover("open attachment", func(e *crash.Panic) { p.reportMedia(e) })
-		ctx, cancel := context.WithTimeout(f.ctx, 10*time.Minute)
-		defer cancel()
 		dir, err := f.directory()
 		if err != nil {
 			p.reportMedia(err)
@@ -90,11 +154,12 @@ func (p *chatPage) openAttachment(m model.Message) {
 		}
 		// Prefix the message ID to keep equal filenames from replacing one another.
 		path := filepath.Join(dir, fmt.Sprintf("%d-%d-%s", m.Key.ChatID, m.Key.MessageID, name))
-		out, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 		if err != nil {
 			p.reportMedia(err)
 			return
 		}
+		out := &progressWriter{w: file, f: f, d: d, invalidate: p.invalidate}
 		if source, ok := p.source.(interface {
 			MediaStream(context.Context, model.Message) (io.ReaderAt, int64, func(), error)
 		}); ok {
@@ -113,7 +178,7 @@ func (p *chatPage) openAttachment(m model.Message) {
 				_, err = out.Write(data)
 			}
 		}
-		if closeErr := out.Close(); err == nil {
+		if closeErr := file.Close(); err == nil {
 			err = closeErr
 		}
 		if err == nil {
@@ -123,6 +188,10 @@ func (p *chatPage) openAttachment(m model.Message) {
 			err = openBrowser(path)
 		} else {
 			_ = os.Remove(path)
+		}
+		if d.cancelled.Load() {
+			// Cancelled by the user: nothing to tell.
+			err = nil
 		}
 		p.reportMedia(err)
 	})
@@ -163,17 +232,25 @@ func (p *chatPage) fileLayout(gtx layout.Context, r *messageRow, m model.Message
 	if title == "" {
 		title = l.T("history.file")
 	}
-	busy := false
+	var done, total int64
+	downloading := false
 	if p.files != nil {
-		p.files.mu.Lock()
-		busy = p.files.busy
-		p.files.mu.Unlock()
+		done, total, downloading = p.files.download(m.Key)
 	}
 	details := sendfiles.Size(m.Media.Size)
 	icon := iconFileRow
 	if playing {
 		details = m.Media.Duration.Round(time.Second).String()
 		icon = iconPlayFile
+	}
+	// progress is below 0 while the size is not known.
+	progress := float32(-1)
+	if downloading {
+		details = sendfiles.Size(done)
+		if total > 0 {
+			progress = min(1, float32(done)/float32(total))
+			details += " / " + sendfiles.Size(total)
+		}
 	}
 	// As materialgram draws files: a round button in the primary color,
 	// the name and the size beside it.
@@ -186,10 +263,12 @@ func (p *chatPage) fileLayout(gtx layout.Context, r *messageRow, m model.Message
 				size := image.Pt(d, d)
 				paint.FillShape(gtx.Ops, sc.Primary.Color.AsNRGBA(), clip.Ellipse{Max: size}.Op(gtx.Ops))
 				gtx.Constraints = layout.Exact(size)
+				if downloading {
+					// A click on the row cancels it.
+					return r.ring.layout(gtx, d, true, progress, iconClear, sc.Primary.OnColor, wdk.AnimationsEnabled(gtx))
+				}
+				r.ring.reset()
 				layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					if busy {
-						return p.fileLoader.sized(gtx, l, 26)
-					}
 					return exact(gtx, image.Pt(gtx.Dp(24), gtx.Dp(24)), func(gtx layout.Context) layout.Dimensions {
 						return icon(gtx, sc.Primary.OnColor)
 					})

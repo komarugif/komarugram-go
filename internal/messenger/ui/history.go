@@ -76,6 +76,10 @@ type messageRow struct {
 	// quick takes double clicks on the bubble, which react to it.
 	quick gesture.Click
 	media widget.Clickable
+	// ring shows how far the row's media or file downloaded; plate is
+	// how much the plate over its video shows, which hovering hides.
+	ring  downloadRing
+	plate wdk.FloatTween
 	// avatar is the sender's avatar the row draws for its group of
 	// messages, which opens the chat with them.
 	avatar   widget.Clickable
