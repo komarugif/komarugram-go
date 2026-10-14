@@ -244,7 +244,34 @@ func albumRow(gtx layout.Context, r *messageRow, m model.Message, l localization
 	child.refreshDates(gtx, m, l)
 	return child
 }
+
+// tiledAlbum tells whether the album of attachments is laid out as a grid
+// of tiles: of photos and videos. One of files or music is a list of them,
+// as Telegram Desktop's: a tile shows a file's own picture, read whole.
+func tiledAlbum(attachments []model.Message) bool {
+	for _, m := range attachments {
+		switch m.Kind {
+		case model.MessagePhoto, model.MessageVideo, model.MessageGIF:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog, animate bool) layout.Dimensions {
+	if !tiledAlbum(m.Attachments) {
+		children := make([]layout.FlexChild, 0, 2*len(m.Attachments))
+		for i, member := range m.Attachments {
+			if i > 0 {
+				children = append(children, vspace(8))
+			}
+			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return p.mediaLayout(gtx, albumRow(gtx, r, member, l), member, l, animate)
+			}))
+		}
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
+	}
 	width := min(gtx.Constraints.Max.X, gtx.Dp(500))
 	gap := gtx.Dp(3)
 	y := 0
