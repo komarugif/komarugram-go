@@ -47,8 +47,10 @@ import (
 // App is the messenger window content.
 type App struct {
 	images imageOps
-	window *appwindow.Window
-	store  model.Store
+	// sprites are avatars as pictures, for motion blur.
+	sprites avatarSprites
+	window  *appwindow.Window
+	store   model.Store
 
 	windowEffectsSet, windowBlurWanted, windowTransparentWanted bool
 
@@ -524,6 +526,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		// channel's discussion does.
 		a.info.openChannel = a.history.openReturning
 		a.info.badges = a.badges
+		a.info.avatarSprite = a.avatarSprite
 		if _, ok := store.(model.CommentsStore); ok {
 			a.history.openComments = a.openComments
 			a.comments = a.newChatPage(source, store, w)

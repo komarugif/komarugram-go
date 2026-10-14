@@ -95,12 +95,16 @@ type chatInfo struct {
 	profileCancel context.CancelFunc
 	cover         coverState
 	fades         coverFades
+	motion        coverMotion
 	badges        badgesLayout
 	channel       settingsItem
 	chips         map[string]*folderChip
 	collectible   *collectibleDialog
 	// openChannel opens the user's channel, with a way back.
 	openChannel func(model.Chat)
+	// avatarSprite is the chat's avatar as a picture of side px, which the
+	// avatar's motion blurs; nil while there is none.
+	avatarSprite func(gtx layout.Context, id int64, kind model.ChatKind, title string, px int) image.Image
 }
 
 func newChatInfo(source model.ConversationStore, images *imageOps, invalidate func()) *chatInfo {
@@ -162,6 +166,7 @@ func (p *chatInfo) Open(c model.Chat) {
 	p.profile = model.PeerProfile{}
 	p.cover = coverState{}
 	p.fades = coverFades{places: shuffledPlaces()}
+	p.motion = coverMotion{}
 	// The profile known last shows at once, without fading in; Telegram's
 	// replaces it when it comes.
 	if p.profiles != nil && c.ID != 0 && c.Kind != model.KindSaved {
@@ -449,7 +454,7 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 			// The info scrolls under the header, which shows the name
 			// only once the cover's has gone under it.
 			p.layoutInfo(gtx, l, animate && p.gift == nil)
-			p.layoutInfoHeader(gtx, l)
+			p.layoutInfoHeader(gtx, l, animate)
 			return layout.Dimensions{Size: size}
 		}
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,

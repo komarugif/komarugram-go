@@ -5,6 +5,7 @@ package ui
 import (
 	"context"
 	"image"
+	"image/color"
 	"image/png"
 	"os"
 	"testing"
@@ -157,19 +158,7 @@ func TestRenderSharedMediaAndThemes(t *testing.T) {
 	themes.choose(choices[0])
 	info.Open(chat)
 	awaitShared(t, info)
-	render := func(name string) {
-		ops := new(op.Ops)
-		for i := 0; i < 25; i++ {
-			ops.Reset()
-			gtx := sharedContext(ops, size)
-			images.BeginFrame()
-			history.media.BeginFrame()
-			history.Layout(gtx, chat, localization.For("ru"), true)
-			history.media.EndFrame()
-			info.Layout(gtx, localization.For("ru"), true)
-			images.EndFrame()
-			time.Sleep(20 * time.Millisecond)
-		}
+	shoot := func(name string, ops *op.Ops) {
 		if err := win.Frame(ops); err != nil {
 			t.Fatal(err)
 		}
@@ -186,6 +175,21 @@ func TestRenderSharedMediaAndThemes(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
+	render := func(name string) {
+		ops := new(op.Ops)
+		for i := 0; i < 25; i++ {
+			ops.Reset()
+			gtx := sharedContext(ops, size)
+			images.BeginFrame()
+			history.media.BeginFrame()
+			history.Layout(gtx, chat, localization.For("ru"), true)
+			history.media.EndFrame()
+			info.Layout(gtx, localization.For("ru"), true)
+			images.EndFrame()
+			time.Sleep(20 * time.Millisecond)
+		}
+		shoot(name, ops)
+	}
 	counts := info.counts
 	info.counts = nil
 	info.loading = true
@@ -201,6 +205,53 @@ func TestRenderSharedMediaAndThemes(t *testing.T) {
 	info.list.Position.Offset = 400
 	render("info-scrolled")
 	info.list.Position = layout.Position{}
+
+	// Motion blur, in frames a 60th of a second apart: the gifts a few
+	// frames into their flight, and the avatar halfway to the header as the
+	// info scrolls fast, a picture of its own.
+	info.avatarSprite = func(gtx layout.Context, _ int64, _ model.ChatKind, _ string, px int) image.Image {
+		photo := image.NewRGBA(image.Rect(0, 0, 96, 96))
+		for y := range 96 {
+			for x := range 96 {
+				photo.SetRGBA(x, y, color.RGBA{uint8(40 + x*2), uint8(90 + y), 200, 255})
+			}
+		}
+		return roundedSprite(photo, px, avatarRadius(gtx, px))
+	}
+	now := time.Now()
+	motion := func(ops *op.Ops) {
+		ops.Reset()
+		gtx := sharedContext(ops, size)
+		gtx.Now = now
+		images.BeginFrame()
+		info.Layout(gtx, localization.For("ru"), true)
+		images.EndFrame()
+		now = now.Add(time.Second / 60)
+	}
+	ops := new(op.Ops)
+	info.Open(chat)
+	for i := 0; i < 500; i++ {
+		motion(ops)
+		st := info.renderer.media.StatusFullRate(info.profile.Gifts[0], true, image.Pt(24, 24), false)
+		if info.modal.Entered() && (st.Frame != nil || st.Preview != nil) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for range 3 {
+		motion(ops)
+	}
+	shoot("info-gifts-flying", ops)
+	for range 40 {
+		motion(ops)
+	}
+	for i := range 4 {
+		info.list.Position.Offset = i * 20
+		motion(ops)
+	}
+	shoot("info-avatar-moving", ops)
+	info.list.Position = layout.Position{}
+	info.avatarSprite = nil
 	info.selectSection(model.SharedPhotos)
 	awaitShared(t, info)
 	render("photos")

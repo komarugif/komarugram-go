@@ -30,17 +30,16 @@ func newAvatarImages(source model.ConversationStore, changed func()) *avatarImag
 	}
 	return &avatarImages{s, chatmedia.NewAvatars(source, changed)}
 }
-func (a *App) layoutAvatar(gtx layout.Context, id int64, kind model.ChatKind, title string, size unit.Dp) layout.Dimensions {
-	dims := layout.Dimensions{Size: image.Pt(gtx.Dp(size), gtx.Dp(size))}
-	if a.avatars == nil || kind == model.KindSaved {
-		return avatar(gtx, id, kind, title, size)
-	}
+
+// avatarPhoto is the picture of id's avatar as it shows now, a frame of
+// its video when it plays; nil without one, or until it has loaded.
+func (a *App) avatarPhoto(id int64) image.Image {
 	if !a.window.Motion.AnimationsEnabled() {
 		a.avatars.media.PauseAnimations()
 	}
 	msg, ok := a.avatars.source.Avatar(id)
 	if !ok {
-		return avatar(gtx, id, kind, title, size)
+		return nil
 	}
 	status := a.avatars.media.Status(msg, false)
 	im := status.Frame
@@ -53,6 +52,15 @@ func (a *App) layoutAvatar(gtx layout.Context, id int64, kind model.ChatKind, ti
 			im = frame
 		}
 	}
+	return im
+}
+
+func (a *App) layoutAvatar(gtx layout.Context, id int64, kind model.ChatKind, title string, size unit.Dp) layout.Dimensions {
+	dims := layout.Dimensions{Size: image.Pt(gtx.Dp(size), gtx.Dp(size))}
+	if a.avatars == nil || kind == model.KindSaved {
+		return avatar(gtx, id, kind, title, size)
+	}
+	im := a.avatarPhoto(id)
 	if im == nil {
 		return avatar(gtx, id, kind, title, size)
 	}

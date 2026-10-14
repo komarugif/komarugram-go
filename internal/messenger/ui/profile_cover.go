@@ -15,6 +15,7 @@ import (
 	"komarugram/internal/messenger/chattheme"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
+	"komarugram/pkg/resample"
 
 	"gio-mw/token"
 	"gio-mw/wdk"
@@ -49,6 +50,27 @@ func shuffledPlaces() [model.MaxCoverGifts]int {
 		places[i] = j
 	}
 	return places
+}
+
+// coverMotion follows what moves in the cover and its header, for the
+// streaks their motion leaves: see motionTrack.
+type coverMotion struct {
+	gifts  [model.MaxCoverGifts]motionTrack
+	avatar motionTrack
+	// giftStreaks and avatarStreak tell whether a gift's streak or the
+	// avatar's was drawn in the frame drawn last.
+	giftStreaks, avatarStreak bool
+}
+
+// drawStreak draws sprite, whose corner is at at, moved by streak while
+// the shutter was open. The next frame is drawn too, in which the sprite
+// that stopped is sharp again: otherwise the last streak would stay.
+func drawStreak(gtx layout.Context, images *imageOps, sprite image.Image, at image.Point, streak f32.Point) {
+	gtx.Execute(op.InvalidateCmd{})
+	out, origin := blurSprite(sprite, streak)
+	offset(gtx, at.Add(origin), func(gtx layout.Context) layout.Dimensions {
+		return drawImage(gtx, images, out, out.Rect.Size())
+	})
 }
 
 // coverFades fade in what the cover shows that was not there when it
@@ -456,6 +478,7 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 		p.cover.glows = map[string]image.Image{}
 	}
 	art, glow := gtx.Dp(coverGiftSize), gtx.Dp(coverGlowSize)
+	p.motion.giftStreaks = false
 	for i, m := range p.profile.Gifts {
 		if i >= len(p.fades.places) {
 			break
@@ -479,6 +502,11 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 		}
 		center := userpic.Min.Add(userpic.Size().Div(2))
 		at := giftFlight(place, coverGiftAt(place, userpic, gtx.Metric.PxPerDp), center, progress)
+		// Its flight streaks it; the cover's scrolling, which moves all of
+		// the info, does not.
+		streak := p.motion.gifts[i].Streak(gtx, layout.FPt(at))
+		blurred := animate && moving(streak)
+		p.motion.giftStreaks = p.motion.giftStreaks || blurred
 		opacity := paint.PushOpacity(gtx.Ops, progress)
 		if g := m.Gift; g != nil && g.HasBackdrop && m.Media != nil {
 			im := p.cover.glows[m.Media.ID]
@@ -486,13 +514,29 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 				im = giftGlow(chattheme.RGB(g.CenterColor), chattheme.RGB(g.EdgeColor))
 				p.cover.glows[m.Media.ID] = im
 			}
-			offset(withSize(gtx, image.Pt(glow, glow)), at.Sub(image.Pt(glow/2, glow/2)), func(gtx layout.Context) layout.Dimensions {
-				return widget.Image{Src: p.renderer.images.Op(im), Fit: widget.Fill}.Layout(gtx)
-			})
+			if blurred {
+				drawStreak(gtx, p.renderer.images, resample.Resize(im, glow, glow), at.Sub(image.Pt(glow/2, glow/2)), streak)
+			} else {
+				offset(withSize(gtx, image.Pt(glow, glow)), at.Sub(image.Pt(glow/2, glow/2)), func(gtx layout.Context) layout.Dimensions {
+					return widget.Image{Src: p.renderer.images.Op(im), Fit: widget.Fill}.Layout(gtx)
+				})
+			}
+		}
+		frame := st.Frame
+		if frame == nil {
+			frame = st.Preview
+		}
+		if blurred && frame != nil {
+			b := frame.Bounds()
+			fit := resample.Fit(b.Dx(), b.Dy(), image.Pt(art, art), false)
+			drawStreak(gtx, p.renderer.images, resample.Resize(frame, fit.X, fit.Y), at.Sub(fit.Div(2)), streak)
 		}
 		offset(withSize(gtx, image.Pt(art, art)), at.Sub(image.Pt(art/2, art/2)), func(gtx layout.Context) layout.Dimensions {
 			return p.cover.gifts[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				pointer.CursorPointer.Add(gtx.Ops)
+				if blurred && frame != nil {
+					return layout.Dimensions{Size: gtx.Constraints.Max}
+				}
 				return p.giftArt(gtx, m, animate)
 			})
 		})
@@ -533,7 +577,7 @@ const (
 // name goes under the header. The ring in the corner opposite the close
 // button tells the info is loading, moving nothing when it goes; it gives
 // the corner up to the avatar.
-func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog) {
+func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog, animate bool) {
 	sc := scheme(gtx)
 	width := gtx.Constraints.Max.X
 	header := gtx.Dp(infoHeaderHeight)
@@ -573,8 +617,26 @@ func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog) 
 	side := lerp(from.Dx(), to.Dx())
 	at := f32.Pt(lerp(from.Min.X, to.Min.X), lerp(from.Min.Y, to.Min.Y))
 	scale := side / float32(max(1, full))
+	// Moving, it streaks: as a picture of its own, when there is one.
+	streak := p.motion.avatar.Streak(gtx, at)
+	var sprite image.Image
+	if animate && moving(streak) && p.avatarSprite != nil {
+		sprite = p.avatarSprite(gtx, p.chat.ID, p.chat.Kind, p.chat.Title, int(side+.5))
+	}
+	p.motion.avatarStreak = sprite != nil
+	if sprite != nil {
+		drawStreak(gtx, p.renderer.images, sprite, image.Pt(int(at.X+.5), int(at.Y+.5)), streak)
+	}
 	stack := op.Affine(f32.Affine2D{}.Scale(f32.Point{}, f32.Pt(scale, scale)).Offset(at)).Push(gtx.Ops)
-	p.layoutAvatar(withSize(gtx, image.Pt(full, full)))
+	if sprite != nil {
+		// Where it is, it still takes the clicks.
+		p.avatar.Layout(withSize(gtx, image.Pt(full, full)), func(gtx layout.Context) layout.Dimensions {
+			pointer.CursorPointer.Add(gtx.Ops)
+			return layout.Dimensions{Size: gtx.Constraints.Max}
+		})
+	} else {
+		p.layoutAvatar(withSize(gtx, image.Pt(full, full)))
+	}
 	stack.Pop()
 
 	closeAt := image.Pt(width-pad-slot, (header-slot)/2)
