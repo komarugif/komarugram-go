@@ -164,6 +164,9 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 	if r.viewKnown {
 		r.viewTop = p.rowTop + r.bodyTop + gtx.Dp(bubblePadTop) + r.articleAbove
 	}
+	if r.avatar.Clicked(gtx) && p.senderOpens(m) {
+		p.openSender(m)
+	}
 	if m.ReplyToMessageID != 0 && r.reply.Clicked(gtx) {
 		p.jumpPending = m.ReplyToMessageID
 		p.invalidate()

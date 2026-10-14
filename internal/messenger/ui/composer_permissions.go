@@ -140,6 +140,9 @@ func (c *messageComposer) layoutReadOnly(gtx layout.Context, p *chatPage, l loca
 			if result.from == c.chat {
 				if result.err != nil {
 					p.toast.Show(mediaErrorText(result.err))
+				} else if p.openReturning != nil {
+					// The discussion goes back to its channel.
+					p.openReturning(result.chat)
 				} else if p.openChat != nil {
 					p.openChat(result.chat, 0)
 				}

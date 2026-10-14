@@ -91,7 +91,20 @@ The history is drawn as materialgram draws it:
 - `messageJoins` groups a sender's messages in a row (same sender, same
   day, less than 15 minutes apart): the group shows the sender's name at
   its top and one avatar, which sticks to the bottom of the view while the
-  group is in it (`stickyAvatars`).
+  group is in it (`stickyAvatars`). In a group, a member's avatar goes
+  to the account's chat with them, or, with none yet, opens their info
+  over the group (`chatInfo.OpenOver`), whose first card goes to the chat
+  (`model.SenderChatSource`, `sender_chat.go`). A channel's that posted
+  there opens it, followed or not; one the account is banned from, with
+  nothing of it cached, shows only its info (`chatInfo.OpenClosed`).
+  The avatars in the comments and in a forum's topics do the same.
+- **The way back** (`chat_return.go`): a chat opened from another, as a
+  sender's from the group or the comments, or a channel's discussion
+  from its Discussion button, gets a back button before the avatar in
+  its header (the `back` of `layoutChatPage`), a forum's too.
+  `App.openReturning` keeps the steps, so the way goes back through each
+  in turn, opening again the comments or the topic it was left from; a
+  chat opened off it forgets it.
 - `bubbleShape`/`shapeOf` round a bubble 16 dp, and 6 dp where it touches
   its group; `chatThemeController.Bubble` takes the same shape.
 - `senderColor` colors a sender's name from its avatar color, readable on

@@ -180,3 +180,20 @@ type TelegramLinkSource interface {
 	JoinInvite(ctx context.Context, hash string) (Chat, error)
 	UserByID(ctx context.Context, id int64) (Chat, error)
 }
+
+// ErrChatInaccessible is a chat the account may not read, as a channel it
+// is banned from, of which nothing is cached either.
+var ErrChatInaccessible = errors.New("chat not accessible")
+
+// IsChannelID tells whether id, a chat's, is a channel's or a supergroup's.
+func IsChannelID(id int64) bool { return id <= -1000000000000 }
+
+// SenderChatSource opens the chat of a group message's sender, whom the
+// account may know only from the group, as a click on the sender's avatar
+// does: the private chat with a user, or the channel that posted it.
+type SenderChatSource interface {
+	// SenderChat is the chat of m's sender; ErrLinkNotFound when there is
+	// none to open, and ErrChatInaccessible, with the chat still telling
+	// what it is, for a channel the account may not read.
+	SenderChat(ctx context.Context, m Message) (Chat, error)
+}

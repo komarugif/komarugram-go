@@ -219,7 +219,7 @@ func (a *App) layoutComments(gtx layout.Context, l localization.Catalog) layout.
 		empty = !history.LoadingOlder && history.Err == nil && len(history.Messages) == 0
 		head.title, head.subtitle = t.name, topicCount(history, l)
 	}
-	return layoutChatPageHead(gtx, t.chat, l, a.layoutAvatar, nil, &head, func(gtx layout.Context) layout.Dimensions {
+	return layoutChatPageHead(gtx, t.chat, l, a.layoutAvatar, nil, &head, nil, func(gtx layout.Context) layout.Dimensions {
 		dims := h.Layout(gtx, t.chat, l, a.window.Motion.AnimationsEnabled())
 		if empty {
 			layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

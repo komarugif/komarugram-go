@@ -741,6 +741,8 @@
 "info.copy_link" = "Копировать ссылку";
 "info.dc" = "Дата-центр фото профиля";
 "info.link_copied" = "Ссылка скопирована.";
+"info.open_chat" = "Перейти в личный чат с пользователем";
+"info.open_chat_new" = "Вы ещё не переписывались";
 "info.registered_about" = "~ {date}";
 "info.registered_after" = "позже {date}";
 "info.registered_before" = "раньше {date}";
@@ -776,6 +778,7 @@
 
 "language.name" = "Русский";
 
+"links.channel_not_accessible" = "К сожалению, этот канал недоступен.";
 "links.invite_bad" = "К сожалению, ссылка-приглашение недействительна или устарела.";
 "links.join_channel" = "Подписаться";
 "links.join_group" = "Вступить в группу";

@@ -74,8 +74,11 @@ type messageRow struct {
 	// video message's does.
 	previewVideo *messageRow
 	// quick takes double clicks on the bubble, which react to it.
-	quick    gesture.Click
-	media    widget.Clickable
+	quick gesture.Click
+	media widget.Clickable
+	// avatar is the sender's avatar the row draws for its group of
+	// messages, which opens the chat with them.
+	avatar   widget.Clickable
 	sticker  surface
 	audio    audioRow
 	revealed bool
@@ -258,6 +261,12 @@ type chatPage struct {
 	// comments bar. thread is set for the page that shows comments.
 	openComments func(model.Message)
 	thread       bool
+	// openSender opens the chat with the sender of a group message, whose
+	// avatar was clicked; nil leaves the avatars without a click.
+	// openReturning opens a chat with a way back to this one, as a
+	// channel's discussion; nil opens it by openChat.
+	openSender    func(model.Message)
+	openReturning func(model.Chat)
 	// bot is what the page shows of bots: reply keyboards and the Start
 	// button. openWebApp opens the Mini App of a bot's button; nil leaves
 	// those buttons off.

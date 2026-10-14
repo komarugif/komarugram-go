@@ -34,7 +34,7 @@ func TestRenderEmptySavedMessages(t *testing.T) {
 		p.media.BeginFrame()
 		layoutChatPage(gtx, chat, l, func(gtx layout.Context, id int64, kind model.ChatKind, title string, size unit.Dp) layout.Dimensions {
 			return avatar(gtx, id, kind, title, size)
-		}, nil, func(gtx layout.Context) layout.Dimensions {
+		}, nil, nil, func(gtx layout.Context) layout.Dimensions {
 			return p.Layout(gtx, chat, l, false)
 		}, p)
 		p.media.EndFrame()

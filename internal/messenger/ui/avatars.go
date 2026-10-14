@@ -7,6 +7,7 @@ import (
 	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/model"
 
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op/clip"
 	"gioui.org/unit"
@@ -95,6 +96,15 @@ func (p *chatPage) senderAvatar(m model.Message) int64 {
 	return 0
 }
 
+// senderOpens tells whether a click on the avatar of m's sender opens
+// their chat: a member's in a group or a channel's that posted there, not
+// the account's own or an anonymous admin's, which is the group itself.
+func (p *chatPage) senderOpens(m model.Message) bool {
+	sender := m.SenderID > 0 || model.IsChannelID(m.SenderID) && m.SenderID != m.Key.ChatID
+	return p.openSender != nil && !p.snapshotting && p.kind == model.KindGroup &&
+		!m.Outgoing && sender && m.Kind != model.MessageService
+}
+
 // avatarName is the name whose initials stand for the sender of m.
 func (p *chatPage) avatarName(m model.Message) string {
 	if m.SenderName != "" {
@@ -175,7 +185,15 @@ func (p *chatPage) stickyAvatars(gtx layout.Context, cover int) {
 		y := stickyAvatarY(groupTop, groupBottom, visible, size, gtx.Dp(4))
 		if y+size > 0 && y < gtx.Constraints.Max.Y {
 			offset(gtx, image.Pt(r.avatarPoint.X, y), func(gtx layout.Context) layout.Dimensions {
-				return p.avatar(gtx, id, model.KindUser, p.avatarName(msg), 34)
+				dims := p.avatar(gtx, id, model.KindUser, p.avatarName(msg), 34)
+				if p.senderOpens(msg) && p.selectionCount() == 0 {
+					gtx.Constraints = layout.Exact(image.Pt(size, size))
+					r.avatar.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						pointer.CursorPointer.Add(gtx.Ops)
+						return layout.Dimensions{Size: gtx.Constraints.Max}
+					})
+				}
+				return dims
 			})
 		}
 	}

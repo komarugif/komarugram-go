@@ -58,7 +58,7 @@ func headFrame(h *menuHarness) {
 	p.images.BeginFrame()
 	p.media.BeginFrame()
 	c := model.Chat{ID: 1, Title: "Chat", Kind: model.KindGroup}
-	layoutChatPage(gtx, c, l, avatar, nil, func(gtx layout.Context) layout.Dimensions { return p.Layout(gtx, c, l, false) }, p)
+	layoutChatPage(gtx, c, l, avatar, nil, nil, func(gtx layout.Context) layout.Dimensions { return p.Layout(gtx, c, l, false) }, p)
 	p.media.EndFrame()
 	p.images.EndFrame()
 	h.router.Frame(gtx.Ops)
@@ -178,7 +178,7 @@ func TestRenderChatSearch(t *testing.T) {
 		}
 		p.images.BeginFrame()
 		p.media.BeginFrame()
-		layoutChatPage(gtx, c, l, avatar, nil, func(gtx layout.Context) layout.Dimensions { return p.Layout(gtx, c, l, false) }, p)
+		layoutChatPage(gtx, c, l, avatar, nil, nil, func(gtx layout.Context) layout.Dimensions { return p.Layout(gtx, c, l, false) }, p)
 		p.media.EndFrame()
 		p.images.EndFrame()
 		time.Sleep(20 * time.Millisecond)

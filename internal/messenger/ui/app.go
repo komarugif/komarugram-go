@@ -69,6 +69,15 @@ type App struct {
 	// usernames are the chats the settings asked for by their usernames,
 	// as Telegram resolved them.
 	usernames chan usernameResult
+	// senders are the chats with the senders whose avatars were clicked in
+	// a group, as Telegram found them; senderBusy is set while one is
+	// asked for.
+	senders    chan senderResult
+	senderBusy bool
+	// returns is the way back through the chats opened from others, and
+	// returnBack the header's button that goes it (see openReturning).
+	returns    []chatReturn
+	returnBack *button.Button
 	// filter hides messages as the settings ask.
 	filter     *messageFilter
 	lightTheme *token.Theme
@@ -502,6 +511,15 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 				a.openUsername(links, bot)
 			}
 		}
+		if senders, ok := source.(model.SenderChatSource); ok {
+			a.senders = make(chan senderResult, 1)
+			a.history.openSender = func(m model.Message) { a.openSender(senders, m, nil) }
+		}
+		a.history.openReturning = func(chat model.Chat) {
+			if from, ok := a.selectedChat(); ok {
+				a.openReturning(chat, from, nil)
+			}
+		}
 		if _, ok := store.(model.CommentsStore); ok {
 			a.history.openComments = a.openComments
 			a.comments = a.newChatPage(source, store, w)
@@ -533,6 +551,11 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		}
 		if a.comments != nil {
 			a.comments.audio = a.history.audio
+			// The avatars in the comments and in a forum's topics open
+			// their senders' chats too, which go back to them.
+			if senders, ok := source.(model.SenderChatSource); ok {
+				a.comments.openSender = func(m model.Message) { a.openSender(senders, m, a.thread) }
+			}
 		}
 		a.info.renderer.openPhoto = func(m model.Message) { a.viewer.Open(m.Key.ChatID, m, a.info.messages) }
 		a.info.openAvatar = func(chat int64) { a.viewer.OpenProfile(chat) }
@@ -779,6 +802,12 @@ func (a *App) Update(gtx layout.Context) {
 		a.takeUsername(r)
 	default:
 	}
+	select {
+	case r := <-a.senders:
+		a.takeSender(r)
+	default:
+	}
+	a.updateReturn(gtx)
 	a.shownChat.Store(a.selected)
 	folders := a.store.Folders()
 	a.overlay.Update(gtx)
@@ -1133,7 +1162,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 			if a.history.takesFiles() {
 				a.drop.page = a.history
 			}
-			return layoutChatPage(gtx, c, l, a.layoutAvatar, a.badges, func(gtx layout.Context) layout.Dimensions {
+			return layoutChatPage(gtx, c, l, a.layoutAvatar, a.badges, a.returnButton(), func(gtx layout.Context) layout.Dimensions {
 				if a.history != nil {
 					return a.history.Layout(gtx, c, l, a.window.Motion.AnimationsEnabled())
 				}

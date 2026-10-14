@@ -82,7 +82,7 @@ func TestChatHeaderClickableAndDialogBlocksOutside(t *testing.T) {
 		}
 		layoutChatPage(gtx, model.Chat{ID: 2, Title: "Chat"}, localization.For("en"), func(layout.Context, int64, model.ChatKind, string, unit.Dp) layout.Dimensions {
 			return layout.Dimensions{}
-		}, nil, func(layout.Context) layout.Dimensions { return layout.Dimensions{} }, page)
+		}, nil, nil, func(layout.Context) layout.Dimensions { return layout.Dimensions{} }, page)
 		p.Layout(gtx, localization.For("en"), false)
 		router.Frame(ops)
 	}

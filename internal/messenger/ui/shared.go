@@ -35,7 +35,7 @@ type sharedResult struct {
 	err        error
 }
 type chatInfo struct {
-	cardHeights       [4]heightTransition
+	cardHeights       [5]heightTransition
 	loader            loadingIndicator
 	giftGeneration    uint64
 	drawAvatar        avatarLayout
@@ -78,6 +78,13 @@ type chatInfo struct {
 	registration, dataCenter settingsItem
 	themePage                bool
 	themes                   *chatThemeController
+	// openChat, when set, goes to the chat shown, which is not open: the
+	// info of a group's member who has no chat with the account yet.
+	openChat func()
+	goToChat settingsItem
+	// closed is set for a chat the account may not read: its info has none
+	// of its media.
+	closed bool
 }
 
 func newChatInfo(source model.ConversationStore, images *imageOps, invalidate func()) *chatInfo {
@@ -109,6 +116,7 @@ func newChatInfo(source model.ConversationStore, images *imageOps, invalidate fu
 }
 func (p *chatInfo) Open(c model.Chat) {
 	p.stop()
+	p.openChat, p.closed = nil, false
 	p.visible = true
 	p.modal.Open()
 	p.chat = c
@@ -134,6 +142,24 @@ func (p *chatInfo) Open(c model.Chat) {
 	p.gift = nil
 	p.load(true)
 }
+
+// OpenOver opens the info of c over another chat, open, with a button that
+// goes to c by openChat.
+func (p *chatInfo) OpenOver(c model.Chat, openChat func()) {
+	p.Open(c)
+	p.openChat = openChat
+}
+
+// OpenClosed opens the info of c, a chat the account may not read: what
+// it is, without its media, which are not asked for, and why in the toast.
+func (p *chatInfo) OpenClosed(c model.Chat, why string) {
+	p.Open(c)
+	p.stop()
+	p.closed = true
+	p.kinds = nil
+	p.modal.Toast(why)
+}
+
 func (p *chatInfo) stop() {
 	if p.cancel != nil {
 		p.cancel()
@@ -332,6 +358,11 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 			p.modal.Toast(l.T("info.copied"))
 		}
 	}
+	if p.openChat != nil && p.goToChat.click.Clicked(gtx) {
+		open := p.openChat
+		p.modal.Close()
+		open()
+	}
 	if p.themesButton.click.Clicked(gtx) {
 		p.OpenTheme()
 	}
@@ -445,6 +476,16 @@ func (p *chatInfo) layoutInfo(gtx layout.Context, l localization.Catalog) layout
 				}),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.status(gtx, l) }), vspace(12),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					if p.openChat == nil {
+						return layout.Dimensions{}
+					}
+					return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return p.cardHeights[4].Card(gtx, func(gtx layout.Context) layout.Dimensions {
+							return p.goToChat.Layout(gtx, iconChats, l.T("info.open_chat"), l.T("info.open_chat_new"))
+						}, 6)
+					})
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					name := p.chatUsername()
 					if name == "" {
 						return layout.Dimensions{}
@@ -488,7 +529,7 @@ func (p *chatInfo) layoutInfo(gtx layout.Context, l localization.Catalog) layout
 					})
 				}),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					if p.themes == nil {
+					if p.themes == nil || p.openChat != nil || p.closed {
 						return layout.Dimensions{}
 					}
 					subtitle := p.themes.appearance.Theme.Title
