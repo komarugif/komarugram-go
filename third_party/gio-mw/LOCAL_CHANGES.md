@@ -70,8 +70,9 @@ animate as Material 3 describes, and every animation can be turned off.
   - `radio`: the dot grows from the center; ripple; the whole row is
     clickable.
   - `toggle`: the handle slides and changes size, the check icon fades, the
-    state layer follows the handle; ripple. The graphic is drawn outside the
-    clickable, whose clip cut the state layer.
+    state layer follows the handle; ripple. The row is drawn outside the
+    clickable, whose clip cut the state layer; the clickable lies under all
+    of the row, label included, as a checkbox's does (`TestLabelClickToggles`).
   - `rail`: the colors of the indicator, the label and the state layer
     animate; ripple. `rail_theme.go` adds
     the hover and press opacities of an item's state layer.

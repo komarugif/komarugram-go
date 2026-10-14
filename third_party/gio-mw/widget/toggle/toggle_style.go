@@ -51,7 +51,11 @@ func (s widgetStyle[T]) layout(gtx layout.Context) layout.Dimensions {
 }
 
 func (s widgetStyle[T]) layoutOption(gtx layout.Context, value T) layout.Dimensions {
-	return block.Line{
+	// The row is drawn outside the clickable, which clips its content, because
+	// the state layer extends beyond the track; the clickable covers the whole
+	// row, label included, as a checkbox's does.
+	macro := op.Record(gtx.Ops)
+	dims := block.Line{
 		Axis:     block.AxisHorizontal,
 		Overflow: block.OverflowClip,
 		Expand:   true,
@@ -65,6 +69,18 @@ func (s widgetStyle[T]) layoutOption(gtx layout.Context, value T) layout.Dimensi
 			return s.layoutLabel(gtx, label)
 		}).AlignMiddle(),
 	)
+	row := macro.Stop()
+	state := s.getButtonState(gtx, value)
+	if state != disabled {
+		s.Toggle.clickable[value].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			if state == hovered || state == pressed {
+				pointer.CursorPointer.Add(gtx.Ops)
+			}
+			return layout.Dimensions{Size: dims.Size}
+		})
+	}
+	row.Add(gtx.Ops)
+	return dims
 }
 
 func (s widgetStyle[T]) layoutLabel(gtx layout.Context, label string) layout.Dimensions {
@@ -84,18 +100,7 @@ func (s widgetStyle[T]) layoutTarget(gtx layout.Context, value T) layout.Dimensi
 	}
 	padding := s.tTheme.FocusIndicatorOffset + s.tTheme.FocusIndicatorThickness
 	return block.UniformPadding(padding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		// The graphic is drawn outside the clickable, which clips its content,
-		// because the state layer extends beyond the track.
-		dims := s.layoutToggleGraphic(gtx, value, state)
-		if state == disabled {
-			return dims
-		}
-		if state == hovered || state == pressed {
-			pointer.CursorPointer.Add(gtx.Ops)
-		}
-		return s.Toggle.clickable[value].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return dims
-		})
+		return s.layoutToggleGraphic(gtx, value, state)
 	})
 }
 
