@@ -597,7 +597,10 @@ func (p *chatPage) reactionIcon(gtx layout.Context, reaction model.Reaction, ani
 	size := gtx.Dp(18)
 	if reaction.DocumentID != 0 && p.media != nil {
 		msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d", reaction.DocumentID), MIMEType: "application/x-custom-emoji"}}
-		if frame, _ := p.media.Frame(msg, animate); frame != nil && p.images != nil {
+		if p.images == nil {
+			return layout.Dimensions{Size: image.Pt(size, size)}
+		}
+		if frame := emojiFrame(p.media, p.images, msg, animate, scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
 			return exact(gtx, image.Pt(size, size), func(gtx layout.Context) layout.Dimensions {
 				return widget.Image{Src: p.images.Op(frame), Fit: widget.Contain}.Layout(gtx)
 			})

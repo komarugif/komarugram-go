@@ -571,6 +571,10 @@ func (c *messageComposer) drawItem(gtx layout.Context, item model.PickerItem, p 
 			im = status.Preview
 		}
 		if im != nil && p.images != nil {
+			// An emoji of the text's color is drawn in the text's.
+			if item.Media.Media.TextColor {
+				im = p.images.Colored(im, scheme(gtx).Surface.OnColor.AsNRGBA())
+			}
 			defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(6)).Push(gtx.Ops).Pop()
 			fit := widget.Contain
 			if c.tab == model.PickerGIF {

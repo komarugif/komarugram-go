@@ -22,6 +22,7 @@ import (
 	"gioui.org/io/clipboard"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/widget"
 	"golang.org/x/exp/shiny/materialdesign/icons"
@@ -35,7 +36,7 @@ type sharedResult struct {
 	err        error
 }
 type chatInfo struct {
-	cardHeights       [5]heightTransition
+	cardHeights       [6]heightTransition
 	loader            loadingIndicator
 	giftGeneration    uint64
 	drawAvatar        avatarLayout
@@ -85,6 +86,21 @@ type chatInfo struct {
 	// closed is set for a chat the account may not read: its info has none
 	// of its media.
 	closed bool
+	// profile is the chat's profile, as profiles told it: the cover over
+	// the info, the user's channel and the collectible usernames, whose
+	// chips open collectible.
+	profiles      model.PeerProfileSource
+	profile       model.PeerProfile
+	profileResult chan profileResult
+	profileCancel context.CancelFunc
+	cover         coverState
+	fades         coverFades
+	badges        badgesLayout
+	channel       settingsItem
+	chips         map[string]*folderChip
+	collectible   *collectibleDialog
+	// openChannel opens the user's channel, with a way back.
+	openChannel func(model.Chat)
 }
 
 func newChatInfo(source model.ConversationStore, images *imageOps, invalidate func()) *chatInfo {
@@ -93,6 +109,8 @@ func newChatInfo(source model.ConversationStore, images *imageOps, invalidate fu
 	p.usernames, _ = source.(model.UsernameSource)
 	p.details, _ = source.(model.ChatDetailer)
 	p.collection, _ = source.(model.SharedCollectionSource)
+	p.profiles, _ = source.(model.PeerProfileSource)
+	p.chips = map[string]*folderChip{}
 	p.renderer = newChatPage(source, invalidate)
 	p.renderer.media.Close()
 	p.renderer.media = chatmedia.NewShared(source, invalidate)
@@ -140,7 +158,25 @@ func (p *chatInfo) Open(c model.Chat) {
 	p.linkRows = map[model.MessageKey]*sharedLinkRow{}
 	p.giftRows = map[model.MessageKey]*giftRow{}
 	p.gift = nil
+	p.closeCollectible()
+	p.profile = model.PeerProfile{}
+	p.cover = coverState{}
+	p.fades = coverFades{places: shuffledPlaces()}
+	// The profile known last shows at once, without fading in; Telegram's
+	// replaces it when it comes.
+	if p.profiles != nil && c.ID != 0 && c.Kind != model.KindSaved {
+		p.profile, _ = p.profiles.CachedPeerProfile(c.ID)
+	}
+	p.loadProfile()
 	p.load(true)
+}
+
+// closeCollectible drops the dialog of a collectible username.
+func (p *chatInfo) closeCollectible() {
+	if p.collectible != nil {
+		p.collectible.cancel()
+		p.collectible = nil
+	}
 }
 
 // OpenOver opens the info of c over another chat, open, with a button that
@@ -180,6 +216,12 @@ func (p *chatInfo) Close() {
 	p.giftRows = map[model.MessageKey]*giftRow{}
 	p.gift = nil
 	p.messages = nil
+	p.closeCollectible()
+	if p.profileCancel != nil {
+		p.profileCancel()
+		p.profileCancel = nil
+	}
+	p.profileResult = nil
 	if p.themes != nil {
 		p.themes.DiscardPreview()
 	}
@@ -194,6 +236,9 @@ func (p *chatInfo) Release() {
 		r.patternSource = nil
 		r.patternTint = nil
 	}
+	p.cover.gradient, p.cover.gradientKey = nil, ""
+	p.cover.glows = nil
+	p.cover.patternSource, p.cover.patternTint = nil, nil
 }
 func (p *chatInfo) Destroy() { p.Close(); p.renderer.chat = 0; p.renderer.Close() }
 func (p *chatInfo) load(counts bool) {
@@ -296,6 +341,7 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 		return
 	}
 	p.drain()
+	p.drainProfile()
 	if p.problem != nil && p.problem != p.told {
 		p.modal.Toast(mediaErrorText(p.problem))
 	}
@@ -323,6 +369,9 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 	}
 	if p.gift != nil {
 		p.gift.modal.Update(gtx, false)
+	}
+	if p.collectible != nil {
+		p.collectible.modal.Update(gtx, false)
 	}
 	if p.close.Clicked(gtx) {
 		p.modal.Close()
@@ -358,6 +407,16 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 			p.modal.Toast(l.T("info.copied"))
 		}
 	}
+	if ch := p.profile.Channel; ch != nil && p.channel.click.Clicked(gtx) && p.openChannel != nil {
+		open := p.openChannel
+		p.modal.Close()
+		open(ch.Chat)
+	}
+	for _, u := range p.profile.Usernames {
+		if c := p.chips[u.Name]; c != nil && u.Collectible && c.Clicked(gtx) {
+			p.openCollectible(u.Name)
+		}
+	}
 	if p.openChat != nil && p.goToChat.click.Clicked(gtx) {
 		open := p.openChat
 		p.modal.Close()
@@ -373,57 +432,43 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 		p.load(false)
 	}
 	overlayGtx := gtx
-	if p.gift != nil || p.renderer.link != "" {
+	covered := p.gift != nil || p.collectible != nil || p.renderer.link != ""
+	if covered {
 		gtx = gtx.Disabled()
 	}
 	p.giftGeneration++
 	defer p.trimGiftRows()
 	defer mediaFrame(gtx, p.renderer.media)()
-	covered := p.gift != nil || p.renderer.link != ""
 	shown := p.modal.Layout(gtx, covered, func(gtx layout.Context) layout.Dimensions {
 		size := image.Pt(min(gtx.Constraints.Max.X, gtx.Dp(640)), min(gtx.Constraints.Max.Y, gtx.Dp(740)))
 		gtx.Constraints = layout.Exact(size)
 		defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(16)).Push(gtx.Ops).Pop()
 		// The header has no color of its own: it is the body's.
 		fillRect(gtx, scheme(gtx).SurfaceContainerLow, size)
+		if p.section == "" && !p.themePage {
+			// The info scrolls under the header, which shows the name
+			// only once the cover's has gone under it.
+			p.layoutInfo(gtx, l, animate && p.gift == nil)
+			p.layoutInfoHeader(gtx, l)
+			return layout.Dimensions{Size: size}
+		}
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return layout.UniformInset(12).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							if p.section != "" || p.themePage {
-								return navigationButton(gtx, &p.back, iconBack, l.T("settings.back"))
-							}
-							return layout.Dimensions{}
-						}),
-						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-							title := p.chat.Title
-							if p.section != "" {
-								title = l.T("shared." + string(p.section))
-								if total, ok := p.counts[p.section]; ok {
-									title += " · " + groupDigits(total)
-								}
-							}
-							if p.themePage {
-								title = l.T("chat_theme.title")
-							}
-							return label(gtx, title, token.TypestyleTitleLarge, scheme(gtx).Surface.OnColor, 1)
-						}),
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return navigationButton(gtx, &p.close, iconClear, l.T("viewer.close"))
-						}),
-					)
-				})
+				title := l.T("shared." + string(p.section))
+				if total, ok := p.counts[p.section]; ok {
+					title += " · " + groupDigits(total)
+				}
+				if p.themePage {
+					title = l.T("chat_theme.title")
+				}
+				return p.layoutHeader(gtx, l, title)
 			}),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				if p.themePage && p.themes != nil {
 					return p.themes.LayoutChoices(gtx, l)
 				}
-				if p.loading && ((p.section == "" && p.counts == nil) || (p.section != "" && len(p.messages) == 0)) {
+				if p.loading && len(p.messages) == 0 {
 					return p.loader.page(gtx, l)
-				}
-				if p.section == "" {
-					return p.layoutInfo(gtx, l)
 				}
 				return p.layoutMedia(gtx, l, animate && p.gift == nil)
 			}),
@@ -434,9 +479,33 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 		return
 	}
 	p.layoutGiftDialog(overlayGtx, l, animate)
+	p.layoutCollectible(overlayGtx, l)
 	if p.renderer.link != "" {
 		p.renderer.linkDialog(overlayGtx, l)
 	}
+}
+
+// layoutHeader draws the header of a section or the theme's page: back,
+// the title, and the close button. The info's is layoutInfoHeader.
+func (p *chatInfo) layoutHeader(gtx layout.Context, l localization.Catalog, title string) layout.Dimensions {
+	content := scheme(gtx).Surface.OnColor
+	gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, 0)
+	return layout.UniformInset(12).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if p.section != "" || p.themePage {
+					return navigationButton(gtx, &p.back, iconBack, l.T("settings.back"))
+				}
+				return layout.Dimensions{}
+			}),
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, title, token.TypestyleTitleLarge, content, 1)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return navigationButtonColor(gtx, &p.close, iconClear, l.T("viewer.close"), content)
+			}),
+		)
+	})
 }
 
 // OpenTheme shows the page of the chat's theme.
@@ -463,106 +532,207 @@ func (p *chatInfo) goBack() {
 		p.load(true)
 	}
 }
-func (p *chatInfo) layoutInfo(gtx layout.Context, l localization.Catalog) layout.Dimensions {
+func (p *chatInfo) layoutInfo(gtx layout.Context, l localization.Catalog, animate bool) layout.Dimensions {
 	fillRect(gtx, scheme(gtx).SurfaceContainerLow, gtx.Constraints.Max)
 	// One measured block gives the thumb exact pixel geometry. Three unequal
 	// virtual rows made the average-height estimate change during a thumb drag.
 	return p.list.Layout(gtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
-		return layout.Inset{Top: 8, Bottom: 16, Left: 16, Right: 16}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutAvatar(gtx) }),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, p.renderer.chatStatusOnline(p.chat, gtx.Now, l), token.TypestyleBodyMedium, scheme(gtx).SurfaceVariant.OnColor, 2)
-				}),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.status(gtx, l) }), vspace(12),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					if p.openChat == nil {
-						return layout.Dimensions{}
-					}
-					return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return p.cardHeights[4].Card(gtx, func(gtx layout.Context) layout.Dimensions {
-							return p.goToChat.Layout(gtx, iconChats, l.T("info.open_chat"), l.T("info.open_chat_new"))
-						}, 6)
-					})
-				}),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					name := p.chatUsername()
-					if name == "" {
-						return layout.Dimensions{}
-					}
-					return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return p.cardHeights[0].Card(gtx, func(gtx layout.Context) layout.Dimensions {
-							subtitle := l.T("info.username")
-							return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									return p.username.Layout(gtx, iconCopy, "@"+name, subtitle)
-								}),
-								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									return p.usernameLink.Layout(gtx, iconLink, l.T("info.copy_link"), "t.me/"+name)
-								}),
-							)
-						}, 6)
-					})
-				}),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					registration, dataCenter := p.detailTexts(l)
-					if registration == "" && dataCenter == "" {
-						return layout.Dimensions{}
-					}
-					return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return p.cardHeights[1].Card(gtx, func(gtx layout.Context) layout.Dimensions {
-							return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									if registration == "" {
-										return layout.Dimensions{}
-									}
-									return p.registration.Layout(gtx, iconCalendar, registration, l.T("info.registration"))
-								}),
-								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									if dataCenter == "" {
-										return layout.Dimensions{}
-									}
-									return p.dataCenter.Layout(gtx, iconDataCenter, dataCenter, l.T("info.dc"))
-								}),
-							)
-						}, 6)
-					})
-				}),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					if p.themes == nil || p.openChat != nil || p.closed {
-						return layout.Dimensions{}
-					}
-					subtitle := p.themes.appearance.Theme.Title
-					if subtitle == "" {
-						subtitle = l.T("chat_theme.default")
-					}
-					return p.cardHeights[2].Card(gtx, func(gtx layout.Context) layout.Dimensions {
-						return p.themesButton.Layout(gtx, iconPalette, l.T("chat_theme.title"), subtitle)
-					}, 6)
-				}), vspace(12),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					kinds := p.visibleKinds()
-					if len(kinds) == 0 {
-						return layout.Dimensions{}
-					}
-					return p.cardHeights[3].Card(gtx, func(gtx layout.Context) layout.Dimensions {
-						rows := make([]layout.FlexChild, 0, len(kinds))
-						for _, kind := range kinds {
-							rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								// While counting, the ring of the status above tells so.
-								subtitle := ""
-								if n, ok := p.counts[kind]; ok {
-									subtitle = l.SharedCount(kind, n)
-								}
-								return p.sections[kind].Layout(gtx, sharedIcons[kind], l.T("shared."+string(kind)), subtitle)
-							}))
-						}
-						return layout.Flex{Axis: layout.Vertical}.Layout(gtx, rows...)
-					}, 6)
-				}),
-			)
-		})
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutCover(gtx, l, animate) }),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutCards(gtx, l, animate) }),
+		)
 	})
+}
+
+// layoutCards are the info's cards under the cover.
+func (p *chatInfo) layoutCards(gtx layout.Context, l localization.Catalog, animate bool) layout.Dimensions {
+	return layout.Inset{Top: 12, Bottom: 16, Left: 16, Right: 16}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			// Loading is told in the header; a failure here, with a retry.
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if p.loading || p.problem == nil {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions { return p.status(gtx, l) })
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if p.openChat == nil {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return p.cardHeights[4].Card(gtx, func(gtx layout.Context) layout.Dimensions {
+						return p.goToChat.Layout(gtx, iconChats, l.T("info.open_chat"), l.T("info.open_chat_new"))
+					}, 6)
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutChannel(gtx, l, animate) }),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				name := p.chatUsername()
+				if name == "" {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return p.cardHeights[0].Card(gtx, func(gtx layout.Context) layout.Dimensions {
+						subtitle := l.T("info.username")
+						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return p.username.Layout(gtx, iconCopy, "@"+name, subtitle)
+							}),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return p.usernameLink.Layout(gtx, iconLink, l.T("info.copy_link"), "t.me/"+name)
+							}),
+						)
+					}, 6)
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutCollectibles(gtx) }),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				registration, dataCenter := p.detailTexts(l)
+				if registration == "" && dataCenter == "" {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return p.cardHeights[1].Card(gtx, func(gtx layout.Context) layout.Dimensions {
+						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								if registration == "" {
+									return layout.Dimensions{}
+								}
+								return p.registration.Layout(gtx, iconCalendar, registration, l.T("info.registration"))
+							}),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								if dataCenter == "" {
+									return layout.Dimensions{}
+								}
+								return p.dataCenter.Layout(gtx, iconDataCenter, dataCenter, l.T("info.dc"))
+							}),
+						)
+					}, 6)
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if p.themes == nil || p.openChat != nil || p.closed {
+					return layout.Dimensions{}
+				}
+				subtitle := p.themes.appearance.Theme.Title
+				if subtitle == "" {
+					subtitle = l.T("chat_theme.default")
+				}
+				return p.cardHeights[2].Card(gtx, func(gtx layout.Context) layout.Dimensions {
+					return p.themesButton.Layout(gtx, iconPalette, l.T("chat_theme.title"), subtitle)
+				}, 6)
+			}), vspace(12),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				kinds := p.visibleKinds()
+				if len(kinds) == 0 {
+					return layout.Dimensions{}
+				}
+				return p.cardHeights[3].Card(gtx, func(gtx layout.Context) layout.Dimensions {
+					rows := make([]layout.FlexChild, 0, len(kinds))
+					for _, kind := range kinds {
+						rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							// While counting, the ring of the status above tells so.
+							subtitle := ""
+							if n, ok := p.counts[kind]; ok {
+								subtitle = l.SharedCount(kind, n)
+							}
+							return p.sections[kind].Layout(gtx, sharedIcons[kind], l.T("shared."+string(kind)), subtitle)
+						}))
+					}
+					return layout.Flex{Axis: layout.Vertical}.Layout(gtx, rows...)
+				}, 6)
+			}),
+		)
+	})
+}
+
+// layoutChannel is the card of a user's channel, as the cards of the
+// sections: its avatar, its name, and its subscribers with its last post.
+func (p *chatInfo) layoutChannel(gtx layout.Context, l localization.Catalog, animate bool) layout.Dimensions {
+	ch := p.profile.Channel
+	if ch == nil {
+		return layout.Dimensions{}
+	}
+	title := l.ChatTitle(ch.Chat)
+	subtitle := richLabel{runs: channelLine(*ch, l), style: token.TypestyleBodySmall, color: scheme(gtx).SurfaceVariant.OnColor, maxLines: 1,
+		media: p.renderer.media, images: p.renderer.images, animate: animate}
+	return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return p.cardHeights[5].Card(gtx, func(gtx layout.Context) layout.Dimensions {
+			size := gtx.Dp(40)
+			return p.channel.layoutWith(gtx, func(gtx layout.Context) layout.Dimensions {
+				if p.drawAvatar == nil {
+					return layout.Dimensions{Size: gtx.Constraints.Max}
+				}
+				return p.drawAvatar(gtx, ch.Chat.ID, ch.Chat.Kind, ch.Chat.Title, 40)
+			}, size, title, subtitle.Layout)
+		}, 6)
+	})
+}
+
+// channelLine is the line under the name of a user's channel: its
+// subscribers, then its last post as the chat list words it, but with its
+// text whole, custom emoji too.
+func channelLine(ch model.PersonalChannel, l localization.Catalog) []model.TextRun {
+	var runs []model.TextRun
+	if n := ch.Chat.Members; n > 0 {
+		runs = append(runs, model.TextRun{Text: l.Count("status.subscribers", n, map[string]string{"count": groupDigits(n)})})
+	}
+	var post []model.TextRun
+	if ch.Post.Service != nil || ch.Post.Text == "" {
+		if _, text := l.Preview(ch.Post, ch.Chat.Title, true); text != "" {
+			post = append(post, model.TextRun{Text: text})
+		}
+	} else {
+		media := ch.Post
+		media.Text = ""
+		if _, prefix := l.Preview(media, ch.Chat.Title, true); prefix != "" {
+			post = append(post, model.TextRun{Text: prefix + ", "})
+		}
+		post = append(post, model.TextRuns(ch.Post.Text, ch.Entities)...)
+	}
+	if len(runs) > 0 && len(post) > 0 {
+		runs = append(runs, model.TextRun{Text: " • "})
+	}
+	return append(runs, post...)
+}
+
+// layoutCollectibles are the chips of the collectible usernames, in lines
+// as many as they take; a click tells about one.
+func (p *chatInfo) layoutCollectibles(gtx layout.Context) layout.Dimensions {
+	var names []string
+	for _, u := range p.profile.Usernames {
+		if u.Collectible {
+			names = append(names, u.Name)
+		}
+	}
+	if len(names) == 0 {
+		return layout.Dimensions{}
+	}
+	gap := gtx.Dp(8)
+	width := gtx.Constraints.Max.X
+	gtx.Constraints.Min = image.Point{}
+	x, y, line := 0, 0, 0
+	for _, name := range names {
+		c := p.chips[name]
+		if c == nil {
+			c = new(folderChip)
+			p.chips[name] = c
+		}
+		macro := op.Record(gtx.Ops)
+		dims := c.Layout(gtx, "@"+name, true, 0)
+		call := macro.Stop()
+		if x > 0 && x+dims.Size.X > width {
+			x, y = 0, y+line+gap
+			line = 0
+		}
+		offset(gtx, image.Pt(x, y), func(gtx layout.Context) layout.Dimensions {
+			call.Add(gtx.Ops)
+			return dims
+		})
+		x += dims.Size.X + gap
+		line = max(line, dims.Size.Y)
+	}
+	return layout.Dimensions{Size: image.Pt(width, y+line+gtx.Dp(12))}
 }
 func (p *chatInfo) visibleKinds() []model.SharedKind {
 	kinds := make([]model.SharedKind, 0, len(p.kinds))
@@ -724,19 +894,15 @@ func (p *chatInfo) detailTexts(l localization.Catalog) (registration, dataCenter
 	return registration, dataCenter
 }
 
-// layoutAvatar draws the chat's avatar over its info, centered; a click on
-// it shows the photo in the viewer.
+// layoutAvatar draws the chat's avatar in the cover; a click on it shows
+// the photo in the viewer.
 func (p *chatInfo) layoutAvatar(gtx layout.Context) layout.Dimensions {
-	if p.drawAvatar == nil || p.chat.Kind == model.KindSaved {
+	if p.drawAvatar == nil {
 		return layout.Dimensions{}
 	}
-	return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.N.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min = image.Point{}
-			return p.avatar.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				pointer.CursorPointer.Add(gtx.Ops)
-				return p.drawAvatar(gtx, p.chat.ID, p.chat.Kind, p.chat.Title, pageAvatarSize)
-			})
-		})
+	gtx.Constraints.Min = image.Point{}
+	return p.avatar.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		pointer.CursorPointer.Add(gtx.Ops)
+		return p.drawAvatar(gtx, p.chat.ID, p.chat.Kind, p.chat.Title, pageAvatarSize)
 	})
 }

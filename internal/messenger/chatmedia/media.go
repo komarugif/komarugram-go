@@ -36,11 +36,14 @@ type Source interface {
 	Media(context.Context, model.Message) ([]byte, error)
 }
 type entry struct {
-	mu     sync.Mutex
-	frame  image.Image
-	still  image.Image
-	wasm   bool
-	ffmpeg string
+	mu    sync.Mutex
+	frame image.Image
+	// textColor: the custom emoji is drawn in the text's color; see
+	// TextColored.
+	textColor bool
+	still     image.Image
+	wasm      bool
+	ffmpeg    string
 	// sandboxGIF plays the GIF with the H.264 decoder in its sandbox, for
 	// want of an FFmpeg.
 	sandboxGIF bool
@@ -139,6 +142,23 @@ func New(source Source, changed func()) *Manager {
 	m.avc.open = newAVCRuntime
 	return m
 }
+
+// TextColored tells whether msg's custom emoji is drawn in the color of
+// the text around it: its frames are its shape, for the caller to color.
+// It is known by the time its first frame is.
+func (m *Manager) TextColored(msg model.Message) bool {
+	if msg.Media == nil {
+		return false
+	}
+	e := m.entries[msg.Media.ID]
+	if e == nil {
+		return false
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.textColor
+}
+
 func (m *Manager) Frame(msg model.Message, animate bool) (image.Image, error) {
 	return m.frame(msg, animate, image.Point{}, false, false)
 }
@@ -651,6 +671,11 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 			var id int64
 			fmt.Sscanf(msg.Media.ID, "emoji/%d", &id)
 			msg, err = source.CustomEmoji(ctx, id)
+			if err == nil && msg.Media != nil {
+				e.mu.Lock()
+				e.textColor = msg.Media.TextColor
+				e.mu.Unlock()
+			}
 		} else {
 			err = errors.New("custom emoji unavailable")
 		}

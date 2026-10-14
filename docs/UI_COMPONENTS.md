@@ -70,7 +70,8 @@ put it next to these, and add it to this page.
 | Component | Use it for |
 |---|---|
 | `tabRow` (`tabs.go`) | Tabs of equal width: centered titles, the active one in the primary color, an indicator that slides to the tab switched to, ripple on each tab. `Slide` brings in the content of the tab switched to from its side. Used by the composer's picker and the search. |
-| `folderChip` (`folderbar.go`) | A capsule that is selected or not, with an optional counter: folders in the compact layout, sections of the search. Put several in a horizontal `scroll.List`. |
+| `folderChip` (`folderbar.go`) | A capsule that is selected or not, with an optional counter: folders in the compact layout, sections of the search, a profile's collectible usernames. Put several in a horizontal `scroll.List`. |
+| `richLabel` (`rich_label.go`) | A label of `model.TextRun`s: bold and italic parts, custom emoji drawn as their pictures in a square of their own. A custom emoji Telegram marks of the text's color (`MessageMedia.TextColor`, `chatmedia.Manager.TextColored`) is its shape in the text's color, as Telegram Desktop draws it, here and wherever custom emoji are drawn: `emojiFrame`, `imageOps.Colored`. `maxLines: 1` cuts one line with an ellipsis. `markedRuns` makes the runs of a catalog's text whose bold parts are between `**`, as Telegram Desktop's `lng_…` texts mark them. |
 | `modal` (`modal.go`) | A dialog over a scrim: animates in and out, closes on Escape or a click beside it, takes the focus. The owner keeps what it shows until `Layout` reports it closed. Examples: `sessionEndedDialog`, `connectionFailedDialog`, `emojiOffer`, `frozenView`, the delete dialog. |
 | `contextMenu` (`contextmenu.go`) | A menu that grows from a corner of a rectangle, such as the attachment menu. Draws its own shadow. |
 | `drawShadow` (`shadow.go`) | The soft shadow of a rounded rectangle, with `dialogShadow` and `menuShadow`: `modal` and `contextMenu` draw them, so a dialog or a menu built on those needs nothing more. Its intensity is a setting of the appearance section (`preferences.Overlays.Shadow`, in percent of the usual shadow, put in the frame by `withShadowIntensity`). Darker on dark themes; faint where the page is nearly black already. It is a picture made once per radius, blur and color and drawn in nine pieces: a shadow made of a fill per layer cost 20 times the frame without it on a rasterizer without a GPU (`BenchmarkDialogShadowFrame`). |
@@ -361,6 +362,20 @@ size-stability fixes remain in place.
   list's `toast` without asking the store, and a store's failure comes back to
   the toast on the next frame. A pinned chat with nothing unread draws
   `drawPin` where its counter would be.
+- **A chat's info** (`shared.go`, `profile_cover.go`,
+  `collectible_username.go`): a `modal` whose first page scrolls under its
+  header, which shows the name only once the cover's has gone under it.
+  The cover, as Telegram Desktop's profile, centers the avatar, the name
+  with its badges (`badgesLayout`, emoji status included) and the status
+  over the backdrop of the gift the emoji status is (a radial gradient,
+  its pattern's emoji around the avatar in `patternTone`) or the profile's
+  color, with the gifts pinned to the profile around the avatar, which
+  open in the gift's dialog. Under it, `settingsItem` cards: a user's
+  channel (`settingsItem.layout` with its avatar for the icon), the
+  username, the collectible usernames as `folderChip`s in lines, whose
+  click opens their Fragment dialog (a `modal` of its own,
+  `filledButton`), the details, the theme and the sections.
+  `model.PeerProfileSource` gives the profile; `SHARED_PNG` saves it.
 - **Forum page** (`forum.go`): the topics of a forum chat in place of its
   history, under the chat's header (which opens its info). A row is drawn as the
   chat list's: `surface`, icon plate (`fillRounded`, the topic's colour, a house

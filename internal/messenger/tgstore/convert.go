@@ -323,6 +323,7 @@ func documentMedia(d *tg.Document) (model.MessageKind, *model.MessageMedia, *fil
 		case *tg.DocumentAttributeCustomEmoji:
 			sticker = true
 			m.StickerSet = stickerSetRef(a.Stickerset)
+			m.TextColor = a.TextColor
 		}
 	}
 	if animated || d.MimeType == "image/gif" {

@@ -53,6 +53,7 @@ type Store struct {
 	connectionErr error
 	reconnect     chan struct{}
 	search        searchState
+	profiles      profileColors
 	freeze        model.Freeze
 	// freezeChecked is when a refused request last read the configuration
 	// again: see Middleware.

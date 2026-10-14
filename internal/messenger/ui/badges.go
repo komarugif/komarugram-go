@@ -116,6 +116,10 @@ func (a *App) layoutCustomEmoji(gtx layout.Context, id int64, size unit.Dp) layo
 	if frame == nil {
 		return layout.Dimensions{}
 	}
+	// One of the text's color is in the Premium star's, as a status is.
+	if a.avatars.media.TextColored(emoji) {
+		frame = a.images.Colored(frame, telegramBlue)
+	}
 	return drawImage(gtx, &a.images, frame, image.Pt(px, px))
 }
 

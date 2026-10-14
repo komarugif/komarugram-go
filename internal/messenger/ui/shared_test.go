@@ -193,6 +193,14 @@ func TestRenderSharedMediaAndThemes(t *testing.T) {
 	info.counts = counts
 	info.loading = false
 	render("info")
+	info.openCollectible("anna")
+	render("collectible")
+	info.closeCollectible()
+	info.list.Position.Offset = 60
+	render("info-scrolling")
+	info.list.Position.Offset = 400
+	render("info-scrolled")
+	info.list.Position = layout.Position{}
 	info.selectSection(model.SharedPhotos)
 	awaitShared(t, info)
 	render("photos")
@@ -220,6 +228,9 @@ func TestRenderSharedMediaAndThemes(t *testing.T) {
 	info.Close()
 	themes.choose(choices[0])
 	render("chat")
+	info.Open(model.Chat{ID: 4, Title: "Новости Go", Kind: model.KindChannel, Members: 48210, Badges: model.Badges{Verified: true}})
+	awaitShared(t, info)
+	render("channel")
 }
 
 func TestInfoThumbDragStableAcrossUnequalContent(t *testing.T) {
@@ -240,7 +251,7 @@ func TestInfoThumbDragStableAcrossUnequalContent(t *testing.T) {
 		gtx := sharedContext(ops, image.Pt(640, 360))
 		gtx.Source = router.Source()
 		gtx.Now = now
-		p.layoutInfo(gtx, localization.For("en"))
+		p.layoutInfo(gtx, localization.For("en"), false)
 		router.Frame(ops)
 		now = now.Add(16 * time.Millisecond)
 	}

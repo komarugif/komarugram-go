@@ -1240,6 +1240,14 @@ func (it *settingsItem) Layout(gtx layout.Context, icon wdk.IconWidget, title, s
 
 // layout draws the row with leading, a square of leadingPx, at its start.
 func (it *settingsItem) layout(gtx layout.Context, leading layout.Widget, leadingPx int, title, subtitle string) layout.Dimensions {
+	return it.layoutWith(gtx, leading, leadingPx, title, func(gtx layout.Context) layout.Dimensions {
+		return label(gtx, subtitle, token.TypestyleBodySmall, scheme(gtx).SurfaceVariant.OnColor, 1)
+	})
+}
+
+// layoutWith is layout with a subtitle of its own, as a richLabel, in the
+// width it is given.
+func (it *settingsItem) layoutWith(gtx layout.Context, leading layout.Widget, leadingPx int, title string, subtitle layout.Widget) layout.Dimensions {
 	sc := scheme(gtx)
 	size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(settingsItemHeight))
 	style := surfaceStyle{radius: gtx.Dp(12), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor}
@@ -1264,7 +1272,7 @@ func (it *settingsItem) layout(gtx layout.Context, leading layout.Widget, leadin
 		}, it.badge)
 		titleCall := macro.Stop()
 		macro = op.Record(gtx.Ops)
-		subDims := label(textGtx, subtitle, token.TypestyleBodySmall, sc.SurfaceVariant.OnColor, 1)
+		subDims := subtitle(textGtx)
 		subCall := macro.Stop()
 		top := (size.Y - titleDims.Size.Y - subDims.Size.Y) / 2
 		offset(gtx, image.Pt(textX, top), func(gtx layout.Context) layout.Dimensions {

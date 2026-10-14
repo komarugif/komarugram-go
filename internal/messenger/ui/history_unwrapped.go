@@ -266,7 +266,7 @@ func (p *chatPage) largeEmoji(gtx layout.Context, m model.Message, animate bool)
 	if doc != 0 {
 		if p.media != nil && p.images != nil {
 			msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d", doc), MIMEType: "application/x-custom-emoji"}}
-			if frame, _ := p.media.Frame(msg, animate); frame != nil {
+			if frame := emojiFrame(p.media, p.images, msg, animate, scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
 				return exact(gtx, size, func(gtx layout.Context) layout.Dimensions {
 					return widget.Image{Src: p.images.Op(frame), Fit: widget.Contain}.Layout(gtx)
 				})

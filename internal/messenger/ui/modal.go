@@ -54,7 +54,13 @@ type modal struct {
 	// toast tells the outcome of what was done in the dialog, at its
 	// bottom.
 	toast toast
+	// visible is how much the dialog showed in the frame drawn last.
+	visible float32
 }
+
+// Entered tells whether the dialog has animated in: what animates in it
+// on its own waits for that, not to move while the dialog grows.
+func (m *modal) Entered() bool { return m.shown && !m.closing && m.visible >= 1 }
 
 // Open shows the dialog, animating in.
 func (m *modal) Open() {
@@ -115,6 +121,7 @@ func (m *modal) Layout(gtx layout.Context, locked bool, content layout.Widget) b
 		return false
 	}
 	visibility := m.animate(gtx)
+	m.visible = visibility
 	if m.closing && visibility == 0 {
 		m.Hide()
 		return false

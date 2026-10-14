@@ -548,6 +548,10 @@ func (d *stickerSetDialog) item(gtx layout.Context, p *chatPage, item model.Pick
 		im = status.Preview
 	}
 	if im != nil {
+		// An emoji of the text's color is drawn in the text's.
+		if item.Media.Media != nil && item.Media.Media.TextColor {
+			im = p.images.Colored(im, scheme(gtx).Surface.OnColor.AsNRGBA())
+		}
 		return widget.Image{Src: p.images.Op(im), Fit: widget.Contain}.Layout(gtx)
 	}
 	style := token.TypestyleTitleLarge

@@ -18,6 +18,9 @@ A plural text adds the CLDR form to its key: `key#one`, `key#few`,
 `key#many`, `key#other` (also `#zero`, `#two`). The key alone is the text
 when no form fits. Placeholders are `{name}`, filled by `l.Format` and
 `l.Count` (`{count}`); some older texts are `fmt` verbs (`%s`, `%d`).
+A text marks its bold parts with `**`, as Telegram Desktop's do; only a
+text drawn by `richLabel` (`markedRuns`) may have them, which a
+Telegram key mapped to it brings too.
 
 Every language has `language.name` (its name in itself, for the settings)
 and `number.decimal`; `language.rtl` = `"true"` marks one written right to

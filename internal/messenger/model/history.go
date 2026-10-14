@@ -59,15 +59,18 @@ type MessageMedia struct {
 	// StickerSet identifies the pack of a sticker or custom emoji. It is nil
 	// for documents without a usable pack reference.
 	StickerSet *StickerSetRef `json:",omitempty"`
-	ID         string
-	FileName   string
-	MIMEType   string
-	Size       int64
-	Width      int
-	Height     int
-	Duration   time.Duration
-	Performer  string
-	Title      string
+	// TextColor marks a custom emoji drawn in the color of the text around
+	// it, as Telegram marks some: its shape, not its own colors.
+	TextColor bool `json:",omitempty"`
+	ID        string
+	FileName  string
+	MIMEType  string
+	Size      int64
+	Width     int
+	Height    int
+	Duration  time.Duration
+	Performer string
+	Title     string
 	// Waveform is a voice message's loudness in 5-bit bars, as Telegram
 	// packs it (see voice.Bars); nil when the sender gave none.
 	Waveform []byte `json:",omitempty"`

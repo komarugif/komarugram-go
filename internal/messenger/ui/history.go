@@ -1028,8 +1028,7 @@ func (p *chatPage) textFlow(gtx layout.Context, r *messageRow, block *messageTex
 		}
 		if run.Emoji != 0 && (!run.Spoiler || r.revealed || !r.text.reveal.started.IsZero()) {
 			msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d", run.Emoji), MIMEType: "application/x-custom-emoji"}}
-			frames[i], _ = p.media.Frame(msg, animate)
-			if frames[i] != nil {
+			if frames[i] = emojiFrame(p.media, p.images, msg, animate, st.Color); frames[i] != nil {
 				st.Color.A = 0
 			}
 		}

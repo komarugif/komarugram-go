@@ -189,7 +189,8 @@ func (s *Store) CustomEmoji(ctx context.Context, id int64) (model.Message, error
 	if cache == nil {
 		return m, errors.New("emoji: connection not ready")
 	}
-	key := fmt.Sprintf("emoji/%d", id)
+	// The second version of the key: the first kept no TextColor.
+	key := fmt.Sprintf("emoji/v2/%d", id)
 	if ok, e := cache.Get(ctx, key, &m); e != nil || ok {
 		return m, e
 	}

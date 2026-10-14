@@ -520,6 +520,10 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 				a.openReturning(chat, from, nil)
 			}
 		}
+		// A user's channel in their info opens with a way back, as a
+		// channel's discussion does.
+		a.info.openChannel = a.history.openReturning
+		a.info.badges = a.badges
 		if _, ok := store.(model.CommentsStore); ok {
 			a.history.openComments = a.openComments
 			a.comments = a.newChatPage(source, store, w)
