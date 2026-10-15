@@ -378,3 +378,24 @@ func TestFullPeerRefreshUpdatesMembershipMetadata(t *testing.T) {
 		t.Fatal("explicit zero treated as unknown")
 	}
 }
+
+func TestJoinRequestSupergroup(t *testing.T) {
+	for _, creator := range []bool{false, true} {
+		s, id, ch, _ := membershipStore(t, false, creator, true)
+		ch.Broadcast, ch.JoinRequest = false, true
+		s.rememberPeers(nil, []tg.ChatClass{ch})
+		m := s.Membership(id)
+		if !m.Channel || m.Broadcast || m.Request == creator {
+			t.Fatalf("creator %v: %+v", creator, m)
+		}
+	}
+}
+func TestJoinErrors(t *testing.T) {
+	for typ, want := range map[string]error{"USERS_TOO_MUCH": model.ErrJoinFull, "USER_BANNED_IN_CHANNEL": model.ErrChatInaccessible, "INVITE_REQUEST_SENT": model.ErrJoinRequested} {
+		s, id, _, _ := membershipStore(t, false, false, true)
+		s.history.api = composerAPI(func(bin.Encoder) (bin.Encoder, error) { return nil, &tgerr.Error{Code: 400, Type: typ} })
+		if err := s.JoinChat(context.Background(), id); !errors.Is(err, want) {
+			t.Fatalf("%s: %v", typ, err)
+		}
+	}
+}

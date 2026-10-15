@@ -101,17 +101,27 @@ func (c *messageComposer) enforcePermissions(gtx layout.Context) {
 }
 func (c *messageComposer) layoutReadOnly(gtx layout.Context, p *chatPage, l localization.Catalog) layout.Dimensions {
 	rights := c.permissions(c.chat)
-	if !rights.Broadcast {
-		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, restrictionText(rights, model.SendText, l), token.TypestyleBodySmall, scheme(gtx).SurfaceVariant.OnColor, 2)
-		})
-	}
 	membership := model.ChatMembership{}
 	if source := p.membershipSource(); source != nil {
 		membership = source.Membership(c.chat)
 	}
-	if membership.Known && membership.Left && c.join.Clicked(gtx) {
+	joinable := membership.Known && membership.Left && membership.Channel
+	if joinable && c.join.Clicked(gtx) {
 		p.startMembership(c.chat, membershipJoin)
+	}
+	if !rights.Broadcast {
+		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			if joinable {
+				// A supergroup the account is not in is joined, or applied
+				// to when its admins approve the members, as Telegram
+				// Desktop's bottom bar does.
+				if p.membership.busy || p.frozen.Frozen() {
+					gtx = gtx.Disabled()
+				}
+				return textButton(gtx, &c.join, l.T(joinKey(membership)))
+			}
+			return label(gtx, restrictionText(rights, model.SendText, l), token.TypestyleBodySmall, scheme(gtx).SurfaceVariant.OnColor, 2)
+		})
 	}
 	if !membership.Left && c.mute.Clicked(gtx) {
 		c.muted[c.chat] = !c.muted[c.chat]
@@ -159,7 +169,7 @@ drained:
 					if p.membership.busy || p.frozen.Frozen() {
 						gtx = gtx.Disabled()
 					}
-					return textButton(gtx, &c.join, l.T("membership.join"))
+					return textButton(gtx, &c.join, l.T(joinKey(membership)))
 				}
 				key := "composer.mute"
 				if c.muted[c.chat] {

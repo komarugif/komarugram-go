@@ -16,7 +16,7 @@ import (
 
 // channelRights are the account's rights in a channel or supergroup.
 func channelRights(ch *tg.Channel) peerRights {
-	r := peerRights{Known: !ch.Min, Creator: ch.Creator, NoForwards: ch.Noforwards, Broadcast: ch.Broadcast, Delete: ch.Creator, Post: ch.Creator, Left: ch.Left, JoinToSend: ch.JoinToSend, Gigagroup: ch.Gigagroup, HasDiscussion: ch.HasLink}
+	r := peerRights{Known: !ch.Min, Creator: ch.Creator, NoForwards: ch.Noforwards, Broadcast: ch.Broadcast, Delete: ch.Creator, Post: ch.Creator, Left: ch.Left, JoinToSend: ch.JoinToSend, JoinRequest: ch.JoinRequest, Gigagroup: ch.Gigagroup, HasDiscussion: ch.HasLink}
 	_, admin := ch.GetAdminRights()
 	r.Admin = ch.Creator || admin
 	r.Delete = r.Delete || ch.AdminRights.DeleteMessages

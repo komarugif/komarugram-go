@@ -837,6 +837,7 @@
 "language.name" = "Русский";
 
 "links.channel_not_accessible" = "К сожалению, этот канал недоступен.";
+"links.group_not_accessible" = "К сожалению, эта группа недоступна.";
 "links.invite_bad" = "К сожалению, ссылка-приглашение недействительна или устарела.";
 "links.join_channel" = "Подписаться";
 "links.join_group" = "Вступить в группу";
@@ -900,15 +901,19 @@
 "look.seconds" = "Секунды во времени сообщений";
 "look.title" = "Сообщения и аватары";
 
+"membership.apply" = "Подать заявку на вступление";
 "membership.changed" = "Владелец или преемник изменился. Нажмите «Повторить», чтобы проверить условия выхода.";
+"membership.full" = "К сожалению, группа заполнена.";
 "membership.join" = "Подписаться";
+"membership.join_group" = "Вступить в группу";
 "membership.leave" = "Выйти";
 "membership.leave_channel" = "Отписаться от канала";
 "membership.leave_group" = "Выйти из группы";
 "membership.left_channel" = "Вы отписались от канала";
 "membership.left_group" = "Вы вышли из группы";
 "membership.owner_blocked" = "Telegram не разрешил владельцу выйти. Сначала передайте права другому участнику в Telegram Desktop.";
-"membership.request_sent" = "Заявка на вступление отправлена";
+"membership.request_sent" = "Вы будете добавлены в группу, когда администратор одобрит вашу заявку.";
+"membership.request_sent_channel" = "Вы будете добавлены в канал, когда его администраторы одобрят вашу заявку.";
 "membership.successor" = "После вашего выхода новым владельцем через 7 дней станет {user}. Чтобы назначить другого владельца, отмените выход и сначала передайте права в Telegram Desktop.";
 "membership.successor_basic" = "После вашего выхода новым владельцем сразу станет {user}. Чтобы назначить другого владельца, отмените выход и сначала передайте права в Telegram Desktop.";
 "membership.sure_channel" = "Вы уверены, что хотите отписаться от канала?";

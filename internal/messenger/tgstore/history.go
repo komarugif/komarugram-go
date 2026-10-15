@@ -66,6 +66,8 @@ type peerRights struct {
 	// discussion group takes comments only from members.
 	Banned     bool `json:",omitempty"`
 	JoinToSend bool `json:",omitempty"`
+	// JoinRequest: joining a supergroup waits for an admin's approval.
+	JoinRequest bool `json:",omitempty"`
 }
 
 func (p peerRecord) input() tg.InputPeerClass {
@@ -369,6 +371,7 @@ func (s *Store) rememberPeers(users []tg.UserClass, chats []tg.ChatClass) {
 			if ch.Min && p.Rights.Known {
 				p.Rights.Default = bannedKinds(ch.DefaultBannedRights)
 				p.Rights.JoinToSend = ch.JoinToSend
+				p.Rights.JoinRequest = ch.JoinRequest
 				p.Rights.Gigagroup = ch.Gigagroup
 				p.Rights.HasDiscussion = ch.HasLink
 				if !ch.HasLink {

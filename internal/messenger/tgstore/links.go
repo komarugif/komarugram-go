@@ -125,14 +125,11 @@ func (s *Store) JoinInvite(ctx context.Context, hash string) (model.Chat, error)
 		return model.Chat{}, errors.New("offline")
 	}
 	res, err := api.MessagesImportChatInvite(ctx, hash)
-	if tgerr.Is(err, "INVITE_REQUEST_SENT") {
-		return model.Chat{}, model.ErrJoinRequested
-	}
 	if tgerr.Is(err, "INVITE_HASH_EXPIRED", "INVITE_HASH_INVALID") {
 		return model.Chat{}, model.ErrLinkNotFound
 	}
 	if err != nil {
-		return model.Chat{}, err
+		return model.Chat{}, joinError(err)
 	}
 	joined, ok := res.(*tg.MessagesChatInviteJoinResultOk)
 	if !ok {

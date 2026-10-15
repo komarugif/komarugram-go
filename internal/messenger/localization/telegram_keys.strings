@@ -233,6 +233,7 @@
 "info.collectible_title" = "lng_collectible_username_title";
 
 "links.channel_not_accessible" = "lng_channel_not_accessible";
+"links.group_not_accessible" = "lng_group_not_accessible";
 "links.invite_bad" = "lng_group_invite_bad_link";
 "links.join_channel" = "lng_profile_join_channel";
 "links.join_group" = "lng_profile_join_group";
@@ -249,10 +250,15 @@
 "login.phone_invalid" = "lng_bad_phone";
 "login.title_password" = "lng_signin_title";
 
+"membership.apply" = "lng_profile_apply_to_join_group";
+"membership.full" = "lng_group_full";
 "membership.join" = "lng_profile_join_channel";
+"membership.join_group" = "lng_profile_join_group";
 "membership.leave" = "lng_box_leave";
 "membership.leave_channel" = "lng_profile_leave_channel";
 "membership.leave_group" = "lng_profile_leave_group";
+"membership.request_sent" = "lng_group_request_sent";
+"membership.request_sent_channel" = "lng_group_request_sent_channel";
 "membership.sure_channel" = "lng_sure_leave_channel";
 "membership.sure_group" = "lng_sure_leave_group";
 

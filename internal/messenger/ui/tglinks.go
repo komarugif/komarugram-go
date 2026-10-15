@@ -147,10 +147,10 @@ func (p *chatPage) takeTelegramLink(r tgLinkResult, l localization.Catalog) {
 		default:
 			p.toast.Show(l.T("links.invite_bad"))
 		}
-	case errors.Is(r.err, model.ErrJoinRequested):
-		p.toast.Show(l.T("membership.request_sent"))
-	case errors.Is(r.err, model.ErrJoinVerification):
-		p.toast.Show(l.T("membership.verification"))
+	case errors.Is(r.err, model.ErrJoinRequested), errors.Is(r.err, model.ErrJoinVerification),
+		errors.Is(r.err, model.ErrJoinFull), errors.Is(r.err, model.ErrChatInaccessible):
+		// The dialog the join was asked in still has the invite.
+		p.toast.Show(membershipError(r.err, p.tgLinks.invite.Channel, l))
 	case r.err != nil:
 		p.toast.Show(mediaErrorText(r.err))
 	case r.invite != nil && r.invite.Chat != nil:

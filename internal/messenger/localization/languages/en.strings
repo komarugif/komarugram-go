@@ -800,6 +800,7 @@
 "language.name" = "English";
 
 "links.channel_not_accessible" = "Sorry, this channel is not accessible.";
+"links.group_not_accessible" = "Sorry, this group is not accessible.";
 "links.invite_bad" = "Sorry, this invite link is invalid or has expired.";
 "links.join_channel" = "Join Channel";
 "links.join_group" = "Join Group";
@@ -862,15 +863,19 @@
 "look.seconds" = "Show Message Seconds";
 "look.title" = "Messages and Avatars";
 
+"membership.apply" = "Apply to Join Group";
 "membership.changed" = "The owner or successor changed. Retry to review the consequences of leaving.";
+"membership.full" = "Sorry, this group is full.";
 "membership.join" = "Join Channel";
+"membership.join_group" = "Join Group";
 "membership.leave" = "Leave";
 "membership.leave_channel" = "Leave channel";
 "membership.leave_group" = "Leave group";
 "membership.left_channel" = "You left the channel";
 "membership.left_group" = "You left the group";
 "membership.owner_blocked" = "Telegram did not allow the owner to leave. Transfer ownership to another member in Telegram Desktop first.";
-"membership.request_sent" = "Join request sent";
+"membership.request_sent" = "You will be added to the group once an admin approves your request.";
+"membership.request_sent_channel" = "You will be added to the channel once its admins approve your request.";
 "membership.successor" = "After you leave, {user} will become the new owner in 7 days. To choose someone else, cancel and transfer ownership in Telegram Desktop first.";
 "membership.successor_basic" = "After you leave, {user} will immediately become the new owner. To choose someone else, cancel and transfer ownership in Telegram Desktop first.";
 "membership.sure_channel" = "Are you sure you want to leave this channel?";
