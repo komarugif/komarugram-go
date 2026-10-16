@@ -37,6 +37,9 @@ const (
 	// the first account is added: Installed tells it was, and the program
 	// to start in place of this one, Continue that it was declined.
 	StepInstall
+	// StepQR shows a QR code to scan with a device where the account is
+	// signed in; UsePhone leaves it for the phone number.
+	StepQR
 )
 
 // State is a snapshot of the sign-in for drawing.
@@ -58,11 +61,17 @@ type State struct {
 	CodeLength int
 	// Hint is the account's hint for its 2FA password, at StepPassword.
 	Hint string
+	// QRLink is the login token to show as a QR code at StepQR; "" while it
+	// is being made.
+	QRLink string
 }
 
 type answer struct {
 	text string
 	back bool
+	// other is the other way to sign in: the phone number at StepQR, the QR
+	// code at StepPhone.
+	other bool
 }
 
 // Login is the state of one sign-in. It is safe for use from any goroutine.
@@ -115,9 +124,20 @@ func (l *Login) Installed(exe string) {
 	l.give(answer{text: exe}, StepInstall)
 }
 
-// Back leaves the code or password step for the phone number.
+// Back leaves the code or password step for the phone number, or for the
+// QR code where the password was asked after one.
 func (l *Login) Back() {
 	l.give(answer{back: true}, StepCode, StepPassword)
+}
+
+// UsePhone leaves the QR code for the phone number.
+func (l *Login) UsePhone() {
+	l.give(answer{other: true}, StepQR)
+}
+
+// UseQR leaves the phone number for a QR code.
+func (l *Login) UseQR() {
+	l.give(answer{other: true}, StepPhone)
 }
 
 func (l *Login) give(a answer, steps ...Step) {
@@ -133,10 +153,12 @@ func (l *Login) give(a answer, steps ...Step) {
 		l.waiting = false
 		l.state.Busy = true
 		l.state.Problem = nil
+		// Never blocks: one answer per question. It is sent under the lock
+		// for a question given up meanwhile to take it back (abandon).
+		l.answers <- a
 	}
 	l.mu.Unlock()
 	if ok {
-		l.answers <- a // Never blocks: one answer per question.
 		l.changed()
 	}
 }
@@ -197,6 +219,18 @@ func (l *Login) Run(ctx context.Context, connect func(ctx context.Context, p acc
 
 // ask shows s and waits for the answer to it.
 func (l *Login) ask(ctx context.Context, s State) (answer, error) {
+	l.show(s)
+	select {
+	case a := <-l.answers:
+		return a, nil
+	case <-ctx.Done():
+		l.abandon()
+		return answer{}, ctx.Err()
+	}
+}
+
+// show shows s, a question to be answered.
+func (l *Login) show(s State) {
 	l.mu.Lock()
 	l.seq++
 	s.Seq = l.seq
@@ -204,11 +238,17 @@ func (l *Login) ask(ctx context.Context, s State) (answer, error) {
 	l.waiting = true
 	l.mu.Unlock()
 	l.changed()
+}
+
+// abandon gives up the question shown, and an answer given to it that was
+// not taken: the next question is not to take it for its own.
+func (l *Login) abandon() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.waiting = false
 	select {
-	case a := <-l.answers:
-		return a, nil
-	case <-ctx.Done():
-		return answer{}, ctx.Err()
+	case <-l.answers:
+	default:
 	}
 }
 
@@ -225,9 +265,33 @@ func (l *Login) OfferInstall(ctx context.Context) (string, error) {
 	return a.text, err
 }
 
+// QR implements account.Prompter.
+func (l *Login) QR(ctx context.Context, link string, more <-chan string) error {
+	l.show(State{Step: StepQR, QRLink: link})
+	for {
+		select {
+		case a := <-l.answers:
+			if a.other {
+				return account.ErrUsePhone
+			}
+		case link := <-more:
+			l.mu.Lock()
+			l.state.QRLink = link
+			l.mu.Unlock()
+			l.changed()
+		case <-ctx.Done():
+			l.abandon()
+			return ctx.Err()
+		}
+	}
+}
+
 // Phone implements account.Prompter.
 func (l *Login) Phone(ctx context.Context, problem error) (string, error) {
 	a, err := l.ask(ctx, State{Step: StepPhone, Problem: problem})
+	if a.other {
+		return "", account.ErrUseQR
+	}
 	phone := normalizePhone(a.text)
 	l.mu.Lock()
 	l.phone = phone

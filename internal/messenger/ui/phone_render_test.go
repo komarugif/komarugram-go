@@ -10,6 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"gio-mw/defaults"
+	"gio-mw/defaults/schemes"
+	"gio-mw/wdk"
+
 	"gioui.org/layout"
 
 	"komarugram/internal/messenger/localization"
@@ -76,6 +80,40 @@ func TestRenderPhoneStep(t *testing.T) {
 					opened = true
 					page.phone.picker.Open(gtx)
 					page.phone.picker.search.SetText(scene.search)
+				}
+				page.Update(gtx, l)
+				page.Layout(gtx, l, false)
+			})
+			cancel()
+		}
+		// The QR code that comes before the number, waiting for its token
+		// and with one, in a dark theme too, and inverted there.
+		const link = "tg://login?token=AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="
+		for _, scene := range []struct {
+			name, link     string
+			dark, inverted bool
+		}{
+			{name: "qr-waiting"},
+			{name: "qr", link: link},
+			{name: "qr-dark-waiting", dark: true},
+			{name: "qr-dark", link: link, dark: true},
+			{name: "qr-dark-inverted", link: link, dark: true, inverted: true},
+		} {
+			signIn := login.New(nil)
+			ctx, cancel := context.WithCancel(context.Background())
+			more := make(chan string, 1)
+			if scene.link != "" {
+				more <- scene.link
+			}
+			go signIn.QR(ctx, "", more)
+			for s := signIn.State(); s.Step != login.StepQR || s.QRLink != scene.link; s = signIn.State() {
+				time.Sleep(time.Millisecond)
+			}
+			page := newLoginPage(signIn, newSecurityView(nil, func() {}), nil)
+			page.qr.inverted = scene.inverted
+			renderPNG(t, filepath.Join(dir, lang+"-"+scene.name+".png"), size, 4, func(gtx layout.Context) {
+				if scene.dark {
+					wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineDark()))
 				}
 				page.Update(gtx, l)
 				page.Layout(gtx, l, false)

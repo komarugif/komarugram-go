@@ -28,6 +28,7 @@ require (
 	golang.org/x/net v0.59.0
 	golang.org/x/sync v0.23.0
 	golang.org/x/sys v0.48.0
+	rsc.io/qr v0.2.0
 )
 
 require (
@@ -63,7 +64,6 @@ require (
 	golang.org/x/tools v0.50.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	lukechampine.com/adiantum v1.1.1 // indirect
-	rsc.io/qr v0.2.0 // indirect
 )
 
 replace gio-mw => ./third_party/gio-mw

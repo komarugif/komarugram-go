@@ -498,11 +498,13 @@ func (m *Manager) Add(ctx context.Context, p Prompter) (*Account, error) {
 
 	identity := m.identity.withTimeZone(time.Now())
 	resolver, proxyChanged := m.proxyState()
+	updates, tokenAccepted := onLoginToken()
 	client := telegram.NewClient(identity.APIID, identity.APIHash, telegram.Options{
 		SessionStorage: storage,
 		Middlewares:    diagnostics.Middleware("sign-in", 0),
 		Device:         identity.Device,
 		Resolver:       resolver,
+		UpdateHandler:  updates,
 	})
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -514,8 +516,9 @@ func (m *Manager) Add(ctx context.Context, p Prompter) (*Account, error) {
 	})
 	defer timer.Stop()
 	// A proxy chosen before the code was asked for is what the sign-in is to be
-	// through: it starts again, as nothing was done that it would lose. The code
-	// is the server's answer to the connection it was asked on.
+	// through: it starts again, as nothing was done that it would lose, a QR
+	// code being replaced by a new one. The code is the server's answer to the
+	// connection it was asked on, and so is a QR code accepted.
 	go func() {
 		select {
 		case <-proxyChanged:
@@ -526,12 +529,21 @@ func (m *Manager) Add(ctx context.Context, p Prompter) (*Account, error) {
 		case <-runCtx.Done():
 		}
 	}()
-	// The phone number is asked for while the connection is made.
-	early := askPhoneEarly(runCtx, p)
+	// The QR code, and the phone number if the user chooses it, are asked
+	// for while the connection is made.
+	early := askEarly(runCtx, p)
 	var self *tg.User
 	err = client.Run(runCtx, func(ctx context.Context) error {
 		timer.Stop()
-		if err := signIn(ctx, askingCode{gotdAuth{client.Auth(), client.API()}, func() { codeAsked.Store(true) }}, early); err != nil {
+		api := gotdAuth{
+			Client:   client.Auth(),
+			api:      client.API(),
+			appID:    identity.APIID,
+			appHash:  identity.APIHash,
+			migrate:  client.MigrateTo,
+			accepted: tokenAccepted,
+		}
+		if err := signIn(ctx, askingCode{api, func() { codeAsked.Store(true) }}, early); err != nil {
 			return err
 		}
 		var err error

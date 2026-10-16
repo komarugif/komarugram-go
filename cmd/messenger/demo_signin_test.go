@@ -29,6 +29,19 @@ func waitStep(t *testing.T, l *login.Login, step login.Step) login.State {
 	return login.State{}
 }
 
+// waitQR waits until the sign-in shows the demo's QR code.
+func waitQR(t *testing.T, l *login.Login) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if s := l.State(); s.Step == login.StepQR && !s.Busy && s.QRLink == demoQRLink {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for the QR code, state %+v", l.State())
+}
+
 func TestDemoSignInGoesThroughEveryStep(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -41,6 +54,15 @@ func TestDemoSignInGoesThroughEveryStep(t *testing.T) {
 	l.Continue()
 	waitStep(t, l, login.StepProtect)
 	l.Continue()
+
+	// The QR code comes first, and is given up for the number, and the
+	// number for the QR code, and the code again for the number.
+	waitQR(t, l)
+	l.UsePhone()
+	waitStep(t, l, login.StepPhone)
+	l.UseQR()
+	waitQR(t, l)
+	l.UsePhone()
 
 	// A number that is too short is refused.
 	waitStep(t, l, login.StepPhone)

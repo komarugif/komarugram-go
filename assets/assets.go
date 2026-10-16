@@ -13,6 +13,13 @@ import (
 //go:embed logo_round.png
 var LogoRound []byte
 
+// Logo is logo.svg, the square logo, for drawing at any size. Its shapes
+// are what oksvg reads: a gradient keeps its stops itself, not through
+// xlink:href.
+//
+//go:embed logo.svg
+var Logo []byte
+
 //go:embed dependencies.txt
 var dependencies string
 

@@ -248,7 +248,13 @@
 "login.next" = "lng_intro_next";
 "login.password_invalid" = "lng_signin_bad_password";
 "login.phone_invalid" = "lng_bad_phone";
+"login.qr_step1" = "lng_intro_qr_step1";
+"login.qr_step2" = "lng_intro_qr_step2";
+"login.qr_step3" = "lng_intro_qr_step3";
 "login.title_password" = "lng_signin_title";
+"login.title_qr" = "lng_intro_qr_title";
+"login.use_phone" = "lng_intro_qr_phone";
+"login.use_qr" = "lng_phone_to_qr";
 
 "membership.apply" = "lng_profile_apply_to_join_group";
 "membership.full" = "lng_group_full";

@@ -842,6 +842,10 @@
 "login.phone_banned" = "This number is banned.";
 "login.phone_invalid" = "Invalid phone number.";
 "login.proxy" = "Proxy";
+"login.qr_invert" = "Invert the colors of the QR code";
+"login.qr_step1" = "Open Telegram on your phone";
+"login.qr_step2" = "Go to Settings > Devices > Link Desktop Device";
+"login.qr_step3" = "Scan this image to Log In";
 "login.retry" = "Retry";
 "login.sent" = "The code was sent.";
 "login.sent_app" = "The code was sent to the Telegram app on your other device.";
@@ -854,6 +858,9 @@
 "login.title_failed" = "No connection";
 "login.title_password" = "Cloud password";
 "login.title_phone" = "Sign in to Telegram";
+"login.title_qr" = "Scan From Mobile Telegram";
+"login.use_phone" = "Log in using phone number";
+"login.use_qr" = "Quick log in using QR code";
 
 "look.avatar" = "Avatar Corners";
 "look.bubble" = "Message Bubble Radius";

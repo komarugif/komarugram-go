@@ -27,11 +27,15 @@ const (
 	demoMinDigits = 7
 	// demoPause is how long the demo takes to answer, as Telegram does.
 	demoPause = 700 * time.Millisecond
+	// demoQRLink is the QR code of the demo: a login token Telegram never
+	// gave, which no device accepts.
+	demoQRLink = "tg://login?token=a29tYXJ1Z3JhbS1kZW1vLXRva2Vu"
 )
 
 // demoSignIn goes through everything that comes before an account is added,
 // as the real sign-in does: the offer to install the program, the offer to
-// protect local data, the phone number, the code and the cloud password. It
+// protect local data, the QR code, the phone number, the code and the cloud
+// password. The QR code is never accepted: the user goes on to the number. It
 // answers on its own, with the wrong ones too: a number that is too short, a
 // code other than demoCode and a password other than demoPassword are refused
 // as Telegram refuses them. Nothing is installed, saved or sent anywhere.
@@ -49,12 +53,23 @@ func demoSignIn(ctx context.Context, l *login.Login, pause time.Duration) error 
 			return err
 		}
 		var problem error
+		usePhone := false
 		for {
+			if !usePhone {
+				if err := demoQR(ctx, p, pause); !errors.Is(err, account.ErrUsePhone) {
+					return err
+				}
+				usePhone = true
+			}
 			phone, err := p.Phone(ctx, problem)
+			problem = nil
+			if errors.Is(err, account.ErrUseQR) {
+				usePhone = false
+				continue
+			}
 			if err != nil {
 				return err
 			}
-			problem = nil
 			if err := sleep(ctx, pause); err != nil {
 				return err
 			}
@@ -74,6 +89,18 @@ func demoSignIn(ctx context.Context, l *login.Login, pause time.Duration) error 
 			}
 		}
 	})
+}
+
+// demoQR shows the demo's QR code, made in a pause as a token is, until the
+// user chooses the phone number: it returns account.ErrUsePhone then.
+func demoQR(ctx context.Context, p account.Prompter, pause time.Duration) error {
+	links := make(chan string, 1)
+	go func() {
+		if sleep(ctx, pause) == nil {
+			links <- demoQRLink
+		}
+	}()
+	return p.QR(ctx, "", links)
 }
 
 // demoCheckCode asks for the code and then for the password, until they are

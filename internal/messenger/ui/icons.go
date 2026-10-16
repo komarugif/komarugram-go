@@ -45,6 +45,7 @@ var (
 	iconPeek          = wdk.RequireIconWidget(icons.ImageRemoveRedEye)
 	iconAutoTheme     = wdk.RequireIconWidget(icons.DeviceBrightnessAuto)
 	iconProxy         = wdk.RequireIconWidget(icons.HardwareRouter)
+	iconInvertColors  = wdk.RequireIconWidget(icons.ActionInvertColors)
 	iconExpandLess    = wdk.RequireIconWidget(icons.NavigationExpandLess)
 	iconToTop         = wdk.RequireIconWidget(icons.NavigationArrowUpward)
 	iconToBottom      = wdk.RequireIconWidget(icons.NavigationArrowDownward)

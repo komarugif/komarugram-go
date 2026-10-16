@@ -4,6 +4,7 @@ package account
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gotd/td/session"
+	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/auth"
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
@@ -24,6 +26,14 @@ import (
 // ErrBack is what a Prompter returns to leave the code or password step for
 // the phone number step.
 var ErrBack = errors.New("account: back to the phone number")
+
+// ErrUsePhone is what Prompter.QR returns when the user would rather sign in
+// with the phone number than scan the QR code.
+var ErrUsePhone = errors.New("account: sign in with the phone number")
+
+// ErrUseQR is what Prompter.Phone returns when the user would rather scan a
+// QR code than give the phone number.
+var ErrUseQR = errors.New("account: sign in with a QR code")
 
 // ErrNoAccount means the phone number has no Telegram account. Registering
 // one is not supported.
@@ -61,22 +71,34 @@ type CodeInfo struct {
 // called again after a wrong answer, with problem set to what was wrong; it
 // returns as soon as ctx ends. Code and Password may return ErrBack.
 type Prompter interface {
+	// QR shows the QR code of link, a login token for a device where the
+	// account is signed in to scan; link is "" while the token is being
+	// made. Every link received from more replaces the one shown. It
+	// returns when ctx ends, or with ErrUsePhone.
+	QR(ctx context.Context, link string, more <-chan string) error
+	// Phone may return ErrUseQR.
 	Phone(ctx context.Context, problem error) (string, error)
 	Code(ctx context.Context, sent CodeInfo, problem error) (string, error)
 	Password(ctx context.Context, hint string, problem error) (string, error)
 }
 
-// earlyPhone is a Prompter whose first question, for the phone number, was
-// asked when it was made, not when signIn came to it. Connecting to Telegram
-// takes seconds, and the user can type the number meanwhile: if they are
-// done before the connection is, signIn takes the answer as soon as it is
-// there, and the user only waits for what is left.
-type earlyPhone struct {
+// early is a Prompter whose first question, for the QR code, was asked when
+// it was made, not when signIn came to it. Connecting to Telegram takes
+// seconds: the QR code waits for its token meanwhile, and a user who chooses
+// the phone number is asked for it at once, so that one typed before the
+// connection is made is taken as soon as it is there, and the user only
+// waits for what is left.
+type early struct {
 	Prompter
-	answer chan phoneAnswer
-	// asked is set once the early answer was taken. Phone is called by
-	// signIn alone, one call at a time.
-	asked bool
+	cancelQR context.CancelFunc
+	// links passes the links signIn shows to the early question.
+	links chan string
+	qr    chan error
+	phone chan phoneAnswer
+	// qrTaken and phoneTaken are set once the early answers were taken;
+	// usePhone, once the early QR code was given up for the phone number.
+	// They are used by signIn alone, one call at a time.
+	qrTaken, phoneTaken, usePhone bool
 }
 
 type phoneAnswer struct {
@@ -84,27 +106,84 @@ type phoneAnswer struct {
 	err   error
 }
 
-// askPhoneEarly asks p for the phone number now, and returns the Prompter
-// that gives that answer to the first Phone. The question ends with ctx,
-// whether it is taken or not.
-func askPhoneEarly(ctx context.Context, p Prompter) *earlyPhone {
-	e := &earlyPhone{Prompter: p, answer: make(chan phoneAnswer, 1)}
+// askEarly shows p's QR code now, waiting for its token, and asks for the
+// phone number as soon as the user chooses it. It returns the Prompter that
+// gives these answers to the first QR and Phone. The questions end with ctx,
+// whether they are taken or not.
+func askEarly(ctx context.Context, p Prompter) *early {
+	qrCtx, cancel := context.WithCancel(ctx)
+	e := &early{
+		Prompter: p,
+		cancelQR: cancel,
+		links:    make(chan string),
+		qr:       make(chan error, 1),
+		phone:    make(chan phoneAnswer, 1),
+	}
 	go func() {
-		phone, err := p.Phone(ctx, nil)
-		e.answer <- phoneAnswer{phone, err}
+		err := p.QR(qrCtx, "", e.links)
+		e.qr <- err
+		// A QR code given up as signIn ended it asks for nothing more.
+		if errors.Is(err, ErrUsePhone) && qrCtx.Err() == nil {
+			phone, err := p.Phone(ctx, nil)
+			e.phone <- phoneAnswer{phone, err}
+		}
 	}()
 	return e
 }
 
-// Phone returns the early answer the first time, and asks p after that: a
-// number that was refused, or the user going back to it.
-func (e *earlyPhone) Phone(ctx context.Context, problem error) (string, error) {
-	if e.asked {
+// QR passes the links to the early question the first time, and returns its
+// answer; it asks p after that.
+func (e *early) QR(ctx context.Context, link string, more <-chan string) error {
+	if e.qrTaken {
+		return e.Prompter.QR(ctx, link, more)
+	}
+	e.qrTaken = true
+	answered := func(err error) error {
+		e.usePhone = errors.Is(err, ErrUsePhone)
+		return err
+	}
+	ended := func() error {
+		e.cancelQR()
+		<-e.qr
+		return ctx.Err()
+	}
+	if link != "" {
+		select {
+		case e.links <- link:
+		case err := <-e.qr:
+			return answered(err)
+		case <-ctx.Done():
+			return ended()
+		}
+	}
+	for {
+		select {
+		case link := <-more:
+			select {
+			case e.links <- link:
+			case err := <-e.qr:
+				return answered(err)
+			case <-ctx.Done():
+				return ended()
+			}
+		case err := <-e.qr:
+			return answered(err)
+		case <-ctx.Done():
+			return ended()
+		}
+	}
+}
+
+// Phone returns the early answer the first time after the early QR code was
+// given up for it, and asks p otherwise: a number that was refused, or the
+// user going back to it.
+func (e *early) Phone(ctx context.Context, problem error) (string, error) {
+	if !e.usePhone || e.phoneTaken {
 		return e.Prompter.Phone(ctx, problem)
 	}
-	e.asked = true
+	e.phoneTaken = true
 	select {
-	case a := <-e.answer:
+	case a := <-e.phone:
 		return a.phone, a.err
 	case <-ctx.Done():
 		return "", ctx.Err()
@@ -119,12 +198,26 @@ type authAPI interface {
 	Password(ctx context.Context, password string) (*tg.AuthAuthorization, error)
 	// PasswordHint returns the hint the account gave for its 2FA password.
 	PasswordHint(ctx context.Context) (string, error)
+	// ExportLoginToken asks for a login token to show as a QR code, or, once
+	// one was accepted, for the authorization.
+	ExportLoginToken(ctx context.Context) (tg.AuthLoginTokenClass, error)
+	// ImportLoginToken moves the session to the data center dc, where the
+	// account is, and imports there the token accepted.
+	ImportLoginToken(ctx context.Context, dc int, token []byte) (tg.AuthLoginTokenClass, error)
+	// LoginTokenAccepted receives when the server tells, with
+	// updateLoginToken, that the token shown was accepted.
+	LoginTokenAccepted() <-chan struct{}
 }
 
 // gotdAuth is authAPI on a gotd client.
 type gotdAuth struct {
 	*auth.Client
-	api *tg.Client
+	api     *tg.Client
+	appID   int
+	appHash string
+	migrate func(ctx context.Context, dc int) error
+	// accepted is filled by an update handler (onLoginToken).
+	accepted <-chan struct{}
 }
 
 func (g gotdAuth) PasswordHint(ctx context.Context) (string, error) {
@@ -135,10 +228,41 @@ func (g gotdAuth) PasswordHint(ctx context.Context) (string, error) {
 	return settings.Hint, nil
 }
 
-// signIn authorizes the client if its session is not authorized yet: it asks
-// for the phone number, the code and, if the account has one, the 2FA
-// password. A wrong answer is asked for again. Errors that are not the
-// user's to fix — the network, the server — end the sign-in.
+func (g gotdAuth) ExportLoginToken(ctx context.Context) (tg.AuthLoginTokenClass, error) {
+	return g.api.AuthExportLoginToken(ctx, &tg.AuthExportLoginTokenRequest{APIID: g.appID, APIHash: g.appHash})
+}
+
+func (g gotdAuth) ImportLoginToken(ctx context.Context, dc int, token []byte) (tg.AuthLoginTokenClass, error) {
+	if err := g.migrate(ctx, dc); err != nil {
+		return nil, fmt.Errorf("account: move to data center %d: %w", dc, err)
+	}
+	return g.api.AuthImportLoginToken(ctx, token)
+}
+
+func (g gotdAuth) LoginTokenAccepted() <-chan struct{} { return g.accepted }
+
+// onLoginToken is an update handler that tells of updateLoginToken on the
+// channel it returns. The channel keeps one signal for a reader that is busy
+// when it comes, as the next token is being asked for.
+func onLoginToken() (telegram.UpdateHandler, <-chan struct{}) {
+	accepted := make(chan struct{}, 1)
+	d := tg.NewUpdateDispatcher()
+	d.OnLoginToken(func(context.Context, tg.Entities, *tg.UpdateLoginToken) error {
+		select {
+		case accepted <- struct{}{}:
+		default:
+		}
+		return nil
+	})
+	return d, accepted
+}
+
+// signIn authorizes the client if its session is not authorized yet: it
+// shows QR codes to scan with a device where the account is signed in, as
+// Telegram Desktop does, or, if the user chooses it, asks for the phone
+// number and the code; then, if the account has one, for the 2FA password.
+// A wrong answer is asked for again. Errors that are not the user's to fix —
+// the network, the server — end the sign-in.
 func signIn(ctx context.Context, client authAPI, p Prompter) error {
 	statusCtx, cancel := context.WithTimeout(ctx, connectTimeout)
 	status, err := client.Status(statusCtx)
@@ -154,12 +278,31 @@ func signIn(ctx context.Context, client authAPI, p Prompter) error {
 	}
 
 	var problem error
+	usePhone := false
 	for {
+		if !usePhone {
+			err := signInWithQR(ctx, client, p)
+			switch {
+			case err == nil:
+				return nil
+			case errors.Is(err, ErrUsePhone):
+				usePhone = true
+			case errors.Is(err, ErrBack):
+				// Back from the password: a new QR code.
+			default:
+				return err
+			}
+			continue
+		}
 		phone, err := p.Phone(ctx, problem)
+		problem = nil
+		if errors.Is(err, ErrUseQR) {
+			usePhone = false
+			continue
+		}
 		if err != nil {
 			return err
 		}
-		problem = nil
 		err = signInWithPhone(ctx, client, p, phone)
 		switch {
 		case err == nil:
@@ -169,6 +312,110 @@ func signIn(ctx context.Context, client authAPI, p Prompter) error {
 			problem = err
 		default:
 			return err
+		}
+	}
+}
+
+// qrQuestion is the QR code being shown: Prompter.QR, run until it is
+// answered or stopped.
+type qrQuestion struct {
+	cancel   context.CancelFunc
+	links    chan string
+	answered chan error
+	// over is set once the answer was received.
+	over bool
+}
+
+func askQR(ctx context.Context, p Prompter) *qrQuestion {
+	ctx, cancel := context.WithCancel(ctx)
+	q := &qrQuestion{cancel: cancel, links: make(chan string), answered: make(chan error, 1)}
+	go func() { q.answered <- p.QR(ctx, "", q.links) }()
+	return q
+}
+
+// show replaces the QR code with link. It returns the answer if the
+// question ended first.
+func (q *qrQuestion) show(ctx context.Context, link string) error {
+	select {
+	case q.links <- link:
+		return nil
+	case err := <-q.answered:
+		q.over = true
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// stop ends the question and waits for it to be over, for the next one.
+func (q *qrQuestion) stop() {
+	if q.over {
+		return
+	}
+	q.cancel()
+	<-q.answered
+	q.over = true
+}
+
+// tokenLife is how long the QR code of a token that expires at expires is
+// shown before a new token is asked for. The server gives tokens about half
+// a minute; a time much off that is the computer's clock being wrong, and
+// half a minute is what is taken then, not a new token every moment nor a
+// code that expired long ago.
+func tokenLife(expires int, now time.Time) time.Duration {
+	life := time.Unix(int64(expires), 0).Sub(now)
+	if life < time.Second || life > 2*time.Minute {
+		return 30 * time.Second
+	}
+	return life
+}
+
+// signInWithQR shows QR codes of login tokens until one is accepted on a
+// device where the account is signed in (https://core.telegram.org/api/qr-login),
+// as Telegram Desktop does (intro_qr.cpp): a token lasts about half a minute
+// and is replaced by a new one when it expires; when it is accepted, the
+// server sends updateLoginToken, and exporting the token again gives the
+// authorization, or the data center of the account to import it on. An
+// account with a 2FA password asks for it then. It returns ErrUsePhone when
+// the user would rather sign in with the phone number.
+func signInWithQR(ctx context.Context, client authAPI, p Prompter) error {
+	q := askQR(ctx, p)
+	defer q.stop()
+	result, err := client.ExportLoginToken(ctx)
+	for {
+		if tgerr.Is(err, "SESSION_PASSWORD_NEEDED") {
+			q.stop()
+			return signInWithPassword(ctx, client, p)
+		}
+		if err != nil {
+			return err
+		}
+		switch t := result.(type) {
+		case *tg.AuthLoginTokenSuccess:
+			return nil
+		case *tg.AuthLoginTokenMigrateTo:
+			result, err = client.ImportLoginToken(ctx, t.DCID, t.Token)
+			continue
+		case *tg.AuthLoginToken:
+			if err := q.show(ctx, "tg://login?token="+base64.URLEncoding.EncodeToString(t.Token)); err != nil {
+				return err
+			}
+			timer := time.NewTimer(tokenLife(t.Expires, time.Now()))
+			select {
+			case err := <-q.answered:
+				timer.Stop()
+				q.over = true
+				return err
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-client.LoginTokenAccepted():
+				timer.Stop()
+			case <-timer.C:
+			}
+			result, err = client.ExportLoginToken(ctx)
+		default:
+			return fmt.Errorf("account: unexpected answer to exportLoginToken: %T", result)
 		}
 	}
 }
@@ -463,7 +710,9 @@ func (m *Manager) unprotectSessions() error {
 	return removeDatabase(m.registry.securePath())
 }
 
-// askingCode is an authAPI that tells when the code is about to be asked for.
+// askingCode is an authAPI that tells when the code is about to be asked
+// for, or the 2FA password after a QR code was accepted: from then on the
+// sign-in has something to lose.
 type askingCode struct {
 	authAPI
 	asking func()
@@ -472,4 +721,14 @@ type askingCode struct {
 func (a askingCode) SendCode(ctx context.Context, phone string, options auth.SendCodeOptions) (tg.AuthSentCodeClass, error) {
 	a.asking()
 	return a.authAPI.SendCode(ctx, phone, options)
+}
+
+func (a askingCode) ImportLoginToken(ctx context.Context, dc int, token []byte) (tg.AuthLoginTokenClass, error) {
+	a.asking()
+	return a.authAPI.ImportLoginToken(ctx, dc, token)
+}
+
+func (a askingCode) PasswordHint(ctx context.Context) (string, error) {
+	a.asking()
+	return a.authAPI.PasswordHint(ctx)
 }

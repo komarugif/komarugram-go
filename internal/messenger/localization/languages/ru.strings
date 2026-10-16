@@ -880,6 +880,10 @@
 "login.phone_banned" = "Этот номер заблокирован.";
 "login.phone_invalid" = "Неверный номер телефона.";
 "login.proxy" = "Прокси";
+"login.qr_invert" = "Инвертировать цвета QR-кода";
+"login.qr_step1" = "Откройте Telegram на телефоне";
+"login.qr_step2" = "Перейдите в Настройки > Устройства > Подключить устройство";
+"login.qr_step3" = "Отсканируйте этот код, чтобы войти";
 "login.retry" = "Повторить";
 "login.sent" = "Код отправлен.";
 "login.sent_app" = "Код отправлен в приложение Telegram на другом вашем устройстве.";
@@ -892,6 +896,9 @@
 "login.title_failed" = "Нет подключения";
 "login.title_password" = "Облачный пароль";
 "login.title_phone" = "Вход в Telegram";
+"login.title_qr" = "Вход по QR-коду";
+"login.use_phone" = "Войти по номеру телефона";
+"login.use_qr" = "Быстрый вход по QR-коду";
 
 "look.avatar" = "Скругление аватаров";
 "look.bubble" = "Радиус пузырей";

@@ -62,7 +62,7 @@ func main() {
 	demoChats := flag.Int("demo-chats", 0, "run on demo data with this many generated chats added")
 	demoPanic := flag.Bool("demo-panic", false, "show the recovered-panic dialog once on demo data")
 	demoNotify := flag.Duration("demo-notify", 0, "on demo data, receive a message this often, to try notifications")
-	demoSignInFlag := flag.Bool("demo-signin", false, "on demo data, first go through everything before an account is added: the offers to install and to protect local data, the phone number, the code ("+demoCode+") and the cloud password ("+demoPassword+"); nothing is installed or saved")
+	demoSignInFlag := flag.Bool("demo-signin", false, "on demo data, first go through everything before an account is added: the offers to install and to protect local data, the QR code, the phone number, the code ("+demoCode+") and the cloud password ("+demoPassword+"); nothing is installed or saved")
 	var tdataPaths pathsFlag
 	flag.Var(&tdataPaths, "tdata", "import a Telegram Desktop tdata zip or every zip in a directory; may be repeated")
 	check := flag.Bool("check", false, "import/load accounts without windows, print counts and exit")

@@ -32,9 +32,9 @@ const loginWidth = unit.Dp(420)
 // past the card's content on each side, for the edges of its fields.
 const protectEdge = unit.Dp(4)
 
-// loginPage is the sign-in window: the phone number, then the code, then the
-// 2FA password if the account has one. It shows what login.Login says and
-// hands the answers back.
+// loginPage is the sign-in window: a QR code to scan, or the phone number
+// and then the code; then the 2FA password if the account has one. It shows
+// what login.Login says and hands the answers back.
 type loginPage struct {
 	height heightTransition
 	login  *login.Login
@@ -43,6 +43,8 @@ type loginPage struct {
 	skip     *button.Button
 	// install draws the offer to install the program, at StepInstall.
 	install *installView
+	// qr draws the QR code, at StepQR.
+	qr *qrView
 	// protect scrolls the text of the offer to protect local data.
 	protect scroll.List
 	// corner is the language, the theme and the proxy, in the window's
@@ -53,6 +55,8 @@ type loginPage struct {
 	code              *codeInput
 	password          *textField
 	next, back, retry *button.Button
+	// useQR leaves the phone number for the QR code.
+	useQR *button.Button
 
 	// seen is the Seq of the state the fields were last prepared for.
 	seen int
@@ -63,6 +67,7 @@ func newLoginPage(l *login.Login, security *securityView, invalidate func()) *lo
 		login:    l,
 		security: security,
 		install:  newInstallView(invalidate),
+		qr:       newQRView(),
 		skip:     button.Text(),
 		protect:  scroll.List{List: layout.List{Axis: layout.Vertical}},
 		phone:    newPhoneField(),
@@ -71,6 +76,7 @@ func newLoginPage(l *login.Login, security *securityView, invalidate func()) *lo
 		next:     button.Filled(),
 		back:     button.Text(),
 		retry:    button.Filled(),
+		useQR:    button.Text(),
 	}
 }
 
@@ -111,6 +117,10 @@ func (p *loginPage) Update(gtx layout.Context, l localization.Catalog) {
 		p.install.Update(gtx, p.login, l)
 		return
 	}
+	if st.Step == login.StepQR {
+		p.qr.Update(gtx, p.login)
+		return
+	}
 	p.code.setLength(st.CodeLength)
 	field := p.field(st.Step)
 
@@ -142,6 +152,9 @@ func (p *loginPage) Update(gtx layout.Context, l localization.Catalog) {
 	}
 	if p.back.Clicked(gtx) {
 		p.login.Back()
+	}
+	if p.useQR.Clicked(gtx) {
+		p.login.UseQR()
 	}
 	if p.retry.Clicked(gtx) {
 		p.login.Retry()
@@ -201,6 +214,8 @@ func (p *loginPage) Layout(gtx layout.Context, l localization.Catalog, private b
 					return p.layoutProtect(gtx, l)
 				case login.StepInstall:
 					return p.install.Layout(gtx, l)
+				case login.StepQR:
+					return p.qr.Layout(gtx, st, l)
 				}
 				if private {
 					st.Phone = ""
@@ -286,7 +301,7 @@ func (p *loginPage) layoutStep(gtx layout.Context, st login.State, l localizatio
 			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					if st.Step == login.StepPhone {
-						return layout.Dimensions{}
+						return p.useQR.Layout(gtx, l.T("login.use_qr"))
 					}
 					return p.back.Layout(gtx, l.T("login.back"))
 				}),
