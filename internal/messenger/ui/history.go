@@ -253,6 +253,10 @@ type chatPage struct {
 	// what it plays over the history.
 	audio    *audioPlayer
 	audioBar audioBar
+	// audioList, when set, is the list of messages that plays on from one
+	// of this page's, in place of the chat's history: the section of the
+	// info that is open.
+	audioList func() []model.Message
 	// openPhoto shows a photo in the viewer; nil leaves photos inline.
 	openPhoto func(model.Message)
 	openAlone func(model.Message)

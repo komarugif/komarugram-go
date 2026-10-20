@@ -126,7 +126,7 @@ func (v *audioPlayer) advance(m model.Message) {
 	}
 	page, list := v.page, v.list
 	v.mu.Unlock()
-	if next, ok := nextAudio(page.source.History(list).Messages, m); ok {
+	if next, ok := nextAudio(page.audioMessages(list), m); ok {
 		v.toggleIn(page, list, next, -1)
 	} else {
 		v.mu.Lock()
@@ -179,7 +179,7 @@ func (v *audioPlayer) skip(delta int) {
 	if page == nil {
 		return
 	}
-	if to, ok := neighborAudio(page.source.History(list).Messages, m, delta); ok {
+	if to, ok := neighborAudio(page.audioMessages(list), m, delta); ok {
 		v.toggleIn(page, list, to, -1)
 	}
 }
@@ -196,14 +196,17 @@ func (v *audioPlayer) around() (before, after bool) {
 	var messages []model.Message
 	if source, ok := v.page.source.(interface {
 		HistorySince(int64, uint64) (model.History, bool)
-	}); ok && v.aroundKey == v.key {
+	}); ok && v.aroundKey == v.key && v.page.audioList == nil {
 		history, fresh := source.HistorySince(v.list, v.aroundRev)
 		if !fresh {
 			return v.before, v.after
 		}
 		messages, v.aroundRev = history.Messages, history.Revision
 	} else {
-		history := v.page.source.History(v.list)
+		history := model.History{Messages: v.page.audioMessages(v.list)}
+		if v.page.audioList == nil {
+			history = v.page.source.History(v.list)
+		}
 		messages, v.aroundRev = history.Messages, history.Revision
 	}
 	v.aroundKey = v.key
@@ -326,6 +329,15 @@ func volumeIcon(volume float64) wdk.IconWidget {
 		return iconVolumeDown
 	}
 	return iconVolumeUp
+}
+
+// audioMessages are the messages the player goes through from one that plays
+// in list: the open list of an info's section, or the chat's history.
+func (p *chatPage) audioMessages(list int64) []model.Message {
+	if p.audioList != nil {
+		return p.audioList()
+	}
+	return p.source.History(list).Messages
 }
 
 // audioBarSize is how much of the page's top the bar takes: nothing while

@@ -262,3 +262,22 @@ func TestAudioBarClosesWithWhatItShowed(t *testing.T) {
 		t.Fatal("the bar keeps what it showed after it closed")
 	}
 }
+
+// A message that plays in a section of the info goes on to the next of the
+// section's list, not of the chat's history.
+func TestAudioGoesOnThroughTheSharedList(t *testing.T) {
+	p, played, find := audioHarnessPage(t)
+	first, second, third := find("demo/voice"), find("demo/voice-bare"), find("demo/voice-mp3")
+	p.chat = 2
+	p.audioList = func() []model.Message { return []model.Message{first, third} }
+	p.audio.toggle(p, first, -1)
+	waitAudio(t, "it did not start", func() bool { return p.audio.state(first).playing })
+	if _, after := p.audio.around(); !after {
+		t.Fatal("the bar sees nothing after the first of the list")
+	}
+	played(0).end()
+	waitAudio(t, "the next of the list did not start", func() bool { return p.audio.state(third).playing })
+	if p.audio.state(second).playing {
+		t.Fatal("the chat's history was followed, not the list")
+	}
+}

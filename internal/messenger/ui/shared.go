@@ -120,6 +120,7 @@ func newChatInfo(source model.ConversationStore, images *imageOps, invalidate fu
 	p.renderer.media = chatmedia.NewShared(source, invalidate)
 	p.renderer.images = images
 	p.renderer.rows = map[model.MessageID]*messageRow{}
+	p.renderer.audioList = func() []model.Message { return p.messages }
 	p.linkRows = map[model.MessageKey]*sharedLinkRow{}
 	p.giftRows = map[model.MessageKey]*giftRow{}
 	p.gift = nil
@@ -467,6 +468,17 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 					title = l.T("chat_theme.title")
 				}
 				return p.layoutHeader(gtx, l, title)
+			}),
+			// What plays is told here, in the player's bar, as over a chat.
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				h := p.renderer.audioBarSize(gtx)
+				if h == 0 {
+					return layout.Dimensions{}
+				}
+				gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, h)
+				gtx.Constraints.Max.Y = h
+				p.renderer.layoutAudioBar(gtx, l, true)
+				return layout.Dimensions{Size: gtx.Constraints.Min}
 			}),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				if p.themePage && p.themes != nil {
