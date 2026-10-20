@@ -1454,7 +1454,7 @@
 "settings.input" = "Input";
 "settings.input_manual_focus" = "Focus the message field only on click";
 "settings.input_picker_click" = "Open the emoji panel only on click";
-"settings.input_hint" = "By default, as in Telegram Desktop, the message field holds the keyboard and the panel of emoji, stickers and GIFs opens when the pointer is over its button.";
+"settings.input_hint" = "By default the message field holds the keyboard, and the panel of emoji, stickers and GIFs opens when the pointer is over its button.";
 "settings.current" = "Current window";
 "settings.devices" = "Devices";
 "settings.devices_hint" = "Sessions on other devices";
@@ -1473,7 +1473,7 @@
 "settings.overlays_transparency" = "Overlay transparency";
 "settings.overlays_transparency_hint" = "Overlays that blur what is behind them let this much of it show through; the others are opaque.";
 "settings.pause_inactive" = "Pause animations in an inactive window";
-"settings.pause_inactive_hint" = "Stickers, GIFs, animated emoji and video avatars stand still while the window is out of focus, as in Telegram Desktop.";
+"settings.pause_inactive_hint" = "Stickers, GIFs, animated emoji and video avatars stand still while the window is out of focus.";
 "settings.power" = "Power saving";
 "settings.privacy" = "Privacy and security";
 "settings.proxy" = "Proxy";
