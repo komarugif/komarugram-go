@@ -1,0 +1,32 @@
+name: Panic
+description: An error the client showed in its error window. "Report on GitHub" there fills this form.
+title: "Panic: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues are public. Look over the report before you submit it: a panic can quote a message, a name or a phone number.
+  - type: textarea
+    id: report
+    attributes:
+      label: Report
+      description: The client fills it in. When the report is too long for the link, the client copies it instead; paste it here.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: The commit the client was built from, "+" after it when the checkout had changes. Empty when the build does not know it.
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: The operating system and architecture, and the Go the client was built with.
+  - type: textarea
+    id: steps
+    attributes:
+      label: What happened before
+      description: Optional. What you did when the error came, if the report does not tell it.
