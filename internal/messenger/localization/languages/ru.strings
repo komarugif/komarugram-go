@@ -1715,6 +1715,10 @@
 "window.error_title" = "Ошибка приложения";
 "window.failed" = "Не удалось показать окно «{title}»:\n\n{error}";
 "window.ignore" = "Игнорировать";
+"window.issue_failed" = "Не удалось открыть браузер: {error}";
+"window.issue_opened" = "Форма открыта в браузере";
+"window.issue_paste" = "Отчёт не поместился в ссылку и скопирован: вставьте его в форму";
 "window.panic" = "В приложении произошла ошибка";
 "window.redrawing" = "Ошибка отрисовки окна. Повторная попытка…";
+"window.report_issue" = "Сообщить на GitHub";
 "window.reports" = "Отчёты: {path}";

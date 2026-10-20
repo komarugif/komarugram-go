@@ -87,7 +87,7 @@ func build(o options) error {
 	}
 	defer os.RemoveAll(staging)
 	built := filepath.Join(staging, filepath.Base(o.out))
-	args := []string{"-target=windows", "-arch=" + o.arch, "-ldflags=-s -w", "-appid=komarugram-go", "-name=KomaruGram", "-icon=" + filepath.Join(repo, "assets", "logo_round.png"), "-o", built, "./messenger"}
+	args := []string{"-target=windows", "-arch=" + o.arch, "-ldflags=-s -w" + commitFlags(repo), "-appid=komarugram-go", "-name=KomaruGram", "-icon=" + filepath.Join(repo, "assets", "logo_round.png"), "-o", built, "./messenger"}
 	env = setEnv(env, "GOWORK", "off")
 	env = setEnv(env, "GOOS", "windows")
 	env = setEnv(env, "GOARCH", o.arch)
@@ -101,6 +101,22 @@ func build(o options) error {
 	}
 	log.Printf("built %s", o.out)
 	return nil
+}
+
+// commitFlags are the linker flags that tell the program the commit of
+// repo it is built from: the work directory's main module is not the
+// repository, and Go stamps no commit then. Without git it tells none.
+func commitFlags(repo string) string {
+	commit, err := program.Command("git", "-C", repo, "rev-parse", "HEAD").Output()
+	if err != nil {
+		log.Printf("the build will not know its commit: git rev-parse: %v", err)
+		return ""
+	}
+	flags := " -X komarugram/internal/buildinfo.commit=" + strings.TrimSpace(string(commit))
+	if status, err := program.Command("git", "-C", repo, "status", "--porcelain").Output(); err == nil && len(strings.TrimSpace(string(status))) > 0 {
+		flags += " -X komarugram/internal/buildinfo.modified=true"
+	}
+	return flags
 }
 
 func resolveGogio(o options, env []string) (string, error) {

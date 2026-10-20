@@ -25,7 +25,7 @@ import (
 // TestPanicDialogRendersWithLongReport draws the dialog of a long panic
 // with a stack longer than its box, in the theme the host was told, and
 // checks its background is the theme's; PANIC_PNG_DIR saves both themes to
-// look at.
+// look at, and a panic the client had.
 func TestPanicDialogRendersWithLongReport(t *testing.T) {
 	size := image.Pt(640, 440)
 	window, err := headless.NewWindow(size.X, size.Y)
@@ -37,12 +37,25 @@ func TestPanicDialogRendersWithLongReport(t *testing.T) {
 	for i := range 40 {
 		stack += fmt.Sprintf("komarugram/internal/messenger/ui.(*historyView).layoutBubble(0xc000%04x, {0x1, 0x2})\n\tC:/Users/dev/komarugram-go/internal/messenger/ui/history_bubble.go:%d +0x1a4\n", i, 100+i)
 	}
-	for name, theme := range map[string]Theme{"light": ThemeLight, "dark": ThemeDark} {
+	long := &crash.Panic{Where: "window account", Value: strings.Repeat("unexpected state ", 30), Stack: []byte(stack)}
+	for _, c := range []struct {
+		name   string
+		theme  Theme
+		p      *crash.Panic
+		status string
+	}{
+		{"light", ThemeLight, long, ""},
+		{"dark", ThemeDark, long, ""},
+		// A panic the client had, with the longest status.
+		{"checkbox", ThemeLight, checkboxPanic(t), "window.issue_paste"},
+	} {
+		name, theme := c.name, c.theme
 		host := new(Host)
 		host.SetTheme(theme)
-		dialog := newPanicDialog(&Window{Window: new(app.Window), host: host}, &crash.Panic{
-			Where: "window account", Value: strings.Repeat("unexpected state ", 30), Stack: []byte(stack),
-		})
+		dialog := newPanicDialog(&Window{Window: new(app.Window), host: host}, c.p)
+		if c.status != "" {
+			dialog.status = texts().T(c.status)
+		}
 		ops := new(op.Ops)
 		gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
 		th := dialog.Theme(gtx)

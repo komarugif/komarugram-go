@@ -27,13 +27,14 @@ import (
 	"github.com/srwiley/rasterx"
 
 	"komarugram/assets"
+	"komarugram/internal/buildinfo"
 	"komarugram/internal/messenger/localization"
 	"komarugram/pkg/deviceinfo"
 )
 
 const (
 	// repository is the program's source.
-	repository = "github.com/komarugif/komarugram-go"
+	repository = buildinfo.Repository
 	// community is the username of KomaruGram's chat in Telegram.
 	community = "komarugram"
 	// productName is the program's name, which no language translates.

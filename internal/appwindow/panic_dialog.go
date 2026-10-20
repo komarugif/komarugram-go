@@ -23,6 +23,7 @@ import (
 	"gioui.org/text"
 	"gioui.org/unit"
 
+	"komarugram/internal/buildinfo"
 	"komarugram/internal/crash"
 )
 
@@ -72,9 +73,9 @@ func (h *Host) ignorePanicNotice(key string) {
 	h.mu.Unlock()
 }
 
-// panicDialog shows a panic with its stack and offers to copy the report.
-// The report file crash.Report wrote is not shown: it stays for whoever
-// looks for it.
+// panicDialog shows a panic with its stack and offers to copy the report,
+// or to open an issue of it on GitHub. The report file crash.Report wrote
+// is not shown: it stays for whoever looks for it.
 type panicDialog struct {
 	w            *Window
 	p            *crash.Panic
@@ -82,7 +83,13 @@ type panicDialog struct {
 	themeFonts   uint64
 	dark         bool
 	copy, ignore *button.Button
-	trace        scroll.List
+	issue        *button.Button
+	// opened tells how opening the issue went, once the browser has it.
+	opened chan error
+	// issueFilled is whether the issue opened has the report in it.
+	issueFilled bool
+	opening     bool
+	trace       scroll.List
 	// stack is the panic's, a tab in front of a frame's file widened to
 	// spaces, which the shaper draws narrow.
 	stack  string
@@ -92,9 +99,10 @@ type panicDialog struct {
 func newPanicDialog(w *Window, p *crash.Panic) *panicDialog {
 	stack := strings.ReplaceAll(strings.TrimRight(string(p.Stack), "\n"), "\t", "    ")
 	return &panicDialog{
-		w: w, p: p, copy: button.Filled(), ignore: button.Text(),
-		trace: scroll.List{List: layout.List{Axis: layout.Vertical}},
-		stack: stack,
+		w: w, p: p, copy: button.Filled(), ignore: button.Text(), issue: button.Text(),
+		opened: make(chan error, 1),
+		trace:  scroll.List{List: layout.List{Axis: layout.Vertical}},
+		stack:  stack,
 	}
 }
 
@@ -118,12 +126,38 @@ func (d *panicDialog) Theme(gtx layout.Context) *token.Theme {
 
 func (d *panicDialog) Update(gtx layout.Context) {
 	if d.copy.Clicked(gtx) {
-		gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(d.p.Text()))})
+		d.copyReport(gtx)
 		d.status = texts().T("window.copied")
+	}
+	if d.issue.Clicked(gtx) && !d.opening {
+		link, filled := panicIssue(d.p, buildinfo.Current())
+		if !filled {
+			// The form opens without the report, for it to be pasted.
+			d.copyReport(gtx)
+		}
+		d.opening, d.issueFilled = true, filled
+		go func() { d.opened <- openBrowser(link); d.w.Invalidate() }()
+	}
+	select {
+	case err := <-d.opened:
+		d.opening = false
+		switch {
+		case err != nil:
+			d.status = texts().Format("window.issue_failed", map[string]string{"error": err.Error()})
+		case d.issueFilled:
+			d.status = texts().T("window.issue_opened")
+		default:
+			d.status = texts().T("window.issue_paste")
+		}
+	default:
 	}
 	if d.ignore.Clicked(gtx) {
 		d.w.Perform(system.ActionClose)
 	}
+}
+
+func (d *panicDialog) copyReport(gtx layout.Context) {
+	gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(d.p.Text()))})
 }
 
 func panicLabel(txt string, style token.Typestyle, col token.MatColor, maxLines int) layout.Widget {
@@ -144,15 +178,26 @@ func (d *panicDialog) Layout(gtx layout.Context) {
 			layout.Rigid(panicLabel(d.p.Error(), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 3)),
 			layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
 			layout.Flexed(1, d.layoutTrace),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				// What the last button did, in a line of its own: beside
+				// three buttons there is no room for it.
+				if d.status == "" {
+					return layout.Spacer{Height: unit.Dp(16)}.Layout(gtx)
+				}
+				return layout.Inset{Top: unit.Dp(12), Bottom: unit.Dp(12)}.Layout(gtx,
+					panicLabel(d.status, token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 2))
+			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Spacing: layout.SpaceStart, Alignment: layout.Middle}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return layout.Inset{Right: unit.Dp(16)}.Layout(gtx,
-							panicLabel(d.status, token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 1))
-					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return d.ignore.Layout(gtx, texts().T("window.ignore"))
+					}),
+					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						if d.opening {
+							gtx = gtx.Disabled()
+						}
+						return d.issue.Layout(gtx, texts().T("window.report_issue"))
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
