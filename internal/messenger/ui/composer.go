@@ -350,16 +350,31 @@ func (c *messageComposer) textChanged(d *messageDraft) {
 }
 
 // takeKeyboard gives the message field the keyboard whenever nobody else
-// wants it, as Telegram Desktop's field keeps it: the picker's search, a
-// dialog, the chat's search, text selected in the history and a recording
-// take it, and it comes back once they are done. free tells whether nobody
-// holds the keyboard now. It runs before anything else of the frame, so that
-// whatever asks for the keyboard in the frame gets it, and only for a field
-// laid out in the frame before: Gio drops the focus of what is not laid out.
+// wants it, as Telegram Desktop's field keeps it: a dialog, the chat's
+// search, text selected in the history and a recording take it, and it comes
+// back once they are done. While the picker is open, its search takes the
+// field's place. free tells whether nobody holds the keyboard now. It runs
+// before anything else of the frame, so that whatever asks for the keyboard
+// in the frame gets it, and only for a field laid out in the frame before:
+// Gio drops the focus of what is not laid out.
 func (c *messageComposer) takeKeyboard(gtx layout.Context, chat int64, free bool) {
 	c.editorWasLaid = c.editorLaid && c.editorChat == chat
 	c.editorLaid = false
-	if !free || !c.editorWasLaid || c.pickerOpen || c.form != 0 || c.recording != nil {
+	// A picker or a form closing, by Escape or by a click beside it, is
+	// still drawn while it fades: its field keeps a keyboard nobody wants.
+	if !c.pickerOpen && gtx.Focused(&c.search) || c.form == 0 && (gtx.Focused(&c.title) || gtx.Focused(&c.path)) {
+		free = true
+	}
+	if !free || c.form != 0 || c.recording != nil {
+		return
+	}
+	if c.pickerOpen {
+		if c.pickerDrawn && !gtx.Focused(&c.search) {
+			gtx.Execute(key.FocusCmd{Tag: &c.search})
+		}
+		return
+	}
+	if !c.editorWasLaid {
 		return
 	}
 	if d := c.drafts[chat]; d != nil && !gtx.Focused(&d.editor) {
@@ -564,7 +579,9 @@ drained:
 	if c.smile.Clicked(gtx) && permissions.Any(model.SendText|model.SendSticker|model.SendGIF) {
 		c.pickerOpen = !c.pickerOpen
 		if c.pickerOpen {
-			gtx.Execute(key.FocusCmd{Tag: &c.search})
+			// The search takes the keyboard once the picker is drawn, which
+			// it is not yet: takeKeyboard gives it.
+			gtx.Execute(key.FocusCmd{})
 		}
 		c.attachOpen = false
 		c.form = 0
@@ -945,6 +962,8 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 		}
 		if drawn && !c.pickerDrawn {
 			p.stickerViewShown()
+			// Its search takes the keyboard in the next frame.
+			gtx.Execute(op.InvalidateCmd{})
 		}
 		c.pickerDrawn = drawn
 	}

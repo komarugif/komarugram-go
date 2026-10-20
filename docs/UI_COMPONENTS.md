@@ -624,7 +624,11 @@ nobody else wants it (`messageComposer.takeKeyboard`, at the top of
 after a menu, dialog, search or recording is gone. Whatever takes the
 keyboard (`key.FocusCmd`) keeps it while it is there, and text selected in
 the history keeps it for copying (`chatPage.holdsKeyboard`) until Escape or
-a click drops the selection. The field asks only in a frame after one it was
+a click drops the selection. While the composer's picker is open, its
+search takes the field's place: it holds the keyboard from the frame the
+picker is first drawn in, and a picked emoji gives it to the field, to go on
+typing; once the picker closes, the field takes it back, even while the
+picker fades. The field asks only in a frame after one it was
 laid out in, before anything else of the frame, so that what asks later in
 the same frame wins; the Gio fork asks for a frame once the focused handler
 is gone (`third_party/gio/LOCAL_CHANGES.md`). A new overlay needs nothing
