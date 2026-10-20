@@ -62,6 +62,10 @@ type Chat struct {
 	// Forum is set for a group divided in topics, which open as a list of
 	// them: see ForumSource.
 	Forum bool
+	// DirectMessages is set for the chat of a channel's direct messages
+	// (DirectMessagesSource), a group of Telegram's that the account reads
+	// as a private chat with the channel: without avatars.
+	DirectMessages bool `json:",omitempty"`
 	// Badges are the marks beside the chat's name.
 	Badges
 }

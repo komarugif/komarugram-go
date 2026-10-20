@@ -47,7 +47,7 @@ func (s *Store) DirectMessages(ctx context.Context, chat int64) (model.Chat, err
 	if s.SendPermissions(chat).DirectMessagesID != demoDirectMessages {
 		return model.Chat{}, errors.New("the channel takes no direct messages")
 	}
-	return model.Chat{ID: demoDirectMessages, Title: "Новости Go", Kind: model.KindGroup}, nil
+	return model.Chat{ID: demoDirectMessages, Title: "Новости Go", Kind: model.KindGroup, DirectMessages: true}, nil
 }
 
 // ChatMuted implements model.NotificationSetter.

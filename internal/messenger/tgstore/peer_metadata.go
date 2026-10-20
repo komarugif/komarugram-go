@@ -50,6 +50,7 @@ func (p peerRecord) withMetadata(chat model.Chat) model.Chat {
 		if p.Rights.Broadcast {
 			chat.Kind = model.KindChannel
 		}
+		chat.DirectMessages = p.Rights.Monoforum
 	case "chat":
 		chat.Kind = model.KindGroup
 	case "user":

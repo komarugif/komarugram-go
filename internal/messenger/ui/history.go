@@ -200,6 +200,7 @@ type chatPage struct {
 	nextDay   []int
 	avatar    avatarLayout
 	kind      model.ChatKind
+	direct    bool // the chat of a channel's direct messages
 	linkModal modal
 	source    model.ConversationStore
 	media     *chatmedia.Manager
@@ -561,7 +562,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.linkModal.Hide()
 	}
 	p.keyboardEvents(gtx, l)
-	p.kind, p.title = c.Kind, c.Title
+	p.kind, p.title, p.direct = c.Kind, c.Title, c.DirectMessages
 	p.menuUpdate(gtx, l)
 	p.updateForward(l)
 	p.source.OpenChat(c.ID)

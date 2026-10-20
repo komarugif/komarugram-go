@@ -91,10 +91,15 @@ func senderAvatar(kind model.ChatKind, m model.Message) int64 {
 	return 0
 }
 
-// senderAvatar is senderAvatar for the open chat. A snapshot shows the
+// senderAvatar is senderAvatar for the open chat, none in a channel's
+// direct messages. A snapshot shows the
 // avatar of the other side of a private chat too, as Telegram Desktop's
 // does, although the history leaves it out.
 func (p *chatPage) senderAvatar(m model.Message) int64 {
+	if p.direct {
+		// A channel's direct messages read as a private chat with it.
+		return 0
+	}
 	if id := senderAvatar(p.kind, m); id != 0 {
 		return id
 	}
