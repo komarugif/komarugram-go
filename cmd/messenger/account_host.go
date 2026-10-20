@@ -297,35 +297,46 @@ func (h *accountWindows) Open(id string) {
 	h.process.Open(h.windowSpec(a, session, false))
 }
 
-// ShowAll brings the application back from the tray: it raises the open
-// windows, with the XDG activation token if there is one, and opens a window
-// for every account running in the background.
+// ShowAll brings the application back from the tray: it raises the window of
+// the account used last, with the XDG activation token if there is one, or
+// opens it if the account runs in the background. The windows of the other
+// accounts stay as they are.
 func (h *accountWindows) ShowAll(token string) {
 	h.mu.Lock()
 	if h.quitting {
 		h.mu.Unlock()
 		return
 	}
-	type background struct {
-		account *account.Account
-		session *accountSession
-	}
-	var reopen []background
-	for _, id := range h.order {
-		s := h.sessions[id]
-		if s != nil && h.windows[id] == nil && !h.opening[id] && !h.leaving[id] {
-			h.opening[id] = true
-			reopen = append(reopen, background{h.accounts[id], s})
+	id := h.preferences.Global().LastAccountID
+	if h.accounts[id] == nil {
+		id = ""
+		if len(h.order) != 0 {
+			id = h.order[0]
 		}
 	}
+	if id == "" {
+		// No account: only the sign-in window can be there.
+		window := h.signIn
+		h.mu.Unlock()
+		if window != nil {
+			window.Activate(token)
+		}
+		return
+	}
+	if window := h.windows[id]; window != nil {
+		h.mu.Unlock()
+		window.Activate(token)
+		return
+	}
+	if h.opening[id] || h.leaving[id] {
+		h.mu.Unlock()
+		return
+	}
+	h.opening[id] = true
+	a, session := h.accounts[id], h.sessions[id]
 	h.mu.Unlock()
-	h.process.ActivateAll(token)
-	for _, b := range reopen {
-		h.process.Open(h.windowSpec(b.account, b.session, false))
-	}
-	if len(reopen) > 0 {
-		h.notify()
-	}
+	h.process.Open(h.windowSpec(a, session, false))
+	h.notify()
 }
 
 // Quit closes every window and stops every account, and with them the

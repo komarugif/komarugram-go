@@ -201,11 +201,12 @@ func (v *qrView) layoutCode(gtx layout.Context, link string, l localization.Cata
 	modulePx := max(maxSize/v.code.Size, 1)
 	size := modulePx * v.code.Size
 	corner := (plate - size) / 2
-	hole := qrHole(v.code.Size, modulePx, gtx.Dp(qrLogoSize)+2*gtx.Dp(qrLogoGap))
+	logo, gap := qrLogoPx(gtx, size)
+	hole := qrHole(v.code.Size, modulePx, logo+2*gap)
 	drawQR(gtx, v.code, image.Pt(corner, corner), modulePx, hole, moduleColor)
 	// The logo fills the hole but for the gap, square as logo.svg is.
 	holePx := hole.Dx() * modulePx
-	logoPx := holePx - 2*gtx.Dp(qrLogoGap)
+	logoPx := holePx - 2*gap
 	at := image.Pt(corner+hole.Min.X*modulePx+(holePx-logoPx)/2, corner+hole.Min.Y*modulePx+(holePx-logoPx)/2)
 	if img, ok := v.logoAt(logoPx); ok {
 		offset(gtx, at, func(gtx layout.Context) layout.Dimensions {
@@ -215,6 +216,17 @@ func (v *qrView) layoutCode(gtx layout.Context, link string, l localization.Cata
 		})
 	}
 	return layout.Dimensions{Size: image.Pt(plate, plate)}
+}
+
+// qrLogoPx is the logo and the gap around it for a code size pixels wide:
+// they keep their share of the code as it shrinks, for the logo not to
+// cover more of a small code than of a large one.
+func qrLogoPx(gtx layout.Context, size int) (logo, gap int) {
+	full := gtx.Dp(qrMaxSize)
+	if size >= full {
+		return gtx.Dp(qrLogoSize), gtx.Dp(qrLogoGap)
+	}
+	return max(1, gtx.Dp(qrLogoSize)*size/full), max(1, gtx.Dp(qrLogoGap)*size/full)
 }
 
 // qrHole is the square of modules, in the middle of a code size modules

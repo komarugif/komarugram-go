@@ -11,6 +11,7 @@ import (
 	"github.com/srwiley/oksvg"
 	"rsc.io/qr"
 
+	"gioui.org/layout"
 	"gioui.org/unit"
 
 	"komarugram/assets"
@@ -80,5 +81,19 @@ func TestQRHoleLeavesTheCodeReadable(t *testing.T) {
 				t.Errorf("%d modules, density %v: hole %v is not a square in the middle", code.Size, density, hole)
 			}
 		}
+	}
+}
+
+// TestQRLogoShrinksWithTheCode checks the logo keeps its share of a code
+// that a low window shrinks.
+func TestQRLogoShrinksWithTheCode(t *testing.T) {
+	gtx := layout.Context{Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}
+	full, _ := qrLogoPx(gtx, gtx.Dp(qrMaxSize))
+	small, gap := qrLogoPx(gtx, gtx.Dp(qrMinSize))
+	if full != gtx.Dp(qrLogoSize) {
+		t.Errorf("logo of a full code is %d px, want %d", full, gtx.Dp(qrLogoSize))
+	}
+	if want := full * gtx.Dp(qrMinSize) / gtx.Dp(qrMaxSize); small != want || gap < 1 {
+		t.Errorf("logo of a small code is %d px with gap %d, want %d", small, gap, want)
 	}
 }

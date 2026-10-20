@@ -59,7 +59,9 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 		out.GroupedID = m.GroupedID
 		out.NoForwards = m.Noforwards
 		out.Post = m.Post
-		if m.EditDate != 0 {
+		// edit_hide: Telegram stamps an edit date on a message whose
+		// reactions or buttons changed, and asks not to show it as edited.
+		if m.EditDate != 0 && !m.EditHide {
 			out.EditedAt = time.Unix(int64(m.EditDate), 0)
 		}
 		if m.FromID != nil {

@@ -578,6 +578,9 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 				a.comments.openSender = func(m model.Message) { a.openSender(senders, m, a.thread) }
 			}
 		}
+		// The audio of the info's sections plays in the same player, under
+		// the same bar, as the chat's.
+		a.info.renderer.audio = a.history.audio
 		a.info.renderer.openPhoto = func(m model.Message) { a.viewer.Open(m.Key.ChatID, m, a.info.messages) }
 		a.info.openAvatar = func(chat int64) { a.viewer.OpenProfile(chat) }
 		if services.OpenWindow != nil {
