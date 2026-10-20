@@ -445,6 +445,9 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 	p.giftGeneration++
 	defer p.trimGiftRows()
 	defer mediaFrame(gtx, p.renderer.media)()
+	// Under a gift's dialog the animations stand where they are, and play on
+	// from there once it closes, rather than from their first pictures.
+	p.renderer.media.SetHolding(p.gift != nil)
 	shown := p.modal.Layout(gtx, covered, func(gtx layout.Context) layout.Dimensions {
 		size := image.Pt(min(gtx.Constraints.Max.X, gtx.Dp(640)), min(gtx.Constraints.Max.Y, gtx.Dp(740)))
 		gtx.Constraints = layout.Exact(size)
@@ -491,6 +494,7 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 			}),
 		)
 	})
+	p.renderer.media.SetHolding(false)
 	if !shown {
 		p.Close()
 		return

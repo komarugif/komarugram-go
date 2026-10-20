@@ -57,6 +57,9 @@ type entry struct {
 	animated          bool
 	caching           bool
 	animate           bool
+	played            uint64 // the frame a view last asked e to animate in
+	heldAt            uint64 // the frame a view last held e in
+	held              bool   // stopped where it is, to play on from there
 	cancel            context.CancelFunc
 	expired           bool
 	preview           image.Image
@@ -121,6 +124,8 @@ type Manager struct {
 	sandboxGIFs, ffmpegChecked bool
 	// paused stops every animation where it is; UI thread only.
 	paused bool
+	// holding stops the media asked for where they are; UI thread only.
+	holding bool
 	// uiClips plays decoded loops on the UI's clock: each frame shows the
 	// picture of its own time, and the next is scheduled by NextFrame, so
 	// that any number of loops wake the window once per picture. Emoji
@@ -273,13 +278,20 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 			m.load(ctx, e, loading)
 		})
 	}
-	if m.paused {
+	hold := m.paused || m.holding
+	if hold {
 		animate = false
+		e.heldAt = m.generation
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	wasAnimating := e.animate
-	e.animate = animate || e.seen == m.generation && e.animate
+	// A view of the same media drawn still, before or after one that plays
+	// it, does not stop it: stopped for a moment, the animation would start
+	// over. EndFrame stops what no view of the frame played.
+	if animate {
+		e.animate, e.played = true, m.generation
+	}
 	if e.animate && !wasAnimating {
 		select {
 		case e.wake <- struct{}{}:
@@ -298,7 +310,7 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 		}
 	}
 	// A paused animation stays on the frame it reached.
-	if !animate && e.still != nil && (!m.paused || e.frame == nil) {
+	if !animate && e.still != nil && (!hold || e.frame == nil) {
 		return e.still, e.err
 	}
 	return e.frame, e.err
@@ -308,6 +320,12 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 // Telegram Desktop pauses them while its window is not active. It runs on
 // the UI goroutine.
 func (m *Manager) SetPaused(paused bool) { m.paused = paused }
+
+// SetHolding makes the media asked for until SetHolding(false) stand on the
+// pictures they reached, as SetPaused does, rather than on their first: a
+// view laid under a dialog holds them so, and they play on from there once
+// asked to play again. It runs on the UI goroutine.
+func (m *Manager) SetHolding(holding bool) { m.holding = holding }
 
 // clipFrame is the picture of e's loop at the time of the frame, nil while
 // it stands still, and schedules the next. The caller holds e.mu.
@@ -421,8 +439,9 @@ func (m *Manager) EndFrame() {
 	stopping := 0
 	for _, e := range m.entries {
 		e.mu.Lock()
-		if e.seen != m.generation {
+		if e.played != m.generation {
 			e.animate = false
+			e.held = e.heldAt == m.generation
 		}
 		stops := e.caching || e.clip != nil || m.retainAnimations == 0
 		if e.animated && !e.expired && e.seen+1 < m.generation && (stops || time.Since(e.lastVisible) > m.retainAnimations) {
@@ -1237,17 +1256,26 @@ func (m *Manager) playAnimation(ctx context.Context, e *entry, frame func(time.D
 	}
 	publish(im, nil)
 	var started time.Time
-	shown := int64(-1)
+	// resume is the picture a held animation plays on from.
+	shown, resume := int64(-1), int64(0)
 	for {
 		e.mu.Lock()
 		animate, fullRate := e.animate, e.fullRate
 		e.mu.Unlock()
 		if !animate {
-			// Played again, it starts over.
-			started, shown = time.Time{}, -1
 			if waitAnimation(ctx, e) != nil {
 				return
 			}
+			e.mu.Lock()
+			held := e.held
+			e.mu.Unlock()
+			// Played again, it starts over, unless it was held where it is:
+			// then it goes on from the picture after the one shown.
+			resume = 0
+			if held && shown >= 0 {
+				resume = shown + 1
+			}
+			started, shown = time.Time{}, resume-1
 			continue
 		}
 		k := ticksPer(period, fullRate)
@@ -1257,7 +1285,8 @@ func (m *Manager) playAnimation(ctx context.Context, e *entry, frame func(time.D
 		}
 		soonest := tickCeil(time.Now().Add(time.Nanosecond), k)
 		if started.IsZero() {
-			started = soonest
+			started = soonest.Add(-step * time.Duration(resume))
+			resume = 0
 		}
 		// The tick of the next picture that differs from the one shown: a
 		// slow animation skips the ticks that would show the same.
