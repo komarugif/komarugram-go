@@ -31,6 +31,16 @@ type messageSelection struct {
 	scrollAt  time.Time
 }
 
+// holdsKeyboard reports whether the history keeps the keyboard: for
+// messages or text selected, or text being selected, to copy or extend.
+func (p *chatPage) holdsKeyboard() bool {
+	if len(p.selection.selected) > 0 || p.selection.dragging {
+		return true
+	}
+	t := p.activeText
+	return t != nil && (t.text.pressed || t.text.anchor != t.text.caret)
+}
+
 func (p *chatPage) clearSelection() {
 	p.selection = messageSelection{}
 }

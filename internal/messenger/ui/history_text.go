@@ -279,6 +279,8 @@ func (p *chatPage) keyboardEvents(gtx layout.Context, catalog ...localization.Ca
 			}
 			p.clearSelection()
 			p.activeText = nil
+			// The message field takes the keyboard back in the next frame.
+			gtx.Execute(op.InvalidateCmd{})
 			continue
 		}
 		if p.activeText == nil {

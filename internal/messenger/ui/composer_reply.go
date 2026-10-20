@@ -100,8 +100,9 @@ func (c *messageComposer) replyLayout(gtx layout.Context, chat int64, bar image.
 		if classic {
 			radius = 0
 		}
+		composerShadow(gtx, classic, image.Rectangle{Max: size}, radius)
 		defer clip.UniformRRect(image.Rectangle{Max: size}, radius).Push(gtx.Ops).Pop()
-		overlayFill(gtx, backdrop, size, rect.Min, sc.SurfaceContainerHigh, radius)
+		composerFill(gtx, classic, backdrop, size, rect.Min, sc.SurfaceContainerHigh, radius)
 		if classic {
 			fillRect(gtx, sc.OutlineVariant, image.Pt(size.X, gtx.Dp(1)))
 		}

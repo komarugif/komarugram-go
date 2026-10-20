@@ -466,6 +466,10 @@ func (p *chatPage) save(force bool) {
 // Layout draws the bar of what plays, if anything does, the chat's pinned
 // bar, if it has pinned messages, and its history under them.
 func (p *chatPage) Layout(gtx layout.Context, c model.Chat, l localization.Catalog, animate bool) layout.Dimensions {
+	if p.composer != nil {
+		free := gtx.Focused(nil) || gtx.Focused(&p.keyboard) && !p.holdsKeyboard()
+		p.composer.takeKeyboard(gtx, c.ID, free)
+	}
 	p.sourceEvents(l)
 	p.htmlEvents(l)
 	playing := p.audioBarSize(gtx)
@@ -597,10 +601,8 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	if recording {
 		record = op.Record(gtx.Ops)
 	}
-	fillRect(gtx, sc.SurfaceContainerLow, size)
 	if p.appearance != nil {
 		p.appearance.Update(c.ID, token.IsDarkColorSet(sc.Surface))
-		p.appearance.Background(gtx)
 	}
 	p.historyWidth = size.X
 	theme := uint32(sc.Surface.Color.AsNRGBA().R)<<16 | uint32(sc.Surface.Color.AsNRGBA().G)<<8 | uint32(sc.Surface.Color.AsNRGBA().B)
@@ -677,6 +679,19 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	flightFrom := tail / 2
 	if classic {
 		flightFrom = tail + bottom/2
+	}
+	{
+		// The history's background ends where the classic composer's bar
+		// begins: the bar is a surface of the window, which shows what is
+		// behind a translucent window, not the wallpaper. The wallpaper is
+		// cut, not drawn smaller, so that a reply strip does not render it
+		// again.
+		area := clip.Rect{Max: image.Pt(size.X, max(0, size.Y-bottom))}.Push(gtx.Ops)
+		fillRect(gtx, sc.SurfaceContainerLow, size)
+		if p.appearance != nil {
+			p.appearance.Background(gtx)
+		}
+		area.Pop()
 	}
 	body := gtx
 	body.Constraints = layout.Exact(image.Pt(size.X, max(0, size.Y-top-bottom)))

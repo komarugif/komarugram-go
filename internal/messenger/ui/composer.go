@@ -78,6 +78,11 @@ type messageComposer struct {
 	confirmations func() (sticker, gif bool)
 	sendConfirm   sendConfirm
 	editorHit     struct{}
+	// editorChat is the chat whose field was laid out last, editorLaid
+	// whether it was in this frame, with room to type, and editorWasLaid
+	// whether in the frame before.
+	editorChat                int64
+	editorLaid, editorWasLaid bool
 	// top is where the composer began on the last frame, its reply strip
 	// included: the history's toast shows above it.
 	top                    int
@@ -341,6 +346,24 @@ func (c *messageComposer) textChanged(d *messageDraft) {
 	d.err = nil
 	if g, ok := c.source.(model.GhostStore); ok && strings.TrimSpace(next) != "" {
 		g.Typing(c.chat)
+	}
+}
+
+// takeKeyboard gives the message field the keyboard whenever nobody else
+// wants it, as Telegram Desktop's field keeps it: the picker's search, a
+// dialog, the chat's search, text selected in the history and a recording
+// take it, and it comes back once they are done. free tells whether nobody
+// holds the keyboard now. It runs before anything else of the frame, so that
+// whatever asks for the keyboard in the frame gets it, and only for a field
+// laid out in the frame before: Gio drops the focus of what is not laid out.
+func (c *messageComposer) takeKeyboard(gtx layout.Context, chat int64, free bool) {
+	c.editorWasLaid = c.editorLaid && c.editorChat == chat
+	c.editorLaid = false
+	if !free || !c.editorWasLaid || c.pickerOpen || c.form != 0 || c.recording != nil {
+		return
+	}
+	if d := c.drafts[chat]; d != nil && !gtx.Focused(&d.editor) {
+		gtx.Execute(key.FocusCmd{Tag: &d.editor})
 	}
 }
 
@@ -684,6 +707,25 @@ func floatingComposerCover(gtx layout.Context, size image.Point) int {
 	return height + min(gtx.Dp(12), max(0, size.Y-height))
 }
 
+// composerShadow draws the shadow of a floating composer's plate, under the
+// plate; the classic bar below the history casts none.
+func composerShadow(gtx layout.Context, classic bool, plate image.Rectangle, radius int) {
+	if !classic {
+		drawShadow(gtx, plate, radius, composerShadowStyle)
+	}
+}
+
+// composerFill fills a plate of the composer: a floating one over the
+// blurred history, as an overlay; the classic bar as the window's other
+// surfaces, as translucent as the window.
+func composerFill(gtx layout.Context, classic bool, backdrop *blurBackdrop, size, origin image.Point, fill token.MatColor, radius int) {
+	if classic {
+		fillWindowSurface(gtx, fill, size)
+		return
+	}
+	overlayFill(gtx, backdrop, size, origin, fill, radius)
+}
+
 // Layout draws the composer over the chat page p. A floating composer shows
 // backdrop, the history behind it, blurred; nil draws it opaque.
 func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.Catalog, p *chatPage, animate bool, backdrop *blurBackdrop) layout.Dimensions {
@@ -716,8 +758,9 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			if classic {
 				radius = 0
 			}
+			composerShadow(gtx, classic, image.Rectangle{Max: s}, radius)
 			defer clip.UniformRRect(image.Rectangle{Max: s}, radius).Push(gtx.Ops).Pop()
-			overlayFill(gtx, backdrop, s, rect.Min, sc.SurfaceContainerHigh, radius)
+			composerFill(gtx, classic, backdrop, s, rect.Min, sc.SurfaceContainerHigh, radius)
 			if classic {
 				fillRect(gtx, sc.OutlineVariant, image.Pt(s.X, gtx.Dp(1)))
 			}
@@ -732,8 +775,9 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			if classic {
 				radius = 0
 			}
+			composerShadow(gtx, classic, image.Rectangle{Max: s}, radius)
 			defer clip.UniformRRect(image.Rectangle{Max: s}, radius).Push(gtx.Ops).Pop()
-			overlayFill(gtx, backdrop, s, rect.Min, scheme(gtx).SurfaceContainerHigh, radius)
+			composerFill(gtx, classic, backdrop, s, rect.Min, scheme(gtx).SurfaceContainerHigh, radius)
 			return c.layoutReadOnly(gtx, p, l)
 		})
 		return layout.Dimensions{Size: size}
@@ -767,8 +811,9 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			radius = 0
 		}
 		// Keep pointer input inside the composer from reaching the history.
+		composerShadow(gtx, classic, image.Rectangle{Max: s}, radius)
 		defer clip.UniformRRect(image.Rectangle{Max: s}, radius).Push(gtx.Ops).Pop()
-		overlayFill(gtx, backdrop, s, rect.Min, sc.SurfaceContainerHigh, radius)
+		composerFill(gtx, classic, backdrop, s, rect.Min, sc.SurfaceContainerHigh, radius)
 		if classic {
 			fillRect(gtx, sc.OutlineVariant, image.Pt(s.X, gtx.Dp(1)))
 		}
@@ -855,6 +900,13 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			}
 			if d.sending || c.source == nil {
 				gtx = gtx.Disabled()
+			} else {
+				if !c.editorWasLaid {
+					// A field just shown takes the keyboard in the next
+					// frame, which nothing else may ask for.
+					gtx.Execute(op.InvalidateCmd{})
+				}
+				c.editorChat, c.editorLaid = chat, true
 			}
 			size := gtx.Constraints.Max
 			inner := gtx

@@ -152,7 +152,11 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 	bodyGtx := gtx
 	bodyGtx.Constraints = layout.Exact(image.Pt(size.X, max(size.Y-header.Y, 0)))
 	offset(bodyGtx, image.Pt(0, header.Y), func(gtx layout.Context) layout.Dimensions {
-		fillRect(gtx, sc.SurfaceContainerLow, gtx.Constraints.Max)
+		if selection == nil {
+			// A chat's history fills its own background, up to the classic
+			// composer's bar, which is a surface of the window.
+			fillRect(gtx, sc.SurfaceContainerLow, gtx.Constraints.Max)
+		}
 		return body(gtx)
 	})
 	headerGtx := gtx

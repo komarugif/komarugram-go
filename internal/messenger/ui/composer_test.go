@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"image"
+	"image/color"
 	"image/png"
 	"math"
 	"os"
@@ -29,6 +30,8 @@ import (
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
 	"gioui.org/unit"
 )
 
@@ -45,6 +48,12 @@ type composerHarness struct {
 	still bool
 	// drop, when set, is a drag of files over the page, drawn over it.
 	drop *fileDrop
+	// over, when set, is drawn over the page, as a window's other parts.
+	over func(gtx layout.Context)
+	// transparency is the window's, in percent; under, when set, is drawn
+	// under the page, as the desktop behind a translucent window.
+	transparency int
+	under        func(gtx layout.Context)
 }
 
 func newComposerHarness(t *testing.T) *composerHarness {
@@ -61,6 +70,12 @@ func (h *composerHarness) frame() *op.Ops {
 	gtx := layout.Context{Ops: ops, Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(h.size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
 	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineDark()))
 	wdk.SetAnimationsEnabled(gtx, !h.still)
+	if h.transparency > 0 {
+		withWindowSurfaceOpacity(gtx, h.transparency, true)
+	}
+	if h.under != nil {
+		h.under(gtx)
+	}
 	h.p.images.BeginFrame()
 	h.p.media.BeginFrame()
 	h.p.Layout(gtx, model.Chat{ID: h.chat, Kind: h.kind}, localization.For("ru"), h.animate)
@@ -68,6 +83,9 @@ func (h *composerHarness) frame() *op.Ops {
 	if h.drop != nil {
 		h.drop.area, h.drop.metric = image.Rectangle{Max: h.size}, gtx.Metric
 		h.drop.layout(gtx, localization.For("ru"))
+	}
+	if h.over != nil {
+		h.over(gtx)
 	}
 	h.p.media.EndFrame()
 	h.p.images.EndFrame()
@@ -280,6 +298,16 @@ func TestRenderComposer(t *testing.T) {
 	case "emoji-search":
 		// The emoji of the picker found for a word, before Telegram answers.
 		h.p.composer.search.SetText("кот")
+	case "classic-translucent", "floating-translucent":
+		// The window half transparent over stripes, as over a desktop: the
+		// classic bar shows them, as the sidebar does; the history and the
+		// floating capsule, with its shadow, do not.
+		h.p.composer.pickerOpen = false
+		classic := strings.HasPrefix(os.Getenv("COMPOSER_VIEW"), "classic")
+		h.p.classic = func() bool { return classic }
+		h.chat = 2
+		h.transparency = 50
+		h.under = desktopStripes
 	case "classic", "floating", "toast", "toast-classic":
 		h.p.composer.pickerOpen = false
 		classic := strings.HasSuffix(os.Getenv("COMPOSER_VIEW"), "classic")
@@ -367,26 +395,51 @@ func TestRenderComposer(t *testing.T) {
 		time.Sleep(15 * time.Millisecond)
 	}
 
-	win, err := headless.NewWindow(h.size.X, h.size.Y)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer win.Release()
-	ops := h.frame()
-	if err = win.Frame(ops); err != nil {
-		t.Fatal(err)
-	}
-	im := image.NewRGBA(image.Rectangle{Max: h.size})
-	if err = win.Screenshot(im); err != nil {
-		t.Fatal(err)
-	}
+	im := h.screenshot(t)
 	f, err := os.Create(os.Getenv("COMPOSER_PNG"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	if err = png.Encode(f, im); err != nil {
+	if err = png.Encode(f, windowSurfacePNG(im)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// screenshot draws a frame of the harness on the GPU and returns its
+// pixels, premultiplied, over a transparent window; without a GPU the
+// test is skipped.
+func (h *composerHarness) screenshot(t *testing.T) *image.RGBA {
+	t.Helper()
+	win, err := headless.NewWindow(h.size.X, h.size.Y)
+	if err != nil {
+		t.Skip("no GPU for headless rendering:", err)
+	}
+	defer win.Release()
+	if err := win.Frame(h.frame()); err != nil {
+		t.Fatal(err)
+	}
+	im := image.NewRGBA(image.Rectangle{Max: h.size})
+	if err := win.Screenshot(im); err != nil {
+		t.Fatal(err)
+	}
+	return im
+}
+
+// desktopStripes draws diagonal stripes over the whole frame, as a desktop
+// behind the window.
+func desktopStripes(gtx layout.Context) {
+	size := gtx.Constraints.Max
+	paint.FillShape(gtx.Ops, color.NRGBA{R: 0x20, G: 0x70, B: 0xd0, A: 0xff}, clip.Rect{Max: size}.Op())
+	for x := -size.Y; x < size.X; x += 48 {
+		var p clip.Path
+		p.Begin(gtx.Ops)
+		p.MoveTo(f32.Pt(float32(x), float32(size.Y)))
+		p.LineTo(f32.Pt(float32(x+size.Y), 0))
+		p.LineTo(f32.Pt(float32(x+size.Y+24), 0))
+		p.LineTo(f32.Pt(float32(x+24), float32(size.Y)))
+		p.Close()
+		paint.FillShape(gtx.Ops, color.NRGBA{R: 0xf0, G: 0xb0, B: 0x30, A: 0xff}, clip.Outline{Path: p.End()}.Op())
 	}
 }
 func TestComposerSmallWindows(t *testing.T) {

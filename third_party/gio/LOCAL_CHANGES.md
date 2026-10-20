@@ -602,3 +602,9 @@ Run the focused check from the project root:
   Tests compare platform mappings and dispatch real US/Dvorak/Russian/German XKB
   maps, including modifiers and Shift. Messenger command remapping uses these
   filters; text editing keeps the logical event stream.
+
+- `io/input/router.go` (`Router.Frame`): a frame that removes the focused
+  handler, which drops the focus, asks for another frame at once. Upstream
+  drops it silently, and a widget that takes the keyboard when nobody holds
+  it (the messenger's message field, as Telegram Desktop's) saw that only
+  at the next event. `TestKeyLostFocusWakes`.

@@ -81,4 +81,22 @@ func (p *chatPage) selectionShortcutEvents(gtx layout.Context, l localization.Ca
 			}
 		}
 	}
+	// The message field holds the keyboard most of the time, as in Telegram
+	// Desktop, whose chat search opens while typing too.
+	if p.composer == nil {
+		return
+	}
+	d := p.composer.drafts[p.chat]
+	if d == nil {
+		return
+	}
+	for {
+		_, e, ok := p.shortcuts.next(gtx, &d.editor, "chat.search")
+		if !ok {
+			break
+		}
+		if e.State == key.Press && p.canSearchChat() {
+			p.openChatSearch(gtx)
+		}
+	}
 }

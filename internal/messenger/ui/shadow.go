@@ -72,6 +72,9 @@ var (
 	dialogShadow = shadowStyle{blur: 28, dy: 8, alpha: .42}
 	// menuShadow is the shadow of a context menu or a picker over the page.
 	menuShadow = shadowStyle{blur: 18, dy: 5, alpha: .36}
+	// composerShadowStyle is the shadow of a floating composer's plates over
+	// the history, softer than a menu's: they lie along its bottom edge.
+	composerShadowStyle = shadowStyle{blur: 14, dy: 3, alpha: .3}
 )
 
 // shadowIntensityKey keeps the intensity of shadows in the frame's Values,
@@ -109,7 +112,7 @@ func drawShadow(gtx layout.Context, rect image.Rectangle, radius int, style shad
 	blur := gtx.Dp(style.blur)
 	rect = rect.Add(image.Pt(0, gtx.Dp(style.dy)))
 	intensity := shadowIntensity(gtx)
-	if intensity <= 0 || blur <= 0 || rect.Dx() < 2*radius+shadowMiddle || rect.Dy() < 2*radius+shadowMiddle {
+	if intensity <= 0 || blur <= 0 || rect.Dx() < 2*radius || rect.Dy() < 2*radius {
 		return
 	}
 	sc := scheme(gtx)
@@ -125,6 +128,17 @@ func drawShadow(gtx layout.Context, rect image.Rectangle, radius int, style shad
 	area := image.Rect(rect.Min.X-blur, rect.Min.Y-blur, rect.Max.X+blur, rect.Max.Y+blur)
 	xs := [4]int{area.Min.X, area.Min.X + corner, area.Max.X - corner, area.Max.X}
 	ys := [4]int{area.Min.Y, area.Min.Y + corner, area.Max.Y - corner, area.Max.Y}
+	// A shape round end to end, as a capsule, has no straight piece for the
+	// middle: the corners meet half way, a pixel or two smaller than in the
+	// picture, which does not show.
+	if xs[1] > xs[2] {
+		xs[1] = (area.Min.X + area.Max.X) / 2
+		xs[2] = xs[1]
+	}
+	if ys[1] > ys[2] {
+		ys[1] = (area.Min.Y + area.Max.Y) / 2
+		ys[2] = ys[1]
+	}
 	// The same cuts in the picture, the middle of it two pixels wide.
 	size := 2*corner + shadowMiddle
 	us := [4]int{0, corner, corner + shadowMiddle, size}

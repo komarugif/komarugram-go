@@ -63,8 +63,8 @@ func TestMakeShadow(t *testing.T) {
 }
 
 // TestDrawShadowSizes checks that shadows of shapes of every size are
-// drawn, or left out when the shape is too small to cut the picture by,
-// and that the picture is made once for all of them.
+// drawn, a capsule round end to end too, or left out when the shape is
+// smaller than its corners, and that the picture is made once for all of them.
 func TestDrawShadowSizes(t *testing.T) {
 	gtx := layout.Context{Ops: new(op.Ops), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
 	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
@@ -72,7 +72,7 @@ func TestDrawShadowSizes(t *testing.T) {
 	shadowPictures.Lock()
 	clear(shadowPictures.made)
 	shadowPictures.Unlock()
-	for _, size := range []image.Point{{0, 0}, {10, 10}, {41, 200}, {42, 42}, {640, 740}, {5000, 3000}} {
+	for _, size := range []image.Point{{0, 0}, {10, 10}, {40, 200}, {41, 200}, {42, 42}, {640, 740}, {5000, 3000}} {
 		drawShadow(gtx, image.Rectangle{Max: size}, gtx.Dp(16), dialogShadow)
 	}
 	shadowPictures.Lock()

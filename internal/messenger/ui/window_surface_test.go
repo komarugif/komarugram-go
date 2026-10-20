@@ -49,6 +49,7 @@ func TestWindowSurfacePixels(t *testing.T) {
 		{"unsupported", 40, false, ""},
 		{"search", 40, true, "search"},
 		{"selection", 40, true, "selection"},
+		{"classic", 40, true, "classic"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			prefs := preferences.Memory()
@@ -57,6 +58,11 @@ func TestWindowSurfacePixels(t *testing.T) {
 			}
 			if err := prefs.SetWindowTransparency(tc.transparency); err != nil {
 				t.Fatal(err)
+			}
+			if tc.mode == "classic" {
+				if err := prefs.SetComposer(preferences.ComposerClassic); err != nil {
+					t.Fatal(err)
+				}
 			}
 			a := New(testWindow(t), mockstore.New(time.Unix(1000, 0), 0), Services{
 				Preferences: prefs, MiniApps: miniappprefs.New(miniapp.Ephemeral),
@@ -100,6 +106,16 @@ func TestWindowSurfacePixels(t *testing.T) {
 			}
 			if got := img.RGBAAt(700, 500).A; got != 255 {
 				t.Errorf("history alpha %d, want opaque", got)
+			}
+			// The bottom edge of the chat: the classic composer's bar, a
+			// surface of the window; under a floating one, the history.
+			bottom := int(img.RGBAAt(700, size.Y-3).A)
+			if tc.mode == "classic" {
+				if bottom < want-1 || bottom > want+1 {
+					t.Errorf("classic composer alpha %d, want %d", bottom, want)
+				}
+			} else if bottom != 255 {
+				t.Errorf("history under the floating composer alpha %d, want opaque", bottom)
 			}
 			if got := img.RGBAAt(115, 26).A; got != 255 {
 				t.Errorf("chat avatar alpha %d, want opaque", got)

@@ -594,7 +594,10 @@ new piece sits next to its neighbours.
   a voice message being recorded; `files`, `files-one`, `files-documents`,
   `files-many`, `files-caption` and `files-music`, the box for sending files;
   `drop-photos`, `drop-media` and `drop-files`, the areas files dragged over
-  the chat are dropped on.
+  the chat are dropped on; `classic-translucent` and `floating-translucent`,
+  the composer of a half-transparent window over stripes, as over a desktop:
+  the classic bar is a surface of the window and shows them, the history
+  and the floating capsule, which casts a shadow, do not.
   `SETTINGS_SECTION=premium` with `SETTINGS_PNG` shows the Premium section of
   an account without Premium and with Local Premium on (`LOCAL_PREMIUM=off`,
   off).
@@ -612,6 +615,20 @@ new piece sits next to its neighbours.
 - **The app itself.** `go run ./cmd/messenger -demo` runs without an account.
   On Linux under X11, `xdotool` drives a window (`mousemove --window … click`)
   and `xfce4-screenshooter -w` saves the active one.
+
+## The message field's keyboard
+
+As in Telegram Desktop, the message field holds the keyboard whenever
+nobody else wants it (`messageComposer.takeKeyboard`, at the top of
+`chatPage.Layout`): in a chat just opened, in the window activated again,
+after a menu, dialog, search or recording is gone. Whatever takes the
+keyboard (`key.FocusCmd`) keeps it while it is there, and text selected in
+the history keeps it for copying (`chatPage.holdsKeyboard`) until Escape or
+a click drops the selection. The field asks only in a frame after one it was
+laid out in, before anything else of the frame, so that what asks later in
+the same frame wins; the Gio fork asks for a frame once the focused handler
+is gone (`third_party/gio/LOCAL_CHANGES.md`). A new overlay needs nothing
+for this: take the keyboard when it opens, and the field gets it back.
 
 ## Composer permissions
 

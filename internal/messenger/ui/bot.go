@@ -164,8 +164,9 @@ func (p *chatPage) layoutKeyboard(gtx layout.Context, chat int64, rect image.Rec
 		if classic {
 			radius = 0
 		}
+		composerShadow(gtx, classic, image.Rectangle{Max: size}, radius)
 		defer clip.UniformRRect(image.Rectangle{Max: size}, radius).Push(gtx.Ops).Pop()
-		overlayFill(gtx, backdrop, size, rect.Min, sc.SurfaceContainerHigh, radius)
+		composerFill(gtx, classic, backdrop, size, rect.Min, sc.SurfaceContainerHigh, radius)
 		if classic {
 			fillRect(gtx, sc.OutlineVariant, image.Pt(size.X, gtx.Dp(1)))
 		}
@@ -250,8 +251,9 @@ func (p *chatPage) layoutStart(gtx layout.Context, chat int64, rect image.Rectan
 		if classic {
 			radius = 0
 		}
+		composerShadow(gtx, classic, image.Rectangle{Max: size}, radius)
 		defer clip.UniformRRect(image.Rectangle{Max: size}, radius).Push(gtx.Ops).Pop()
-		overlayFill(gtx, backdrop, size, rect.Min, sc.SurfaceContainerHigh, radius)
+		composerFill(gtx, classic, backdrop, size, rect.Min, sc.SurfaceContainerHigh, radius)
 		if classic {
 			fillRect(gtx, sc.OutlineVariant, image.Pt(size.X, gtx.Dp(1)))
 		}
