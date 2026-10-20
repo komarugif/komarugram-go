@@ -520,16 +520,26 @@ func TestRenderComposerMotion(t *testing.T) {
 		frames(h, 30)
 		save(h, menu+"-open")
 	}
-	// Press the emoji button, at the capsule's end, and catch its ripple.
+	// Press the emoji button, left of the microphone at the capsule's end,
+	// and catch its ripple.
 	h := newComposerHarness(t)
 	h.chat = 2
 	frames(h, 2)
-	smile := f32.Pt(float32(h.size.X-16-24), float32(h.size.Y-12-28))
+	smile := f32.Pt(float32(h.size.X-16-56-28), float32(h.size.Y-12-28))
 	h.router.Queue(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: smile})
 	frames(h, 2)
 	h.router.Queue(pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: smile})
 	frames(h, 6)
 	save(h, "ripple")
+
+	// The first letter typed: the microphone shrinks and fades as Send
+	// grows in its place, part way.
+	h = newComposerHarness(t)
+	h.chat = 2
+	frames(h, 2)
+	h.router.Queue(key.EditEvent{Text: "П"})
+	frames(h, 3)
+	save(h, "send-switching")
 
 	h = newComposerHarness(t)
 	h.chat = 2

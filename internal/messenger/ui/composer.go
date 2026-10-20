@@ -22,6 +22,7 @@ import (
 	"gio-mw/wdk"
 	"gio-mw/widget/scroll"
 
+	"gioui.org/f32"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
@@ -83,6 +84,12 @@ type messageComposer struct {
 	// whether in the frame before.
 	editorChat                int64
 	editorLaid, editorWasLaid bool
+	// farSend tells whether the capsule's far slot shows Send rather than
+	// the microphone in farChat, since farSwitched, zero for no change to
+	// animate.
+	farSend     bool
+	farChat     int64
+	farSwitched time.Time
 	// top is where the composer began on the last frame, its reply strip
 	// included: the history's toast shows above it.
 	top                    int
@@ -724,6 +731,62 @@ func floatingComposerCover(gtx layout.Context, size image.Point) int {
 	return height + min(gtx.Dp(12), max(0, size.Y-height))
 }
 
+// farSwitchDuration is how long the microphone and Send take to change
+// into each other, Telegram Desktop's universalDuration.
+const farSwitchDuration = 120 * time.Millisecond
+
+// farIcon is the icon of the capsule's far slot, Send or the microphone. As
+// in Telegram Desktop, the one shown shrinks and fades while the other grows
+// in its place; not in a chat just opened, nor with animations off.
+func (c *messageComposer) farIcon(gtx layout.Context, chat int64, send bool) wdk.IconWidget {
+	if c.farChat != chat || !wdk.AnimationsEnabled(gtx) {
+		c.farChat, c.farSend, c.farSwitched = chat, send, time.Time{}
+	} else if send != c.farSend {
+		c.farSend, c.farSwitched = send, gtx.Now
+	}
+	sc := scheme(gtx)
+	to, from, fromColor := iconMic, iconSend, sc.Primary.Color
+	if send {
+		to, from, fromColor = iconSend, iconMic, sc.SurfaceVariant.OnColor
+	}
+	if c.farSwitched.IsZero() {
+		return to
+	}
+	progress := float32(gtx.Now.Sub(c.farSwitched)) / float32(farSwitchDuration)
+	if progress >= 1 {
+		c.farSwitched = time.Time{}
+		return to
+	}
+	gtx.Execute(op.InvalidateCmd{})
+	return morphIcon(from, fromColor, to, max(0, progress))
+}
+
+// forgetFar makes the far slot's next icon appear without animation: the
+// slot showed something else, Stop or nothing.
+func (c *messageComposer) forgetFar() { c.farChat = 0 }
+
+// morphIcon draws from, in fromColor, changing into to, in the color it is
+// given, progress of the way: from shrinks to a fifth and fades out while to
+// grows from a fifth and fades in, both about their centers.
+func morphIcon(from wdk.IconWidget, fromColor token.MatColor, to wdk.IconWidget, progress float32) wdk.IconWidget {
+	return func(gtx layout.Context, color token.MatColor) layout.Dimensions {
+		var size image.Point
+		draw := func(icon wdk.IconWidget, color token.MatColor, scale, opacity float32) {
+			m := op.Record(gtx.Ops)
+			dims := icon(gtx, color)
+			call := m.Stop()
+			size = image.Pt(max(size.X, dims.Size.X), max(size.Y, dims.Size.Y))
+			center := layout.FPt(dims.Size).Mul(.5)
+			defer op.Affine(f32.AffineId().Scale(center, f32.Pt(scale, scale))).Push(gtx.Ops).Pop()
+			defer paint.PushOpacity(gtx.Ops, opacity).Pop()
+			call.Add(gtx.Ops)
+		}
+		draw(from, fromColor, 1-.8*progress, 1-progress)
+		draw(to, color, .2+.8*progress, progress)
+		return layout.Dimensions{Size: size}
+	}
+}
+
 // composerShadow draws the shadow of a floating composer's plate, under the
 // plate; the classic bar below the history casts none.
 func composerShadow(gtx layout.Context, classic bool, plate image.Rectangle, radius int) {
@@ -868,6 +931,7 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 		if c.recording != nil {
 			// While it records, the cross drops the recording and Send
 			// sends it.
+			c.forgetFar()
 			button(0, &c.voiceCancel, iconClear, l.T("record.cancel"))
 			button(s.X-iconWidth, &c.send, iconSend, l.T("composer.send"))
 			inRect(gtx, image.Rect(iconWidth, 0, max(iconWidth, s.X-iconWidth), s.Y), c.layoutRecording)
@@ -882,13 +946,14 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			// While a bot streams a draft the account may stop, Stop takes
 			// the place of Send, as in Telegram Desktop.
 			sendWidth = iconWidth
+			c.forgetFar()
 			button(s.X-iconWidth, &c.stopDraft, iconStop, l.T("rich.stop_draft"))
 			button(s.X-2*iconWidth, &c.smile, iconEmoji, l.T("composer.emoji"))
 		} else if c.canRecord(d) || !c.permissions(chat).Allows(model.SendVoice) && !d.sending && d.pending == nil && d.editor.Text() == "" {
 			// With nothing written, the microphone takes the far right, as
 			// in Telegram Desktop, and the emoji button moves left of it.
 			sendWidth = iconWidth
-			button(s.X-iconWidth, &c.micClick, iconMic, l.T("record.voice"))
+			button(s.X-iconWidth, &c.micClick, c.farIcon(gtx, chat, false), l.T("record.voice"))
 			button(s.X-2*iconWidth, &c.smile, iconEmoji, l.T("composer.emoji"))
 		} else if strings.TrimSpace(d.editor.Text()) != "" || d.sending || d.pending != nil {
 			// Send takes the microphone's place, the emoji button stays
@@ -901,9 +966,10 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			if d.err != nil && d.pending != nil {
 				label = l.T("composer.retry")
 			}
-			button(s.X-iconWidth, &c.send, iconSend, label)
+			button(s.X-iconWidth, &c.send, c.farIcon(gtx, chat, true), label)
 			button(s.X-2*iconWidth, &c.smile, iconEmoji, l.T("composer.emoji"))
 		} else {
+			c.forgetFar()
 			button(s.X-iconWidth, &c.smile, iconEmoji, l.T("composer.emoji"))
 		}
 		inRect(gtx, image.Rect(iconWidth+menuWidth, 0, max(iconWidth+menuWidth, s.X-iconWidth-sendWidth), s.Y), func(gtx layout.Context) layout.Dimensions {

@@ -68,3 +68,57 @@ func TestComposerSendsByItsIcon(t *testing.T) {
 		t.Fatalf("sent %q", got)
 	}
 }
+
+// Typing the first letter turns the microphone into Send, and clearing the
+// field turns it back, each over Telegram Desktop's 120ms; a chat opened
+// with a draft, or animations off, shows Send at once.
+func TestComposerMicrophoneTurnsIntoSend(t *testing.T) {
+	h := newComposerHarness(t)
+	c := h.p.composer
+	h.frame()
+	if c.farSend || !c.farSwitched.IsZero() {
+		t.Fatal("an empty field shows Send, or animates")
+	}
+	h.router.Queue(key.EditEvent{Text: "a"})
+	h.frame()
+	h.frame()
+	if !c.farSend || c.farSwitched.IsZero() {
+		t.Fatal("the first letter did not start turning the microphone into Send")
+	}
+	framesOf(h, 8) // 133ms at 60 frames a second
+	if !c.farSwitched.IsZero() {
+		t.Fatal("the change took longer than 120ms")
+	}
+	c.draft(1).editor.SetText("")
+	h.frame()
+	h.frame()
+	if c.farSend || c.farSwitched.IsZero() {
+		t.Fatal("clearing the field did not start turning Send into the microphone")
+	}
+	framesOf(h, 8)
+
+	// Another chat, with a draft: Send at once.
+	c.draft(2).editor.SetText("черновик")
+	h.chat = 2
+	h.frame()
+	if !c.farSend || !c.farSwitched.IsZero() {
+		t.Fatal("a chat opened with a draft animates Send in")
+	}
+	h.chat = 1
+	h.frame()
+	h.frame()
+
+	h.still = true
+	h.router.Queue(key.EditEvent{Text: "b"})
+	h.frame()
+	h.frame()
+	if !c.farSend || !c.farSwitched.IsZero() {
+		t.Fatal("with animations off, Send is animated in")
+	}
+}
+
+func framesOf(h *composerHarness, n int) {
+	for range n {
+		h.frame()
+	}
+}
