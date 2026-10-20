@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"komarugram/internal/crash"
+	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/chattheme"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
@@ -82,6 +83,9 @@ type coverFades struct {
 	// first frame, once their pictures have loaded.
 	gifts  [model.MaxCoverGifts]wdk.FloatTween
 	primed bool
+	// launched is set once every gift has loaded and they have set off
+	// together; a picture dropped later does not call them back.
+	launched bool
 	// places are where the gifts fly to, other each time the info opens.
 	places [model.MaxCoverGifts]int
 }
@@ -471,6 +475,18 @@ func coverGiftAt(place int, userpic image.Rectangle, dp float32) image.Point {
 	return image.Pt(int(x), int(y))
 }
 
+// coverGiftsLoaded reports whether the pictures of all of the gifts are
+// there, and there is a gift; one that failed to load does not hold the
+// others back.
+func coverGiftsLoaded(statuses []chatmedia.Status) bool {
+	for _, st := range statuses {
+		if st.Err == nil && st.Frame == nil && st.Preview == nil {
+			return false
+		}
+	}
+	return len(statuses) > 0
+}
+
 // layoutCoverGifts draws the pinned gifts around userpic, each on a glow
 // of its backdrop; a click opens one.
 func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle, animate bool) {
@@ -479,21 +495,34 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 	}
 	art, glow := gtx.Dp(coverGiftSize), gtx.Dp(coverGlowSize)
 	p.motion.giftStreaks = false
+	// The gifts fly out together, once all of their pictures have loaded,
+	// as Telegram Desktop's do: a gift that has not failed holds the rest.
+	var statuses [model.MaxCoverGifts]chatmedia.Status
+	shown := 0
+	for i, m := range p.profile.Gifts {
+		if i >= len(statuses) {
+			break
+		}
+		statuses[i] = p.renderer.media.StatusFullRate(m, animate, image.Pt(art, art), false)
+		shown = i + 1
+	}
+	if p.fades.primed && p.modal.Entered() && coverGiftsLoaded(statuses[:shown]) {
+		p.fades.launched = true
+	}
 	for i, m := range p.profile.Gifts {
 		if i >= len(p.fades.places) {
 			break
 		}
 		place := p.fades.places[i]
-		// A gift and its glow fly out once its picture has loaded, coming
-		// into sight as they go.
-		st := p.renderer.media.StatusFullRate(m, animate, image.Pt(art, art), false)
+		// A gift and its glow fly out, coming into sight as they go.
+		st := statuses[i]
 		flight := &p.fades.gifts[i]
 		flight.Duration, flight.Easing = 400*time.Millisecond, &easeOutQuint
 		// The first frame of the info sets every flight at its start, so
 		// that a gift decoded already flies out too, once the dialog has
 		// grown.
 		target := float32(0)
-		if p.fades.primed && p.modal.Entered() && (st.Frame != nil || st.Preview != nil) {
+		if p.fades.launched && (st.Frame != nil || st.Preview != nil) {
 			target = 1
 		}
 		progress := flight.Animate(gtx, target)

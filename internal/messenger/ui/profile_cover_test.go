@@ -4,10 +4,12 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"image"
 	"testing"
 	"time"
 
+	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
@@ -398,5 +400,24 @@ func TestShuffledPlaces(t *testing.T) {
 	}
 	if len(opened) < 2 {
 		t.Fatal("the info opens with the same places each time")
+	}
+}
+
+// TestCoverGiftsSetOffTogether: the gifts of the cover wait for the pictures
+// of all of them, as Telegram Desktop's do, but not for one that failed.
+func TestCoverGiftsSetOffTogether(t *testing.T) {
+	picture := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	loaded := chatmedia.Status{Preview: picture}
+	if coverGiftsLoaded(nil) {
+		t.Error("no gifts are loaded")
+	}
+	if !coverGiftsLoaded([]chatmedia.Status{loaded, loaded}) {
+		t.Error("gifts with pictures did not set off")
+	}
+	if coverGiftsLoaded([]chatmedia.Status{loaded, {Loading: true}}) {
+		t.Error("a gift set off while another was loading")
+	}
+	if !coverGiftsLoaded([]chatmedia.Status{loaded, {Err: errors.New("gone")}}) {
+		t.Error("a failed gift held the others back")
 	}
 }
