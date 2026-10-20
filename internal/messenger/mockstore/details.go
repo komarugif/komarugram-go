@@ -10,7 +10,9 @@ import (
 )
 
 // usernames are the public names of the demo's public chats.
-var usernames = map[int64]string{2: "anna_smirnova", 4: "golang_news", 8: "material_design"}
+// Новости Go has put its collectible username before its own, which the
+// profile tells after it.
+var usernames = map[int64]string{2: "anna_smirnova", 4: "gonews", 8: "material_design"}
 
 // Username implements model.UsernameSource.
 func (s *Store) Username(chat int64) string { return usernames[chat] }

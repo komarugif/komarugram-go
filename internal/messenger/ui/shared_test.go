@@ -26,6 +26,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
+	"gioui.org/widget"
 )
 
 func sharedContext(ops *op.Ops, size image.Point) layout.Context {
@@ -467,5 +468,32 @@ func TestChatInfoDetails(t *testing.T) {
 	frame()
 	if _, text, ok := router.WriteClipboard(); !ok || string(text) != "DC 4, Amsterdam" {
 		t.Fatalf("copied %q", text)
+	}
+}
+
+// TestOwnUsernameFollowsCollectibles shows a channel that put its
+// collectible username first: its own follows the chips, which the card
+// above does not show then, and the username of the card is not repeated.
+func TestOwnUsernameFollowsCollectibles(t *testing.T) {
+	store := mockstore.New(time.Now(), 0)
+	var images imageOps
+	p := newChatInfo(store, &images, func() {})
+	defer p.Destroy()
+	p.chat = model.Chat{ID: 4, Kind: model.KindChannel}
+	p.profile.Usernames = []model.Username{{Name: "gonews", Collectible: true}, {Name: "golang_news"}}
+	if p.chatUsername() != "gonews" {
+		t.Fatal("the card does not show the collectible username put first")
+	}
+	gtx := sharedContext(new(op.Ops), image.Pt(600, 200))
+	p.layoutCollectibles(gtx)
+	if p.chips["gonews"] == nil || p.plainNames["golang_news"] == nil {
+		t.Fatal("the own username is not shown after the collectible one")
+	}
+	p.plainNames = map[string]*widget.Clickable{}
+	p.chat.ID = 2
+	p.profile.Usernames = []model.Username{{Name: "anna_smirnova"}, {Name: "anna", Collectible: true}}
+	p.layoutCollectibles(gtx)
+	if p.plainNames["anna_smirnova"] != nil {
+		t.Fatal("the username of the card is shown again")
 	}
 }

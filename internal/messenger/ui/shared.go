@@ -88,7 +88,8 @@ type chatInfo struct {
 	closed bool
 	// profile is the chat's profile, as profiles told it: the cover over
 	// the info, the user's channel and the collectible usernames, whose
-	// chips open collectible.
+	// chips open collectible; plainNames copy the other usernames, shown
+	// as text after the chips.
 	profiles      model.PeerProfileSource
 	profile       model.PeerProfile
 	profileResult chan profileResult
@@ -99,6 +100,7 @@ type chatInfo struct {
 	badges        badgesLayout
 	channel       settingsItem
 	chips         map[string]*folderChip
+	plainNames    map[string]*widget.Clickable
 	collectible   *collectibleDialog
 	// openChannel opens the user's channel, with a way back.
 	openChannel func(model.Chat)
@@ -115,6 +117,7 @@ func newChatInfo(source model.ConversationStore, images *imageOps, invalidate fu
 	p.collection, _ = source.(model.SharedCollectionSource)
 	p.profiles, _ = source.(model.PeerProfileSource)
 	p.chips = map[string]*folderChip{}
+	p.plainNames = map[string]*widget.Clickable{}
 	p.renderer = newChatPage(source, invalidate)
 	p.renderer.media.Close()
 	p.renderer.media = chatmedia.NewShared(source, invalidate)
@@ -422,6 +425,10 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 		if c := p.chips[u.Name]; c != nil && u.Collectible && c.Clicked(gtx) {
 			p.openCollectible(u.Name)
 		}
+		if c := p.plainNames[u.Name]; c != nil && !u.Collectible && c.Clicked(gtx) {
+			gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader("@" + u.Name))})
+			p.modal.Toast(l.T("info.username_copied"))
+		}
 	}
 	if p.openChat != nil && p.goToChat.click.Clicked(gtx) {
 		open := p.openChat
@@ -718,29 +725,57 @@ func channelLine(ch model.PersonalChannel, l localization.Catalog) []model.TextR
 }
 
 // layoutCollectibles are the chips of the collectible usernames, in lines
-// as many as they take; a click tells about one.
+// as many as they take; a click tells about one. The usernames that are
+// not collectible follow them as text, a click copying one, but the one the
+// card above shows: with a collectible username put first, the user's own
+// is shown here.
 func (p *chatInfo) layoutCollectibles(gtx layout.Context) layout.Dimensions {
-	var names []string
+	var names, plain []string
+	main := p.chatUsername()
 	for _, u := range p.profile.Usernames {
 		if u.Collectible {
 			names = append(names, u.Name)
+		} else if u.Name != main {
+			plain = append(plain, u.Name)
 		}
 	}
-	if len(names) == 0 {
+	if len(names)+len(plain) == 0 {
 		return layout.Dimensions{}
 	}
 	gap := gtx.Dp(8)
 	width := gtx.Constraints.Max.X
 	gtx.Constraints.Min = image.Point{}
 	x, y, line := 0, 0, 0
-	for _, name := range names {
-		c := p.chips[name]
-		if c == nil {
-			c = new(folderChip)
-			p.chips[name] = c
-		}
+	for i, name := range append(names, plain...) {
 		macro := op.Record(gtx.Ops)
-		dims := c.Layout(gtx, "@"+name, true, 0)
+		var dims layout.Dimensions
+		if i < len(names) {
+			c := p.chips[name]
+			if c == nil {
+				c = new(folderChip)
+				p.chips[name] = c
+			}
+			dims = c.Layout(gtx, "@"+name, true, 0)
+		} else {
+			c := p.plainNames[name]
+			if c == nil {
+				c = new(widget.Clickable)
+				p.plainNames[name] = c
+			}
+			dims = c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				pointer.CursorPointer.Add(gtx.Ops)
+				// As tall as the chips, the text in the middle of their line.
+				height := gtx.Dp(folderChipHeight)
+				macro := op.Record(gtx.Ops)
+				text := label(gtx, "@"+name, token.TypestyleLabelLarge, scheme(gtx).SurfaceVariant.OnColor, 1)
+				call := macro.Stop()
+				offset(gtx, image.Pt(0, (height-text.Size.Y)/2), func(gtx layout.Context) layout.Dimensions {
+					call.Add(gtx.Ops)
+					return text
+				})
+				return layout.Dimensions{Size: image.Pt(text.Size.X, height)}
+			})
+		}
 		call := macro.Stop()
 		if x > 0 && x+dims.Size.X > width {
 			x, y = 0, y+line+gap
