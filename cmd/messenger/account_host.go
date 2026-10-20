@@ -297,6 +297,18 @@ func (h *accountWindows) Open(id string) {
 	h.process.Open(h.windowSpec(a, session, false))
 }
 
+// trayAccountLocked is the account the tray brings back: the one used last,
+// or the first if it is gone; "" when there is none.
+func (h *accountWindows) trayAccountLocked() string {
+	if id := h.preferences.Global().LastAccountID; h.accounts[id] != nil {
+		return id
+	}
+	if len(h.order) != 0 {
+		return h.order[0]
+	}
+	return ""
+}
+
 // ShowAll brings the application back from the tray: it raises the window of
 // the account used last, with the XDG activation token if there is one, or
 // opens it if the account runs in the background. The windows of the other
@@ -307,13 +319,7 @@ func (h *accountWindows) ShowAll(token string) {
 		h.mu.Unlock()
 		return
 	}
-	id := h.preferences.Global().LastAccountID
-	if h.accounts[id] == nil {
-		id = ""
-		if len(h.order) != 0 {
-			id = h.order[0]
-		}
-	}
+	id := h.trayAccountLocked()
 	if id == "" {
 		// No account: only the sign-in window can be there.
 		window := h.signIn

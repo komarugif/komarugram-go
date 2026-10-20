@@ -15,6 +15,7 @@ import (
 	"github.com/gotd/td/tgerr"
 
 	"komarugram/internal/appwindow"
+	"komarugram/internal/messenger/account"
 	"komarugram/internal/messenger/preferences"
 )
 
@@ -217,5 +218,29 @@ func TestKeepConnectedFollowsTheProxy(t *testing.T) {
 			default:
 			}
 		})
+	}
+}
+
+// The tray brings back the account used last, whichever windows are open.
+func TestTrayBringsBackTheLastAccount(t *testing.T) {
+	prefs := preferences.Memory()
+	h := newAccountWindows(nil, appwindow.Options{}, nil, nil, nil, prefs, nil, nil)
+	h.accounts["a"], h.accounts["b"] = new(account.Account), new(account.Account)
+	h.order = []string{"a", "b"}
+	h.windows["a"] = new(appwindow.Window)
+	if got := h.trayAccountLocked(); got != "a" {
+		t.Errorf("with no account used the tray brings back %q, want the first", got)
+	}
+	if err := prefs.SetLastAccount("b"); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.trayAccountLocked(); got != "b" {
+		t.Errorf("the tray brings back %q, want the last used, b", got)
+	}
+	if err := prefs.SetLastAccount("gone"); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.trayAccountLocked(); got != "a" {
+		t.Errorf("with the last account removed the tray brings back %q, want the first", got)
 	}
 }
