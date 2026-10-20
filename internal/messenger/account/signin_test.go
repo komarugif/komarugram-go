@@ -409,16 +409,23 @@ func TestEarlyPhoneIsAskedAgainAfterARefusal(t *testing.T) {
 	}
 }
 
+// TestEarlyPhoneEndsWithItsContext checks that the early phone question,
+// ended by the context it was asked with, gives signIn that error. signIn
+// asks with a context of its own, still running here: one canceled too
+// would make QR choose at random between the answer and its own end, both
+// there at once.
 func TestEarlyPhoneEndsWithItsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &askedScript{script: &script{phones: []step{{err: context.Canceled}}}, asked: make(chan struct{}, 1)}
 	early := askEarly(ctx, p)
 	<-p.asked
 	cancel()
-	if err := early.QR(ctx, "", nil); !errors.Is(err, ErrUsePhone) {
+	signInCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stop()
+	if err := early.QR(signInCtx, "", nil); !errors.Is(err, ErrUsePhone) {
 		t.Fatalf("QR: %v, want the phone number chosen", err)
 	}
-	if _, err := early.Phone(ctx, nil); !errors.Is(err, context.Canceled) {
+	if _, err := early.Phone(signInCtx, nil); !errors.Is(err, context.Canceled) {
 		t.Errorf("error %v, want canceled", err)
 	}
 }
