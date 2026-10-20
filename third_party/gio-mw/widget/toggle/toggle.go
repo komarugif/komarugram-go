@@ -89,7 +89,9 @@ func (t *Toggle[T]) update(gtx layout.Context) {
 		}
 	}
 	if changed {
-		t.onChange(t.values)
+		if t.onChange != nil {
+			t.onChange(t.values)
+		}
 	}
 }
 

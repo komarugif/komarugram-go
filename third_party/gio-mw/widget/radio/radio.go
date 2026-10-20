@@ -77,7 +77,9 @@ func (r *Radios[T]) Update(gtx layout.Context) {
 	for value, clickable := range r.clickable {
 		if clickable.Clicked(gtx) {
 			r.value = value
-			r.onChange(value)
+			if r.onChange != nil {
+				r.onChange(value)
+			}
 			gtx.Execute(op.InvalidateCmd{})
 		}
 	}

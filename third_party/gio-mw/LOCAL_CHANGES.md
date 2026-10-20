@@ -124,6 +124,9 @@ animate as Material 3 describes, and every animation can be turned off.
   twice a frame. Safe for several windows. `wdk/require_test.go`.
 - `widget/search`: the hint stays until something is typed, focused or
   not, and the editor is centered on the hint's line.
+- `widget/checkbox`, `widget/toggle`, `widget/radio`: the function told of
+  a change may be nil; a click on one made without it panicked
+  (`checkbox_test.go`).
 
 ## New packages
 
