@@ -71,6 +71,7 @@
 "comments.none" = "lng_comments_open_none";
 "comments.open" = "lng_comments_open_count";
 
+"composer.direct_messages" = "lng_profile_direct_messages";
 "composer.discussion" = "lng_profile_view_discussion";
 "composer.emoji_category1" = "lng_emoji_category1";
 "composer.emoji_category2" = "lng_emoji_category2";
@@ -80,6 +81,7 @@
 "composer.emoji_category6" = "lng_emoji_category6";
 "composer.emoji_category7" = "lng_emoji_category7";
 "composer.featured" = "lng_stickers_featured_tab";
+"composer.gift" = "lng_gift_channel_title";
 "composer.mute" = "lng_mute_menu_mute";
 "composer.reply_remove" = "lng_reply_remove";
 "composer.reply_to" = "lng_preview_reply_to";

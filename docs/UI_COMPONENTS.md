@@ -44,6 +44,7 @@ put it next to these, and add it to this page.
 | `textButton(gtx, *surface, text)` | A text-only button in the primary color, as in dialogs and status lines. |
 | `tonalButton(gtx, *surface, text, count)` | A filled button in the secondary container color with an optional count, as the actions over selected messages. |
 | `navigationButton` | Icon and title with a 48 dp target, for navigation controls. |
+| `revealButton` (`reveal_button.go`) | An icon whose text shows beside it, in the same line, while the pointer is on it or it has the focus: the button widens to the text and the text fades in (`token.DurationMedium2`, at once without animations). The actions of a channel's bottom bar, where the account does not post (direct messages, discussion, notifications, a gift), are these; `COMPOSER_VIEW=channel-readonly-hover` renders one open. |
 | `button.Filled()` / `button.Text()` (gio-mw) | The main and the secondary action of a dialog or a card, side by side with a `layout.Spacer{Width: 8}`. |
 | `label`, `centeredLabel` | Text in a typestyle and color, limited to a number of lines (0 is unlimited). |
 | `card(gtx, content, padding)` | A rounded surface container; `defaultCardPadding` for settings and profile cards. |

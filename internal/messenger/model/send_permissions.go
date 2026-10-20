@@ -33,6 +33,9 @@ type SendPermissions struct {
 	Default, Personal      SendKind
 	Until                  int64
 	DiscussionID           int64
+	// DirectMessagesID is the chat of a channel's direct messages, 0 when
+	// the channel takes none: see DirectMessagesSource.
+	DirectMessagesID int64
 }
 
 func (p SendPermissions) Allows(k SendKind) bool {
@@ -108,6 +111,20 @@ func ItemSendKind(item PickerItem) SendKind {
 type SendPermissionsSource interface{ SendPermissions(int64) SendPermissions }
 
 // DiscussionSource resolves channelFull.linked_chat_id without joining the group.
+// DirectMessagesSource opens a channel's direct messages: a chat of the
+// channel's own, where the account writes to the channel's admins and
+// reads their answers, as Telegram Desktop's button beside Mute does.
+type DirectMessagesSource interface {
+	DirectMessages(ctx context.Context, channel int64) (Chat, error)
+}
+
+// NotificationSetter mutes and unmutes a chat's notifications, on every
+// device of the account; ChatMuted tells whether they are now.
+type NotificationSetter interface {
+	ChatMuted(chat int64) bool
+	SetChatMuted(ctx context.Context, chat int64, muted bool) error
+}
+
 type DiscussionSource interface {
 	Discussion(context.Context, int64) (Chat, error)
 }

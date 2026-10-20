@@ -1,10 +1,12 @@
 package ui
 
 import (
+	"context"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
+	"sync"
 	"testing"
 )
 
@@ -12,9 +14,30 @@ type restrictedComposerStore struct {
 	model.ComposerStore
 	rights model.SendPermissions
 	sends  int
+	// muted is what SetChatMuted set.
+	mu    sync.Mutex
+	muted map[int64]bool
 }
 
 func (s *restrictedComposerStore) SendPermissions(int64) model.SendPermissions { return s.rights }
+
+func (s *restrictedComposerStore) DirectMessages(ctx context.Context, chat int64) (model.Chat, error) {
+	return model.Chat{ID: s.rights.DirectMessagesID, Title: "Direct", Kind: model.KindGroup}, ctx.Err()
+}
+func (s *restrictedComposerStore) ChatMuted(chat int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.muted[chat]
+}
+func (s *restrictedComposerStore) SetChatMuted(_ context.Context, chat int64, muted bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.muted == nil {
+		s.muted = map[int64]bool{}
+	}
+	s.muted[chat] = muted
+	return nil
+}
 func restrictComposer(h *composerHarness, p model.SendPermissions) *restrictedComposerStore {
 	s := &restrictedComposerStore{ComposerStore: h.p.composer.source, rights: p}
 	h.p.composer.source = s

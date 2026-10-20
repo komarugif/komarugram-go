@@ -50,7 +50,7 @@ func (s *Store) SendPermissions(chat int64) model.SendPermissions {
 	peer, known := s.history.peers[chat]
 	s.history.mu.Unlock()
 	r := peer.Rights
-	p := model.SendPermissions{Unavailable: !known || !r.Known && peer.Kind != "user", Broadcast: r.Broadcast, Default: r.Default, Personal: r.Personal, Until: r.Until, DiscussionID: r.DiscussionID}
+	p := model.SendPermissions{Unavailable: !known || !r.Known && peer.Kind != "user", Broadcast: r.Broadcast, Default: r.Default, Personal: r.Personal, Until: r.Until, DiscussionID: r.DiscussionID, DirectMessagesID: r.DirectMessagesID}
 	if r.HasDiscussion && p.DiscussionID == 0 {
 		p.DiscussionID = -1
 	}

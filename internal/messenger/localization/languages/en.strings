@@ -134,6 +134,7 @@
 "composer.browse" = "Browse…";
 "composer.cancel" = "Cancel";
 "composer.close" = "Close";
+"composer.direct_messages" = "Direct messages";
 "composer.discussion" = "Discussion";
 "composer.emoji" = "Emoji";
 "composer.emoji_category1" = "Emoji & People";
@@ -147,6 +148,8 @@
 "composer.featured" = "Trending";
 "composer.file" = "File";
 "composer.gif" = "GIF";
+"composer.gift" = "Send a gift";
+"composer.gift_stub" = "Gifts to channels are not implemented yet";
 "composer.items" = "Tasks — one per line";
 "composer.loading" = "Loading…";
 "composer.message" = "Message…";

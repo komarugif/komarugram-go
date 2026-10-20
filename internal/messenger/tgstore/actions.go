@@ -25,6 +25,14 @@ func channelRights(ch *tg.Channel) peerRights {
 	r.Until = int64(ch.BannedRights.UntilDate)
 	r.Muted = ch.Left || ch.Broadcast && !r.Post
 	r.Banned = !r.Admin && (r.Default|r.Personal)&model.SendText != 0
+	if ch.Broadcast && ch.BroadcastMessagesAllowed && ch.LinkedMonoforumID != 0 {
+		r.DirectMessagesID = peerID(&tg.PeerChannel{ChannelID: ch.LinkedMonoforumID})
+	}
+	if ch.Monoforum {
+		// A channel's direct messages are written to without joining
+		// them, as Telegram Desktop's CanSendAnyOf allows.
+		r.Monoforum, r.Left, r.Muted = true, false, false
+	}
 	return r
 }
 

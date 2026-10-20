@@ -141,6 +141,7 @@
 "composer.browse" = "Выбрать…";
 "composer.cancel" = "Отмена";
 "composer.close" = "Закрыть";
+"composer.direct_messages" = "Личные сообщения";
 "composer.discussion" = "Обсуждение";
 "composer.emoji" = "Эмодзи";
 "composer.emoji_category1" = "Смайлы и люди";
@@ -154,6 +155,8 @@
 "composer.featured" = "Популярные";
 "composer.file" = "Файл";
 "composer.gif" = "GIF";
+"composer.gift" = "Отправить подарок";
+"composer.gift_stub" = "Подарки каналам пока не реализованы";
 "composer.items" = "Задачи — по одной в строке";
 "composer.loading" = "Загрузка…";
 "composer.message" = "Сообщение…";

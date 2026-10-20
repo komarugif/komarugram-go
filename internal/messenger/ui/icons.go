@@ -90,6 +90,13 @@ var (
 	iconReacted       = wdk.RequireIconWidget(icons.ActionFavoriteBorder)
 	iconMore          = wdk.RequireIconWidget(icons.NavigationMoreVert)
 	iconDownload      = wdk.RequireIconWidget(icons.FileFileDownload)
+
+	// The actions of a channel's bottom bar.
+	iconDirectMessages   = wdk.RequireIconWidget(icons.ContentCreate)
+	iconDiscussion       = wdk.RequireIconWidget(icons.CommunicationChatBubbleOutline)
+	iconNotificationsOn  = wdk.RequireIconWidget(icons.SocialNotificationsNone)
+	iconNotificationsOff = wdk.RequireIconWidget(icons.SocialNotificationsOff)
+	iconGift             = wdk.RequireIconWidget(icons.ActionCardGiftcard)
 )
 
 // folderIcon picks an icon for a folder by the kinds of chats it holds.

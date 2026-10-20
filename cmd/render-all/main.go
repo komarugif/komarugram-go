@@ -34,7 +34,7 @@ type render struct {
 
 func renders() []render {
 	var all []render
-	for _, view := range []string{"channel-readonly", "restricted-text", "restricted-media", "emoji", "stickers", "gif", "featured-stickers", "featured-emoji", "emoji-search", "floating", "classic", "text", "text-classic", "floating-translucent", "classic-translucent", "blur", "avatars", "voice", "files", "files-one", "files-documents", "files-many", "files-caption", "files-music", "drop-photos", "drop-media", "drop-files", "tasks", "toast", "toast-classic"} {
+	for _, view := range []string{"channel-readonly", "channel-readonly-hover", "restricted-text", "restricted-media", "emoji", "stickers", "gif", "featured-stickers", "featured-emoji", "emoji-search", "floating", "classic", "text", "text-classic", "floating-translucent", "classic-translucent", "blur", "avatars", "voice", "files", "files-one", "files-documents", "files-many", "files-caption", "files-music", "drop-photos", "drop-media", "drop-files", "tasks", "toast", "toast-classic"} {
 		all = append(all, render{"composer-" + view, "TestRenderComposer", []string{"COMPOSER_VIEW=" + view, "COMPOSER_PNG={out}/composer-" + view + ".png"}})
 	}
 	all = append(all, render{"composer-motion", "TestRenderComposerMotion", []string{"COMPOSER_MOTION_PNG={out}/composer-motion"}})

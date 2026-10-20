@@ -276,8 +276,9 @@ func TestRenderComposer(t *testing.T) {
 	h := newComposerHarness(t)
 	h.p.composer.pickerOpen = true
 	switch os.Getenv("COMPOSER_VIEW") {
-	case "channel-readonly":
-		restrictComposer(h, model.SendPermissions{Unavailable: true, Broadcast: true, DiscussionID: 9})
+	case "channel-readonly", "channel-readonly-hover":
+		restrictComposer(h, model.SendPermissions{Unavailable: true, Broadcast: true, DiscussionID: 9, DirectMessagesID: 40})
+		h.p.composer.pickerOpen = false
 	case "restricted-text":
 		restrictComposer(h, model.SendPermissions{Personal: model.SendText, Until: 1800000000})
 	case "restricted-media":
@@ -402,6 +403,13 @@ func TestRenderComposer(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		h.frame()
 		time.Sleep(15 * time.Millisecond)
+	}
+	if os.Getenv("COMPOSER_VIEW") == "channel-readonly-hover" {
+		// The pointer rests on Mute, whose text shows beside its icon.
+		hoverLabel(t, &h.router, "Выключить уведомления")
+		for range 30 {
+			h.frame()
+		}
 	}
 
 	im := h.screenshot(t)

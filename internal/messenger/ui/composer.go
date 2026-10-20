@@ -66,14 +66,22 @@ type featuredPackResult struct {
 	err        error
 }
 type messageComposer struct {
-	shortcuts         shortcutPreferences
-	menus             menuPreferences
-	join              surface
-	mute, discussion  surface
-	muted             map[int64]bool
-	discussions       chan discussionResult
-	discussionLoading bool
-	nextRights        time.Time
+	shortcuts shortcutPreferences
+	menus     menuPreferences
+	join      surface
+	// The actions of a channel's bottom bar: icons whose text shows on
+	// hover.
+	mute, discussion, directMessages, gift revealButton
+	// muted is what Mute set where the store cannot mute a chat.
+	muted map[int64]bool
+	// mutes tells what came of a mute or an unmute; muting, that one runs.
+	mutes  chan error
+	muting bool
+	// discussions bring the chats the discussion and direct messages
+	// buttons open.
+	discussions                      chan discussionResult
+	discussionLoading, directLoading bool
+	nextRights                       time.Time
 	// confirmations tells whether a sticker and a GIF are sent only once
 	// confirmed; sendConfirm is the dialog that asks.
 	confirmations func() (sticker, gif bool)
@@ -202,6 +210,7 @@ func newMessageComposer(source model.ConversationStore, invalidate func()) *mess
 	c.source, _ = source.(model.ComposerStore)
 	c.muted = map[int64]bool{}
 	c.discussions = make(chan discussionResult, 2)
+	c.mutes = make(chan error, 1)
 	c.search.SingleLine = true
 	c.path.SingleLine = true
 	c.title.SingleLine = true

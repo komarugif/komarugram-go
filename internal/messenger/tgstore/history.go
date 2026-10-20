@@ -59,6 +59,10 @@ type peerRights struct {
 	// Muted: the account may not send messages (banned, left, or members
 	// may not write).
 	Muted bool `json:",omitempty"`
+	// DirectMessagesID is the chat of a channel's direct messages, 0 for
+	// none; Monoforum marks that chat.
+	DirectMessagesID int64 `json:",omitempty"`
+	Monoforum        bool  `json:",omitempty"`
 	// Left: the account is not in the channel, so Telegram does not push
 	// its updates.
 	Left bool `json:",omitempty"`
