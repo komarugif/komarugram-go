@@ -842,7 +842,8 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			inRect(gtx, image.Rect(x, 0, x+iconWidth, s.Y), func(gtx layout.Context) layout.Dimensions {
 				size := gtx.Constraints.Max
 				rights := c.permissions(chat)
-				disabled := click == &c.attach && !rights.Any(model.SendAttachments) || click == &c.smile && !rights.Any(model.SendText|model.SendSticker|model.SendGIF) || click == &c.micClick && !rights.Allows(model.SendVoice)
+				disabled := click == &c.attach && !rights.Any(model.SendAttachments) || click == &c.smile && !rights.Any(model.SendText|model.SendSticker|model.SendGIF) || click == &c.micClick && !rights.Allows(model.SendVoice) ||
+					click == &c.send && c.recording == nil && (d.sending || !rights.Allows(model.SendText))
 				if disabled {
 					gtx = gtx.Disabled()
 				}
@@ -851,6 +852,10 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 				d := min(gtx.Dp(40), size.X, size.Y)
 				circle := image.Rectangle{Max: image.Pt(d, d)}.Add(size.Sub(image.Pt(d, d)).Div(2))
 				content := sc.SurfaceVariant.OnColor
+				if click == &c.send {
+					// Send stands out, as in Telegram Desktop.
+					content = sc.Primary.Color
+				}
 				if disabled {
 					content = content.SetOpacity(0.38)
 				}
@@ -864,11 +869,8 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			// While it records, the cross drops the recording and Send
 			// sends it.
 			button(0, &c.voiceCancel, iconClear, l.T("record.cancel"))
-			sendWidth := min(gtx.Dp(92), s.X/3)
-			inRect(gtx, image.Rect(s.X-sendWidth-gtx.Dp(8), 0, s.X-gtx.Dp(8), s.Y), func(gtx layout.Context) layout.Dimensions {
-				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions { return textButton(gtx, &c.send, l.T("composer.send")) })
-			})
-			inRect(gtx, image.Rect(iconWidth, 0, max(iconWidth, s.X-sendWidth-gtx.Dp(8)), s.Y), c.layoutRecording)
+			button(s.X-iconWidth, &c.send, iconSend, l.T("composer.send"))
+			inRect(gtx, image.Rect(iconWidth, 0, max(iconWidth, s.X-iconWidth), s.Y), c.layoutRecording)
 			return layout.Dimensions{Size: s}
 		}
 		button(0, &c.attach, iconAttach, l.T("composer.attach"))
@@ -889,23 +891,18 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			button(s.X-iconWidth, &c.micClick, iconMic, l.T("record.voice"))
 			button(s.X-2*iconWidth, &c.smile, iconEmoji, l.T("composer.emoji"))
 		} else if strings.TrimSpace(d.editor.Text()) != "" || d.sending || d.pending != nil {
-			button(s.X-iconWidth, &c.smile, iconEmoji, l.T("composer.emoji"))
-			sendWidth = min(gtx.Dp(92), s.X/3)
-			inRect(gtx, image.Rect(s.X-iconWidth-sendWidth, 0, s.X-iconWidth, s.Y), func(gtx layout.Context) layout.Dimensions {
-				if d.sending || !c.permissions(chat).Allows(model.SendText) {
-					gtx = gtx.Disabled()
-				}
-				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					txt := l.T("composer.send")
-					if d.sending {
-						txt = l.T("composer.sending")
-					}
-					if d.err != nil && d.pending != nil {
-						txt = l.T("composer.retry")
-					}
-					return textButton(gtx, &c.send, txt)
-				})
-			})
+			// Send takes the microphone's place, the emoji button stays
+			// left of it.
+			sendWidth = iconWidth
+			label := l.T("composer.send")
+			if d.sending {
+				label = l.T("composer.sending")
+			}
+			if d.err != nil && d.pending != nil {
+				label = l.T("composer.retry")
+			}
+			button(s.X-iconWidth, &c.send, iconSend, label)
+			button(s.X-2*iconWidth, &c.smile, iconEmoji, l.T("composer.emoji"))
 		} else {
 			button(s.X-iconWidth, &c.smile, iconEmoji, l.T("composer.emoji"))
 		}

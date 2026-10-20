@@ -118,7 +118,8 @@ func TestComposerInputAndDrafts(t *testing.T) {
 	if h.p.composer.draft(1).editor.Text() != "Привет 👋" {
 		t.Fatal("lost draft")
 	}
-	h.click(640, 680)
+	// Left of Send, which has the capsule's end with text written.
+	h.click(580, 680)
 	if !h.p.composer.pickerOpen {
 		t.Fatal("smile did not open picker")
 	}
@@ -298,6 +299,14 @@ func TestRenderComposer(t *testing.T) {
 	case "emoji-search":
 		// The emoji of the picker found for a word, before Telegram answers.
 		h.p.composer.search.SetText("кот")
+	case "text", "text-classic":
+		// A message written: Send has the microphone's place.
+		h.p.composer.pickerOpen = false
+		classic := os.Getenv("COMPOSER_VIEW") == "text-classic"
+		h.p.classic = func() bool { return classic }
+		h.chat = 2
+		h.frame()
+		h.p.composer.draft(2).editor.SetText("Встречаемся в субботу у фонтана")
 	case "classic-translucent", "floating-translucent":
 		// The window half transparent over stripes, as over a desktop: the
 		// classic bar shows them, as the sidebar does; the history and the

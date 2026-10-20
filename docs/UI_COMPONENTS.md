@@ -594,7 +594,8 @@ new piece sits next to its neighbours.
   a voice message being recorded; `files`, `files-one`, `files-documents`,
   `files-many`, `files-caption` and `files-music`, the box for sending files;
   `drop-photos`, `drop-media` and `drop-files`, the areas files dragged over
-  the chat are dropped on; `classic-translucent` and `floating-translucent`,
+  the chat are dropped on; `text` and `text-classic`, a message written,
+  with Send in the microphone's place; `classic-translucent` and `floating-translucent`,
   the composer of a half-transparent window over stripes, as over a desktop:
   the classic bar is a surface of the window and shows them, the history
   and the floating capsule, which casts a shadow, do not.

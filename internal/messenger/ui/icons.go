@@ -21,6 +21,7 @@ var (
 	iconVolumeDown    = wdk.RequireIconWidget(icons.AVVolumeDown)
 	iconVolumeOff     = wdk.RequireIconWidget(icons.AVVolumeOff)
 	iconEmoji         = wdk.RequireIconWidget(icons.EditorInsertEmoticon)
+	iconSend          = wdk.RequireIconWidget(icons.ContentSend)
 	iconAttachPhoto   = wdk.RequireIconWidget(icons.ImagePhoto)
 	iconAttachFile    = wdk.RequireIconWidget(icons.EditorInsertDriveFile)
 	iconAttachTasks   = wdk.RequireIconWidget(icons.ActionCheckCircle)
