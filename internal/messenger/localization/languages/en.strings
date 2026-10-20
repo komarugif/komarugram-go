@@ -1451,6 +1451,10 @@
 "settings.confirm" = "Confirm sending";
 "settings.confirm_gif" = "GIFs";
 "settings.confirm_sticker" = "Stickers";
+"settings.input" = "Input";
+"settings.input_manual_focus" = "Focus the message field only on click";
+"settings.input_picker_click" = "Open the emoji panel only on click";
+"settings.input_hint" = "By default, as in Telegram Desktop, the message field holds the keyboard and the panel of emoji, stickers and GIFs opens when the pointer is over its button.";
 "settings.current" = "Current window";
 "settings.devices" = "Devices";
 "settings.devices_hint" = "Sessions on other devices";

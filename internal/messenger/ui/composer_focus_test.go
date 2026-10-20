@@ -7,8 +7,10 @@ import (
 
 	"komarugram/internal/messenger/shortcuts"
 
+	"gioui.org/f32"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 )
 
@@ -168,5 +170,103 @@ func TestPickerSearchHoldsTheKeyboardWhileOpen(t *testing.T) {
 		if got := h.typed(1, "a"); got != before+"a" {
 			t.Fatalf("the picker closed by %s, the field has %q", close, got)
 		}
+	}
+}
+
+// move moves the mouse to x, y, without a button down.
+func (h *composerHarness) move(x, y float32) {
+	h.router.Queue(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: f32.Pt(x, y)})
+	h.frame()
+	h.frame()
+}
+
+// The pointer over the emoji button opens the picker, as Telegram Desktop's
+// tabbed panel, which leaves the keyboard to the message field; the pointer
+// may cross to the picker, and the picker closes 300ms after the pointer
+// left both. A click pins it, and gives the keyboard to its search.
+func TestPickerOpensUnderThePointer(t *testing.T) {
+	h := newComposerHarness(t)
+	c := h.p.composer
+	h.frame()
+	h.move(580, 680) // the emoji button of an empty field
+	if !c.pickerOpen || !c.pickerHovered {
+		t.Fatal("the pointer over the emoji button did not open the picker")
+	}
+	if got := h.typed(1, "a"); got != "a" {
+		t.Fatalf("with the picker the pointer opened, the field has %q", got)
+	}
+	c.draft(1).editor.SetText("")
+	h.move(450, 400) // over the picker
+	framesOf(h, 30)
+	if !c.pickerOpen {
+		t.Fatal("the picker closed with the pointer over it")
+	}
+	h.move(100, 200) // over the history
+	framesOf(h, 12) // 200ms
+	if !c.pickerOpen {
+		t.Fatal("the picker closed before 300ms")
+	}
+	framesOf(h, 10)
+	if c.pickerOpen {
+		t.Fatal("the picker stayed after the pointer left it")
+	}
+
+	// A click on the button pins the picker the pointer opened.
+	h.move(580, 680)
+	if !c.pickerOpen {
+		t.Fatal("the pointer back over the button did not open the picker")
+	}
+	h.click(580, 680)
+	h.move(100, 200)
+	framesOf(h, 30)
+	if !c.pickerOpen || c.pickerHovered {
+		t.Fatal("a pinned picker closed when the pointer left it")
+	}
+	h.router.Queue(key.EditEvent{Text: "кот"})
+	h.frame()
+	if got := c.search.Text(); got != "кот" {
+		t.Fatalf("typed in a pinned picker, its search has %q", got)
+	}
+	// Another click closes it, and it does not open again under the
+	// pointer still over the button.
+	c.search.SetText("")
+	h.move(580, 680)
+	h.click(580, 680)
+	framesOf(h, 5)
+	if c.pickerOpen {
+		t.Fatal("a click on the button did not close the pinned picker, or the pointer opened it again")
+	}
+}
+
+// With "Open the emoji panel only on click", the pointer over the button
+// does not open the picker.
+func TestPickerOpensOnlyOnClickWhenSet(t *testing.T) {
+	h := newComposerHarness(t)
+	c := h.p.composer
+	c.input = func() (bool, bool) { return false, true }
+	h.frame()
+	h.move(580, 680)
+	framesOf(h, 5)
+	if c.pickerOpen {
+		t.Fatal("the pointer opened the picker set to open on click")
+	}
+	h.click(580, 680)
+	if !c.pickerOpen || c.pickerHovered {
+		t.Fatal("a click did not open the picker")
+	}
+}
+
+// With "Focus the message field only on click", the field takes the
+// keyboard only when clicked, as it did before it held it.
+func TestComposerManualFocusWhenSet(t *testing.T) {
+	h := newComposerHarness(t)
+	h.p.composer.input = func() (bool, bool) { return true, false }
+	framesOf(h, 3)
+	if got := h.typed(1, "a"); got != "" {
+		t.Fatalf("typed in a chat just opened, the field set to take the keyboard on click has %q", got)
+	}
+	h.click(160, 680)
+	if got := h.typed(1, "b"); got != "b" {
+		t.Fatalf("typed after a click, the field has %q", got)
 	}
 }

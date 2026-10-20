@@ -142,6 +142,15 @@ type Global struct {
 	// in the composer is sent, as AyuGram's confirmations.
 	ConfirmSticker bool `json:"confirm_sticker,omitempty"`
 	ConfirmGIF     bool `json:"confirm_gif,omitempty"`
+	// ManualFocus keeps the keyboard from the message field until it is
+	// clicked, against messages sent by accident; by default the field
+	// holds it whenever nothing else wants it, as Telegram Desktop's.
+	ManualFocus bool `json:"manual_focus,omitempty"`
+	// PickerOnClick opens the composer's picker of emoji, stickers and GIFs
+	// only by a click on its button; by default the pointer over the button
+	// opens it, as Telegram Desktop's, whose option is "Show tabbed panel
+	// by click".
+	PickerOnClick bool `json:"picker_on_click,omitempty"`
 	// Chats is how every chat is drawn, unless the chat has a theme of its
 	// own, as Telegram Desktop's chat settings.
 	Chats ChatLook `json:"chats"`
@@ -760,6 +769,12 @@ func (s *Store) pruneWallpapers(c ChatLook) error {
 // SetFonts chooses the font files.
 func (s *Store) SetFonts(f Fonts) error {
 	return s.change(func(g *Global) { g.Fonts = f })
+}
+
+// SetComposerInput chooses whether the message field takes the keyboard
+// only when clicked, and the picker opens only by a click.
+func (s *Store) SetComposerInput(manualFocus, pickerOnClick bool) error {
+	return s.change(func(g *Global) { g.ManualFocus, g.PickerOnClick = manualFocus, pickerOnClick })
 }
 
 // SetConfirmations chooses whether stickers and GIFs are sent only once

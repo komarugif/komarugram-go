@@ -228,6 +228,11 @@ type settingsPage struct {
 	confirmations    func() (sticker, gif bool)
 	setConfirmations func(sticker, gif bool)
 	confirmBoxes     *checkbox.Checkboxes[string]
+	// input and setInput read and change whether the message field takes
+	// the keyboard only when clicked, and the picker opens only by a click.
+	input      func() (manualFocus, pickerOnClick bool)
+	setInput   func(manualFocus, pickerOnClick bool)
+	inputBoxes *checkbox.Checkboxes[string]
 	// premium is the account's Premium; nil hides the section.
 	premium model.PremiumSource
 	// localPremium and setLocalPremium read and switch Local Premium; the
@@ -342,6 +347,11 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 	p.confirmBoxes = checkbox.NewCheckboxes([]string{"sticker", "gif"}, nil, func(values []string) {
 		if p.setConfirmations != nil {
 			p.setConfirmations(slices.Contains(values, "sticker"), slices.Contains(values, "gif"))
+		}
+	})
+	p.inputBoxes = checkbox.NewCheckboxes([]string{"focus", "picker"}, nil, func(values []string) {
+		if p.setInput != nil {
+			p.setInput(slices.Contains(values, "focus"), slices.Contains(values, "picker"))
 		}
 	})
 	p.blur = checkbox.NewCheckboxes([]string{"composer", "menus", "toasts"}, nil, func(values []string) {
@@ -537,6 +547,21 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 			p.confirmBoxes.SetValues(want)
 		}
 		p.confirmBoxes.Update(gtx)
+	}
+	if p.input != nil {
+		// Another window may have changed the shared preference.
+		focus, picker := p.input()
+		var want []string
+		if focus {
+			want = append(want, "focus")
+		}
+		if picker {
+			want = append(want, "picker")
+		}
+		if !slices.Equal(want, p.inputBoxes.GetValues()) {
+			p.inputBoxes.SetValues(want)
+		}
+		p.inputBoxes.Update(gtx)
 	}
 	p.animations.Update(gtx)
 	if p.pauseInactive != nil {
@@ -1063,6 +1088,26 @@ func (p *settingsPage) layoutChats(gtx layout.Context, l localization.Catalog) l
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return p.confirmBoxes.Layout(gtx, map[string]string{"sticker": l.T("settings.confirm_sticker"), "gif": l.T("settings.confirm_gif")})
+							}),
+						)
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						if p.input == nil {
+							return layout.Dimensions{}
+						}
+						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return layout.Inset{Top: 8, Left: 4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									return label(gtx, l.T("settings.input"), token.TypestyleTitleSmall, scheme(gtx).Primary.Color, 1)
+								})
+							}),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return p.inputBoxes.Layout(gtx, map[string]string{"focus": l.T("settings.input_manual_focus"), "picker": l.T("settings.input_picker_click")})
+							}),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return layout.Inset{Left: 4, Right: 4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									return label(gtx, l.T("settings.input_hint"), token.TypestyleBodyMedium, scheme(gtx).SurfaceVariant.OnColor, 0)
+								})
 							}),
 						)
 					}),

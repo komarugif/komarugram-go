@@ -256,6 +256,8 @@ func (c *messageComposer) pickerLayout(gtx layout.Context, l localization.Catalo
 	defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(16)).Push(gtx.Ops).Pop()
 	overlayFill(gtx, p.menuBackdrop(), size, origin, sc.SurfaceContainerHigh, gtx.Dp(16))
 	event.Op(gtx.Ops, &c.list)
+	// Whether the pointer is over the picker, which one it opened stays for.
+	event.Op(gtx.Ops, &c.pickerPointer)
 	c.hover.Update(gtx, &c.list.List, &c.strip)
 	c.hover.Op(gtx)
 	tabHeight := min(gtx.Dp(44), size.Y)

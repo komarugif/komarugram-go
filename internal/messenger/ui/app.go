@@ -380,6 +380,15 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			log.Printf("save settings: %v", err)
 		}
 	}
+	a.settings.input = func() (bool, bool) {
+		g := a.preferences.Global()
+		return g.ManualFocus, g.PickerOnClick
+	}
+	a.settings.setInput = func(manualFocus, pickerOnClick bool) {
+		if err := services.Preferences.SetComposerInput(manualFocus, pickerOnClick); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
 	a.settings.composerStyle = a.composerStyle
 	a.settings.setComposerStyle = func(style preferences.ComposerStyle) {
 		if err := services.Preferences.SetComposer(style); err != nil {
@@ -637,6 +646,10 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 		p.composer.confirmations = func() (bool, bool) {
 			g := a.preferences.Global()
 			return g.ConfirmSticker, g.ConfirmGIF
+		}
+		p.composer.input = func() (bool, bool) {
+			g := a.preferences.Global()
+			return g.ManualFocus, g.PickerOnClick
 		}
 		p.composer.ffmpeg = func() string { return a.preferences.Global().FFmpegPath }
 	}

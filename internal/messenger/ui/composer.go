@@ -77,8 +77,20 @@ type messageComposer struct {
 	// confirmations tells whether a sticker and a GIF are sent only once
 	// confirmed; sendConfirm is the dialog that asks.
 	confirmations func() (sticker, gif bool)
-	sendConfirm   sendConfirm
-	editorHit     struct{}
+	// input tells whether the field takes the keyboard only when clicked,
+	// and the picker opens only by a click; nil is neither.
+	input func() (manualFocus, pickerOnClick bool)
+	// pickerHovered tells that the pointer over the emoji button opened the
+	// picker, which closes pickerHideDelay after the pointer left both; a
+	// click pins it. pickerInside tells whether the pointer is over it,
+	// pickerLeft when it left both, and hoverSpent that the pointer has not
+	// left the button since the picker closed, so it does not open again;
+	// pickerWasOpen is whether the picker was open in the last frame.
+	pickerHovered, pickerInside, hoverSpent, pickerWasOpen bool
+	pickerLeft                                             time.Time
+	pickerPointer                                          struct{}
+	sendConfirm                                            sendConfirm
+	editorHit                                              struct{}
 	// editorChat is the chat whose field was laid out last, editorLaid
 	// whether it was in this frame, with room to type, and editorWasLaid
 	// whether in the frame before.
@@ -375,13 +387,16 @@ func (c *messageComposer) takeKeyboard(gtx layout.Context, chat int64, free bool
 	if !free || c.form != 0 || c.recording != nil {
 		return
 	}
+	manualFocus, _ := c.inputPrefs()
 	if c.pickerOpen {
-		if c.pickerDrawn && !gtx.Focused(&c.search) {
+		// A picker the pointer opened leaves the keyboard where it is, to
+		// go on typing; a click on it gives it to the search.
+		if !c.pickerHovered && c.pickerDrawn && !gtx.Focused(&c.search) {
 			gtx.Execute(key.FocusCmd{Tag: &c.search})
 		}
 		return
 	}
-	if !c.editorWasLaid {
+	if !c.editorWasLaid || manualFocus {
 		return
 	}
 	if d := c.drafts[chat]; d != nil && !gtx.Focused(&d.editor) {
@@ -583,8 +598,17 @@ drained:
 		c.selectedPack = 0
 		c.list.Position = layout.Position{}
 	}
-	if c.smile.Clicked(gtx) && permissions.Any(model.SendText|model.SendSticker|model.SendGIF) {
-		c.pickerOpen = !c.pickerOpen
+	pickerAllowed := permissions.Any(model.SendText | model.SendSticker | model.SendGIF)
+	if c.smile.Clicked(gtx) && pickerAllowed {
+		switch {
+		case c.pickerOpen && c.pickerHovered:
+			// A click on the button of a picker the pointer opened pins it.
+			c.pickerHovered = false
+		case c.pickerOpen:
+			c.pickerOpen, c.hoverSpent = false, true
+		default:
+			c.pickerOpen = true
+		}
 		if c.pickerOpen {
 			// The search takes the keyboard once the picker is drawn, which
 			// it is not yet: takeKeyboard gives it.
@@ -596,6 +620,7 @@ drained:
 			c.request(l, false)
 		}
 	}
+	c.hoverPicker(gtx, l, pickerAllowed)
 	if c.attach.Clicked(gtx) && permissions.Any(model.SendAttachments) && len(c.attachmentOrder()) > 0 {
 		c.attachOpen = !c.attachOpen
 		if c.attachOpen {
@@ -729,6 +754,76 @@ func composerBarHeight(gtx layout.Context, size image.Point) int {
 func floatingComposerCover(gtx layout.Context, size image.Point) int {
 	height := composerBarHeight(gtx, size)
 	return height + min(gtx.Dp(12), max(0, size.Y-height))
+}
+
+// pickerHideDelay is how long a picker the pointer opened stays after the
+// pointer left it and its button, Telegram Desktop's kHideTimeoutMs: long
+// enough to cross the gap between them.
+const pickerHideDelay = 300 * time.Millisecond
+
+// inputPrefs tells whether the field takes the keyboard only when clicked,
+// and the picker opens only by a click.
+func (c *messageComposer) inputPrefs() (manualFocus, pickerOnClick bool) {
+	if c.input == nil {
+		return false, false
+	}
+	return c.input()
+}
+
+// hoverPicker opens the picker while the pointer is over the emoji button,
+// as Telegram Desktop's tabbed panel does, and closes it once the pointer
+// has left both for pickerHideDelay, unless a click pinned it. allowed
+// tells whether the chat lets anything of the picker be sent.
+func (c *messageComposer) hoverPicker(gtx layout.Context, l localization.Catalog, allowed bool) {
+	for {
+		ev, ok := gtx.Event(pointer.Filter{Target: &c.pickerPointer, Kinds: pointer.Enter | pointer.Leave | pointer.Press | pointer.Cancel})
+		if !ok {
+			break
+		}
+		switch e, _ := ev.(pointer.Event); e.Kind {
+		case pointer.Enter:
+			c.pickerInside = true
+		case pointer.Leave, pointer.Cancel:
+			c.pickerInside = false
+		case pointer.Press:
+			// Working in the picker pins it, as a click on its button does.
+			c.pickerHovered = false
+		}
+	}
+	if !c.pickerOpen {
+		c.pickerHovered, c.pickerInside = false, false
+	}
+	button := c.smile.click.Hovered()
+	// However the picker closed, by Escape, a click beside it or a sticker
+	// sent, it does not open again under the pointer still on the button.
+	if c.pickerWasOpen && !c.pickerOpen {
+		c.hoverSpent = true
+	}
+	if !button {
+		c.hoverSpent = false
+	}
+	defer func() { c.pickerWasOpen = c.pickerOpen }()
+	_, onClick := c.inputPrefs()
+	switch {
+	case !c.pickerOpen:
+		if onClick || !allowed || !button || c.hoverSpent || c.attachOpen || c.form != 0 || c.recording != nil {
+			return
+		}
+		c.pickerOpen, c.pickerHovered, c.pickerLeft = true, true, time.Time{}
+		if c.source != nil {
+			c.request(l, false)
+		}
+	case !c.pickerHovered:
+	case button || c.pickerInside:
+		c.pickerLeft = time.Time{}
+	case c.pickerLeft.IsZero():
+		c.pickerLeft = gtx.Now
+		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(pickerHideDelay)})
+	case gtx.Now.Sub(c.pickerLeft) >= pickerHideDelay:
+		c.pickerOpen, c.pickerHovered = false, false
+	default:
+		gtx.Execute(op.InvalidateCmd{At: c.pickerLeft.Add(pickerHideDelay)})
+	}
 }
 
 // farSwitchDuration is how long the microphone and Send take to change

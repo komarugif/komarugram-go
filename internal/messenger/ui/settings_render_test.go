@@ -201,6 +201,8 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		defer c.thumbs.Close()
 		p.confirmations = func() (bool, bool) { return true, false }
 		p.setConfirmations = func(bool, bool) {}
+		p.input = func() (bool, bool) { return false, true }
+		p.setInput = func(bool, bool) {}
 		look := preferences.Look{BubbleRadius: 8, AvatarCorners: 10, Seconds: true}
 		p.lookView.look = func() preferences.Look { return look }
 		p.lookView.setLook = func(l preferences.Look) { look = l }

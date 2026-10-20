@@ -1501,6 +1501,10 @@
 "settings.confirm" = "Подтверждать отправку";
 "settings.confirm_gif" = "GIF";
 "settings.confirm_sticker" = "Стикеров";
+"settings.input" = "Ввод";
+"settings.input_manual_focus" = "Фокус поля ввода только по клику";
+"settings.input_picker_click" = "Открывать панель эмодзи только по клику";
+"settings.input_hint" = "По умолчанию, как в Telegram Desktop, поле ввода само держит клавиатуру, а панель эмодзи, стикеров и GIF открывается при наведении на её кнопку.";
 "settings.current" = "Текущее окно";
 "settings.devices" = "Устройства";
 "settings.devices_hint" = "Сеансы на других устройствах";
