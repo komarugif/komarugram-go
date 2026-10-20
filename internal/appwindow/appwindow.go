@@ -264,6 +264,8 @@ type Host struct {
 	ignoredPanics   map[string]bool
 	// captureExcluded hides the windows from screen capture.
 	captureExcluded atomic.Bool
+	// theme is the Theme the user picked; see SetTheme.
+	theme atomic.Int32
 }
 
 // Hold keeps the process running without a window, for work that goes on in

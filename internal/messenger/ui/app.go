@@ -813,7 +813,19 @@ func (a *App) Theme(gtx layout.Context) *token.Theme {
 	}
 	a.window.SetFrameDark(a.dark())
 	a.window.SetFrameColor(theme.Scheme.Surface.Color.AsNRGBA())
+	a.window.SetTheme(hostTheme(a.themeMode()))
 	return theme
+}
+
+// hostTheme is the theme the host draws its own windows in, the panic's.
+func hostTheme(mode themeMode) appwindow.Theme {
+	switch mode {
+	case themeLight:
+		return appwindow.ThemeLight
+	case themeDark:
+		return appwindow.ThemeDark
+	}
+	return appwindow.ThemeAuto
 }
 
 // Update implements appwindow.Content.

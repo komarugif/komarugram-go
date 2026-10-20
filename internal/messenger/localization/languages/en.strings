@@ -1660,11 +1660,6 @@
 "window.error_title" = "Application error";
 "window.failed" = "Could not show the window “{title}”:\n\n{error}";
 "window.ignore" = "Ignore";
-"window.open_failed" = "Could not open the file: {error}";
-"window.open_file" = "Open file";
-"window.opened" = "File opened";
 "window.panic" = "An error occurred in the app";
 "window.redrawing" = "The window failed to draw. Trying again…";
-"window.report" = "Report: {path}";
-"window.report_unsaved" = "Could not save the report to a file. It can be copied.";
 "window.reports" = "Reports: {path}";

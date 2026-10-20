@@ -1715,11 +1715,6 @@
 "window.error_title" = "Ошибка приложения";
 "window.failed" = "Не удалось показать окно «{title}»:\n\n{error}";
 "window.ignore" = "Игнорировать";
-"window.open_failed" = "Не удалось открыть файл: {error}";
-"window.open_file" = "Открыть файл";
-"window.opened" = "Файл открыт";
 "window.panic" = "В приложении произошла ошибка";
 "window.redrawing" = "Ошибка отрисовки окна. Повторная попытка…";
-"window.report" = "Отчёт: {path}";
-"window.report_unsaved" = "Не удалось сохранить отчёт в файл. Его можно скопировать.";
 "window.reports" = "Отчёты: {path}";
