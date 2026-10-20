@@ -930,6 +930,10 @@ func (p *chatInfo) chatUsername() string {
 	return p.usernames.Username(p.chat.ID)
 }
 
+// registrationMonthSpread is how far from its estimate a registration may
+// be for the info to tell its month rather than its year alone.
+const registrationMonthSpread = 92 * 24 * time.Hour
+
 // detailTexts are the rows of the chat's details: when a user registered,
 // and where the chat's photo is kept; empty when not known.
 func (p *chatInfo) detailTexts(l localization.Catalog) (registration, dataCenter string) {
@@ -937,9 +941,14 @@ func (p *chatInfo) detailTexts(l localization.Catalog) (registration, dataCenter
 		return "", ""
 	}
 	if p.chat.Kind == model.KindUser || p.chat.Kind == model.KindBot {
-		at, how := model.RegisteredAround(p.chat.ID)
+		at, how, spread := model.RegisteredAround(p.chat.ID)
 		key := map[model.Registration]string{model.RegisteredAbout: "info.registered_about", model.RegisteredBefore: "info.registered_before", model.RegisteredAfter: "info.registered_after"}[how]
-		registration = l.Format(key, map[string]string{"date": at.Local().Format("01.2006")})
+		// The month only where the known accounts around tell it.
+		date := at.Local().Format("01.2006")
+		if spread > registrationMonthSpread {
+			date = at.Local().Format("2006")
+		}
+		registration = l.Format(key, map[string]string{"date": date})
 	}
 	if dc := p.details.ChatDetails(p.chat.ID).PhotoDC; dc > 0 {
 		dataCenter = "DC " + strconv.Itoa(dc)
