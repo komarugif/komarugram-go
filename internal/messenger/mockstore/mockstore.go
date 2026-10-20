@@ -16,6 +16,9 @@ import (
 )
 
 type Store struct {
+	// registration is what the demo's registration points were asked about.
+	registration registrationState
+
 	sent map[int64]bool
 	// files are what the voice messages sent in the demo hold, by media ID.
 	files map[string][]byte

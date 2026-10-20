@@ -145,6 +145,8 @@ type App struct {
 	connectionFailed *connectionFailedDialog
 	// emojiOffer offers an emoji pack where the system has no emoji.
 	emojiOffer *emojiOffer
+	// registrationOffer asks to send the registration points of the chats.
+	registrationOffer *registrationOffer
 	// frozen tells that Telegram froze the account.
 	frozen *frozenView
 
@@ -177,6 +179,10 @@ type Services struct {
 	// OfferEmoji lets the window offer an emoji pack where no font of the
 	// system has emoji (emoji_offer.go); tests and renders leave it off.
 	OfferEmoji bool
+	// OfferRegistrationPoints lets the window ask the user to send the
+	// registration points the account's chats tell (registration_offer.go),
+	// where the store collects them; tests and renders leave it off.
+	OfferRegistrationPoints bool
 	// Uninstall opens the window that uninstalls the program and quits
 	// it; the settings offer it beside leaving the account. It is set
 	// where the program installs itself (Windows and Linux), whether or
@@ -278,6 +284,9 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	a.connectionFailed = newConnectionFailedDialog()
 	if services.OfferEmoji {
 		a.emojiOffer = newEmojiOffer()
+	}
+	if source, ok := store.(model.RegistrationPointSource); ok && services.OfferRegistrationPoints {
+		a.registrationOffer = newRegistrationOffer(source)
 	}
 	a.frozen = newFrozenView(store)
 	a.profile.frozen = a.frozen
@@ -838,6 +847,9 @@ func (a *App) Update(gtx layout.Context) {
 	if a.emojiOffer != nil {
 		a.emojiOffer.Update(gtx, a.settings.emojiView, a.chats.toast.Show, a.catalog(), a.window.Invalidate)
 	}
+	if a.registrationOffer != nil {
+		a.registrationOffer.Update(gtx, a.chats.toast.Show, a.catalog(), a.window.Invalidate)
+	}
 	a.frozen.Update(gtx)
 	if id := a.openChat.Swap(0); id != 0 {
 		a.open(chatPick{ID: id})
@@ -1254,6 +1266,9 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	a.connectionFailed.Layout(overlayGtx, a.catalog())
 	if a.emojiOffer != nil {
 		a.emojiOffer.Layout(overlayGtx, a.settings.emojiView, a.catalog())
+	}
+	if a.registrationOffer != nil {
+		a.registrationOffer.Layout(overlayGtx, a.catalog())
 	}
 }
 

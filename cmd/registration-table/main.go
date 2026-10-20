@@ -7,7 +7,9 @@
 //	go run ./cmd/registration-table points.txt more-points.txt
 //
 // Each file has a user id and a day a line, "id YYYY-MM-DD" or "id
-// unix-seconds"; "#" begins a comment. The points are kept out of the
+// unix-seconds"; "#" begins a comment. The files users send from the
+// client (model.WriteRegistrationPoints) give the second, and the time they
+// were collected at in a comment. The points are kept out of the
 // repository: those of real accounts tell whose contacts they are, and the
 // table smooths them away. The table of 2026-10 was made of:
 //
@@ -17,7 +19,7 @@
 //     (Telegram/SourceFiles/info/profile/info_profile_values.cpp), without
 //     3318845111 and 4317845111: dated in 2021-04 and 2021-05, they are ids
 //     no user had before 2021-12;
-//   - the 55 points of the maintainer's account, collected on
+//   - the 55 points of the maintainer's account, collected by the client on
 //     2026-10-20, the only ones of 2026. Of those with profile photos, none
 //     has one older than its "joined Telegram", and 10 of 25 one of that
 //     same day: they are registrations, however far from the curve.

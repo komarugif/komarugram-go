@@ -82,7 +82,7 @@ otherwise, so `go test` never runs them: `COMPOSER_PNG` (with
 `STICKER_SET_PNG_DIR`, `MENU_PNG`, `REACTED_PNG`, `VIEWER_PNG` (with
 `VIEWER_ZOOM`), `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`,
 `SERVICE_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`,
-`SAVED_EMPTY_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`,
+`SAVED_EMPTY_PNG`, `SHARED_PNG`, `REGISTRATION_OFFER_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`,
 `FRAME_PNG_DIR` (the window's own frame, in `internal/appwindow`) (see
 `docs/UI_COMPONENTS.md`). Run the one of the screen you changed, and look
 at the PNG. `KOMARUGRAM_FONT`, `KOMARUGRAM_FONT_EXTRA`,

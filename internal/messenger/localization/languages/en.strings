@@ -1165,6 +1165,16 @@
 "record.problem" = "Could not start audio recording. Please check your microphone.";
 "record.voice" = "Record voice message";
 
+"registration_points.agree" = "I understand that the file tells who my contacts are";
+"registration_points.body" = "KomaruGram estimates when an account was registered by its ID, but it knows few accounts to go by, and the estimate can be off. Your chats have {count} messages \"… joined Telegram\", which tell when those users joined. You can send them as a file to the direct messages of {user}: what is sent goes into a smoothed table that is published.";
+"registration_points.failed" = "Could not send the points";
+"registration_points.later" = "Not now";
+"registration_points.never" = "Don't ask again";
+"registration_points.send" = "Send";
+"registration_points.sent" = "Points sent";
+"registration_points.title" = "Help date registrations";
+"registration_points.warning" = "The file holds the IDs of these users and the days they joined, and shows that they are in your contacts. Names, numbers and messages are not in it.";
+
 "restriction.files" = "You are not allowed to send files";
 "restriction.files.all" = "Sending files is not allowed in this group";
 "restriction.files.until" = "You are not allowed to send files until {date}, {time}";

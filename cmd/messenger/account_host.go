@@ -592,7 +592,9 @@ func (h *accountWindows) windowSpec(a *account.Account, session *accountSession,
 				CurrentAccount: session.accountID,
 				OpenWindow:     h.process.Open,
 				OfferEmoji:     true,
-				Uninstall:      h.uninstaller(),
+				// The points of the account's chats, sent on the user's word.
+				OfferRegistrationPoints: true,
+				Uninstall:               h.uninstaller(),
 			})
 			app = content
 			session.app.Store(content)

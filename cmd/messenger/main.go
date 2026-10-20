@@ -451,6 +451,8 @@ func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive
 			Security:    protection,
 			OpenWindow:  process.Open,
 			OfferEmoji:  true,
+			// The demo's points go nowhere.
+			OfferRegistrationPoints: true,
 		})
 		window.Store(w)
 		app.Store(content)
