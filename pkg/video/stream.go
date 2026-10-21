@@ -130,7 +130,8 @@ func NewFrames(path, ffmpeg string, start time.Duration, source, size image.Poin
 		// filter, which every FFmpeg has, where -vsync is gone from new
 		// ones and -fps_mode is missing from old ones.
 		"-vf", fmt.Sprintf("fps=%s,scale=%d:%d", strconv.FormatFloat(fps, 'f', 3, 64), size.X, size.Y),
-		"-pix_fmt", "rgba", "-f", "rawvideo", "-")
+	)
+	args = append(args, rawOutputArgs("rgba")...)
 	cmd := program.CommandContext(ctx, ResolveFFmpeg(ffmpeg), args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

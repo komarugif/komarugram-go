@@ -245,9 +245,8 @@ func (p *Player) decode() error {
 		"-i", p.path,
 		"-an",
 		"-vf", fmt.Sprintf("scale=%d:%d", p.info.Width, p.info.Height),
-		"-pix_fmt", "rgba",
-		"-f", "rawvideo", "-",
 	)
+	args = append(args, rawOutputArgs("rgba")...)
 	cmd := program.CommandContext(ctx, p.ffmpeg, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

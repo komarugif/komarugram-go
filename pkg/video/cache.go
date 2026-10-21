@@ -93,7 +93,7 @@ func DecodeClip(path string, maxHeight int, fps float64, maxFrames int, format F
 	}
 	// No -re here: the clip is read as fast as ffmpeg can decode it.
 	memory := DecodeMemory(image.Pt(info.Width, info.Height))
-	cmd := program.Command(ffmpeg, append(LimitArgs(memory),
+	args := append(LimitArgs(memory),
 		"-hide_banner", "-loglevel", "error",
 		"-threads", "1",
 		"-i", path,
@@ -102,9 +102,8 @@ func DecodeClip(path string, maxHeight int, fps float64, maxFrames int, format F
 		// otherwise emit limited-range luma, while image.YCbCr decodes full
 		// range and would wash the colours out.
 		"-vf", fmt.Sprintf("fps=%g,scale=%d:%d:out_range=jpeg", fps, size.X, size.Y),
-		"-pix_fmt", format.pixFmt(),
-		"-f", "rawvideo", "-",
-	)...)
+	)
+	cmd := program.Command(ffmpeg, append(args, rawOutputArgs(format.pixFmt())...)...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err

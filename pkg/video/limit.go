@@ -43,6 +43,15 @@ func LimitArgs(memory uint64) []string {
 	return []string{"-max_alloc", strconv.FormatUint(min(memory, 1<<31-1), 10)}
 }
 
+// rawOutputArgs end the command of an FFmpeg that writes pictures of pixFmt
+// to its standard output, raw. The encoder takes one thread: raw pictures
+// gain nothing from more, and by default it takes as many as the machine has
+// cores, each with a stack that RLIMIT_DATA counts, so on a many-core machine
+// the bound fails the start ("ff_frame_thread_encoder_init failed").
+func rawOutputArgs(pixFmt string) []string {
+	return []string{"-pix_fmt", pixFmt, "-threads", "1", "-f", "rawvideo", "-"}
+}
+
 // limited is an FFmpeg started with its memory bounded, and whether it
 // was killed for taking more.
 type limited struct {
