@@ -182,6 +182,13 @@ func (f *attachmentFiles) directory() (string, error) {
 // openAttachment downloads the file of m and opens it in the system's
 // program for it; while it downloads, it cancels that instead.
 func (p *chatPage) openAttachment(m model.Message) {
+	p.downloadFile(m, true, "")
+}
+
+// downloadFile downloads the file of m into the user's downloads, and
+// opens it after when open is set, or tells saved, a text with {path}, in
+// the toast; while it downloads, it cancels that instead.
+func (p *chatPage) downloadFile(m model.Message, open bool, saved string) {
 	if p.files == nil {
 		ctx, cancel := context.WithCancel(context.Background())
 		p.files = &attachmentFiles{ctx: ctx, cancel: cancel}
@@ -221,11 +228,14 @@ func (p *chatPage) openAttachment(m model.Message) {
 			if err == nil {
 				err = ctx.Err()
 			}
-			if err == nil {
+			if err == nil && open {
 				err = openBrowser(path)
 			}
 			if d.cancelled.Load() {
 				err = nil
+			} else if err == nil && saved != "" {
+				p.reportNotice(strings.ReplaceAll(saved, "{path}", path))
+				return
 			}
 			p.reportMedia(err)
 			return
@@ -283,6 +293,16 @@ func (p *chatPage) openAttachment(m model.Message) {
 		p.reportMedia(err)
 	})
 }
+
+// reportNotice tells text, the outcome of a task in the background, in the
+// toast; it may be called from any goroutine.
+func (p *chatPage) reportNotice(text string) {
+	p.errorMu.Lock()
+	p.notice = text
+	p.errorMu.Unlock()
+	p.invalidate()
+}
+
 func (p *chatPage) reportMedia(err error) {
 	p.errorMu.Lock()
 	p.mediaError = err

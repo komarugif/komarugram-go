@@ -66,6 +66,8 @@ func Name(m model.Message) string {
 			prefix = "video"
 		case model.MessageVoice, model.MessageMusic:
 			prefix = "audio"
+		case model.MessageSticker:
+			prefix = "sticker"
 		}
 		date := m.Date
 		if date.IsZero() {

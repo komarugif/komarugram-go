@@ -52,6 +52,7 @@ const (
 	actionTranslate
 	actionRepeat
 	actionSaveHTML
+	actionSave
 	menuActions
 )
 
@@ -247,6 +248,9 @@ func (p *chatPage) menuActions(m model.Message) []menuAction {
 	if canSaveHTML(m) && (!selected || len(p.selection.selected) == 1) {
 		out = append(out, actionSaveHTML)
 	}
+	if !selected && p.saveWayOf(m) != saveNone {
+		out = append(out, actionSave)
+	}
 	if p.messageMenu.packs.id == m.Key.MessageID && len(p.messageMenu.packs.found.refs) > 0 {
 		out = append(out, actionEmojiPacks)
 	}
@@ -363,6 +367,8 @@ func (p *chatPage) menuDo(gtx layout.Context, a menuAction, m model.Message, l l
 		p.repeat(m)
 	case actionSaveHTML:
 		p.saveHTML(m, l)
+	case actionSave:
+		p.saveMessage(m, p.saveWayOf(m), l)
 	case actionFilter:
 		// A filter of the words selected, in every chat, as AyuGram's
 		// quick filter.
@@ -422,6 +428,11 @@ func (p *chatPage) menuLabel(a menuAction, l localization.Catalog) string {
 		return l.T("menu.repeat")
 	case actionSaveHTML:
 		return l.T("rich.save_html")
+	case actionSave:
+		if m, ok := p.menuMessage(); ok {
+			return saveLabel(p.saveWayOf(m), l)
+		}
+		return l.T("menu.save_as")
 	case actionTranslate:
 		if m, ok := p.menuMessage(); ok && p.menuSelectedText(m) != "" {
 			return l.T("menu.translate_selected")
@@ -471,7 +482,7 @@ func menuIcon(a menuAction) wdk.IconWidget {
 		return iconTranslate
 	case actionRepeat:
 		return iconRepeat
-	case actionSaveHTML:
+	case actionSaveHTML, actionSave:
 		return iconDownload
 	}
 	return iconEmoji

@@ -252,6 +252,8 @@ type chatPage struct {
 	// reported from its goroutine and told in the toast.
 	errorMu    sync.Mutex
 	mediaError error
+	// notice is the outcome of such a task, told likewise.
+	notice     string
 	invalidate func()
 	// online counts the open group's members online.
 	online groupOnline
@@ -792,6 +794,10 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	if err := p.mediaError; err != nil {
 		p.mediaError = nil
 		p.toast.Show(mediaErrorText(err))
+	}
+	if p.notice != "" {
+		p.toast.Show(p.notice)
+		p.notice = ""
 	}
 	p.errorMu.Unlock()
 	p.botUpdate(l)

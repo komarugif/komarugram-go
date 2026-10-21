@@ -4,6 +4,7 @@ package tgstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -46,7 +47,11 @@ func (s *Store) Download(ctx context.Context, m model.Message, dir string, progr
 	if err != nil {
 		return "", err
 	}
-	d := &historycache.Download{Chat: m.Key.ChatID, Message: int(m.Key.MessageID), Topic: m.TopicID(), Media: m.Media.ID,
+	var thumb []byte
+	if m.Media.Thumbnail != nil {
+		thumb, _ = json.Marshal(m.Media.Thumbnail)
+	}
+	d := &historycache.Download{Chat: m.Key.ChatID, Message: int(m.Key.MessageID), Topic: m.TopicID(), Kind: int(m.Kind), Thumb: thumb, Media: m.Media.ID,
 		Name: savefile.Name(m), Size: size, Added: time.Now(), Tags: tags}
 	tagger, err := d.Tagger(key)
 	if err != nil {
@@ -123,7 +128,8 @@ func (s *Store) Downloads(ctx context.Context) ([]model.DownloadedFile, error) {
 			ID:    d.ID,
 			Key:   model.MessageKey{AccountID: account, ChatID: d.Chat, MessageID: model.MessageID(d.Message)},
 			Topic: d.Topic,
-			Name:  d.Name, Path: d.Path, Size: d.Size, Added: d.Added, State: downloadState(d),
+			Kind:  model.MessageKind(d.Kind), Thumbnail: thumbnailOf(d.Thumb),
+			Name: d.Name, Path: d.Path, Size: d.Size, Added: d.Added, State: downloadState(d),
 		})
 	}
 	return out, nil
@@ -157,6 +163,18 @@ func (s *Store) DeleteDownloads(ctx context.Context, ids []int64) error {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+
+// thumbnailOf is the thumbnail a download keeps, nil for none.
+func thumbnailOf(b []byte) *model.MessageMedia {
+	if len(b) == 0 {
+		return nil
+	}
+	var t model.MessageMedia
+	if json.Unmarshal(b, &t) != nil {
+		return nil
+	}
+	return &t
 }
 
 func (s *Store) cacheOf() *historycache.Cache {

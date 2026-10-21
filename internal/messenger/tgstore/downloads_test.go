@@ -54,7 +54,7 @@ func TestDownload(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "report.pdf"), []byte("the user's"), 0o644)
 	m := model.Message{Key: model.MessageKey{AccountID: "a", ChatID: 5, MessageID: 7}, Kind: model.MessageFile, ForumTopic: true, ReplyToTopID: 9,
-		Media: &model.MessageMedia{ID: "doc", FileName: "report.pdf", Size: int64(len(data))}}
+		Media: &model.MessageMedia{ID: "doc", FileName: "report.pdf", Size: int64(len(data)), Thumbnail: &model.MessageMedia{ID: "doc/thumb", Width: 90}}}
 	var told int64
 	path, err := s.Download(ctx, m, dir, func(done, total int64) { told = done })
 	if err != nil {
@@ -74,7 +74,7 @@ func TestDownload(t *testing.T) {
 		t.Fatal("downloaded again:", again, err, parts.Load()-asked)
 	}
 	list, err := s.Downloads(ctx)
-	if err != nil || len(list) != 1 || list[0].Key != m.Key || list[0].Topic != 9 || list[0].State != model.DownloadPresent || list[0].Size != int64(len(data)) {
+	if err != nil || len(list) != 1 || list[0].Key != m.Key || list[0].Topic != 9 || list[0].Kind != model.MessageFile || list[0].Thumbnail == nil || list[0].Thumbnail.ID != "doc/thumb" || list[0].State != model.DownloadPresent || list[0].Size != int64(len(data)) {
 		t.Fatalf("%+v, %v", list, err)
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 2 {

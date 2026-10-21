@@ -290,6 +290,7 @@
 "menu.private_link" = "lng_context_about_private_link";
 "menu.reacted" = "lng_context_seen_reacted";
 "menu.reply" = "lng_context_reply_msg";
+"menu.save_as" = "lng_context_save_file";
 "menu.select" = "lng_context_select_msg";
 "menu.translate" = "lng_context_translate";
 "menu.translate_selected" = "lng_context_translate_selected";

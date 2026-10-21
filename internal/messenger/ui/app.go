@@ -550,6 +550,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		downloader, _ := source.(model.Downloader)
 		a.downloads = newDownloadsPage(downloader, w.Invalidate)
 		a.downloads.files = func() *attachmentFiles { return a.attachments }
+		a.downloads.media, a.downloads.images = chatmedia.New(source, w.Invalidate), &a.images
 		a.downloadMessages = make(chan downloadMessage, 1)
 		a.downloads.openMessage = a.openDownloaded
 		a.viewer.play = func(gtx layout.Context, m model.Message, start time.Duration, l localization.Catalog) {
@@ -738,6 +739,9 @@ func (a *App) Close() {
 	}
 	if a.attachments != nil {
 		a.attachments.Close()
+	}
+	if a.downloads != nil && a.downloads.media != nil {
+		a.downloads.media.Close()
 	}
 	for _, unsubscribe := range a.unsubscribe {
 		unsubscribe()
@@ -1417,6 +1421,9 @@ func (a *App) SetSuspended(hidden bool) {
 	}
 	if a.avatars != nil {
 		a.avatars.media.Release()
+	}
+	if a.downloads != nil && a.downloads.media != nil {
+		a.downloads.media.Release()
 	}
 	a.images.Release()
 }

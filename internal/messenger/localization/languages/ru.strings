@@ -963,6 +963,8 @@
 "menu.copy_text" = "Копировать текст";
 "menu.delete" = "Удалить";
 "menu.delete_selected" = "Удалить выбранные";
+"menu.download" = "Скачать";
+"menu.downloaded" = "Скачано: {path}";
 "menu.edits" = "История правок";
 "menu.emoji_pack" = "Это сообщение содержит эмодзи из набора {name}.";
 "menu.emoji_packs#few" = "Это сообщение содержит эмодзи из {count} наборов.";
@@ -979,6 +981,10 @@
 "menu.read" = "Прочитать";
 "menu.repeat" = "Повторить";
 "menu.reply" = "Ответить";
+"menu.save_as" = "Сохранить как…";
+"menu.save_files" = "Файлы {ext}";
+"menu.save_to_pictures" = "Сохранить в изображения";
+"menu.saved" = "Сохранено: {path}";
 "menu.select" = "Выделить";
 "menu.translate" = "Перевести";
 "menu.translate_selected" = "Перевести выделенное";

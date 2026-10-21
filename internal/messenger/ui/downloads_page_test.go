@@ -22,6 +22,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op"
 
+	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
@@ -55,8 +56,9 @@ func sampleDownloads() *fakeDownloads {
 	now := time.Now()
 	return &fakeDownloads{list: []model.DownloadedFile{
 		{ID: 1, Key: model.MessageKey{ChatID: 1, MessageID: 10}, Name: "Отчёт за октябрь.pdf", Path: "/home/u/Downloads/komarugram/Отчёт за октябрь.pdf", Size: 2_400_000, Added: now.Add(-10 * time.Minute)},
-		{ID: 2, Key: model.MessageKey{ChatID: 1, MessageID: 11}, Name: "video_2026-10-20_19-14-15.mp4", Path: "/home/u/Downloads/komarugram/video_2026-10-20_19-14-15.mp4", Size: 148_000_000, Added: now.Add(-26 * time.Hour)},
+		{ID: 2, Key: model.MessageKey{ChatID: 1, MessageID: 11}, Kind: model.MessageVideo, Thumbnail: &model.MessageMedia{ID: "demo/portrait", MIMEType: "image/png", Width: 180, Height: 320}, Name: "video_2026-10-20_19-14-15.mp4", Path: "/home/u/Downloads/komarugram/video_2026-10-20_19-14-15.mp4", Size: 148_000_000, Added: now.Add(-26 * time.Hour)},
 		{ID: 3, Key: model.MessageKey{ChatID: 2, MessageID: 5}, Name: "photo_2026-10-01_08-00-00.jpg", Path: "/home/u/Downloads/komarugram/photo.jpg", Size: 310_000, Added: now.Add(-20 * 24 * time.Hour), State: model.DownloadChanged},
+		{ID: 5, Key: model.MessageKey{ChatID: 2, MessageID: 7}, Kind: model.MessageRound, Thumbnail: &model.MessageMedia{ID: "demo/portrait", MIMEType: "image/png", Width: 180, Height: 320}, Name: "video_2026-09-30_10-00-00.mp4", Path: "/home/u/Downloads/komarugram/round.mp4", Size: 3_100_000, Added: now.Add(-25 * 24 * time.Hour)},
 		{ID: 4, Key: model.MessageKey{ChatID: 2, MessageID: 6}, Name: "build.zip", Path: "/home/u/Downloads/komarugram/build.zip", Size: 51_000_000, Added: now.Add(-30 * 24 * time.Hour), State: model.DownloadMissing},
 	}}
 }
@@ -83,13 +85,13 @@ func loadedDownloads(t *testing.T, source model.Downloader) *downloadsPage {
 func TestDownloadsSorting(t *testing.T) {
 	p := loadedDownloads(t, sampleDownloads())
 	list, _, _ := p.shown()
-	if list[0].ID != 1 || list[3].ID != 4 {
-		t.Fatal("by date:", list[0].ID, list[3].ID)
+	if list[0].ID != 1 || list[4].ID != 4 {
+		t.Fatal("by date:", list[0].ID, list[4].ID)
 	}
 	p.bySize = true
 	list, _, _ = p.shown()
-	if list[0].ID != 2 || list[1].ID != 4 || list[3].ID != 3 {
-		t.Fatal("by size:", list[0].ID, list[1].ID, list[3].ID)
+	if list[0].ID != 2 || list[1].ID != 4 || list[4].ID != 3 {
+		t.Fatal("by size:", list[0].ID, list[1].ID, list[4].ID)
 	}
 }
 
@@ -111,6 +113,21 @@ func TestRenderDownloads(t *testing.T) {
 		{ChatID: 3, MessageID: 1}: {message: model.Message{Media: &model.MessageMedia{FileName: "Лекция 4.mkv", Size: 700_000_000}}, done: 260_000_000, total: 700_000_000, started: time.Now(), cancel: func() {}},
 	}
 	p.files = func() *attachmentFiles { return files }
+	p.media, p.images = chatmedia.New(mockstore.New(time.Now(), 0), func() {}), &imageOps{}
+	defer p.media.Close()
+	// The pictures of the videos, decoded before the shot.
+	thumb := model.Message{Kind: model.MessagePhoto, Media: &model.MessageMedia{ID: "demo/portrait", MIMEType: "image/png", Width: 180, Height: 320}}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		p.media.BeginFrame()
+		st := p.media.StatusFit(thumb, false, image.Pt(50, 50), true)
+		p.media.EndFrame()
+		if st.Frame != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no picture of a video")
+		}
+	}
 	draw := func(gtx layout.Context) {
 		p.Update(gtx, l)
 		p.Layout(gtx, l, false)

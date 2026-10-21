@@ -921,6 +921,8 @@
 "menu.copy_text" = "Copy Text";
 "menu.delete" = "Delete";
 "menu.delete_selected" = "Delete Selected";
+"menu.download" = "Download";
+"menu.downloaded" = "Downloaded: {path}";
 "menu.edits" = "Edits History";
 "menu.emoji_pack" = "This message contains emoji from {name} pack.";
 "menu.emoji_packs#one" = "This message contains emoji from {count} pack.";
@@ -935,6 +937,10 @@
 "menu.read" = "Read Message";
 "menu.repeat" = "Repeat Message";
 "menu.reply" = "Reply";
+"menu.save_as" = "Save As...";
+"menu.save_files" = "{ext} files";
+"menu.save_to_pictures" = "Save to Pictures";
+"menu.saved" = "Saved: {path}";
 "menu.select" = "Select";
 "menu.translate" = "Translate";
 "menu.translate_selected" = "Translate Selected Text";

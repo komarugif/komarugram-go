@@ -67,7 +67,7 @@ func navigationID(k drawerKey, account string) string {
 	return ""
 }
 
-var messageActionIDs = [...]string{"reply", "copy", "copy", "copy_link", "forward", "forward", "delete", "delete", "select", "select", "emoji_packs", "reacted", "read", "edits", "filter", "translate", "repeat", "save_html"}
+var messageActionIDs = [...]string{"reply", "copy", "copy", "copy_link", "forward", "forward", "delete", "delete", "select", "select", "emoji_packs", "reacted", "read", "edits", "filter", "translate", "repeat", "save_html", "save"}
 
 func (p *chatPage) messageActionID(a menuAction) string {
 	return messageActionIDs[a]

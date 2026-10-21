@@ -14,8 +14,12 @@ type DownloadedFile struct {
 	// Key is the message the file is of, and Topic the forum topic it is
 	// in: 0 when it is in none, or for a file downloaded before topics were
 	// kept.
-	Key        MessageKey
-	Topic      int
+	Key   MessageKey
+	Topic int
+	// Kind is the message's kind; Thumbnail, a video's or a GIF's
+	// picture, which the list shows it by.
+	Kind       MessageKind
+	Thumbnail  *MessageMedia
 	Name, Path string
 	Size       int64
 	Added      time.Time

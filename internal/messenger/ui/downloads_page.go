@@ -19,8 +19,10 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/unit"
+	"gioui.org/widget"
 	"golang.org/x/exp/shiny/materialdesign/icons"
 
+	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/sendfiles"
@@ -52,6 +54,9 @@ type downloadsPage struct {
 	// dir is the folder files are downloaded into.
 	dir    func() string
 	folder surface
+	// media and images draw the pictures of videos and GIFs.
+	media  *chatmedia.Manager
+	images *imageOps
 
 	page scrollPage
 
@@ -62,6 +67,9 @@ type downloadsPage struct {
 	err     error
 	// seen is the count of downloads ended when the list was read.
 	seen int64
+	// notice is what the work in the background has to tell, which the
+	// next frame shows in the toast.
+	notice string
 
 	bySize             bool
 	byDate, bySizeChip folderChip
@@ -128,6 +136,17 @@ func (p *downloadsPage) reload() {
 			p.invalidate()
 		}
 	}()
+}
+
+// tell shows text in the toast at the next frame; it may be called from
+// any goroutine.
+func (p *downloadsPage) tell(text string) {
+	p.mu.Lock()
+	p.notice = text
+	p.mu.Unlock()
+	if p.invalidate != nil {
+		p.invalidate()
+	}
 }
 
 func (p *downloadsPage) attachments() *attachmentFiles {
@@ -215,7 +234,7 @@ func (p *downloadsPage) Update(gtx layout.Context, l localization.Catalog) {
 			path := d.Path
 			go func() {
 				if err := openBrowser(path); err != nil {
-					p.page.toast.Show(mediaErrorText(err))
+					p.tell(mediaErrorText(err))
 				}
 			}()
 		}
@@ -235,7 +254,7 @@ func (p *downloadsPage) Update(gtx layout.Context, l localization.Catalog) {
 				err = openBrowser(dir)
 			}
 			if err != nil {
-				p.page.toast.Show(mediaErrorText(err))
+				p.tell(mediaErrorText(err))
 			}
 		}()
 	}
@@ -262,7 +281,7 @@ func (p *downloadsPage) Update(gtx layout.Context, l localization.Catalog) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			if err := p.source.DeleteDownloads(ctx, ids); err != nil {
-				p.page.toast.Show(mediaErrorText(err))
+				p.tell(mediaErrorText(err))
 			}
 			p.reload()
 		}()
@@ -280,6 +299,15 @@ func containsDownload(list []model.DownloadedFile, id int64) bool {
 
 // Layout draws the section, and its dialog over the window.
 func (p *downloadsPage) Layout(gtx layout.Context, l localization.Catalog, animate bool) layout.Dimensions {
+	if p.media != nil {
+		defer mediaFrame(gtx, p.media)()
+	}
+	p.mu.Lock()
+	if p.notice != "" {
+		p.page.toast.Show(p.notice)
+		p.notice = ""
+	}
+	p.mu.Unlock()
 	list, loaded, err := p.shown()
 	told := ""
 	if err != nil {
@@ -462,6 +490,9 @@ func (p *downloadsPage) layoutRow(gtx layout.Context, d model.DownloadedFile, no
 			fg, bg = sc.SurfaceVariant.OnColor, sc.SurfaceVariant.Color
 		}
 		offset(gtx, image.Pt(x, (size.Y-pic)/2), func(gtx layout.Context) layout.Dimensions {
+			if p.layoutThumbnail(gtx, d, pic) {
+				return layout.Dimensions{Size: image.Pt(pic, pic)}
+			}
 			paint.FillShape(gtx.Ops, bg.AsNRGBA(), clip.Ellipse{Max: image.Pt(pic, pic)}.Op(gtx.Ops))
 			icon := gtx.Dp(22)
 			return offset(gtx, image.Pt((pic-icon)/2, (pic-icon)/2), func(gtx layout.Context) layout.Dimensions {
@@ -499,6 +530,32 @@ func (p *downloadsPage) layoutRow(gtx layout.Context, d model.DownloadedFile, no
 		return navigationButtonColor(gtx, &r.chat, iconViewInChat, l.T("downloads.view_in_chat"), sc.SurfaceVariant.OnColor)
 	})
 	return layout.Dimensions{Size: size}
+}
+
+// layoutThumbnail draws the picture of a video or a GIF, size wide, and
+// reports whether there is one to draw yet.
+func (p *downloadsPage) layoutThumbnail(gtx layout.Context, d model.DownloadedFile, size int) bool {
+	switch d.Kind {
+	case model.MessageVideo, model.MessageGIF, model.MessageRound:
+	default:
+		return false
+	}
+	if d.Thumbnail == nil || p.media == nil || p.images == nil {
+		return false
+	}
+	st := p.media.StatusFit(model.Message{Key: d.Key, Kind: model.MessagePhoto, Media: d.Thumbnail}, false, image.Pt(size, size), true)
+	if st.Frame == nil {
+		return false
+	}
+	rect := image.Rectangle{Max: image.Pt(size, size)}
+	radius := gtx.Dp(8)
+	if d.Kind == model.MessageRound {
+		radius = size / 2
+	}
+	defer clip.UniformRRect(rect, radius).Push(gtx.Ops).Pop()
+	gtx.Constraints = layout.Exact(rect.Max)
+	widget.Image{Src: p.images.Op(st.Frame), Fit: widget.Cover}.Layout(gtx)
+	return true
 }
 
 // layoutText draws a row's title and the line under it, from x.

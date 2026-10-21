@@ -101,15 +101,17 @@ func (c *Cache) open() error {
  CREATE TABLE IF NOT EXISTS layouts(chat INTEGER,id INTEGER,env TEXT,revision INTEGER,height INTEGER,PRIMARY KEY(chat,id,env));
  CREATE TABLE IF NOT EXISTS media(key TEXT PRIMARY KEY,data BLOB,used INTEGER);
  CREATE TABLE IF NOT EXISTS media_files(name TEXT PRIMARY KEY,id TEXT,size INTEGER,chunks BLOB,used INTEGER);
- CREATE TABLE IF NOT EXISTS downloads(id INTEGER PRIMARY KEY,chat INTEGER,message INTEGER,media TEXT,name TEXT,path TEXT,size INTEGER,modified INTEGER,added INTEGER,tags BLOB,topic INTEGER NOT NULL DEFAULT 0);
+ CREATE TABLE IF NOT EXISTS downloads(id INTEGER PRIMARY KEY,chat INTEGER,message INTEGER,media TEXT,name TEXT,path TEXT,size INTEGER,modified INTEGER,added INTEGER,tags BLOB,topic INTEGER NOT NULL DEFAULT 0,kind INTEGER NOT NULL DEFAULT 0,thumb BLOB);
  CREATE INDEX IF NOT EXISTS downloads_media ON downloads(media);
  CREATE TABLE IF NOT EXISTS edits(chat INTEGER,id INTEGER,at INTEGER,payload BLOB,PRIMARY KEY(chat,id,at));
  CREATE TABLE IF NOT EXISTS spans(chat INTEGER,low INTEGER,high INTEGER,PRIMARY KEY(chat,low));
  DROP INDEX IF EXISTS photos;
  DELETE FROM kv WHERE key >= 'language/' AND key < 'language0';
  CREATE INDEX IF NOT EXISTS photo_videos ON messages(chat,id) WHERE ` + photoWhere + `;`)
-	if err == nil {
-		err = c.addColumn("downloads", "topic", "INTEGER NOT NULL DEFAULT 0")
+	for _, col := range [][2]string{{"topic", "INTEGER NOT NULL DEFAULT 0"}, {"kind", "INTEGER NOT NULL DEFAULT 0"}, {"thumb", "BLOB"}} {
+		if err == nil {
+			err = c.addColumn("downloads", col[0], col[1])
+		}
 	}
 	if err == nil {
 		err = c.initSearch()
