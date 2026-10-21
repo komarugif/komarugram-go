@@ -122,7 +122,11 @@ type App struct {
 	// comments is the page of the comments to a channel post, which thread
 	// shows over its channel while it is set.
 	comments *chatPage
-	thread   *commentsView
+	// attachments are the window's downloads, which its pages share.
+	attachments *attachmentFiles
+	// downloads is the Downloads section.
+	downloads *downloadsPage
+	thread    *commentsView
 	// drop is a drag of files over the window.
 	drop fileDrop
 	// mini runs the Mini Apps of bots; nil when the store cannot ask for
@@ -541,6 +545,14 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.viewer = newPhotoViewer(source, &a.images, w.Invalidate)
 		a.viewer.shortcuts = a.shortcutPrefs
 		a.history = a.newChatPage(source, store, w)
+		downloader, _ := source.(model.Downloader)
+		a.downloads = newDownloadsPage(downloader, w.Invalidate)
+		a.downloads.files = func() *attachmentFiles { return a.attachments }
+		a.downloads.openMessage = func(key model.MessageKey) {
+			a.section = section{kind: sectionAll}
+			a.open(chatPick{ID: key.ChatID, Message: key.MessageID})
+			a.window.Invalidate()
+		}
 		a.viewer.play = func(gtx layout.Context, m model.Message, start time.Duration, l localization.Catalog) {
 			a.history.playFrom(gtx, m, start, a.viewer.reportPlay, l)
 		}
@@ -626,6 +638,10 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 // window is.
 func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *appwindow.Window) *chatPage {
 	p := newChatPage(source, w.Invalidate)
+	if a.attachments == nil {
+		a.attachments = newAttachmentFiles()
+	}
+	p.files = a.attachments
 	p.menus = a.menuPrefs
 	p.shortcuts = a.shortcutPrefs
 	p.composer.shortcuts = a.shortcutPrefs
@@ -720,6 +736,9 @@ func (a *App) Close() {
 	}
 	if a.comments != nil {
 		a.comments.Close()
+	}
+	if a.attachments != nil {
+		a.attachments.Close()
 	}
 	for _, unsubscribe := range a.unsubscribe {
 		unsubscribe()
@@ -923,6 +942,9 @@ func (a *App) Update(gtx layout.Context) {
 		global := a.preferences.Global()
 		a.settings.Update(gtx, themeMode(global.Theme), global.Language)
 	}
+	if a.section.kind == sectionDownloads && a.downloads != nil {
+		a.downloads.Update(gtx, a.catalog())
+	}
 }
 
 // chatMode is the look the settings give every chat in the theme of dark.
@@ -979,6 +1001,10 @@ func (a *App) openSection(gtx layout.Context, sec section) {
 		a.settings.open()
 	case sectionProfile:
 		a.profile.open()
+	case sectionDownloads:
+		if a.downloads != nil {
+			a.downloads.open()
+		}
 	}
 }
 
@@ -1261,6 +1287,8 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 				return a.profile.Layout(gtx, a.store.Me(), l, a.layoutAvatar, a.private(), a.window.Motion.AnimationsEnabled())
 			case a.section.kind == sectionSettings:
 				return a.settings.Layout(gtx, a.themeMode(), a.window.Appearance.Scheme(), a.dark(), l)
+			case a.section.kind == sectionDownloads && a.downloads != nil:
+				return a.downloads.Layout(gtx, l, a.window.Motion.AnimationsEnabled())
 			case chat:
 				return a.layoutForum(gtx, c, l)
 			}

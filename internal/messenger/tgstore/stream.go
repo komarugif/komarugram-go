@@ -35,6 +35,9 @@ const (
 // The decrypted working set is bounded independently of the file's total size.
 type rangeReader struct {
 	file *historycache.MediaFile
+	// download reads the user's download of the medium in place of
+	// Telegram.
+	download *standIn
 	// cdnMu serializes the reads of cdn, whose verified window is shared;
 	// it is taken before mu.
 	cdnMu sync.Mutex
@@ -92,7 +95,11 @@ func (s *Store) MediaStream(ctx context.Context, m model.Message) (io.ReaderAt, 
 	if e != nil {
 		return nil, 0, nil, e
 	}
+	download := new(standIn)
 	if !ok && !file.Complete() {
+		download.open(ctx, cache, m, m.Media.Size)
+	}
+	if !ok && !file.Complete() && download.file == nil {
 		var e error
 		ok, e = cache.Get(ctx, "ref/"+m.Media.ID, &ref)
 		if e == nil && !ok {
@@ -100,15 +107,17 @@ func (s *Store) MediaStream(ctx context.Context, m model.Message) (io.ReaderAt, 
 		}
 		if e != nil {
 			file.Close()
+			download.close()
 			return nil, 0, nil, e
 		}
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	r := &rangeReader{file: file, ctx: ctx, cancel: cancel, store: s, message: m, location: ref, size: m.Media.Size,
+	r := &rangeReader{file: file, download: download, ctx: ctx, cancel: cancel, store: s, message: m, location: ref, size: m.Media.Size,
 		chunks: map[int64][]byte{}, pending: map[int64]*pendingPart{}, ahead: make(chan struct{}, streamParallel)}
 	return r, r.size, func() {
 		cancel()
 		r.file.Close()
+		r.download.close()
 		r.cdnMu.Lock()
 		defer r.cdnMu.Unlock()
 		r.mu.Lock()
@@ -264,12 +273,17 @@ func (r *rangeReader) load(offset int64) ([]byte, error) {
 	}
 	c := r.store.history
 	c.mu.Lock()
-	pool := c.pool
+	cache, pool := c.cache, c.pool
 	c.mu.Unlock()
 	chunk := int(offset / streamPartSize)
 	b, e := r.file.ReadChunk(chunk, nil)
 	if !errors.Is(e, historycache.ErrMissing) {
 		return b, e
+	}
+	r.download.open(r.ctx, cache, r.message, r.size)
+	if b := r.download.chunk(chunk); b != nil {
+		// The cache has it again, from the disk.
+		return b, r.file.WriteChunk(chunk, b)
 	}
 	if pool == nil {
 		return nil, errors.New("video range is not cached; reconnect to Telegram")

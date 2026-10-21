@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -39,11 +40,58 @@ type attachmentFiles struct {
 	// downloads are the files on their way, by message: each its own,
 	// cancelled by a click on its row.
 	downloads map[model.MessageKey]*fileDownload
+	// finished counts the downloads that ended, for the Downloads section
+	// to read its list again.
+	finished atomic.Int64
+	// shared is set on the window's, which its pages share and the window
+	// closes: downloads go on from one chat to another.
+	shared bool
+}
+
+// newAttachmentFiles is the downloads of a window, which its pages share.
+func newAttachmentFiles() *attachmentFiles {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &attachmentFiles{ctx: ctx, cancel: cancel, shared: true}
+}
+
+// activeDownload is a file on its way, as the Downloads section shows it.
+type activeDownload struct {
+	message     model.Message
+	done, total int64
+	started     time.Time
+}
+
+// active are the files on their way, the first started first.
+func (f *attachmentFiles) active() []activeDownload {
+	if f == nil {
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]activeDownload, 0, len(f.downloads))
+	for _, d := range f.downloads {
+		out = append(out, activeDownload{message: d.message, done: d.done, total: d.total, started: d.started})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].started.Before(out[j].started) })
+	return out
+}
+
+// cancelDownload stops the download of key, which then tells nothing.
+func (f *attachmentFiles) cancelDownload(key model.MessageKey) {
+	f.mu.Lock()
+	d := f.downloads[key]
+	f.mu.Unlock()
+	if d != nil {
+		d.cancelled.Store(true)
+		d.cancel()
+	}
 }
 
 // fileDownload is a file on its way to be opened: done of its total bytes
 // are there.
 type fileDownload struct {
+	message     model.Message
+	started     time.Time
 	done, total int64
 	cancel      context.CancelFunc
 	// cancelled is set when the user cancelled it, which tells nothing.
@@ -88,6 +136,26 @@ func (w *progressWriter) Write(b []byte) (int, error) {
 	return n, err
 }
 
+// progress tells that done of total bytes of d are there, and has the page
+// drawn again at most 30 times a second.
+func (f *attachmentFiles) progress(d *fileDownload, done, total int64, invalidate func()) {
+	f.mu.Lock()
+	d.done, d.total = done, total
+	now := time.Now()
+	tell := now.Sub(d.told) >= time.Second/30 || done == total
+	if tell {
+		d.told = now
+	}
+	f.mu.Unlock()
+	if tell {
+		invalidate()
+	}
+}
+
+// appDownloadsDir is where the client downloads into: its own directory in
+// the user's downloads.
+func appDownloadsDir() string { return filepath.Join(downloadsDir(), "komarugram") }
+
 func (f *attachmentFiles) Close() {
 	f.cancel()
 	f.wg.Wait()
@@ -127,7 +195,7 @@ func (p *chatPage) openAttachment(m model.Message) {
 		return
 	}
 	ctx, cancel := context.WithCancel(f.ctx)
-	d := &fileDownload{total: m.Media.Size, cancel: cancel}
+	d := &fileDownload{message: m, started: time.Now(), total: m.Media.Size, cancel: cancel}
 	if f.downloads == nil {
 		f.downloads = map[model.MessageKey]*fileDownload{}
 	}
@@ -140,9 +208,28 @@ func (p *chatPage) openAttachment(m model.Message) {
 			f.mu.Lock()
 			delete(f.downloads, m.Key)
 			f.mu.Unlock()
+			f.finished.Add(1)
 			p.invalidate()
 		}()
 		defer crash.Recover("open attachment", func(e *crash.Panic) { p.reportMedia(e) })
+		if downloader, ok := p.source.(model.Downloader); ok {
+			// As Telegram Desktop does: into the user's downloads, where
+			// the file stays theirs, and opened from there.
+			path, err := downloader.Download(ctx, m, appDownloadsDir(), func(done, total int64) {
+				f.progress(d, done, total, p.invalidate)
+			})
+			if err == nil {
+				err = ctx.Err()
+			}
+			if err == nil {
+				err = openBrowser(path)
+			}
+			if d.cancelled.Load() {
+				err = nil
+			}
+			p.reportMedia(err)
+			return
+		}
 		dir, err := f.directory()
 		if err != nil {
 			p.reportMedia(err)

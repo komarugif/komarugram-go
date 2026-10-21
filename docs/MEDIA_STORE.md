@@ -1,9 +1,11 @@
 # Media store and downloads (design, 2026-10-21)
 
-Agreed with the maintainer on 2026-10-21. Built so far (2026-10-21): the
-sealed format (`pkg/sealedfile`), the files and their index in
-`historycache` (`media_files.go`), streaming onto them; not yet the
-downloads and their section: media files kept and encrypted outside the history
+Agreed with the maintainer on 2026-10-21, and built: the sealed format
+(`pkg/sealedfile`), the files and their index in `historycache`
+(`media_files.go`), streaming onto them, the downloads directory
+(`pkg/userdirs`), downloads with their tags (`tgstore/downloads.go`,
+`historycache/downloads.go`, names in `savefile`) and the Downloads
+section (`ui/downloads_page.go`): media files kept and encrypted outside the history
 database, one store for the cache, streaming and the user's downloads, and a
 Downloads section. Numbers are measured on the Linux VM (i5-12500H, AES-NI,
 SHA-NI) unless said otherwise.
@@ -41,7 +43,9 @@ table `media`), behind one connection and one mutex:
   takes only the segments read. File systems without sparse files allocate
   a file written far from its start whole: BFS does (Haiku R1/beta6, one
   byte at 512 MiB took 524 292 KiB), NTFS does unless the file is marked
-  sparse (by its documentation; not measured).
+  sparse (by its documentation; not measured). A file is made as long as
+  it will be: on BFS, chunks written at once past its end were lost
+  (`docs/PLATFORMS.md`, Haiku).
 - **An index** in the history database (encrypted with it), table
   `media_files`: name, media id, size, chunks present (a bitmap), last
   use. The budget is 512 MiB (it was 256 MiB for the database alone): 64
@@ -113,10 +117,31 @@ the message names it, with ` (1)`, ` (2)` for clashes.
 - A medium complete in the cache is decrypted from it: no network.
 - Otherwise it downloads into the cache and is decrypted from there, so a
   partly downloaded file resumes, and streaming meanwhile shares it.
-- The record of a download, in the database: message (chat, id), media
-  id, path, size, modification time, when, and a tag a chunk
-  (GMAC/Poly1305 under a key of the account's, 16 bytes a 128 KiB chunk:
-  256 KiB for a 2 GB file).
+- The record of a download, in the database (`downloads`): message (chat,
+  id), media id, name, path, size, modification time, when, and a tag a
+  chunk: GMAC, or Poly1305 without AES instructions
+  (`sealedfile.Tagger`), 16 bytes a 128 KiB chunk, 256 KiB for a 2 GB
+  file, under a key of the download's own (HKDF of a key of the account's
+  and a salt of the download's, so that no two contents are tagged under
+  one key and nonce). Tagging is 14.9 GB/s with GMAC and 4.1 with Poly1305
+  here, where SHA-256 is 0.39. The account's key is random and kept in the
+  database (`kv` `download-key`), encrypted with it when the cache is
+  protected; it outlives the protection being enabled or disabled, which a
+  key derived from the protection would not. Without protection it tells a
+  file changed by mistake, not by one who can read the database.
+- Opening a file (`ui/attachments.go`) downloads it there and opens it from
+  there, as Telegram Desktop does; a file downloaded before, as it was, is
+  opened again without downloading.
+- Names are the message's, made safe as Telegram Desktop's
+  `FileNameFromUserString` makes them, on every system (no path, control
+  or bidirectional marks, none of Windows' characters or device names,
+  `.lnk`/`.scf`/`.url`/`.desktop` masked), or its kind and date
+  (`photo_2026-10-21_19-14-15.jpg`); a name taken is `name (1).ext`, and a
+  file of the user's is never replaced (a hard link where the system makes
+  one, which fails rather than replace).
+- Deleting a download deletes the file only when it is as it was written;
+  a file changed since is no longer the download's, and only the record
+  goes.
 - **A downloaded file stands in for the cache** once the cache dropped the
   medium: playing or opening it reads the downloaded file, and each chunk
   read is checked against its tag, under the account's key, so a file

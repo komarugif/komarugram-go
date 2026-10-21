@@ -432,7 +432,7 @@ func (p *chatPage) Close() {
 	p.save(true)
 	p.audio.stop()
 	p.media.Close()
-	if p.files != nil {
+	if p.files != nil && !p.files.shared {
 		p.files.Close()
 	}
 }

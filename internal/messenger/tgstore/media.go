@@ -61,6 +61,10 @@ func (s *Store) MediaProgress(ctx context.Context, m model.Message, progress fun
 	if e != nil || len(b) > 0 {
 		return b, e
 	}
+	if b := mediaFromDownload(ctx, cache, m); b != nil {
+		// The user's download of it, every chunk as it was tagged.
+		return b, cache.SaveMedia(ctx, m.Media.ID, b)
+	}
 	if pool == nil {
 		return nil, errors.New("media unavailable offline")
 	}

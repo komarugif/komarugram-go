@@ -101,6 +101,7 @@ func drawerEntries(folders []model.Folder, chats []model.Chat, dark bool, l loca
 		drawerEntry{key: drawerKey{section: section{kind: sectionSearch}}, icon: iconSearch, title: l.T("nav.search")},
 		drawerEntry{key: drawerKey{section: section{kind: sectionProfile}}, icon: iconProfile, title: l.T("nav.profile")},
 		drawerEntry{key: drawerKey{section: section{kind: sectionSaved}}, icon: iconSaved, title: l.T("nav.saved")},
+		drawerEntry{key: drawerKey{section: section{kind: sectionDownloads}}, icon: iconDownloads, title: l.T("nav.downloads")},
 		drawerEntry{key: drawerKey{section: section{kind: sectionSettings}}, icon: iconSettings, title: l.T("nav.settings")},
 	)
 	theme := drawerEntry{key: drawerKey{theme: true}, icon: iconDark, title: l.T("nav.theme_dark_full")}

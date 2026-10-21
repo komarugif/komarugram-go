@@ -490,6 +490,24 @@
 "delete.sure#one" = "Delete {count} message?";
 "delete.title" = "Delete the selected messages?";
 
+"downloads.active" = "Downloading";
+"downloads.cancel" = "Cancel";
+"downloads.changed" = "Changed since it was downloaded";
+"downloads.delete" = "Delete from disk";
+"downloads.delete_in_cloud" = "They will be deleted from your disk, but will remain accessible in the cloud.";
+"downloads.delete_in_cloud_one" = "It will be deleted from your disk, but will remain accessible in the cloud.";
+"downloads.delete_sure#one" = "Do you want to delete {count} file?";
+"downloads.delete_sure#other" = "Do you want to delete {count} files?";
+"downloads.delete_sure_one" = "Do you want to delete this file?";
+"downloads.empty" = "Files you download will be here. They stay on your disk until you delete them.";
+"downloads.missing" = "Deleted or moved";
+"downloads.select" = "Select";
+"downloads.show_in_folder" = "Show in Folder";
+"downloads.sort_date" = "By date";
+"downloads.sort_size" = "By size";
+"downloads.summary#one" = "{count} file, {size}";
+"downloads.summary#other" = "{count} files, {size}";
+"downloads.view_in_chat" = "View in chat";
 "drop.as_files" = "to send them as documents";
 "drop.as_media" = "to send them as media files";
 "drop.files_here" = "Drop files here";
@@ -959,6 +977,7 @@
 "miniapp.title" = "Mini Apps";
 
 "nav.all" = "All chats";
+"nav.downloads" = "Downloads";
 "nav.menu" = "Menu";
 "nav.profile" = "Profile";
 "nav.saved" = "Saved";

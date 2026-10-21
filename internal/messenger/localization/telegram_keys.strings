@@ -140,6 +140,13 @@
 "delete.self_hint" = "lng_delete_for_me_chat_hint";
 "delete.sure" = "lng_selected_delete_sure";
 
+"downloads.delete" = "lng_context_delete_from_disk";
+"downloads.delete_in_cloud" = "lng_downloads_delete_in_cloud";
+"downloads.delete_in_cloud_one" = "lng_downloads_delete_in_cloud_one";
+"downloads.delete_sure" = "lng_downloads_delete_sure";
+"downloads.delete_sure_one" = "lng_downloads_delete_sure_one";
+"downloads.show_in_folder" = "lng_context_show_in_folder";
+"downloads.view_in_chat" = "lng_downloads_view_in_chat";
 "drop.as_files" = "lng_drag_to_send_files";
 "drop.as_media" = "lng_drag_to_send_media";
 "drop.files_here" = "lng_drag_files_here";
@@ -287,6 +294,7 @@
 "menu.translate" = "lng_context_translate";
 "menu.translate_selected" = "lng_context_translate_selected";
 
+"nav.downloads" = "lng_downloads_section";
 "nav.saved" = "lng_saved_messages";
 
 "notify.all_accounts" = "lng_settings_notify_all";

@@ -26,6 +26,7 @@ const (
 	sectionProfile
 	sectionSaved
 	sectionSettings
+	sectionDownloads
 )
 
 // section is what the sidebar has selected.
@@ -36,21 +37,22 @@ type section struct {
 
 // showsChats reports whether the chat list is shown next to the page.
 func (s section) showsChats() bool {
-	return s.kind != sectionProfile && s.kind != sectionSettings
+	return s.kind != sectionProfile && s.kind != sectionSettings && s.kind != sectionDownloads
 }
 
 // sidebar is the always visible column of section buttons.
 type sidebar struct {
-	menus    menuPreferences
-	account  func() string
-	all      navButton
-	folders  map[int64]*navButton
-	search   navButton
-	profile  navButton
-	saved    navButton
-	settings navButton
-	theme    navButton
-	list     scroll.List
+	menus     menuPreferences
+	account   func() string
+	all       navButton
+	folders   map[int64]*navButton
+	search    navButton
+	profile   navButton
+	saved     navButton
+	downloads navButton
+	settings  navButton
+	theme     navButton
+	list      scroll.List
 }
 
 func newSidebar() *sidebar {
@@ -85,6 +87,9 @@ func (s *sidebar) Update(gtx layout.Context, folders []model.Folder) sidebarEven
 	}
 	if s.visible("saved") && s.saved.Clicked(gtx) {
 		pick(section{kind: sectionSaved})
+	}
+	if s.visible("downloads") && s.downloads.Clicked(gtx) {
+		pick(section{kind: sectionDownloads})
 	}
 	if s.visible("settings") && s.settings.Clicked(gtx) {
 		pick(section{kind: sectionSettings})
@@ -142,6 +147,7 @@ func (s *sidebar) Layout(gtx layout.Context, current section, folders []model.Fo
 		button(&s.search, iconSearch, l.T("nav.search"), current.kind == sectionSearch, 0),
 		button(&s.profile, iconProfile, l.T("nav.profile"), current.kind == sectionProfile, 0),
 		button(&s.saved, iconSaved, l.T("nav.saved"), current.kind == sectionSaved, 0),
+		button(&s.downloads, iconDownloads, l.T("nav.downloads"), current.kind == sectionDownloads, 0),
 		button(&s.settings, iconSettings, l.T("nav.settings"), current.kind == sectionSettings, 0),
 		button(&s.theme, themeIcon, themeText, false, 0),
 	}
@@ -150,7 +156,7 @@ func (s *sidebar) Layout(gtx layout.Context, current section, folders []model.Fo
 	for _, f := range folders {
 		ids = append(ids, navigationID(drawerKey{section: section{kind: sectionFolder, folder: f.ID}}, s.accountID()))
 	}
-	ids = append(ids, "search", "profile", "saved", "settings", "theme")
+	ids = append(ids, "search", "profile", "saved", "downloads", "settings", "theme")
 	widgets := append(top, bottom...)
 	byID := map[string]layout.Widget{}
 	for i, id := range ids {
@@ -160,7 +166,7 @@ func (s *sidebar) Layout(gtx layout.Context, current section, folders []model.Fo
 	split := len(ids)
 	for split > 0 {
 		id := ids[split-1]
-		if id != "search" && id != "profile" && id != "saved" && id != "settings" && id != "theme" {
+		if id != "search" && id != "profile" && id != "saved" && id != "downloads" && id != "settings" && id != "theme" {
 			break
 		}
 		split--

@@ -20,6 +20,8 @@ type Store struct {
 	registration registrationState
 
 	sent map[int64]bool
+	// downloads are the files downloaded in the demo.
+	downloads demoDownloads
 	// files are what the voice messages sent in the demo hold, by media ID.
 	files map[string][]byte
 	// themes are the chats' themes set only here; chatThemes, the emoji of

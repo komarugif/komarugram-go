@@ -117,6 +117,16 @@ func (c *Cache) SetMediaDir(dir string) {
 	c.mediaDir = dir
 }
 
+// MediaDir is the directory the large media are kept in.
+func (c *Cache) MediaDir() string {
+	c.filesMu.Lock()
+	defer c.filesMu.Unlock()
+	if c.mediaDir != "" {
+		return c.mediaDir
+	}
+	return c.path + ".media"
+}
+
 // files is the cache's media files, opened at their first use.
 func (c *Cache) files() (*mediaFiles, error) {
 	c.filesMu.Lock()

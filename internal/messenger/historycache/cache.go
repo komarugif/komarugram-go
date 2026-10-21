@@ -40,6 +40,8 @@ type Cache struct {
 	mediaDir   string
 	mediaFiles *mediaFiles
 	// moving moves the large media of the table to files, until stop.
+	// downloadKeyMu makes the key of downloads once.
+	downloadKeyMu sync.Mutex
 	moving        sync.WaitGroup
 	movingStarted bool
 	stop          chan struct{}
@@ -99,6 +101,8 @@ func (c *Cache) open() error {
  CREATE TABLE IF NOT EXISTS layouts(chat INTEGER,id INTEGER,env TEXT,revision INTEGER,height INTEGER,PRIMARY KEY(chat,id,env));
  CREATE TABLE IF NOT EXISTS media(key TEXT PRIMARY KEY,data BLOB,used INTEGER);
  CREATE TABLE IF NOT EXISTS media_files(name TEXT PRIMARY KEY,id TEXT,size INTEGER,chunks BLOB,used INTEGER);
+ CREATE TABLE IF NOT EXISTS downloads(id INTEGER PRIMARY KEY,chat INTEGER,message INTEGER,media TEXT,name TEXT,path TEXT,size INTEGER,modified INTEGER,added INTEGER,tags BLOB);
+ CREATE INDEX IF NOT EXISTS downloads_media ON downloads(media);
  CREATE TABLE IF NOT EXISTS edits(chat INTEGER,id INTEGER,at INTEGER,payload BLOB,PRIMARY KEY(chat,id,at));
  CREATE TABLE IF NOT EXISTS spans(chat INTEGER,low INTEGER,high INTEGER,PRIMARY KEY(chat,low));
  DROP INDEX IF EXISTS photos;

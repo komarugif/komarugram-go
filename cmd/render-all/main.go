@@ -50,6 +50,7 @@ func renders() []render {
 		render{"phone", "TestRenderPhoneStep", []string{"PHONE_PNG_DIR={out}"}},
 		render{"session-ended", "TestRenderSessionEnded", []string{"SESSION_PNG_DIR={out}"}},
 		render{"sessions", "TestRenderSessions", []string{"SESSIONS_PNG={out}/sessions.png"}},
+		render{"downloads", "TestRenderDownloads", []string{"DOWNLOADS_PNG={out}/downloads.png"}},
 		render{"sticker-set", "TestRenderStickerSet", []string{"STICKER_SET_PNG_DIR={out}"}},
 		render{"message-menu", "TestRenderMessageMenu", []string{"MENU_PNG={out}/menu.png"}},
 		render{"reaction-menu", "TestRenderReactionMenu", []string{"MENU_PNG={out}/menu.png"}},

@@ -61,6 +61,8 @@ func navigationID(k drawerKey, account string) string {
 		return "saved"
 	case sectionSettings:
 		return "settings"
+	case sectionDownloads:
+		return "downloads"
 	}
 	return ""
 }

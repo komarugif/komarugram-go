@@ -511,6 +511,28 @@
 "delete.sure#one" = "Удалить {count} сообщение?";
 "delete.title" = "Удалить выбранные сообщения?";
 
+"downloads.active" = "Скачиваются";
+"downloads.cancel" = "Отмена";
+"downloads.changed" = "Изменён после скачивания";
+"downloads.delete" = "Удалить с диска";
+"downloads.delete_in_cloud" = "Файлы будут удалены с диска, но останутся доступны в облаке.";
+"downloads.delete_in_cloud_one" = "Файл будет удалён с диска, но останется доступен в облаке.";
+"downloads.delete_sure#few" = "Удалить {count} файла?";
+"downloads.delete_sure#many" = "Удалить {count} файлов?";
+"downloads.delete_sure#one" = "Удалить {count} файл?";
+"downloads.delete_sure#other" = "Удалить {count} файла?";
+"downloads.delete_sure_one" = "Удалить этот файл?";
+"downloads.empty" = "Здесь будут файлы, которые вы скачаете. Они остаются на диске, пока вы их не удалите.";
+"downloads.missing" = "Удалён или перемещён";
+"downloads.select" = "Выбрать";
+"downloads.show_in_folder" = "Показать в папке";
+"downloads.sort_date" = "По дате";
+"downloads.sort_size" = "По размеру";
+"downloads.summary#few" = "{count} файла, {size}";
+"downloads.summary#many" = "{count} файлов, {size}";
+"downloads.summary#one" = "{count} файл, {size}";
+"downloads.summary#other" = "{count} файла, {size}";
+"downloads.view_in_chat" = "Показать в чате";
 "drop.as_files" = "чтобы отправить как файлы";
 "drop.as_media" = "чтобы отправить как медиафайлы";
 "drop.files_here" = "Перетащите файлы сюда";
@@ -999,6 +1021,7 @@
 "miniapp.title" = "Mini Apps";
 
 "nav.all" = "Все чаты";
+"nav.downloads" = "Загрузки";
 "nav.menu" = "Меню";
 "nav.profile" = "Профиль";
 "nav.saved" = "Избранное";
