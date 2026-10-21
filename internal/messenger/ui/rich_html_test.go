@@ -89,9 +89,8 @@ func TestSaveHTML(t *testing.T) {
 	// Saved in the background, the whole message is asked for and the
 	// toast says where it went.
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("USERPROFILE", home)
+	defer func(was func() string) { downloadsDir = was }(downloadsDir)
+	downloadsDir = func() string { return home }
 	p.saveHTML(m, l)
 	deadline := time.Now().Add(30 * time.Second)
 	for p.htmlBusy.Load() || len(p.htmlDone) == 0 {

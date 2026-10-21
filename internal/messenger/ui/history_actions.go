@@ -24,6 +24,7 @@ import (
 
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
+	"komarugram/pkg/userdirs"
 )
 
 // selectionBar holds the buttons over selected messages, as Telegram
@@ -425,50 +426,13 @@ func saveSnapshot(png []byte, name string) (string, error) {
 	return path, os.WriteFile(path, png, 0o644)
 }
 
-// picturesDir is the user's pictures directory: XDG_PICTURES_DIR on Linux,
-// Pictures in the home directory elsewhere, or the home directory itself.
-func picturesDir() string {
-	return userDir("XDG_PICTURES_DIR", "Pictures")
-}
-
-// downloadsDir is the user's downloads directory: XDG_DOWNLOAD_DIR on
-// Linux, Downloads in the home directory elsewhere, or the home directory
-// itself.
-func downloadsDir() string {
-	return userDir("XDG_DOWNLOAD_DIR", "Downloads")
-}
-
-// userDir is the user's directory that xdg names in user-dirs.dirs on
-// Linux, and name in the home directory elsewhere, when there is one.
-func userDir(xdg, name string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return os.TempDir()
-	}
-	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" || runtime.GOOS == "openbsd" {
-		config, err := os.UserConfigDir()
-		if err == nil {
-			if b, err := os.ReadFile(filepath.Join(config, "user-dirs.dirs")); err == nil {
-				for _, line := range strings.Split(string(b), "\n") {
-					value, ok := strings.CutPrefix(strings.TrimSpace(line), xdg+"=")
-					if !ok {
-						continue
-					}
-					value = strings.Trim(value, `"`)
-					value = strings.Replace(value, "$HOME", home, 1)
-					if value != "" && value != home {
-						return value
-					}
-				}
-			}
-		}
-	}
-	dir := filepath.Join(home, name)
-	if _, err := os.Stat(dir); err == nil {
-		return dir
-	}
-	return home
-}
+// picturesDir and downloadsDir are the user's pictures and downloads
+// directories, which may not exist yet. Tests save elsewhere: on Windows the
+// system names them, whatever the environment says.
+var (
+	picturesDir  = userdirs.Pictures
+	downloadsDir = userdirs.Downloads
+)
 
 // canRepeat reports whether m may be sent again, as AyuGram's Repeat
 // Message does: a message that may be forwarded, in a private chat or a

@@ -177,10 +177,9 @@ func stickerArchiveName(title string) string {
 // pack title as shell or script source. An empty path means cancellation.
 func chooseStickerArchive(ctx context.Context, title string) (string, error) {
 	name := stickerArchiveName(title)
-	home, _ := os.UserHomeDir()
-	dir := filepath.Join(home, "Downloads")
+	dir := downloadsDir()
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-		dir = home
+		dir, _ = os.UserHomeDir()
 	}
 	suggested := filepath.Join(dir, name)
 	var cmd *exec.Cmd

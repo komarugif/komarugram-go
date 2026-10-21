@@ -360,10 +360,6 @@ func TestPhotoViewerShowsMiddleVariantWhileOriginalLoads(t *testing.T) {
 // The bar saves the original in the user's pictures and copies it as PNG;
 // a protected photo offers neither.
 func TestPhotoViewerSavesAndCopies(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("USERPROFILE", home)
 	h := newViewerHarness(t)
 	s := h.store
 	h.viewer.Open(1, s.photos[3], nil)
