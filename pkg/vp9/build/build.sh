@@ -12,9 +12,10 @@
 #   WASI_SYSROOT=/path/to/wasi-sysroot RESOURCE_DIR=/path/to/resource-dir \
 #     LIBVPX=/path/to/libvpx-checkout SIMDE=/path/to/simde [KIND=encoder] ./build.sh
 #
-# The modules embedded were built from libvpx v1.17.0 (the encoder; the
-# decoder's version was not recorded) and SIMDe v0.8.2, with wasi-sdk 34's
-# clang 22 and sysroot.
+# The encoder embedded was built from libvpx v1.17.0 and SIMDe v0.8.2 with
+# wasi-sdk 34 (CLANG, AR, RANLIB and NM its bin/clang and bin/llvm-*,
+# WASI_SYSROOT its share/wasi-sysroot, RESOURCE_DIR its lib/clang/23); the
+# decoder's versions were not recorded.
 #
 # RESOURCE_DIR is a directory holding lib/wasm32-unknown-wasip1/libclang_rt.builtins.a
 # and an include symlink to the compiler's own headers.
