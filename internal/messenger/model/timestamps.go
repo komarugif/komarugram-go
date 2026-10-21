@@ -16,13 +16,14 @@ const maxYouTubeTimestamp = 100 * time.Hour
 
 // TimestampLimit is the latest time a timestamp in a text may name in the
 // media of m, the message the text is the caption of or replies to: the
-// length of its video, video message, voice message or music, or of the
-// YouTube video it links to. It is 0 when m has no such media, and then no
-// timestamp links to it, as Telegram Desktop's DurationForTimestampLinks.
+// length of its video, GIF, video message, voice message or music, or of
+// the YouTube video it links to. It is 0 when m has no such media, and then
+// no timestamp links to it, as Telegram Desktop's DurationForTimestampLinks,
+// which has none for GIFs.
 func TimestampLimit(m Message) time.Duration {
 	if w := m.WebPage; w != nil {
 		if w.Video != nil {
-			if w.VideoKind != MessageVideo {
+			if w.VideoKind != MessageVideo && w.VideoKind != MessageGIF {
 				return 0
 			}
 			return w.Video.Duration.Truncate(time.Second)
@@ -36,7 +37,7 @@ func TimestampLimit(m Message) time.Duration {
 		return maxYouTubeTimestamp
 	}
 	switch m.Kind {
-	case MessageVideo, MessageRound, MessageVoice, MessageMusic:
+	case MessageVideo, MessageGIF, MessageRound, MessageVoice, MessageMusic:
 		if m.Media != nil {
 			return m.Media.Duration.Truncate(time.Second)
 		}

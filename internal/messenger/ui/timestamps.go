@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"gioui.org/layout"
+	"gioui.org/op"
 
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
@@ -94,6 +95,10 @@ func (p *chatPage) openTimestamp(gtx layout.Context, r *messageRow, value string
 		p.askLink(model.TimestampURL(t.url, at))
 	case internalAudio(t.msg) && (p.audioExternal == nil || !p.audioExternal()):
 		p.audio.playFrom(p, t.msg, at)
+	case t.msg.Kind == model.MessageGIF && t.msg.Media.Whole():
+		// A GIF that plays in the chat goes there, and plays on.
+		p.media.SeekGIF(t.msg, at, true)
+		gtx.Execute(op.InvalidateCmd{})
 	default:
 		p.playFrom(gtx, t.msg, at, p.reportMedia, l)
 	}

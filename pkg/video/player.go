@@ -103,10 +103,15 @@ type Player struct {
 	free       [][]uint8
 	userPaused bool
 	autoPaused bool
-	lastPoll   time.Time
-	resume     chan struct{}
-	stopped    bool
-	err        error
+	// start is where the first pass plays from; base is where the pass
+	// that plays started, and decoded counts its frames, for Position.
+	start    time.Duration
+	base     time.Duration
+	decoded  int
+	lastPoll time.Time
+	resume   chan struct{}
+	stopped  bool
+	err      error
 }
 
 // NewPlayer probes path and prepares a player scaled down to at most
@@ -142,14 +147,13 @@ func NewPlayerWithFFmpeg(path string, maxHeight int, ffmpeg string) (*Player, er
 	}, nil
 }
 
-// NewPlayerOfSize prepares a player decoding frames of size, as a player of
-// the same file probed them, without probing it again. Its Info has no frame
-// rate.
-func NewPlayerOfSize(path string, size image.Point, ffmpeg string) *Player {
+// NewPlayerAs prepares a player decoding frames as info gives them, as a
+// player of the same file probed them, without probing it again.
+func NewPlayerAs(path string, info Info, ffmpeg string) *Player {
 	return &Player{
 		path:     path,
 		ffmpeg:   ResolveFFmpeg(ffmpeg),
-		info:     Info{Width: size.X, Height: size.Y},
+		info:     info,
 		lastPoll: time.Now(),
 		resume:   make(chan struct{}),
 	}
@@ -158,8 +162,29 @@ func NewPlayerOfSize(path string, size image.Point, ffmpeg string) *Player {
 // Info returns the size and frame rate of the decoded frames.
 func (p *Player) Info() Info { return p.info }
 
+// StartAt makes the first pass of the video, before Start, play from at;
+// the passes after it play from the start.
+func (p *Player) StartAt(at time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.start = max(0, at)
+}
+
+// Position is the time in the video of the last frame decoded, counted at
+// the frame rate of Info from where the pass that plays started: it grows
+// past the video's length as the video loops.
+func (p *Player) Position() time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.info.FPS <= 0 || p.decoded == 0 {
+		return p.base
+	}
+	return p.base + time.Duration(float64(p.decoded-1)/p.info.FPS*float64(time.Second))
+}
+
 // Start spawns ffmpeg and begins decoding in a goroutine. The video loops
-// in that one process until Stop is called.
+// in that one process until Stop is called; a start set with StartAt is
+// played by a process of its own, which plays to the end once.
 func (p *Player) Start() {
 	go p.watchIdle()
 	go func() {
@@ -190,20 +215,31 @@ func (p *Player) decode() error {
 		return nil
 	}
 	p.cancelDecode = cancel
+	start := p.start
+	p.start, p.base, p.decoded = 0, start, 0
 	p.mu.Unlock()
-	cmd := program.CommandContext(ctx, p.ffmpeg,
+	args := []string{
 		"-hide_banner", "-loglevel", "error",
 		"-re",
 		"-threads", "2", "-format_whitelist", "mov,matroska,webm,gif",
+	}
+	if start > 0 {
+		// The first pass, from start to the end: the passes after it,
+		// looped, start over from the start.
+		args = append(args, "-ss", strconv.FormatFloat(start.Seconds(), 'f', 3, 64))
+	} else {
 		// One process loops the input: a short GIF would start an ffmpeg
 		// for every pass, several a second.
-		"-stream_loop", "-1",
+		args = append(args, "-stream_loop", "-1")
+	}
+	args = append(args,
 		"-i", p.path,
 		"-an",
 		"-vf", fmt.Sprintf("scale=%d:%d", p.info.Width, p.info.Height),
 		"-pix_fmt", "rgba",
 		"-f", "rawvideo", "-",
 	)
+	cmd := program.CommandContext(ctx, p.ffmpeg, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -245,6 +281,7 @@ func (p *Player) decode() error {
 				p.recycleLocked(p.frame.Pix)
 			}
 			p.frame, p.taken = frame, false
+			p.decoded++
 		}
 		p.mu.Unlock()
 		if stopped {

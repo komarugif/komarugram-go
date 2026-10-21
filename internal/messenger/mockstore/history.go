@@ -151,8 +151,8 @@ func (s *Store) History(chat int64) model.History {
 	add(blocksText, model.MessageText, nil, blocksEntities, nil)
 	entitiesText, entities := EntitiesExample(time.Now())
 	add(entitiesText, model.MessageText, nil, entities, nil)
-	// Timestamps: in a reply to a video, a voice message or a video
-	// message they play it from their time, and by a YouTube link they
+	// Timestamps: in a reply to a video, a voice message, a video message
+	// or a GIF they play it from their time, and by a YouTube link they
 	// open the video at it.
 	replyTo := func(id string) model.MessageID {
 		for _, m := range messages {
@@ -168,6 +168,8 @@ func (s *Store) History(chat int64) model.History {
 	messages[len(messages)-1].ReplyToMessageID = replyTo("demo/voice")
 	add("В кружке с 0:20 — самое смешное", model.MessageText, nil, nil, nil)
 	messages[len(messages)-1].ReplyToMessageID = replyTo("demo/round")
+	add("А в GIF — с 0:25", model.MessageText, nil, nil, nil)
+	messages[len(messages)-1].ReplyToMessageID = replyTo("demo/gifv")
 	add("https://youtu.be/demo — смотрите с 1:23 и с 4:05", model.MessageText, nil, []model.Entity{{Kind: "url", Offset: 0, Length: 21}}, nil)
 	messages[len(messages)-1].WebPage = &model.WebPreview{URL: "https://youtu.be/demo", Site: "YouTube", Type: "video", Duration: 300, Title: "Видео на YouTube", Description: "Тайм-коды рядом со ссылкой открывают его с их времени."}
 	if s.isChannel(chat) {

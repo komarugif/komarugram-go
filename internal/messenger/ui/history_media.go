@@ -89,6 +89,12 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	// the player.
 	gif := m.Kind == model.MessageGIF && !m.Media.Whole()
 	video := m.Kind == model.MessageVideo || gif
+	// One that plays here pauses on a click, and opens in the viewer on
+	// one of the middle button.
+	inline := m.Kind == model.MessageGIF && !gif
+	if inline && r.gif.update(gtx, p, m) && p.openAlone != nil {
+		p.openAlone(m)
+	}
 	if video {
 		target.Kind = model.MessagePhoto
 		target.Media = m.Media.Thumbnail
@@ -125,8 +131,9 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			p.openAlone(m)
 		} else if m.Kind == model.MessagePhoto && p.openPhoto != nil {
 			p.openPhoto(m)
-		} else if m.Kind == model.MessageGIF && p.openAlone != nil && err == nil && !cancelled && !loading {
-			p.openAlone(m)
+		} else if inline && err == nil && !cancelled && !loading {
+			p.media.ToggleGIF(m)
+			gtx.Execute(op.InvalidateCmd{})
 		} else if err != nil || cancelled {
 			p.media.Retry(target)
 		} else if stickerSet {
@@ -185,6 +192,10 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 				}
 				return r.ring.layout(gtx, diameter, loading, progress, mark, white, animate)
 			})
+		}
+		if inline && !loading && !cancelled && err == nil {
+			paused := p.media.GIFPaused(m)
+			r.gif.layout(gtx, size, paused, r.media.Hovered(), p.media.GIFPosition(m), m.Media.Duration)
 		}
 		// The plate of a video fades out while the pointer is over it, for
 		// the picture to be seen whole, and back in when it leaves.

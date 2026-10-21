@@ -92,7 +92,43 @@ type entry struct {
 	every int64
 	// fullRate lets the animation show 60 pictures a second.
 	fullRate bool
+	// position is where in its loop a GIF's worker is, and seekTo, when
+	// seekSet, where it is to go next (SeekGIF).
+	position time.Duration
+	seekTo   time.Duration
+	seekSet  bool
 }
+
+// resumeAt is where a GIF's worker that starts plays from: where it was
+// asked to go, or where it stood, held; ok is false for the start.
+func (e *entry) resumeAt() (at time.Duration, ok bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.seekSet {
+		e.seekSet = false
+		return e.seekTo, true
+	}
+	return e.position, e.held && e.position > 0
+}
+
+// takeSeek is where a GIF's worker is asked to go, once.
+func (e *entry) takeSeek() (time.Duration, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.seekSet {
+		return 0, false
+	}
+	e.seekSet = false
+	return e.seekTo, true
+}
+
+// setPosition is where the GIF's worker is now.
+func (e *entry) setPosition(at time.Duration) {
+	e.mu.Lock()
+	e.position = at
+	e.mu.Unlock()
+}
+
 type Manager struct {
 	// wasm plays video stickers in the VP9 sandbox, and gifWASM GIFs and
 	// animated avatars in the H.264 one, even with an FFmpeg.
@@ -132,6 +168,10 @@ type Manager struct {
 	paused bool
 	// holding stops the media asked for where they are; UI thread only.
 	holding bool
+	// stopped are the GIFs the user paused, and seeks where those not
+	// loaded are to start, by media ID; UI thread only.
+	stopped map[string]bool
+	seeks   map[string]time.Duration
 	// uiClips plays decoded loops on the UI's clock: each frame shows the
 	// picture of its own time, and the next is scheduled by NextFrame, so
 	// that any number of loops wake the window once per picture. Emoji
@@ -271,6 +311,10 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 		ctx, cancel := context.WithCancel(m.ctx)
 		e = &entry{wake: make(chan struct{}, 1), consumed: make(chan struct{}, 1), wasm: wasm, ffmpeg: m.ffmpeg, sandboxGIF: m.SandboxGIFs(), seen: m.generation, animate: animate, cancel: cancel, cancelled: m.cancelled[key], frame: previous, preview: preview, still: still, clip: clip, box: box, cover: cover, sticker: animatedSticker || msg.Kind == model.MessageSticker}
 		m.entries[key] = e
+		if at, ok := m.seeks[key]; ok {
+			delete(m.seeks, key)
+			e.seekTo, e.seekSet = at, true
+		}
 		// The loader takes a copy of its own: captured, msg itself would be
 		// moved to the heap on every call, every frame, for each picture.
 		loading := msg
@@ -284,7 +328,7 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 			m.load(ctx, e, loading)
 		})
 	}
-	hold := m.paused || m.holding
+	hold := m.paused || m.holding || m.stopped[key]
 	if hold {
 		animate = false
 		e.heldAt = m.generation
@@ -326,6 +370,73 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 // Telegram Desktop pauses them while its window is not active. It runs on
 // the UI goroutine.
 func (m *Manager) SetPaused(paused bool) { m.paused = paused }
+
+// ToggleGIF pauses the GIF of msg where it is, or lets it play on from
+// there, as a click on it does. It runs on the UI goroutine.
+func (m *Manager) ToggleGIF(msg model.Message) {
+	if msg.Media == nil {
+		return
+	}
+	key := msg.Media.ID
+	if m.stopped[key] {
+		delete(m.stopped, key)
+		return
+	}
+	if m.stopped == nil {
+		m.stopped = map[string]bool{}
+	}
+	m.stopped[key] = true
+}
+
+// GIFPaused reports whether the user paused the GIF of msg. It runs on the
+// UI goroutine.
+func (m *Manager) GIFPaused(msg model.Message) bool {
+	return msg.Media != nil && m.stopped[msg.Media.ID]
+}
+
+// SeekGIF moves the GIF of msg to at, a time in its loop, as a timestamp
+// or its bar asks: with play a paused one plays again from there, as for
+// a timestamp; without, a paused one stays paused and shows the picture
+// at at, as for its bar. It runs on the UI goroutine.
+func (m *Manager) SeekGIF(msg model.Message, at time.Duration, play bool) {
+	if msg.Media == nil {
+		return
+	}
+	key := msg.Media.ID
+	if play {
+		delete(m.stopped, key)
+	}
+	e := m.entries[key]
+	if e == nil {
+		if m.seeks == nil {
+			m.seeks = map[string]time.Duration{}
+		}
+		m.seeks[key] = at
+		return
+	}
+	e.mu.Lock()
+	e.seekTo, e.seekSet, e.position = at, true, at
+	e.mu.Unlock()
+	select {
+	case e.wake <- struct{}{}:
+	default:
+	}
+}
+
+// GIFPosition is where in its loop the GIF of msg plays, or stands; 0
+// before it played. It runs on the UI goroutine.
+func (m *Manager) GIFPosition(msg model.Message) time.Duration {
+	if msg.Media == nil {
+		return 0
+	}
+	e := m.entries[msg.Media.ID]
+	if e == nil {
+		return m.seeks[msg.Media.ID]
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.position
+}
 
 // SetHolding makes the media asked for until SetHolding(false) stand on the
 // pictures they reached, as SetPaused does, rather than on their first: a
@@ -906,7 +1017,7 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 		e.mu.Unlock()
 		m.changed()
 		release()
-		m.playGIF(ctx, e, stream.URL(), publish)
+		m.playGIF(ctx, e, stream.URL(), msg.Media.Duration, publish)
 		return
 	default:
 		var cfg image.Config
@@ -990,29 +1101,52 @@ func toRGBA(im image.Image) *image.RGBA {
 // the pointer passing over it again, or a short scroll, does not restart it.
 const gifIdle = time.Second
 
-// playGIF plays a GIF from url whenever it is to animate, with an ffmpeg
-// that it stops once the GIF has not animated for gifIdle. The file is
-// probed for the size of its frames once, when it first plays.
-func (m *Manager) playGIF(ctx context.Context, e *entry, url string, publish func(image.Image, error)) {
-	var size image.Point
+// playGIF plays a GIF from url, of length long, whenever it is to animate,
+// with an ffmpeg that it stops once the GIF has not animated for gifIdle.
+// The file is probed for the size of its frames once, when it first plays.
+// A GIF held where it stood plays on from there, and one asked to go
+// elsewhere starts an ffmpeg there.
+func (m *Manager) playGIF(ctx context.Context, e *entry, url string, long time.Duration, publish func(image.Image, error)) {
+	var info video.Info
+	seek := time.Duration(-1)
 	for {
-		if err := waitAnimation(ctx, e); err != nil {
-			return
+		// Asked to go elsewhere, it goes, still or not.
+		if seek < 0 {
+			if err := waitAnimation(ctx, e); err != nil {
+				return
+			}
 		}
+		from := seek
+		if from < 0 {
+			if at, ok := e.resumeAt(); ok {
+				from = at
+			}
+		}
+		// Standing still, it shows the picture there.
+		e.mu.Lock()
+		still := !e.animate
+		e.mu.Unlock()
 		var p *video.Player
-		if size == (image.Point{}) {
+		if info.Width == 0 {
 			var err error
 			p, err = video.NewPlayerWithFFmpeg(url, m.videoHeight, e.ffmpeg)
 			if err != nil {
 				publish(nil, err)
 				return
 			}
-			size = image.Pt(p.Info().Width, p.Info().Height)
+			info = p.Info()
 		} else {
-			p = video.NewPlayerOfSize(url, size, e.ffmpeg)
+			p = video.NewPlayerAs(url, info, e.ffmpeg)
+		}
+		if long > 0 && from >= long {
+			from = 0
+		}
+		if from > 0 {
+			p.StartAt(from)
 		}
 		p.Start()
-		err := m.playGIFFrames(ctx, e, p, publish)
+		var err error
+		seek, err = m.playGIFFrames(ctx, e, p, long, still, publish)
 		p.Stop()
 		if err != nil {
 			publish(nil, err)
@@ -1032,6 +1166,10 @@ func (m *Manager) playGIFSandbox(ctx context.Context, e *entry, data []byte, pub
 		if err := waitAnimation(ctx, e); err != nil {
 			return
 		}
+		from, resume := e.resumeAt()
+		if !resume {
+			from = -1
+		}
 		rt, done, err := m.avc.acquire(ctx)
 		if err != nil {
 			publish(nil, err)
@@ -1043,7 +1181,7 @@ func (m *Manager) playGIFSandbox(ctx context.Context, e *entry, data []byte, pub
 			publish(nil, err)
 			return
 		}
-		err = m.playVideoFrames(ctx, e, v, publish)
+		err = m.playVideoFrames(ctx, e, v, from, publish)
 		v.Close(context.Background())
 		done()
 		if err != nil {
@@ -1056,10 +1194,21 @@ func (m *Manager) playGIFSandbox(ctx context.Context, e *entry, data []byte, pub
 	}
 }
 
-// playVideoFrames plays the pictures of v, each on the tick of the clock
-// every animation shares that is its time, while the GIF animates, and
-// returns once it has not for gifIdle.
-func (m *Manager) playVideoFrames(ctx context.Context, e *entry, v *h264.Video, publish func(image.Image, error)) error {
+// showStill shows im, a picture of e that stands still, at once, over a
+// picture of the animation left for a frame.
+func showStill(e *entry, im image.Image, publish func(image.Image, error)) {
+	e.mu.Lock()
+	e.pending = nil
+	e.mu.Unlock()
+	publish(im, nil)
+}
+
+// playVideoFrames plays the pictures of v, from from (below 0, the start),
+// each on the tick of the clock every animation shares that is its time,
+// while the GIF animates, and returns once it has not for gifIdle. Asked to
+// go elsewhere, it goes on from there; standing still, it shows the picture
+// there.
+func (m *Manager) playVideoFrames(ctx context.Context, e *entry, v *h264.Video, from time.Duration, publish func(image.Image, error)) error {
 	size := resample.Fit(v.Size().X, v.Size().Y, e.box, e.cover)
 	defer m.byWorker(e)()
 	var ring pictureRing
@@ -1068,6 +1217,19 @@ func (m *Manager) playVideoFrames(ctx context.Context, e *entry, v *h264.Video, 
 		e.mu.Lock()
 		animate := e.animate
 		e.mu.Unlock()
+		if at, ok := e.takeSeek(); ok {
+			from = at
+		}
+		if from >= 0 && !animate {
+			i, err := seekPicture(ctx, v, from)
+			if err != nil {
+				return err
+			}
+			e.setPosition(v.Time(i))
+			showStill(e, v.Picture(size), publish)
+			// Played on, it goes on from there.
+			from, start, idle = -1, time.Time{}, time.Now()
+		}
 		if !animate {
 			start = time.Time{}
 			if idle.IsZero() {
@@ -1088,10 +1250,18 @@ func (m *Manager) playVideoFrames(ctx context.Context, e *entry, v *h264.Video, 
 			continue
 		}
 		idle = time.Time{}
-		i, err := v.Next(ctx)
+		var i int
+		var err error
+		if from >= 0 {
+			i, err = seekPicture(ctx, v, from)
+			from, start = -1, time.Time{}
+		} else {
+			i, err = v.Next(ctx)
+		}
 		if err != nil {
 			return err
 		}
+		e.setPosition(v.Time(i))
 		var im *image.RGBA
 		if dst := ring.next(m, e, size); dst != nil {
 			im = v.PictureInto(dst)
@@ -1116,14 +1286,36 @@ func (m *Manager) playVideoFrames(ctx context.Context, e *entry, v *h264.Video, 
 	}
 }
 
+// seekPicture decodes the picture of v that shows at at, or the last one,
+// and returns its index.
+func seekPicture(ctx context.Context, v *h264.Video, at time.Duration) (int, error) {
+	if last := v.Pictures() - 1; last >= 0 && at > v.Time(last) {
+		at = v.Time(last)
+	}
+	if _, err := v.Seek(ctx, at); err != nil {
+		return 0, err
+	}
+	for {
+		i, err := v.Next(ctx)
+		if err != nil || i+1 >= v.Pictures() || v.Time(i+1) > at {
+			return i, err
+		}
+	}
+}
+
 // playGIFFrames shows the frames p plays, which ffmpeg paces itself, while
-// the GIF animates, and returns once it has not for gifIdle. It looks for a
-// new frame on every tick of the clock every animation shares a GIF shows
-// one on, and leaves it for that tick.
-func (m *Manager) playGIFFrames(ctx context.Context, e *entry, p *video.Player, publish func(image.Image, error)) error {
+// the GIF of length long animates, and returns once it has not for
+// gifIdle, or once it is asked to go elsewhere: then with where, else -1.
+// It looks for a new frame on every tick of the clock every animation
+// shares a GIF shows one on, and leaves it for that tick. With still, its
+// first frame is shown even while it stands still.
+func (m *Manager) playGIFFrames(ctx context.Context, e *entry, p *video.Player, long time.Duration, still bool, publish func(image.Image, error)) (time.Duration, error) {
 	defer m.byWorker(e)()
 	var idle time.Time
 	var last *image.RGBA
+	// A still picture that never comes, past the end say, is waited for no
+	// longer than a decoder stays.
+	stillUntil := time.Now().Add(3 * gifIdle)
 	// offered are the frames left for the view, given back to p once they
 	// are not shown, as pictureRing does with its own.
 	var offered []*image.RGBA
@@ -1131,7 +1323,11 @@ func (m *Manager) playGIFFrames(ctx context.Context, e *entry, p *video.Player, 
 		e.mu.Lock()
 		animate := e.animate
 		e.mu.Unlock()
-		p.SetPaused(!animate)
+		if at, ok := e.takeSeek(); ok {
+			return at, nil
+		}
+		still = still && !animate
+		p.SetPaused(!animate && !still)
 		if m.clocked.Load() {
 			offered = slices.DeleteFunc(offered, func(im *image.RGBA) bool {
 				if e.uses(im.Pix) {
@@ -1142,27 +1338,48 @@ func (m *Manager) playGIFFrames(ctx context.Context, e *entry, p *video.Player, 
 			})
 		}
 		tick := tickFloor(time.Now(), 2)
-		if animate {
+		if still {
+			im, err := p.Frame()
+			if err != nil {
+				return -1, err
+			}
+			if im != nil {
+				at := p.Position()
+				if long > 0 {
+					at %= long
+				}
+				e.setPosition(at)
+				showStill(e, im, publish)
+				last, still, idle = im, false, time.Now()
+			} else if time.Now().After(stillUntil) {
+				still, idle = false, time.Now()
+			}
+		} else if animate {
 			idle = time.Time{}
 			im, err := p.Frame()
 			if err != nil {
-				return err
+				return -1, err
 			}
 			if im != nil && im != last {
 				last = im
+				at := p.Position()
+				if long > 0 {
+					at %= long
+				}
+				e.setPosition(at)
 				m.offer(ctx, e, im, tick, 2, false, publish)
 				offered = append(offered, im)
 			}
 		} else if idle.IsZero() {
 			idle = time.Now()
 		} else if time.Since(idle) > gifIdle {
-			return nil
+			return -1, nil
 		}
 		timer := time.NewTimer(time.Until(tick.Add(2 * frameTick)))
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return nil
+			return -1, nil
 		case <-timer.C:
 		}
 	}
@@ -1230,11 +1447,12 @@ func (m *Manager) offer(ctx context.Context, e *entry, im image.Image, at time.T
 	}
 }
 
-// waitAnimation blocks until e is to animate.
+// waitAnimation blocks until e is to animate, or to show another picture of
+// a GIF that stands still (SeekGIF).
 func waitAnimation(ctx context.Context, e *entry) error {
 	for {
 		e.mu.Lock()
-		animate := e.animate
+		animate := e.animate || e.seekSet
 		e.mu.Unlock()
 		if animate {
 			return nil

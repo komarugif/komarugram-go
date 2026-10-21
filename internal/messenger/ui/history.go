@@ -77,6 +77,8 @@ type messageRow struct {
 	// previewVideo is the row of the preview's video, which plays as a
 	// video message's does.
 	previewVideo *messageRow
+	// gif are the controls of the row's GIF, while it plays in the chat.
+	gif gifControls
 	// quick takes double clicks on the bubble, which react to it.
 	quick gesture.Click
 	media widget.Clickable

@@ -516,7 +516,15 @@ size-stability fixes remain in place.
   thumbnail, fetched before the file (a real GIF file's first frame is
   decoded in Go); large GIFs have none and stay blank until played, as in the
   official clients. `ffprobe` and `ffmpeg` start when it plays, and `ffmpeg`
-  exits a second after it stops.
+  exits a second after it stops. A GIF that plays in the chat
+  (`gifControls`, `history_gif.go`) pauses on a click and plays on from the
+  picture it stood on (`chatmedia.Manager.ToggleGIF`; a new decoder starts
+  there, `-ss` for FFmpeg, `h264.Video.Seek` in the sandbox); the middle
+  button opens it in the viewer. It shows nothing over it while it plays:
+  its time fades in while the pointer is over it, the bar along its bottom,
+  which moves it (`SeekGIF`), while the pointer is over the bar, and play
+  while it is paused, as on a video message. Moved by its bar, a paused GIF
+  stays paused and shows the picture there; a timestamp plays it on.
 - **Without a bubble** (`history_unwrapped.go`): stickers, video messages
   and a lone emoji (half a sticker's size) lie on the chat's background, as in the official
   clients; `infoPlate` is their time, and a reply or forward goes in a card

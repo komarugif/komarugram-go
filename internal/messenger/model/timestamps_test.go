@@ -109,7 +109,9 @@ func TestTimestampLimit(t *testing.T) {
 		{"voice", Message{Kind: MessageVoice, Media: video}, 90 * time.Second},
 		{"music", Message{Kind: MessageMusic, Media: video}, 90 * time.Second},
 		{"round", Message{Kind: MessageRound, Media: video}, 90 * time.Second},
-		{"gif", Message{Kind: MessageGIF, Media: video}, 0},
+		// Unlike Telegram Desktop's, a GIF has timestamps too.
+		{"gif", Message{Kind: MessageGIF, Media: video}, 90 * time.Second},
+		{"gif of no length", Message{Kind: MessageGIF, Media: &MessageMedia{MIMEType: "image/gif"}}, 0},
 		{"photo", Message{Kind: MessagePhoto, Media: &MessageMedia{}}, 0},
 		{"youtube", Message{WebPage: &WebPreview{Site: "YouTube", Type: "video", Duration: 600}}, 10 * time.Minute},
 		{"youtube of no length", Message{WebPage: &WebPreview{Site: "YouTube", Type: "video"}}, maxYouTubeTimestamp},
