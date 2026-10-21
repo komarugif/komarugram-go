@@ -82,10 +82,8 @@
 "composer.emoji_category7" = "lng_emoji_category7";
 "composer.featured" = "lng_stickers_featured_tab";
 "composer.gift" = "lng_gift_channel_title";
-"composer.mute" = "lng_mute_menu_mute";
 "composer.reply_remove" = "lng_reply_remove";
 "composer.reply_to" = "lng_preview_reply_to";
-"composer.unmute" = "lng_mute_menu_unmute";
 
 "date.calendar" = "lng_context_add_to_calendar";
 "date.copied" = "lng_date_copied";

@@ -4,6 +4,7 @@ package ui
 
 import (
 	"image"
+	"time"
 
 	"gio-mw/token"
 	"gio-mw/wdk"
@@ -20,6 +21,11 @@ const (
 	revealButtonIcon   unit.Dp = 24
 	revealButtonPad    unit.Dp = 8
 	revealButtonGap    unit.Dp = 8
+
+	// revealButtonHold is how long the text stays after the pointer leaves:
+	// the button that loses its text shifts its neighbors, and a pointer
+	// crossing to the next button would open the one that moved under it.
+	revealButtonHold = 250 * time.Millisecond
 )
 
 // revealButton is an icon whose text shows beside it, in the same line,
@@ -28,6 +34,8 @@ const (
 type revealButton struct {
 	surface surface
 	open    wdk.FloatTween
+	// leftAt is when the pointer was last on the button.
+	leftAt time.Time
 }
 
 // Clicked reports whether the button was clicked since the last call.
@@ -45,6 +53,10 @@ func (b *revealButton) Layout(gtx layout.Context, icon wdk.IconWidget, text stri
 	target := float32(0)
 	if b.surface.click.Hovered() || gtx.Focused(&b.surface.click) {
 		target = 1
+		b.leftAt = gtx.Now
+	} else if left := gtx.Now.Sub(b.leftAt); !b.leftAt.IsZero() && left < revealButtonHold {
+		target = 1
+		gtx.Execute(op.InvalidateCmd{At: b.leftAt.Add(revealButtonHold)})
 	}
 	b.open.Duration, b.open.Easing = token.DurationMedium2, &token.EasingEmphasizedDecelerate
 	t := b.open.Animate(gtx, target)

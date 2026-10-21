@@ -202,7 +202,7 @@ func TestPickerOpensUnderThePointer(t *testing.T) {
 		t.Fatal("the picker closed with the pointer over it")
 	}
 	h.move(100, 200) // over the history
-	framesOf(h, 12) // 200ms
+	framesOf(h, 12)  // 200ms
 	if !c.pickerOpen {
 		t.Fatal("the picker closed before 300ms")
 	}
