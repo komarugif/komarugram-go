@@ -113,6 +113,10 @@ type Global struct {
 	// AudioPlayer plays voice messages and music: empty or wasm for the
 	// client's own, external for mpv or VLC.
 	AudioPlayer string `json:"audio_player,omitempty"`
+	// VideoPlayer plays videos: empty or internal for the viewer, which
+	// plays them in the sandbox or with FFmpeg as AnimationPlayer chooses,
+	// external for the external player.
+	VideoPlayer string `json:"video_player,omitempty"`
 	// VoiceSpeed is the speed voice messages, and music long enough to be
 	// a podcast, play at: 0 for their own, as 1 is.
 	VoiceSpeed float64 `json:"voice_speed,omitempty"`
@@ -468,6 +472,9 @@ func validate(g Global) error {
 	if g.AudioPlayer != "" && g.AudioPlayer != "wasm" && g.AudioPlayer != "external" {
 		return errors.New("invalid audio player")
 	}
+	if g.VideoPlayer != "" && g.VideoPlayer != "internal" && g.VideoPlayer != "external" {
+		return errors.New("invalid video player")
+	}
 	if g.Player != "" && g.Player != player.MPV && g.Player != player.VLC && g.Player != player.Chromium {
 		return errors.New("invalid external player")
 	}
@@ -525,6 +532,10 @@ func (s *Store) SetAudioPlayer(value string) error {
 	return s.change(func(g *Global) { g.AudioPlayer = value })
 }
 
+func (s *Store) SetVideoPlayer(value string) error {
+	return s.change(func(g *Global) { g.VideoPlayer = value })
+}
+
 func (s *Store) SetAudioVolume(percent int) error {
 	return s.change(func(g *Global) { g.AudioVolume = percent })
 }
@@ -573,6 +584,18 @@ func (s *Store) DefaultMotionOff() error {
 		if !g.MotionSet {
 			g.MotionMode = powersave.ModeOff
 			g.MotionSet = true
+		}
+	})
+}
+
+// DefaultVideoExternal makes videos open in the external player unless
+// their player was chosen: for windows drawn by a software rasterizer, as
+// in a virtual machine, where the client's own player has no GPU to draw
+// with and its pictures cost the CPU the decoders need.
+func (s *Store) DefaultVideoExternal() error {
+	return s.change(func(g *Global) {
+		if g.VideoPlayer == "" {
+			g.VideoPlayer = "external"
 		}
 	})
 }

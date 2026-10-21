@@ -330,7 +330,13 @@ type chatPage struct {
 	// external player, as chosen in the settings, rather than in the
 	// client.
 	audioExternal func() bool
-	playerChoice  playerChoice
+	// videoEngine is where a video plays (videoEngineOf), and openVideo
+	// shows one in the viewer and plays it there from a time, below 0 from
+	// the start; nil for the external player.
+	videoEngine func(model.Message) string
+	openVideo   func(model.Message, time.Duration)
+
+	playerChoice playerChoice
 }
 
 // classicComposer reports whether the composer is a bar below the history.

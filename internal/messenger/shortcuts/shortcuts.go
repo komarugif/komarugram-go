@@ -61,6 +61,8 @@ var builtinCommands = []Command{
 	command("viewer.first", "viewer", "keys.first", Chord{key.NameHome, 0}), command("viewer.last", "viewer", "keys.last", Chord{key.NameEnd, 0}),
 	command("viewer.zoom_in", "viewer", "keys.zoom_in", primary("="), Chord{"=", key.ModShortcut | key.ModShift}), command("viewer.zoom_out", "viewer", "keys.zoom_out", primary("-")), command("viewer.zoom_reset", "viewer", "keys.zoom_reset", primary("0")),
 	command("viewer.copy", "viewer", "keys.copy", primary("C")), command("viewer.save", "viewer", "keys.save", primary("S")),
+	command("viewer.play_pause", "viewer", "keys.play_pause", Chord{key.NameSpace, 0}, Chord{"K", 0}), command("viewer.mute", "viewer", "keys.mute", Chord{"M", 0}),
+	command("viewer.seek_back", "viewer", "keys.seek_back", Chord{"J", 0}), command("viewer.seek_forward", "viewer", "keys.seek_forward", Chord{"L", 0}),
 	command("article.find", "article", "keys.find", primary("F")), command("article.zoom_in", "article", "keys.zoom_in", primary("="), Chord{"=", key.ModShortcut | key.ModShift}), command("article.zoom_out", "article", "keys.zoom_out", primary("-")), command("article.zoom_reset", "article", "keys.zoom_reset", primary("0")),
 	command("article.back", "article", "keys.back", Chord{key.NameLeftArrow, key.ModAlt}, primary("[")), command("article.forward", "article", "keys.forward", Chord{key.NameRightArrow, key.ModAlt}, primary("]")),
 	{ID: "fixed.dismiss", Label: "keys.dismiss", Scope: "fixed", Default: []Chord{{Key: key.NameEscape}}, ReadOnly: true},

@@ -5,6 +5,7 @@ package ui
 import (
 	"slices"
 	"testing"
+	"time"
 
 	"gioui.org/io/key"
 	"gioui.org/layout"
@@ -14,14 +15,15 @@ import (
 )
 
 // A video in the gallery shows its thumbnail, never downloads the video,
-// and plays in the external player by a click.
+// and plays in the external player by a click, as the viewer is told to
+// play videos without a videoEngine.
 func TestPhotoViewerPlaysVideos(t *testing.T) {
 	h := newViewerHarness(t)
 	video := &h.store.photos[1]
 	video.Kind = model.MessageVideo
 	video.Media = &model.MessageMedia{ID: "v20/file", Width: 1280, Height: 720, Thumbnail: &model.MessageMedia{ID: "v20/t", Width: 320, Height: 180}}
 	var played []model.MessageID
-	h.viewer.play = func(_ layout.Context, m model.Message, _ localization.Catalog) {
+	h.viewer.play = func(_ layout.Context, m model.Message, _ time.Duration, _ localization.Catalog) {
 		played = append(played, m.Key.MessageID)
 	}
 

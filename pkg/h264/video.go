@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"sort"
 	"time"
 
 	"komarugram/pkg/mp4"
@@ -24,6 +25,8 @@ type Video struct {
 	ended       bool
 	picture     *image.YCbCr
 	scaler      resample.VideoScaler
+	// sample holds the sample sent last of a file read where it lies.
+	sample []byte
 }
 
 // OpenVideo demuxes data and starts a decoder for it.
@@ -32,6 +35,12 @@ func (r *Runtime) OpenVideo(ctx context.Context, data []byte) (*Video, error) {
 	if err != nil {
 		return nil, err
 	}
+	return r.OpenFile(ctx, file)
+}
+
+// OpenFile starts a decoder for file, which may be read where it lies
+// (mp4.DemuxAt): its samples are read as they are fed.
+func (r *Runtime) OpenFile(ctx context.Context, file *mp4.File) (*Video, error) {
 	if file.Width > r.maxSide || file.Height > r.maxSide {
 		return nil, fmt.Errorf("h264: size %dx%d is over the limit of %d", file.Width, file.Height, r.maxSide)
 	}
@@ -76,10 +85,14 @@ func (v *Video) Next(ctx context.Context) (int, error) {
 
 // feed sends the decoder the next sample, or the end of the stream.
 func (v *Video) feed(ctx context.Context) error {
-	if v.next < len(v.File.Samples) {
-		sample := v.File.Samples[v.next].Data
+	if v.next < v.File.Len() {
+		sample, err := v.File.Sample(v.next, v.sample)
+		if err != nil {
+			return err
+		}
+		v.sample = sample
 		v.next++
-		err := v.decoder.Send(ctx, sample)
+		err = v.decoder.Send(ctx, sample)
 		var broken *StreamError
 		switch {
 		case err == nil || errors.As(err, &broken):
@@ -110,13 +123,14 @@ func (v *Video) Pictures() int { return len(v.File.Times) }
 // it, so that the k-th sample, a keyframe, is the k-th picture out. The
 // picture decoded last stays until Next decodes another.
 func (v *Video) Seek(ctx context.Context, t time.Duration) (int, error) {
+	// The pictures that show at t or before it; the keyframe is the last
+	// of them.
+	shown := sort.Search(len(v.File.Times), func(i int) bool { return v.File.Times[i] > t })
 	k := 0
-	for i, s := range v.File.Samples {
-		if i < len(v.File.Times) && v.File.Times[i] > t {
-			break
-		}
-		if s.Keyframe {
+	for i := min(shown, v.File.Len()) - 1; i > 0; i-- {
+		if v.File.Keyframe(i) {
 			k = i
+			break
 		}
 	}
 	if err := v.decoder.Flush(ctx); err != nil {

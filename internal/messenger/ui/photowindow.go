@@ -139,7 +139,9 @@ func (a *App) openPhotoWindow(chat int64, m model.Message, known photoList) {
 		Build: func(w *appwindow.Window) appwindow.Content {
 			opened = w
 			a.photoWindows.add(w)
-			return newPhotoWindow(w, source, catalog, chat, m, known)
+			window := newPhotoWindow(w, source, catalog, chat, m, known)
+			a.configureViewer(window.viewer)
+			return window
 		},
 		// Build and Closed run on the new window's goroutine, in that order.
 		Closed: func() { a.photoWindows.remove(opened) },

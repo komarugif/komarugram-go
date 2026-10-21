@@ -126,7 +126,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	r.mediaTold = err
 	if clicked {
 		if video {
-			p.play(gtx, m, p.reportMedia, l)
+			p.playVideo(gtx, m, -1, l)
 		} else if m.Kind == model.MessagePhoto && r.alone && p.openAlone != nil {
 			p.openAlone(m)
 		} else if m.Kind == model.MessagePhoto && p.openPhoto != nil {

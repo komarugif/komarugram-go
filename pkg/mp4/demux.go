@@ -27,6 +27,11 @@ import (
 // hostile count allocate much.
 const MaxSamples = 1 << 16
 
+// MaxVideoSamples bounds the pictures of a video read where it lies
+// (DemuxAt): about 19 hours at 30 fps. Its tables, a few dozen bytes a
+// picture, are what a hostile count makes the parser allocate, some 60 MiB.
+const MaxVideoSamples = 1 << 21
+
 // MaxAudioSamples bounds the access units of a sound track: about 26 hours
 // of AAC at 44.1 kHz. A table entry of 8 bytes can ask for this many
 // samples, so it bounds what a hostile file makes the parser allocate too,
@@ -51,8 +56,15 @@ type File struct {
 	// Config is the AVCDecoderConfigurationRecord (avcC): the parameter sets
 	// and the length of the NAL unit prefixes of the samples.
 	Config []byte
-	// Samples are in decoding order, which is also the order to feed them.
+	// Samples are in decoding order, which is also the order to feed them;
+	// a file read where it lies (DemuxAt) has none, its samples read with
+	// Sample as they are fed.
 	Samples []Sample
+	// units and keyframes are where the samples of a file read where it
+	// lies are, and which are keyframes; file reads them.
+	units     []Unit
+	keyframes []bool
+	file      io.ReaderAt
 	// Times are when the pictures show, from the first one, in the order a
 	// decoder puts them out: the k-th picture out shows at Times[k].
 	Times []time.Duration
@@ -62,10 +74,43 @@ type File struct {
 
 // FrameDuration is the average time a picture shows.
 func (f *File) FrameDuration() time.Duration {
-	if len(f.Samples) == 0 {
+	if f.Len() == 0 {
 		return 0
 	}
-	return f.Duration / time.Duration(len(f.Samples))
+	return f.Duration / time.Duration(f.Len())
+}
+
+// Len is how many samples the file has.
+func (f *File) Len() int {
+	if f.file != nil {
+		return len(f.units)
+	}
+	return len(f.Samples)
+}
+
+// Keyframe reports whether sample i is a keyframe.
+func (f *File) Keyframe(i int) bool {
+	if f.file != nil {
+		return f.keyframes[i]
+	}
+	return f.Samples[i].Keyframe
+}
+
+// Sample is the data of sample i: in buf, grown as needed, for a file read
+// where it lies.
+func (f *File) Sample(i int, buf []byte) ([]byte, error) {
+	if f.file == nil {
+		return f.Samples[i].Data, nil
+	}
+	u := f.units[i]
+	if cap(buf) < int(u.Size) {
+		buf = make([]byte, u.Size)
+	}
+	buf = buf[:u.Size]
+	if _, err := f.file.ReadAt(buf, u.Offset); err != nil && !(errors.Is(err, io.EOF) && u.Size == 0) {
+		return nil, err
+	}
+	return buf, nil
 }
 
 // track is what is read of one trak box.
@@ -83,6 +128,10 @@ type track struct {
 	chunkRuns            []chunkRun
 	keyframes            []uint32
 	haveOffsets, haveSSS bool
+
+	// long is set for a video read where it lies, which may have up to
+	// MaxVideoSamples pictures.
+	long bool
 }
 
 // chunkRun is an stsc entry: from chunk first on, chunks hold samples each.
@@ -132,6 +181,54 @@ func Demux(data []byte) (*File, error) {
 		return nil, ErrUnsupported
 	}
 	return found.file(data)
+}
+
+// DemuxAt parses the file of size bytes that r reads, and returns its first
+// H.264 video track, whose samples are read from r as they are fed: of the
+// file it reads the box headers and the movie box, where it is. It takes
+// videos of up to MaxVideoSamples pictures.
+func DemuxAt(r io.ReaderAt, size int64) (*File, error) {
+	moov, err := readMoov(r, size)
+	if err != nil {
+		return nil, err
+	}
+	var found *track
+	err = walk(moov, func(kind string, body []byte) error {
+		if kind != "trak" || found != nil {
+			return nil
+		}
+		t := &track{long: true}
+		if err := parseTrak(body, t); err != nil {
+			return err
+		}
+		if t.video && (t.codec == "avc1" || t.codec == "avc3") && t.config != nil {
+			found = t
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if found == nil {
+		return nil, ErrUnsupported
+	}
+	units, err := found.units(size)
+	if err != nil {
+		return nil, err
+	}
+	file := &File{units: units, keyframes: make([]bool, len(units)), file: r}
+	for i := range file.keyframes {
+		file.keyframes[i] = !found.haveSSS
+	}
+	for _, k := range found.keyframes {
+		if k >= 1 && int(k) <= len(units) {
+			file.keyframes[k-1] = true
+		}
+	}
+	if err := found.timing(file); err != nil {
+		return nil, err
+	}
+	return file, nil
 }
 
 // walk calls fn for every box in data, in order.
@@ -234,8 +331,11 @@ func entries(rest []byte, size int) (uint32, []byte, error) {
 // limit is how many samples t may have: MaxSamples, MaxAudioSamples for
 // a sound track.
 func (t *track) limit() uint32 {
-	if t.audio {
+	switch {
+	case t.audio:
 		return MaxAudioSamples
+	case t.long:
+		return MaxVideoSamples
 	}
 	return MaxSamples
 }
@@ -399,21 +499,10 @@ func parseTable(kind string, body []byte, t *track) error {
 
 // file lays the samples of t out over data.
 func (t *track) file(data []byte) (*File, error) {
-	n := len(t.sizes)
-	if n == 0 {
+	if len(t.sizes) == 0 {
 		return nil, fmt.Errorf("mp4: no samples")
 	}
-	if t.timescale == 0 {
-		return nil, fmt.Errorf("mp4: no timescale")
-	}
-	if len(t.deltas) < n || t.haveOffsets && len(t.offsets) < n {
-		return nil, fmt.Errorf("mp4: timing covers %d of %d samples", len(t.deltas), n)
-	}
-	if t.width <= 0 || t.height <= 0 {
-		return nil, fmt.Errorf("mp4: size %dx%d", t.width, t.height)
-	}
-	file := &File{Width: t.width, Height: t.height, Config: t.config, Samples: make([]Sample, 0, n)}
-
+	file := &File{Samples: make([]Sample, 0, len(t.sizes))}
 	samples, err := t.samples(data)
 	if err != nil {
 		return nil, err
@@ -422,12 +511,35 @@ func (t *track) file(data []byte) (*File, error) {
 		file.Samples = append(file.Samples, Sample{Data: b, Keyframe: !t.haveSSS})
 	}
 	for _, k := range t.keyframes {
-		if k >= 1 && int(k) <= n {
+		if k >= 1 && int(k) <= len(file.Samples) {
 			file.Samples[k-1].Keyframe = true
 		}
 	}
-	if !file.Samples[0].Keyframe {
-		return nil, fmt.Errorf("mp4: the first sample is not a keyframe")
+	if err := t.timing(file); err != nil {
+		return nil, err
+	}
+	return file, nil
+}
+
+// timing gives file, whose samples are laid out, the size, the decoder's
+// configuration and the times of t.
+func (t *track) timing(file *File) error {
+	n := len(t.sizes)
+	if n == 0 {
+		return fmt.Errorf("mp4: no samples")
+	}
+	if t.timescale == 0 {
+		return fmt.Errorf("mp4: no timescale")
+	}
+	if len(t.deltas) < n || t.haveOffsets && len(t.offsets) < n {
+		return fmt.Errorf("mp4: timing covers %d of %d samples", len(t.deltas), n)
+	}
+	if t.width <= 0 || t.height <= 0 {
+		return fmt.Errorf("mp4: size %dx%d", t.width, t.height)
+	}
+	file.Width, file.Height, file.Config = t.width, t.height, t.config
+	if !file.Keyframe(0) {
+		return fmt.Errorf("mp4: the first sample is not a keyframe")
 	}
 
 	// A decoder puts pictures out in presentation order: sorted
@@ -454,9 +566,9 @@ func (t *track) file(data []byte) (*File, error) {
 	}
 	file.Duration = scale(end - pts[0])
 	if file.Duration <= 0 {
-		return nil, fmt.Errorf("mp4: no duration")
+		return fmt.Errorf("mp4: no duration")
 	}
-	return file, nil
+	return nil
 }
 
 // Unit is where a sample lies in the file.
@@ -515,8 +627,12 @@ func (t *track) samples(data []byte) ([][]byte, error) {
 	return out, nil
 }
 
-// ErrNoAudio is returned for an MP4 file without an AAC sound track.
-var ErrNoAudio = errors.New("mp4: no AAC sound track")
+// ErrNoAudio is returned for an MP4 file without a sound track.
+var ErrNoAudio = errors.New("mp4: no sound track")
+
+// ErrUnsupportedAudio is returned for an MP4 file whose sound track is not
+// AAC.
+var ErrUnsupportedAudio = errors.New("mp4: no AAC sound track")
 
 // Audio is the AAC sound track of an MP4 (M4A) file, read from where the
 // file is, as it plays: the file need not be all there.
@@ -567,6 +683,56 @@ func DemuxAudio(data []byte) (*Audio, error) {
 // first AAC sound track. Of the file it reads the box headers and the
 // movie box, where it is, the start or the end.
 func DemuxAudioAt(r io.ReaderAt, size int64) (*Audio, error) {
+	moov, err := readMoov(r, size)
+	if err != nil {
+		return nil, err
+	}
+	var found *track
+	sound := false
+	err = walk(moov, func(kind string, body []byte) error {
+		if kind != "trak" || found != nil {
+			return nil
+		}
+		t := &track{}
+		if err := parseTrak(body, t); err != nil {
+			return err
+		}
+		sound = sound || t.audio
+		if t.audio && t.codec == "mp4a" && t.config != nil {
+			found = t
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if found == nil && sound {
+		return nil, ErrUnsupportedAudio
+	}
+	if found == nil {
+		return nil, ErrNoAudio
+	}
+	t := found
+	if len(t.sizes) == 0 || t.timescale == 0 || len(t.deltas) < len(t.sizes) {
+		return nil, fmt.Errorf("mp4: bad sound track")
+	}
+	units, err := t.units(size)
+	if err != nil {
+		return nil, err
+	}
+	a := &Audio{Config: t.config, Channels: t.channels, Rate: t.rate, Units: units, Starts: make([]int64, len(units)+1), Timescale: t.timescale, file: r}
+	for i := range units {
+		a.Starts[i+1] = a.Starts[i] + int64(t.deltas[i])
+	}
+	if a.Starts[len(units)] <= 0 {
+		return nil, fmt.Errorf("mp4: no duration")
+	}
+	return a, nil
+}
+
+// readMoov reads the movie box of the file of size bytes that r reads,
+// where it is, the start or the end, and the box headers before it.
+func readMoov(r io.ReaderAt, size int64) ([]byte, error) {
 	var moov []byte
 	sawFtyp := false
 	for at := int64(0); at < size; {
@@ -614,42 +780,10 @@ func DemuxAudioAt(r io.ReaderAt, size int64) (*Audio, error) {
 	if !sawFtyp && moov == nil {
 		return nil, ErrNotMP4
 	}
-	var found *track
-	err := walk(moov, func(kind string, body []byte) error {
-		if kind != "trak" || found != nil {
-			return nil
-		}
-		t := &track{}
-		if err := parseTrak(body, t); err != nil {
-			return err
-		}
-		if t.audio && t.codec == "mp4a" && t.config != nil {
-			found = t
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
+	if moov == nil {
+		return nil, fmt.Errorf("mp4: no moov box")
 	}
-	if found == nil {
-		return nil, ErrNoAudio
-	}
-	t := found
-	if len(t.sizes) == 0 || t.timescale == 0 || len(t.deltas) < len(t.sizes) {
-		return nil, fmt.Errorf("mp4: bad sound track")
-	}
-	units, err := t.units(size)
-	if err != nil {
-		return nil, err
-	}
-	a := &Audio{Config: t.config, Channels: t.channels, Rate: t.rate, Units: units, Starts: make([]int64, len(units)+1), Timescale: t.timescale, file: r}
-	for i := range units {
-		a.Starts[i+1] = a.Starts[i] + int64(t.deltas[i])
-	}
-	if a.Starts[len(units)] <= 0 {
-		return nil, fmt.Errorf("mp4: no duration")
-	}
-	return a, nil
+	return moov, nil
 }
 
 // parseMP4A reads an AudioSampleEntry, and the AudioSpecificConfig of the
@@ -682,7 +816,7 @@ func parseMP4A(body []byte, t *track) error {
 			return err
 		}
 		t.config, err = audioConfig(rest)
-		if errors.Is(err, ErrNoAudio) {
+		if errors.Is(err, ErrUnsupportedAudio) {
 			// Not AAC: the track is left out.
 			return nil
 		}
@@ -729,7 +863,7 @@ func audioConfig(data []byte) ([]byte, error) {
 				return nil, fmt.Errorf("mp4: truncated decoder config")
 			}
 			if body[0] != 0x40 && (body[0] < 0x66 || body[0] > 0x68) {
-				return nil, ErrNoAudio
+				return nil, ErrUnsupportedAudio
 			}
 			return audioConfig(body[13:])
 		case 5:

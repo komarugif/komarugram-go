@@ -107,11 +107,16 @@ func TestGIFClickPausesMiddleOpens(t *testing.T) {
 	for y := at.Y; y < at.Y+200 && !moved; y += 3 {
 		// Right of where the bar starts, for a time past its start.
 		p := f32.Pt(at.X+60, y)
+		// Paused, it stands where it is: a press that moves it and leaves
+		// it paused is on the bar. With FFmpeg, it plays between presses
+		// that play it on.
+		before := h.page.media.GIFPosition(gifMessage)
 		click(pointer.ButtonPrimary, p)
-		moved = h.page.media.GIFPosition(gifMessage) > 0
-		if !moved && !h.page.media.GIFPaused(gifMessage) {
+		if !h.page.media.GIFPaused(gifMessage) {
 			click(pointer.ButtonPrimary, p)
+			continue
 		}
+		moved = h.page.media.GIFPosition(gifMessage) != before
 	}
 	if !moved {
 		t.Fatal("no press on the bar moved the GIF")

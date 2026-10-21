@@ -276,7 +276,7 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	}
 	if os.Getenv("SETTINGS_SECTION") == "integrations" {
 		p.section = settingsIntegrations
-		size.Y = 1300
+		size.Y = 1650
 		// A VLC the user pointed at, and a file that is not mpv.
 		custom := map[player.Kind]string{player.VLC: "/var/lib/flatpak/exports/bin/org.videolan.VLC", player.MPV: "/usr/bin/ls"}
 		p.players.paths = func() map[player.Kind]string { return custom }

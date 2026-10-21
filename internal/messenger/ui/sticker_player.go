@@ -15,11 +15,12 @@ import (
 
 // decoderSettings are the internal players: one FFmpeg, and for video
 // stickers (WebM) and for GIFs and animated avatars (MP4) the choice between
-// it and a WASM sandbox; and for voice messages and music, the choice
-// between the WASM sandboxes and the external player.
+// it and a WASM sandbox; for voice messages and music, the choice between
+// the WASM sandboxes and the external player; and for videos, between the
+// external player and the viewer, which plays them as MP4 animations play.
 type decoderSettings struct {
-	program                     *programSetting
-	stickers, animations, audio *decoderChoice
+	program                            *programSetting
+	stickers, animations, audio, video *decoderChoice
 }
 
 // decoderChoice is the player of one kind of media.
@@ -30,7 +31,8 @@ type decoderChoice struct {
 	program     *programSetting
 	// options are the values to choose from, "ffmpeg" and "wasm" unless set,
 	// and fallback the one that holds when none was chosen and FFmpeg's
-	// presence does not decide.
+	// presence does not decide: the last given, the client's own player,
+	// as an empty setting plays.
 	options  []string
 	fallback string
 	radios   *radio.Radios[string]
@@ -57,6 +59,7 @@ func newDecoderSettings() *decoderSettings {
 		stickers:   newDecoderChoice(program, "sticker_player.title", ""),
 		animations: newDecoderChoice(program, "sticker_player.mp4_title", "sticker_player.mp4_hint"),
 		audio:      newDecoderChoice(program, "sticker_player.audio_title", "sticker_player.audio_hint", "external", "wasm"),
+		video:      newDecoderChoice(program, "sticker_player.video_title", "sticker_player.video_hint", "external", "internal"),
 	}
 }
 
@@ -67,7 +70,7 @@ func newDecoderChoice(program *programSetting, title, hint string, options ...st
 	if len(options) == 0 {
 		c.options = []string{"ffmpeg", "wasm"}
 	} else {
-		c.fallback = options[0]
+		c.fallback = options[len(options)-1]
 	}
 	c.radios = radio.NewRadios(c.options, c.options[len(c.options)-1], func(value string) {
 		if c.choose != nil {
@@ -92,7 +95,7 @@ func (c *decoderChoice) current() string {
 
 func (s *decoderSettings) Update(gtx layout.Context) {
 	s.program.Update(gtx)
-	for _, c := range []*decoderChoice{s.stickers, s.animations, s.audio} {
+	for _, c := range []*decoderChoice{s.stickers, s.animations, s.audio, s.video} {
 		c.radios.SetValue(c.current())
 		c.radios.Update(gtx)
 	}

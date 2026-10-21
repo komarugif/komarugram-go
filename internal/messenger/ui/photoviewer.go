@@ -121,10 +121,26 @@ type photoViewer struct {
 	drag          stripDrag
 	thumbState    map[model.MessageID]*viewerThumbState
 	targets       map[model.MessageID]model.Message
-	// play opens a video in the external player; playErrs bring what it
-	// failed with.
-	play     func(gtx layout.Context, m model.Message, l localization.Catalog)
+	// play opens a video in the external player from a time, below 0 from
+	// the start; playErrs bring what it failed with.
+	play     func(gtx layout.Context, m model.Message, start time.Duration, l localization.Catalog)
 	playErrs chan error
+	// video plays a video in the viewer, as videoEngine says where one
+	// plays (videoEngineOf; external for none), with the FFmpeg ffmpeg
+	// names; pauseAudio pauses what the window's audio player plays when
+	// one starts. controls are its controls; autoplay is a video to play
+	// once it is shown, from autoplayAt.
+	video       *viewerVideo
+	videoEngine func(model.Message) string
+	ffmpeg      func() string
+	pauseAudio  func()
+	controls    videoControls
+	autoplay    model.MessageID
+	autoplayAt  time.Duration
+	// externalNext is a video the player gave up on, for the window's
+	// goroutine to open in the external player.
+	externalMu   sync.Mutex
+	externalNext *externalVideo
 	// drawn is the photo the last frame drew, for tests to compare with
 	// current.
 	drawn model.MessageID
@@ -158,6 +174,7 @@ type photoList struct {
 
 func newPhotoViewer(source model.ConversationStore, images *imageOps, invalidate func()) *photoViewer {
 	v := &photoViewer{source: source, images: images, invalidate: invalidate, thumbState: map[model.MessageID]*viewerThumbState{}, backdropColor: viewerBackdrop, playErrs: make(chan error, 1)}
+	v.video = newViewerVideo(invalidate)
 	v.gallery, _ = source.(model.PhotoGallery)
 	v.profiles, _ = source.(model.ProfilePhotoSource)
 	v.full = chatmedia.NewSized(source, invalidate, viewerFullLimit, 4096)
@@ -208,6 +225,21 @@ func (v *photoViewer) openList(chat int64, m model.Message, list photoList) {
 	v.fetch(ctx, session, 1, last)
 }
 
+// OpenVideo shows video m of chat among known, as Open does, and plays it
+// from at, below 0 from the start: in the viewer, or in the external
+// player, as the settings choose. One that plays already moves to at.
+func (v *photoViewer) OpenVideo(chat int64, m model.Message, known []model.Message, at time.Duration) {
+	if v.open && v.current == m.Key.MessageID && v.video.state(m).active {
+		if at >= 0 {
+			v.video.seek(at)
+		}
+		v.invalidate()
+		return
+	}
+	v.Open(chat, m, known)
+	v.autoplay, v.autoplayAt = m.Key.MessageID, at
+}
+
 // OpenAlone shows m without a gallery, as a GIF is.
 func (v *photoViewer) OpenAlone(chat int64, m model.Message) {
 	v.openList(chat, m, photoList{ended: [2]bool{true, true}})
@@ -240,6 +272,8 @@ func (v *photoViewer) Close() {
 	v.items, v.total, v.offset = nil, 0, ""
 	v.mu.Unlock()
 	v.open = false
+	v.video.stop()
+	v.autoplay = 0
 	// A closed viewer keeps no decoded pixels.
 	v.full.Clear()
 	v.mid.Clear()
@@ -400,6 +434,8 @@ func indexOf(items []model.Message, id model.MessageID) int {
 // click on the strip itself does not want.
 func (v *photoViewer) show(items []model.Message, i int, center bool) {
 	if i >= 0 && i < len(items) && items[i].Key.MessageID != v.current {
+		// What plays stops with another photo.
+		v.video.stop()
 		v.previous, v.current = v.current, items[i].Key.MessageID
 		v.since = time.Time{}
 		v.zoom.reset()
@@ -463,6 +499,14 @@ func (v *photoViewer) Layout(gtx layout.Context, l localization.Catalog, animate
 		v.toast.Show(mediaErrorText(err))
 	default:
 	}
+	if err := v.video.takeErr(); err != nil {
+		v.toast.Show(mediaErrorText(err))
+	}
+	if cur := items[indexOf(items, v.current)]; v.autoplay == cur.Key.MessageID {
+		v.autoplay = 0
+		v.playVideo(gtx, cur, v.autoplayAt, l)
+	}
+	v.updateVideo(gtx, items[indexOf(items, v.current)], l)
 	if cur := items[indexOf(items, v.current)]; canKeep(cur) {
 		if v.save.Clicked(gtx) {
 			v.keepPhoto(cur, false, l)
@@ -511,6 +555,9 @@ func (v *photoViewer) Layout(gtx layout.Context, l localization.Catalog, animate
 	area := clip.Rect{Max: size}.Push(gtx.Ops)
 	defer area.Pop()
 	event.Op(gtx.Ops, &v.keys)
+	// Any move over the viewer shows the controls of a video. Registered
+	// here, under everything drawn after it, it takes no clicks from them.
+	event.Op(gtx.Ops, &v.controls.moves)
 	// Everything under the viewer is covered and gets no input.
 	v.backdrop.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		paint.Fill(gtx.Ops, v.backdropColor)
@@ -518,7 +565,12 @@ func (v *photoViewer) Layout(gtx layout.Context, l localization.Catalog, animate
 	})
 
 	v.layoutPhoto(gtx, items[i], stage, view, fit, l, animate)
-	captionTop := v.layoutCaption(gtx, items[i], stage)
+	captionStage := stage
+	if top, ok := v.layoutVideoControls(gtx, items[i], stage, l); ok {
+		// The caption goes over the controls.
+		captionStage.Max.Y = top
+	}
+	captionTop := v.layoutCaption(gtx, items[i], captionStage)
 	v.layoutSides(gtx, view, i > 0, i < len(items)-1)
 	// Over the side zones, so that the wheel works there too; it passes
 	// clicks on to them.
@@ -542,7 +594,8 @@ func (v *photoViewer) keyEvents(gtx layout.Context, items []model.Message, i int
 		v.focus = false
 	}
 	for {
-		id, e, ok := v.shortcuts.next(gtx, &v.keys, "viewer.previous", "viewer.next", "viewer.first", "viewer.last", "viewer.zoom_in", "viewer.zoom_out", "viewer.zoom_reset", "viewer.copy", "viewer.save")
+		id, e, ok := v.shortcuts.next(gtx, &v.keys, "viewer.previous", "viewer.next", "viewer.first", "viewer.last", "viewer.zoom_in", "viewer.zoom_out", "viewer.zoom_reset", "viewer.copy", "viewer.save",
+			"viewer.play_pause", "viewer.seek_back", "viewer.seek_forward", "viewer.mute")
 		// Escape stays a fixed dismiss key.
 		if !ok {
 			ev, found := gtx.Event(key.FocusFilter{Target: &v.keys}, key.Filter{Focus: &v.keys, Name: key.NameEscape})
@@ -589,6 +642,8 @@ func (v *photoViewer) keyEvents(gtx layout.Context, items []model.Message, i int
 			v.copy.Click()
 		case "viewer.save":
 			v.save.Click()
+		case "viewer.play_pause", "viewer.seek_back", "viewer.seek_forward", "viewer.mute":
+			v.videoKey(gtx, items[i], id)
 		}
 		i = indexOf(items, v.current)
 	}
@@ -661,16 +716,29 @@ func (v *photoViewer) layoutPhoto(gtx layout.Context, item model.Message, stage,
 	}
 	if v.picture.Clicked(gtx) {
 		switch {
-		case video && v.play != nil:
-			v.play(gtx, item, l)
+		case video && v.video.state(item).active:
+			v.video.toggle()
+			v.controls.wake(gtx.Now)
+		case video:
+			v.playVideo(gtx, item, -1, l)
 		case status.Err != nil || status.Cancelled:
 			v.full.Retry(m)
 		}
 	}
+	// A video that plays here shows its pictures over its thumbnail, and a
+	// ring while it opens.
+	vs := v.video.state(item)
+	if video && vs.active {
+		if picture := v.video.picture(item, gtx.Now, shown); picture != nil {
+			im = picture
+		}
+	}
+	showRing = showRing || vs.loading
 	offset(gtx, origin, func(gtx layout.Context) layout.Dimensions {
 		return v.picture.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			if video && v.play != nil || status.Err != nil || status.Cancelled {
-				// A press plays the video, or loads the photo again.
+			if video || status.Err != nil || status.Cancelled {
+				// A press plays the video, or pauses it, or loads the photo
+				// again.
 				pointer.CursorPointer.Add(gtx.Ops)
 			}
 			gtx.Constraints = layout.Exact(shown)
@@ -679,7 +747,7 @@ func (v *photoViewer) layoutPhoto(gtx layout.Context, item model.Message, stage,
 			} else {
 				widget.Image{Src: v.images.Op(im), Fit: widget.Fill}.Layout(gtx)
 			}
-			if video && !showRing {
+			if video && !showRing && !vs.playing {
 				d := min(gtx.Dp(64), shown.X, shown.Y)
 				offset(gtx, shown.Sub(image.Pt(d, d)).Div(2), func(gtx layout.Context) layout.Dimensions {
 					paint.FillShape(gtx.Ops, color.NRGBA{A: 150}, clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
@@ -695,7 +763,10 @@ func (v *photoViewer) layoutPhoto(gtx layout.Context, item model.Message, stage,
 				diameter := min(gtx.Dp(56), shown.X, shown.Y)
 				offset(gtx, shown.Sub(image.Pt(diameter, diameter)).Div(2), func(gtx layout.Context) layout.Dimensions {
 					paint.FillShape(gtx.Ops, color.NRGBA{A: 150}, clip.Ellipse{Max: image.Pt(diameter, diameter)}.Op(gtx.Ops))
-					if status.Loading {
+					switch {
+					case vs.loading:
+						ring(gtx, diameter, 0, animate)
+					case status.Loading:
 						progress := float32(0)
 						if status.Total > 0 {
 							progress = min(1, float32(status.Downloaded)/float32(status.Total))

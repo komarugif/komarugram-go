@@ -525,6 +525,29 @@ size-stability fixes remain in place.
   which moves it (`SeekGIF`), while the pointer is over the bar, and play
   while it is paused, as on a video message. Moved by its bar, a paused GIF
   stays paused and shows the picture there; a timestamp plays it on.
+- **Videos in the viewer** (`viewer_video.go`, `viewer_controls.go`): a
+  click on a video, in the chat or in the viewer, plays it in the viewer,
+  unless the video player of the settings is the external one
+  (`videoEngineOf`): with FFmpeg, as MP4 animations play, any video, its
+  pictures from one `ffmpeg` and its sound from another
+  (`video.NewFrames`, `video.NewSound`, over a loopback stream of the
+  file); in the sandbox, HD videos in MP4, the H.264 track read where it
+  lies (`mp4.DemuxAt`, `h264.Runtime.OpenFile`) and AAC sound through
+  fdk-aac; anything else, and what neither takes, goes to the external
+  player. A window drawn by a software rasterizer, as in a virtual
+  machine, makes the external player the default, as it turns animations
+  off (`preferences.DefaultVideoExternal`), unless the user chose. The
+  sound is the clock the pictures follow (`roundVideo`, for
+  the sandbox, `ffmpegVideo`), a silent video's silence as long as it;
+  one video plays at a time, and it pauses what the window's audio
+  player plays. `videoControls` are a plate over the bottom of the stage:
+  play, the time, the bar that moves it, the speed, the volume (the
+  client's, `volumeSlider` above its button) and the external player,
+  from where it is; they fade out while it plays and the pointer rests,
+  and a press where they were shows them. Space or K plays or pauses it, J
+  and L move it 5 s, M mutes it (shortcuts `viewer.play_pause`,
+  `viewer.seek_back`, `viewer.seek_forward`, `viewer.mute`). Another item,
+  or closing the viewer, stops it.
 - **Without a bubble** (`history_unwrapped.go`): stickers, video messages
   and a lone emoji (half a sticker's size) lie on the chat's background, as in the official
   clients; `infoPlate` is their time, and a reply or forward goes in a card

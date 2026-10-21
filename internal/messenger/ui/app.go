@@ -450,6 +450,12 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			log.Printf("save settings: %v", err)
 		}
 	}
+	a.settings.decoders.video.chosen = func() string { return a.preferences.Global().VideoPlayer }
+	a.settings.decoders.video.choose = func(value string) {
+		if err := services.Preferences.SetVideoPlayer(value); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
 	a.settings.decoders.animations.chosen = func() string { return a.preferences.Global().AnimationPlayer }
 	a.settings.decoders.animations.choose = func(value string) {
 		if err := services.Preferences.SetAnimationPlayer(value); err != nil {
@@ -535,9 +541,10 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.viewer = newPhotoViewer(source, &a.images, w.Invalidate)
 		a.viewer.shortcuts = a.shortcutPrefs
 		a.history = a.newChatPage(source, store, w)
-		a.viewer.play = func(gtx layout.Context, m model.Message, l localization.Catalog) {
-			a.history.play(gtx, m, a.viewer.reportPlay, l)
+		a.viewer.play = func(gtx layout.Context, m model.Message, start time.Duration, l localization.Catalog) {
+			a.history.playFrom(gtx, m, start, a.viewer.reportPlay, l)
 		}
+		a.configureViewer(a.viewer)
 		if links, ok := source.(model.TelegramLinkSource); ok {
 			a.usernames = make(chan usernameResult, 1)
 			a.settings.about.openCommunity = func() { a.openUsername(links, community) }
@@ -647,6 +654,8 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 		a.window.Invalidate()
 	}
 	p.openPhoto = func(m model.Message) { a.viewer.Open(p.chat, m, p.photos()) }
+	p.openVideo = func(m model.Message, at time.Duration) { a.viewer.OpenVideo(p.chat, m, p.photos(), at) }
+	p.videoEngine = a.videoEngine
 	p.openAlone = func(m model.Message) { a.viewer.OpenAlone(p.chat, m) }
 	p.releaseMemory, p.keepMemory = w.ReleaseMemoryLater, w.KeepMemory
 	formula.SetRelease(w.MemoryReleaser())
@@ -1038,6 +1047,9 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	if !a.softwareChecked && app.SoftwareRendered() {
 		a.softwareChecked = true
 		if err := a.preferences.DefaultMotionOff(); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+		if err := a.preferences.DefaultVideoExternal(); err != nil {
 			log.Printf("save settings: %v", err)
 		}
 	}

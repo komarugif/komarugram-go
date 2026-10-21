@@ -57,7 +57,7 @@ func decodeFFmpegSticker(ctx context.Context, path string, data []byte, size ima
 	cmd := program.CommandContext(ctx, path, "-hide_banner", "-loglevel", "error", "-nostdin",
 		"-threads", "1", "-protocol_whitelist", "pipe", "-f", "webm", "-c:v", "libvpx-vp9", "-i", "pipe:0",
 		"-an", "-sn", "-dn", "-vf", fmt.Sprintf("scale=%d:%d", size.X, size.Y),
-		"-threads", "1", "-filter_threads", "1", "-vsync", "0", "-frames:v", fmt.Sprint(count), "-pix_fmt", "rgba", "-f", "rawvideo", "pipe:1")
+		"-threads", "1", "-filter_threads", "1", "-frames:v", fmt.Sprint(count), "-pix_fmt", "rgba", "-f", "rawvideo", "pipe:1")
 	cmd.Stdin = bytes.NewReader(data)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

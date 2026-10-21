@@ -433,6 +433,27 @@ func TestDefaultMotionOffKeepsModeSet(t *testing.T) {
 	}
 }
 
+// Drawn by a software rasterizer, videos open in the external player,
+// unless the user chose their player.
+func TestDefaultVideoExternalKeepsChoice(t *testing.T) {
+	s := Memory()
+	if err := s.DefaultVideoExternal(); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Global().VideoPlayer; got != "external" {
+		t.Fatalf("software default: %q, want external", got)
+	}
+	if err := s.SetVideoPlayer("internal"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DefaultVideoExternal(); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Global().VideoPlayer; got != "internal" {
+		t.Fatalf("player chosen by the user: %q after DefaultVideoExternal, want internal", got)
+	}
+}
+
 func TestPremiumMediaIsKeptAndOffByDefault(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	s, err := OpenPath(path)

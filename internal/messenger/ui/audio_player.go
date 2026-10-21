@@ -665,6 +665,18 @@ func (v *audioPlayer) fail(m model.Message, p *chatPage, err error) {
 	p.invalidate()
 }
 
+// pause pauses what plays, as a video that starts in the viewer does.
+func (v *audioPlayer) pause() {
+	if v == nil {
+		return
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.playback != nil && v.playback.Playing() {
+		v.playback.Pause()
+	}
+}
+
 // stop ends what plays and gives back its memory.
 func (v *audioPlayer) stop() {
 	if v == nil {

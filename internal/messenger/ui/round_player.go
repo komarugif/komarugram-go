@@ -14,20 +14,23 @@ import (
 	"komarugram/internal/messenger/wasmmodule"
 	"komarugram/pkg/audio"
 	"komarugram/pkg/h264"
+	"komarugram/pkg/mp4"
 	"komarugram/pkg/resample"
 )
 
-// roundVideo is the picture of a video message that plays: the H.264 track
-// of its file, decoded in a WebAssembly sandbox of its own (pkg/h264), a
-// picture at a time as the sound comes to it. The sound is the clock, as in
-// Telegram Desktop: a pause, a move or another speed of the sound moves the
-// picture with it.
+// roundVideo is the picture of a video message that plays, or of a video
+// that plays in the viewer: the H.264 track of its file, decoded in a
+// WebAssembly sandbox of its own (pkg/h264), a picture at a time as the
+// sound comes to it. The sound is the clock, as in Telegram Desktop: a
+// pause, a move or another speed of the sound moves the picture with it.
 type roundVideo struct {
 	rt    *h264.Runtime
 	video *h264.Video
-	// side is the diameter the round is drawn at, in pixels: the pictures
-	// are scaled to cover it, and no larger.
-	side atomic.Int32
+	// box is the size the picture is drawn at, in pixels, its width over
+	// its height: the pictures are scaled to cover it, a video message's,
+	// or to fit in it, cover unset, and no larger than they are.
+	box   atomic.Uint64
+	cover bool
 	// shownAt is the time of the picture to draw, in the video.
 	shownAt atomic.Int64
 	mu      sync.Mutex
@@ -63,6 +66,31 @@ func openRound(ctx context.Context, data []byte) (*roundVideo, error) {
 		rt.Close(context.Background())
 		return nil, fmt.Errorf("%w: %w", errFormat, err)
 	}
+	return &roundVideo{rt: rt, video: video, cover: true}, nil
+}
+
+// openVideoFile starts decoding the video of f, read where it lies as it
+// plays, fetching the decoder first if it is not there. A file that is not
+// H.264 in MP4, or without a decoder, goes to the external player:
+// errFormat.
+func openVideoFile(ctx context.Context, f *audioFile) (*roundVideo, error) {
+	file, err := mp4.DemuxAt(f.r, f.size)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errFormat, err)
+	}
+	module, err := wasmmodule.AVCDec.Load(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errFormat, err)
+	}
+	rt, err := h264.NewRuntime(ctx, module)
+	if err != nil {
+		return nil, err
+	}
+	video, err := rt.OpenFile(ctx, file)
+	if err != nil {
+		rt.Close(context.Background())
+		return nil, fmt.Errorf("%w: %w", errFormat, err)
+	}
 	return &roundVideo{rt: rt, video: video}, nil
 }
 
@@ -81,7 +109,13 @@ func (r *roundVideo) close() {
 // take is the picture to draw, nil before the first, which the view draws
 // at side pixels across.
 func (r *roundVideo) take(now time.Time, side int) image.Image {
-	r.side.Store(int32(side))
+	return r.takeIn(now, image.Pt(side, side))
+}
+
+// takeIn is the picture to draw, nil before the first, which the view
+// draws in box.
+func (r *roundVideo) takeIn(now time.Time, box image.Point) image.Image {
+	r.box.Store(uint64(uint32(box.X))<<32 | uint64(uint32(box.Y)))
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.takenAt = now
@@ -103,8 +137,9 @@ func (r *roundVideo) drawn(now time.Time) bool {
 // use, and makes it the one to draw.
 func (r *roundVideo) show() {
 	size := image.Pt(r.video.File.Width, r.video.File.Height)
-	if side := int(r.side.Load()); side > 0 {
-		if fit := resample.Fit(size.X, size.Y, image.Pt(side, side), true); fit.X < size.X {
+	b := r.box.Load()
+	if box := image.Pt(int(int32(b>>32)), int(int32(b))); box.X > 0 && box.Y > 0 {
+		if fit := resample.Fit(size.X, size.Y, box, r.cover); fit.X < size.X {
 			size = fit
 		}
 	}

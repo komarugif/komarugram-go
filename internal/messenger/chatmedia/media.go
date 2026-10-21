@@ -1141,12 +1141,36 @@ func (m *Manager) playGIF(ctx context.Context, e *entry, url string, long time.D
 		if long > 0 && from >= long {
 			from = 0
 		}
+		if still {
+			// The picture there alone, from an FFmpeg that decodes it and
+			// stops: one that plays would read ahead of it.
+			seek = -1
+			frames, err := video.NewFrames(url, e.ffmpeg, max(from, 0), image.Pt(info.Width, info.Height), max(info.FPS, 1))
+			if err != nil {
+				publish(nil, err)
+				return
+			}
+			im, at, err := frames.Next()
+			frames.Close()
+			switch {
+			case err == nil:
+				if long > 0 {
+					at %= long
+				}
+				e.setPosition(at)
+				showStill(e, im, publish)
+			case !errors.Is(err, io.EOF):
+				publish(nil, err)
+				return
+			}
+			continue
+		}
 		if from > 0 {
 			p.StartAt(from)
 		}
 		p.Start()
 		var err error
-		seek, err = m.playGIFFrames(ctx, e, p, long, still, publish)
+		seek, err = m.playGIFFrames(ctx, e, p, long, publish)
 		p.Stop()
 		if err != nil {
 			publish(nil, err)
@@ -1307,15 +1331,11 @@ func seekPicture(ctx context.Context, v *h264.Video, at time.Duration) (int, err
 // the GIF of length long animates, and returns once it has not for
 // gifIdle, or once it is asked to go elsewhere: then with where, else -1.
 // It looks for a new frame on every tick of the clock every animation
-// shares a GIF shows one on, and leaves it for that tick. With still, its
-// first frame is shown even while it stands still.
-func (m *Manager) playGIFFrames(ctx context.Context, e *entry, p *video.Player, long time.Duration, still bool, publish func(image.Image, error)) (time.Duration, error) {
+// shares a GIF shows one on, and leaves it for that tick.
+func (m *Manager) playGIFFrames(ctx context.Context, e *entry, p *video.Player, long time.Duration, publish func(image.Image, error)) (time.Duration, error) {
 	defer m.byWorker(e)()
 	var idle time.Time
 	var last *image.RGBA
-	// A still picture that never comes, past the end say, is waited for no
-	// longer than a decoder stays.
-	stillUntil := time.Now().Add(3 * gifIdle)
 	// offered are the frames left for the view, given back to p once they
 	// are not shown, as pictureRing does with its own.
 	var offered []*image.RGBA
@@ -1326,8 +1346,7 @@ func (m *Manager) playGIFFrames(ctx context.Context, e *entry, p *video.Player, 
 		if at, ok := e.takeSeek(); ok {
 			return at, nil
 		}
-		still = still && !animate
-		p.SetPaused(!animate && !still)
+		p.SetPaused(!animate)
 		if m.clocked.Load() {
 			offered = slices.DeleteFunc(offered, func(im *image.RGBA) bool {
 				if e.uses(im.Pix) {
@@ -1338,23 +1357,7 @@ func (m *Manager) playGIFFrames(ctx context.Context, e *entry, p *video.Player, 
 			})
 		}
 		tick := tickFloor(time.Now(), 2)
-		if still {
-			im, err := p.Frame()
-			if err != nil {
-				return -1, err
-			}
-			if im != nil {
-				at := p.Position()
-				if long > 0 {
-					at %= long
-				}
-				e.setPosition(at)
-				showStill(e, im, publish)
-				last, still, idle = im, false, time.Now()
-			} else if time.Now().After(stillUntil) {
-				still, idle = false, time.Now()
-			}
-		} else if animate {
+		if animate {
 			idle = time.Time{}
 			im, err := p.Frame()
 			if err != nil {

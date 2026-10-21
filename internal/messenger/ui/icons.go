@@ -117,3 +117,6 @@ func folderIcon(f model.Folder) wdk.IconWidget {
 		return iconFolder
 	}
 }
+
+// iconExternalPlayer opens a video in the external player.
+var iconExternalPlayer = wdk.RequireIconWidget(icons.ActionLaunch)

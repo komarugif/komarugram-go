@@ -100,6 +100,6 @@ func (p *chatPage) openTimestamp(gtx layout.Context, r *messageRow, value string
 		p.media.SeekGIF(t.msg, at, true)
 		gtx.Execute(op.InvalidateCmd{})
 	default:
-		p.playFrom(gtx, t.msg, at, p.reportMedia, l)
+		p.playVideo(gtx, t.msg, at, l)
 	}
 }
