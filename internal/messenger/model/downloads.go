@@ -11,8 +11,11 @@ import (
 // which only they delete.
 type DownloadedFile struct {
 	ID int64
-	// Key is the message the file is of.
+	// Key is the message the file is of, and Topic the forum topic it is
+	// in: 0 when it is in none, or for a file downloaded before topics were
+	// kept.
 	Key        MessageKey
+	Topic      int
 	Name, Path string
 	Size       int64
 	Added      time.Time

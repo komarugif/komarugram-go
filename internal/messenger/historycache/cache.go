@@ -101,13 +101,16 @@ func (c *Cache) open() error {
  CREATE TABLE IF NOT EXISTS layouts(chat INTEGER,id INTEGER,env TEXT,revision INTEGER,height INTEGER,PRIMARY KEY(chat,id,env));
  CREATE TABLE IF NOT EXISTS media(key TEXT PRIMARY KEY,data BLOB,used INTEGER);
  CREATE TABLE IF NOT EXISTS media_files(name TEXT PRIMARY KEY,id TEXT,size INTEGER,chunks BLOB,used INTEGER);
- CREATE TABLE IF NOT EXISTS downloads(id INTEGER PRIMARY KEY,chat INTEGER,message INTEGER,media TEXT,name TEXT,path TEXT,size INTEGER,modified INTEGER,added INTEGER,tags BLOB);
+ CREATE TABLE IF NOT EXISTS downloads(id INTEGER PRIMARY KEY,chat INTEGER,message INTEGER,media TEXT,name TEXT,path TEXT,size INTEGER,modified INTEGER,added INTEGER,tags BLOB,topic INTEGER NOT NULL DEFAULT 0);
  CREATE INDEX IF NOT EXISTS downloads_media ON downloads(media);
  CREATE TABLE IF NOT EXISTS edits(chat INTEGER,id INTEGER,at INTEGER,payload BLOB,PRIMARY KEY(chat,id,at));
  CREATE TABLE IF NOT EXISTS spans(chat INTEGER,low INTEGER,high INTEGER,PRIMARY KEY(chat,low));
  DROP INDEX IF EXISTS photos;
  DELETE FROM kv WHERE key >= 'language/' AND key < 'language0';
  CREATE INDEX IF NOT EXISTS photo_videos ON messages(chat,id) WHERE ` + photoWhere + `;`)
+	if err == nil {
+		err = c.addColumn("downloads", "topic", "INTEGER NOT NULL DEFAULT 0")
+	}
 	if err == nil {
 		err = c.initSearch()
 	}
@@ -116,6 +119,32 @@ func (c *Cache) open() error {
 	}
 	return err
 }
+
+// addColumn adds column, of the type and default of def, to table when it
+// has none: a table made before the column was.
+func (c *Cache) addColumn(table, column, def string) error {
+	rows, err := c.db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	_, err = c.db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + def)
+	return err
+}
+
 func removePlain(path string) error {
 	for _, suffix := range []string{".plain", ".plain-journal", ".plain-wal", ".plain-shm"} {
 		if err := os.Remove(path + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {

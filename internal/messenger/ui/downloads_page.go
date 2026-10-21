@@ -4,8 +4,9 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"image"
-	"path/filepath"
+	"os"
 	"sort"
 	"sync"
 	"time"
@@ -27,7 +28,8 @@ import (
 
 // The Downloads section: the files the user downloaded, as Telegram
 // Desktop's Downloads list them (info_downloads_widget.cpp), the ones on
-// their way above. Each opens, shows in its folder or goes to its message;
+// their way above. Each opens or goes to its message, and the header shows
+// the folder they are all downloaded into;
 // any can be picked and deleted from the disk, where they stay otherwise:
 // they are the user's, and the cache's budget does not count them. Sorting
 // by size shows what takes the most.
@@ -46,7 +48,10 @@ type downloadsPage struct {
 	files      func() *attachmentFiles
 	invalidate func()
 	// openMessage goes to the message a file is of.
-	openMessage func(model.MessageKey)
+	openMessage func(model.DownloadedFile)
+	// dir is the folder files are downloaded into.
+	dir    func() string
+	folder surface
 
 	page scrollPage
 
@@ -75,7 +80,7 @@ type downloadsPage struct {
 }
 
 type downloadRow struct {
-	row, mark, folder, chat surface
+	row, mark, chat surface
 }
 
 type activeRow struct {
@@ -84,7 +89,7 @@ type activeRow struct {
 }
 
 func newDownloadsPage(source model.Downloader, invalidate func()) *downloadsPage {
-	return &downloadsPage{source: source, invalidate: invalidate, rows: map[int64]*downloadRow{},
+	return &downloadsPage{source: source, invalidate: invalidate, dir: appDownloadsDir, rows: map[int64]*downloadRow{},
 		active: map[model.MessageKey]*activeRow{}, selected: map[int64]bool{}}
 }
 
@@ -190,19 +195,12 @@ func (p *downloadsPage) Update(gtx layout.Context, l localization.Catalog) {
 		r := p.row(d.ID)
 		// A click on a mark or a button is the row's too: the button's
 		// action is the one taken.
-		mark, folder, chat := r.mark.Clicked(gtx), r.folder.Clicked(gtx), r.chat.Clicked(gtx)
+		mark, chat := r.mark.Clicked(gtx), r.chat.Clicked(gtx)
 		row := r.row.Clicked(gtx)
 		switch {
-		case folder:
-			dir := filepath.Dir(d.Path)
-			go func() {
-				if err := openBrowser(dir); err != nil {
-					p.page.toast.Show(mediaErrorText(err))
-				}
-			}()
 		case chat:
 			if p.openMessage != nil {
-				p.openMessage(d.Key)
+				p.openMessage(d)
 			}
 		case mark || (row && len(p.selected) > 0):
 			// While files are picked, a click on one picks it too.
@@ -227,6 +225,19 @@ func (p *downloadsPage) Update(gtx layout.Context, l localization.Catalog) {
 		if p.rows[id] == nil || !containsDownload(list, id) {
 			delete(p.selected, id)
 		}
+	}
+	if p.folder.Clicked(gtx) {
+		dir := p.dir()
+		go func() {
+			// It is there before the first download, to be shown.
+			err := os.MkdirAll(dir, 0o755)
+			if err == nil {
+				err = openBrowser(dir)
+			}
+			if err != nil {
+				p.page.toast.Show(mediaErrorText(err))
+			}
+		}()
 	}
 	if p.clearSelection.Clicked(gtx) {
 		p.selected = map[int64]bool{}
@@ -382,18 +393,29 @@ func (p *downloadsPage) layoutList(gtx layout.Context, list []model.DownloadedFi
 
 func (p *downloadsPage) layoutHeader(gtx layout.Context, count int, total int64, empty bool, l localization.Catalog) layout.Dimensions {
 	sc := scheme(gtx)
-	if empty {
-		return layout.Inset{Left: 14, Top: 10, Bottom: 4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, l.T("nav.downloads"), token.TypestyleTitleSmall, sc.Primary.Color, 1)
-		})
+	title := l.T("nav.downloads")
+	if !empty {
+		title = l.Count("downloads.summary", count, map[string]string{"size": sendfiles.Size(total)})
 	}
 	return layout.Inset{Left: 14, Right: 8, Top: 8, Bottom: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, l.Count("downloads.summary", count, map[string]string{"size": sendfiles.Size(total)}), token.TypestyleTitleSmall, sc.Primary.Color, 1)
+				return label(gtx, title, token.TypestyleTitleSmall, sc.Primary.Color, 1)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return navigationButtonColor(gtx, &p.folder, iconShowFolder, l.T("downloads.show_in_folder"), sc.SurfaceVariant.OnColor)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if empty {
+					return layout.Dimensions{}
+				}
+				return layout.Spacer{Width: 8}.Layout(gtx)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if empty {
+					return layout.Dimensions{}
+				}
 				if len(p.selected) > 0 {
 					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -432,7 +454,7 @@ func (p *downloadsPage) layoutRow(gtx layout.Context, d model.DownloadedFile, no
 		background = sc.SecondaryContainer.Color
 	}
 	style := surfaceStyle{radius: gtx.Dp(12), background: background, content: sc.Surface.OnColor, button: d.Name}
-	markSize, pic, buttons := gtx.Dp(40), gtx.Dp(40), gtx.Dp(48)*2
+	markSize, pic, buttons := gtx.Dp(40), gtx.Dp(40), gtx.Dp(48)
 	r.row.Layout(gtx, size, style, func(gtx layout.Context) layout.Dimensions {
 		x := gtx.Dp(4) + markSize + gtx.Dp(6)
 		fg, bg := sc.Primary.OnColor, sc.Primary.Color
@@ -474,14 +496,7 @@ func (p *downloadsPage) layoutRow(gtx layout.Context, d model.DownloadedFile, no
 		})
 	})
 	offset(gtx, image.Pt(size.X-buttons-gtx.Dp(4), (size.Y-gtx.Dp(48))/2), func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return navigationButtonColor(gtx, &r.folder, iconShowFolder, l.T("downloads.show_in_folder"), sc.SurfaceVariant.OnColor)
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return navigationButtonColor(gtx, &r.chat, iconViewInChat, l.T("downloads.view_in_chat"), sc.SurfaceVariant.OnColor)
-			}),
-		)
+		return navigationButtonColor(gtx, &r.chat, iconViewInChat, l.T("downloads.view_in_chat"), sc.SurfaceVariant.OnColor)
 	})
 	return layout.Dimensions{Size: size}
 }
@@ -546,4 +561,109 @@ func (p *downloadsPage) layoutConfirm(gtx layout.Context, l localization.Catalog
 			)
 		}, defaultCardPadding)
 	})
+}
+
+// downloadMessage is where the message of a downloaded file is: its chat,
+// the forum topic it is in, or why it was not found.
+type downloadMessage struct {
+	chat    model.Chat
+	topic   int
+	message model.MessageID
+	err     error
+}
+
+// openDownloaded goes to the message of f. Its chat is found by its ID when
+// the chat list has it not, as a channel read without joining it; in a
+// forum, the message is in its topic, which a file downloaded before topics
+// were kept finds from the message.
+func (a *App) openDownloaded(f model.DownloadedFile) {
+	results, invalidate, store := a.downloadMessages, a.window.Invalidate, a.store
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		r := downloadMessage{topic: f.Topic, message: f.Key.MessageID}
+		r.chat, r.err = findChat(ctx, store, f.Key.ChatID)
+		if r.err == nil && r.chat.Forum && r.topic == 0 {
+			r.topic = lookupTopic(ctx, store, f.Key)
+		}
+		results <- r
+		invalidate()
+	}()
+}
+
+// findChat is the chat of id: in the chat list, or asked for by its ID.
+func findChat(ctx context.Context, store model.Store, id int64) (model.Chat, error) {
+	for _, c := range store.Chats() {
+		if c.ID == id {
+			return c, nil
+		}
+	}
+	if channels, ok := store.(interface {
+		ChannelByID(context.Context, int64) (model.Chat, error)
+	}); ok && model.IsChannelID(id) {
+		return channels.ChannelByID(ctx, -id-1000000000000)
+	}
+	if users, ok := store.(interface {
+		UserByID(context.Context, int64) (model.Chat, error)
+	}); ok && id > 0 {
+		return users.UserByID(ctx, id)
+	}
+	return model.Chat{}, model.ErrLinkNotFound
+}
+
+// lookupTopic is the forum topic of the message of key, 0 when it is not
+// found.
+func lookupTopic(ctx context.Context, store model.Store, key model.MessageKey) int {
+	lookup, ok := store.(model.MessageLookup)
+	if !ok {
+		return 0
+	}
+	for {
+		m, state := lookup.LookupMessage(key.ChatID, key.MessageID)
+		switch state {
+		case model.LookupFound:
+			return m.TopicID()
+		case model.LookupGone:
+			return 0
+		}
+		select {
+		case <-ctx.Done():
+			return 0
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+// takeDownloadMessage opens the chat that came at the message, a forum's
+// topic at it, or tells the Downloads section why it did not.
+func (a *App) takeDownloadMessage(r downloadMessage) {
+	l := a.catalog()
+	switch {
+	case errors.Is(r.err, model.ErrLinkNotFound):
+		a.downloads.page.toast.Show(l.T("links.post_invalid"))
+		return
+	case r.err != nil:
+		a.downloads.page.toast.Show(mediaErrorText(r.err))
+		return
+	}
+	a.closeComments()
+	a.section = section{kind: sectionAll}
+	if !r.chat.Forum || a.forum == nil {
+		a.open(chatPick{ID: r.chat.ID, Chat: &r.chat, Message: r.message})
+		return
+	}
+	a.open(chatPick{ID: r.chat.ID, Chat: &r.chat})
+	if r.topic == 0 {
+		// The forum, where the topic was not found.
+		return
+	}
+	topic := model.Topic{ID: r.topic, General: r.topic == model.GeneralTopic}
+	if source, ok := a.store.(model.ForumSource); ok {
+		for _, t := range source.Topics(r.chat.ID).Topics {
+			if t.ID == r.topic {
+				topic = t
+			}
+		}
+	}
+	a.openTopicAt(r.chat, topic, r.message)
 }

@@ -4,11 +4,14 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"image"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +23,7 @@ import (
 	"gioui.org/op"
 
 	"komarugram/internal/messenger/localization"
+	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 )
 
@@ -162,7 +166,7 @@ func TestDownloadsDelete(t *testing.T) {
 	source := sampleDownloads()
 	p := loadedDownloads(t, source)
 	var opened []model.MessageKey
-	p.openMessage = func(key model.MessageKey) { opened = append(opened, key) }
+	p.openMessage = func(d model.DownloadedFile) { opened = append(opened, d.Key) }
 	l := localization.For("en")
 	var router input.Router
 	frame := func() {
@@ -221,5 +225,85 @@ func TestDownloadsDelete(t *testing.T) {
 	frame()
 	if len(opened) != 1 || opened[0] != (model.MessageKey{ChatID: 1, MessageID: 11}) {
 		t.Fatal("opened:", opened)
+	}
+	// The header's folder, made if it is not there.
+	folder := filepath.Join(t.TempDir(), "komarugram")
+	p.dir = func() string { return folder }
+	clickLabel(t, &router, l.T("downloads.show_in_folder"), 0)
+	frame()
+	for deadline := time.Now().Add(5 * time.Second); browserOpened.Load() != folder; {
+		if time.Now().After(deadline) {
+			t.Fatal("the folder was not shown:", browserOpened.Load())
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if st, err := os.Stat(folder); err != nil || !st.IsDir() {
+		t.Fatal("the folder was not made:", err)
+	}
+}
+
+// The message of a file in a forum opens in its topic, at the message,
+// from the Downloads section; one of a chat closes the topic open and
+// opens the chat at it.
+func TestDownloadOpensItsMessage(t *testing.T) {
+	h := newAppForum(t)
+	a := h.app
+	var topic model.Topic
+	for _, tp := range h.store.Topics(h.forum.ID).Topics {
+		if !tp.General {
+			topic = tp
+			break
+		}
+	}
+	a.section = section{kind: sectionDownloads}
+	a.takeDownloadMessage(downloadMessage{chat: h.forum, topic: topic.ID, message: 5})
+	thread := a.thread
+	if a.section.kind != sectionAll || a.selected != h.forum.ID || thread == nil || !thread.topic || thread.name != topic.Title {
+		t.Fatalf("section %v, chat %d, opened %+v; want the topic %q", a.section.kind, a.selected, thread, topic.Title)
+	}
+	if v, ok := h.store.Viewport(thread.chat.ID); !ok || v.AnchorMessageID != 5 {
+		t.Fatalf("the topic opens at %+v", v)
+	}
+	chat := a.store.Chats()[1]
+	a.takeDownloadMessage(downloadMessage{chat: chat, message: 3})
+	if a.thread != nil || a.selected != chat.ID {
+		t.Fatalf("chat %d, thread %+v", a.selected, a.thread)
+	}
+}
+
+// downloadLookupStore is the demo's, where no chat is in the list, a channel is
+// found by its ID, and a message is found after a while, in a topic.
+type downloadLookupStore struct {
+	*mockstore.Store
+	asked   atomic.Int64
+	lookups atomic.Int32
+}
+
+func (s *downloadLookupStore) Chats() []model.Chat { return nil }
+func (s *downloadLookupStore) ChannelByID(_ context.Context, id int64) (model.Chat, error) {
+	s.asked.Store(id)
+	return model.Chat{ID: -1000000000000 - id, Forum: true}, nil
+}
+func (s *downloadLookupStore) LookupMessage(chat int64, id model.MessageID) (model.Message, model.LookupState) {
+	if s.lookups.Add(1) < 3 {
+		return model.Message{}, model.LookupLoading
+	}
+	return model.Message{ForumTopic: true, ReplyToTopID: 42}, model.LookupFound
+}
+
+// A chat not in the list is asked for by its ID, and the topic of a file
+// downloaded before topics were kept is found from its message.
+func TestDownloadFindsItsChatAndTopic(t *testing.T) {
+	store := &downloadLookupStore{Store: mockstore.New(time.Now(), 0)}
+	ctx := context.Background()
+	chat, err := findChat(ctx, store, -1001234567890)
+	if err != nil || store.asked.Load() != 1234567890 || chat.ID != -1001234567890 {
+		t.Fatal(chat, err, store.asked.Load())
+	}
+	if topic := lookupTopic(ctx, store, model.MessageKey{ChatID: chat.ID, MessageID: 7}); topic != 42 {
+		t.Fatal("topic", topic)
+	}
+	if _, err := findChat(ctx, store, -5); !errors.Is(err, model.ErrLinkNotFound) {
+		t.Fatal("a basic group not in the list:", err)
 	}
 }

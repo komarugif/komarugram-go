@@ -64,7 +64,7 @@ func (s *Store) Download(ctx context.Context, m model.Message, dir string, progr
 	defer s.downloads.mu.Unlock()
 	s.downloads.next++
 	s.downloads.list = append(s.downloads.list, demoDownload{
-		file:     model.DownloadedFile{ID: s.downloads.next, Key: m.Key, Name: name, Path: path, Size: int64(len(data)), Added: time.Now()},
+		file:     model.DownloadedFile{ID: s.downloads.next, Key: m.Key, Topic: m.TopicID(), Name: name, Path: path, Size: int64(len(data)), Added: time.Now()},
 		modified: st.ModTime(),
 	})
 	return path, nil

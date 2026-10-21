@@ -124,9 +124,11 @@ type App struct {
 	comments *chatPage
 	// attachments are the window's downloads, which its pages share.
 	attachments *attachmentFiles
-	// downloads is the Downloads section.
-	downloads *downloadsPage
-	thread    *commentsView
+	// downloads is the Downloads section; downloadMessages, the messages
+	// of its files found to go to.
+	downloads        *downloadsPage
+	downloadMessages chan downloadMessage
+	thread           *commentsView
 	// drop is a drag of files over the window.
 	drop fileDrop
 	// mini runs the Mini Apps of bots; nil when the store cannot ask for
@@ -548,11 +550,8 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		downloader, _ := source.(model.Downloader)
 		a.downloads = newDownloadsPage(downloader, w.Invalidate)
 		a.downloads.files = func() *attachmentFiles { return a.attachments }
-		a.downloads.openMessage = func(key model.MessageKey) {
-			a.section = section{kind: sectionAll}
-			a.open(chatPick{ID: key.ChatID, Message: key.MessageID})
-			a.window.Invalidate()
-		}
+		a.downloadMessages = make(chan downloadMessage, 1)
+		a.downloads.openMessage = a.openDownloaded
 		a.viewer.play = func(gtx layout.Context, m model.Message, start time.Duration, l localization.Catalog) {
 			a.history.playFrom(gtx, m, start, a.viewer.reportPlay, l)
 		}
@@ -902,6 +901,11 @@ func (a *App) Update(gtx layout.Context) {
 	select {
 	case r := <-a.senders:
 		a.takeSender(r)
+	default:
+	}
+	select {
+	case r := <-a.downloadMessages:
+		a.takeDownloadMessage(r)
 	default:
 	}
 	a.updateReturn(gtx)

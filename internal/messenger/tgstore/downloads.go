@@ -46,7 +46,7 @@ func (s *Store) Download(ctx context.Context, m model.Message, dir string, progr
 	if err != nil {
 		return "", err
 	}
-	d := &historycache.Download{Chat: m.Key.ChatID, Message: int(m.Key.MessageID), Media: m.Media.ID,
+	d := &historycache.Download{Chat: m.Key.ChatID, Message: int(m.Key.MessageID), Topic: m.TopicID(), Media: m.Media.ID,
 		Name: savefile.Name(m), Size: size, Added: time.Now(), Tags: tags}
 	tagger, err := d.Tagger(key)
 	if err != nil {
@@ -120,9 +120,10 @@ func (s *Store) Downloads(ctx context.Context) ([]model.DownloadedFile, error) {
 	out := make([]model.DownloadedFile, 0, len(ds))
 	for _, d := range ds {
 		out = append(out, model.DownloadedFile{
-			ID:   d.ID,
-			Key:  model.MessageKey{AccountID: account, ChatID: d.Chat, MessageID: model.MessageID(d.Message)},
-			Name: d.Name, Path: d.Path, Size: d.Size, Added: d.Added, State: downloadState(d),
+			ID:    d.ID,
+			Key:   model.MessageKey{AccountID: account, ChatID: d.Chat, MessageID: model.MessageID(d.Message)},
+			Topic: d.Topic,
+			Name:  d.Name, Path: d.Path, Size: d.Size, Added: d.Added, State: downloadState(d),
 		})
 	}
 	return out, nil

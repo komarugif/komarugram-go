@@ -5,6 +5,7 @@ package historycache
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
@@ -69,4 +70,35 @@ func TestDownloads(t *testing.T) {
 		t.Fatal("after deleting the newer", d, ok)
 	}
 	c.Close()
+}
+
+// A table of downloads made before topics were kept gets the column: its
+// records read with no topic, new ones keep theirs.
+func TestDownloadsTopicColumn(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "history")
+	db, err := sql.Open("sqlite3", path+".plain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE downloads(id INTEGER PRIMARY KEY,chat INTEGER,message INTEGER,media TEXT,name TEXT,path TEXT,size INTEGER,modified INTEGER,added INTEGER,tags BLOB);
+		INSERT INTO downloads(chat,message,media,name,path,size,modified,added,tags) VALUES(1,2,'old','a','/a',1,0,0,x'00')`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	c, err := Open(path, "a", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if d, ok, err := c.DownloadOf(ctx, "old"); err != nil || !ok || d.Topic != 0 {
+		t.Fatal(d, ok, err)
+	}
+	d := &Download{Chat: 1, Message: 3, Topic: 77, Media: "new", Added: time.Now()}
+	if err := c.SaveDownload(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _ := c.DownloadOf(ctx, "new"); got.Topic != 77 {
+		t.Fatal("topic", got.Topic)
+	}
 }

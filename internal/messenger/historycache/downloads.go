@@ -19,6 +19,9 @@ type Download struct {
 	ID      int64
 	Chat    int64
 	Message int
+	// Topic is the forum topic the message is in, 0 when it is in none or
+	// was not known.
+	Topic int
 	// Media is the medium's id; Name the name the message gave it.
 	Media, Name, Path string
 	Size              int64
@@ -86,16 +89,16 @@ func (c *Cache) SaveDownload(ctx context.Context, d *Download) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if d.ID == 0 {
-		res, err := c.db.ExecContext(ctx, `INSERT INTO downloads(chat,message,media,name,path,size,modified,added,tags) VALUES(?,?,?,?,?,?,?,?,?)`,
-			d.Chat, d.Message, d.Media, d.Name, d.Path, d.Size, d.Modified.UnixNano(), d.Added.UnixNano(), d.Tags)
+		res, err := c.db.ExecContext(ctx, `INSERT INTO downloads(chat,message,media,name,path,size,modified,added,tags,topic) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+			d.Chat, d.Message, d.Media, d.Name, d.Path, d.Size, d.Modified.UnixNano(), d.Added.UnixNano(), d.Tags, d.Topic)
 		if err != nil {
 			return err
 		}
 		d.ID, err = res.LastInsertId()
 		return err
 	}
-	_, err := c.db.ExecContext(ctx, `UPDATE downloads SET chat=?,message=?,media=?,name=?,path=?,size=?,modified=?,added=?,tags=? WHERE id=?`,
-		d.Chat, d.Message, d.Media, d.Name, d.Path, d.Size, d.Modified.UnixNano(), d.Added.UnixNano(), d.Tags, d.ID)
+	_, err := c.db.ExecContext(ctx, `UPDATE downloads SET chat=?,message=?,media=?,name=?,path=?,size=?,modified=?,added=?,tags=?,topic=? WHERE id=?`,
+		d.Chat, d.Message, d.Media, d.Name, d.Path, d.Size, d.Modified.UnixNano(), d.Added.UnixNano(), d.Tags, d.Topic, d.ID)
 	return err
 }
 
@@ -116,7 +119,7 @@ func (c *Cache) DownloadOf(ctx context.Context, media string) (Download, bool, e
 func (c *Cache) downloads(ctx context.Context, where string, args ...any) ([]Download, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	rows, err := c.db.QueryContext(ctx, `SELECT id,chat,message,media,name,path,size,modified,added,tags FROM downloads `+where, args...)
+	rows, err := c.db.QueryContext(ctx, `SELECT id,chat,message,media,name,path,size,modified,added,tags,topic FROM downloads `+where, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +128,7 @@ func (c *Cache) downloads(ctx context.Context, where string, args ...any) ([]Dow
 	for rows.Next() {
 		var d Download
 		var modified, added int64
-		if err := rows.Scan(&d.ID, &d.Chat, &d.Message, &d.Media, &d.Name, &d.Path, &d.Size, &modified, &added, &d.Tags); err != nil {
+		if err := rows.Scan(&d.ID, &d.Chat, &d.Message, &d.Media, &d.Name, &d.Path, &d.Size, &modified, &added, &d.Tags, &d.Topic); err != nil {
 			return nil, err
 		}
 		d.Modified, d.Added = time.Unix(0, modified), time.Unix(0, added)
