@@ -194,6 +194,36 @@ Desktop's (`lng_downloads_section`, `lng_downloads_view_in_chat`,
 What the user downloads is theirs: nothing deletes it but the user. The
 budget counts only the cache.
 
+## Saving from a message's menu
+
+The menu of a message with a file saves it (`ui/history_save.go`): a photo
+into the pictures, as the viewer's button does; a video, a GIF or a document
+through the downloads above; music, voice and video messages and stickers
+where the user chooses, in the system's dialog (`ui/save_as.go`), written
+beside the path and moved there whole. Not where the chat protects its
+content, nor an album at once.
+
+A Lottie sticker is saved as a video sticker (`pkg/tgswebm`), which other
+programs play; the set's archive keeps the TGS. It is drawn by pkg/lottie
+and encoded by libvpx's VP9 encoder in its sandbox (`pkg/vp9/encoder.go`,
+`vpxenc.wasm.zst`, 424 KB, built by `build/build.sh` with `KIND=encoder`),
+as Telegram's video stickers are: 512 pixels, at most 30 frames a second,
+its own length, within 256 KiB when it can be (encoded again at a lower
+quality while it is larger). The alpha is a second VP9 stream in each
+block's BlockAdditional, as FFmpeg's libvpx-vp9 writes it, both streams in
+full-range BT.601, which the bitstream says; `pkg/webm/mux.go` writes the
+file. libvpx's real time mode at speed 6 encodes the sample sticker (3 s)
+in about 3.5 s here, where its good quality takes 13 for a file a fifth
+smaller; the whole conversion takes about 10 s, two encodes of it. The
+client is 416 KB larger for the encoder; fetching it when first used, as
+the H.264 and AAC decoders are, would keep it out.
+
+Built for arm64 to take NEON through SIMDe, libvpx's NEON diamond search
+kept addresses in 64-bit lanes, which on WebAssembly's 32-bit pointers
+read outside the module's memory (a trap at speed 6); the build takes its
+32-bit way there, after which it gives the files the plain C build gives,
+byte for byte, at speeds 5, 6 and 7.
+
 ## Migration
 
 At the first use of the files, the `range` rows go (a video streams again),

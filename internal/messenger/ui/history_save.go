@@ -14,6 +14,7 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/savefile"
+	"komarugram/pkg/tgswebm"
 )
 
 // The item of a message's menu that saves its file. A photo goes into the
@@ -50,10 +51,8 @@ func (p *chatPage) saveWayOf(m model.Message) saveWay {
 	case model.MessageVoice, model.MessageMusic, model.MessageRound:
 		return saveAs
 	case model.MessageSticker:
-		if lottieSticker(m) {
-			// A Lottie sticker is saved as a video, which is to come.
-			return saveNone
-		}
+		// A Lottie sticker is saved as a video sticker, which other
+		// programs play; the set's archive keeps the TGS.
 		return saveAs
 	}
 	return saveNone
@@ -100,6 +99,9 @@ func (p *chatPage) saveMessage(m model.Message, way saveWay, l localization.Cata
 		}()
 	case saveAs:
 		name := savefile.Name(m)
+		if lottieSticker(m) {
+			name = strings.TrimSuffix(name, filepath.Ext(name)) + ".webm"
+		}
 		kind := l.Format("menu.save_files", map[string]string{"ext": strings.ToUpper(strings.TrimPrefix(filepath.Ext(name), "."))})
 		go func() {
 			defer crash.Recover("save file", func(e *crash.Panic) { p.reportMedia(e) })
@@ -107,6 +109,9 @@ func (p *chatPage) saveMessage(m model.Message, way saveWay, l localization.Cata
 			defer cancel()
 			path, err := chooseSavePath(ctx, name, kind)
 			if err == nil && path != "" {
+				if lottieSticker(m) {
+					p.reportNotice(l.T("menu.converting"))
+				}
 				err = p.writeMedia(ctx, m, path)
 			}
 			switch {
@@ -133,7 +138,18 @@ func (p *chatPage) writeMedia(ctx context.Context, m model.Message, path string)
 			os.Remove(tmp.Name())
 		}
 	}()
-	if source, ok := p.source.(interface {
+	if lottieSticker(m) {
+		data, err := p.source.Media(ctx, m)
+		if err == nil {
+			data, err = tgswebm.Convert(ctx, data, tgswebm.Options{})
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := tmp.Write(data); err != nil {
+			return err
+		}
+	} else if source, ok := p.source.(interface {
 		MediaStream(context.Context, model.Message) (io.ReaderAt, int64, func(), error)
 	}); ok && !m.Media.Whole() {
 		r, size, closeStream, err := source.MediaStream(ctx, m)

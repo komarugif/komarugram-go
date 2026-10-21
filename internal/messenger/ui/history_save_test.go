@@ -14,6 +14,7 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
+	"komarugram/pkg/webm"
 )
 
 // noDownloads is the demo's store without its downloader.
@@ -40,8 +41,8 @@ func TestSaveWay(t *testing.T) {
 	if p.saveWayOf(model.Message{Kind: model.MessagePhoto, Media: media, Attachments: make([]model.Message, 2)}) != saveNone {
 		t.Error("an album saves")
 	}
-	if p.saveWayOf(model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "s", MIMEType: "application/x-tgsticker"}}) != saveNone {
-		t.Error("a Lottie sticker saves as it is")
+	if p.saveWayOf(model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "s", MIMEType: "application/x-tgsticker"}}) != saveAs {
+		t.Error("a Lottie sticker is not saved where the user chooses")
 	}
 	other := newChatPage(noDownloads{mockstore.New(time.Now(), 0)}, func() {})
 	if other.saveWayOf(model.Message{Kind: model.MessageVideo, Media: media}) != saveAs {
@@ -95,5 +96,15 @@ func TestSaveMessage(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
 		t.Fatal("files left beside it:", len(entries))
+	}
+	// A Lottie sticker is saved as a video sticker.
+	sticker := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "demo/tgs", MIMEType: "application/x-tgsticker", Size: 1}}
+	target = filepath.Join(dir, "sticker.webm")
+	if err := p.writeMedia(context.Background(), sticker, target); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(target)
+	if file, err := webm.Demux(data); err != nil || !file.HasAlpha() || file.Width != 512 || len(file.Frames) == 0 {
+		t.Fatal("not a video sticker:", err)
 	}
 }

@@ -957,6 +957,7 @@
 "membership.verification" = "Для вступления нужна проверка через бота. Завершите её в Telegram Desktop.";
 
 "menu.clear_selection" = "Отменить выделение";
+"menu.converting" = "Делаю видео из стикера…";
 "menu.copy_message_link" = "Копировать ссылку";
 "menu.copy_post_link" = "Копировать ссылку";
 "menu.copy_selected" = "Копировать выделенный текст";

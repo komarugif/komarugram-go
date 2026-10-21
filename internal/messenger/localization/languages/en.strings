@@ -915,6 +915,7 @@
 "membership.verification" = "Joining requires bot verification. Complete it in Telegram Desktop.";
 
 "menu.clear_selection" = "Clear Selection";
+"menu.converting" = "Making a video of the sticker…";
 "menu.copy_message_link" = "Copy Message Link";
 "menu.copy_post_link" = "Copy Post Link";
 "menu.copy_selected" = "Copy Selected Text";

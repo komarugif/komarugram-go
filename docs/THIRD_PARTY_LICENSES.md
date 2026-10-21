@@ -47,7 +47,7 @@ The Go modules linked into `messenger` and `kitchen`, as `go version -m` lists t
 
 | Component | License |
 |---|---|
-| `pkg/vp9/vpxdec.wasm.zst`: [libvpx](https://github.com/webmproject/libvpx) with [SIMDe](https://github.com/simd-everywhere/simde) | BSD-3-Clause (libvpx), MIT (SIMDe) |
+| `pkg/vp9/vpxdec.wasm.zst`, `pkg/vp9/vpxenc.wasm.zst` (v1.17.0): [libvpx](https://github.com/webmproject/libvpx) with [SIMDe](https://github.com/simd-everywhere/simde) | BSD-3-Clause (libvpx), MIT (SIMDe) |
 | `pkg/opus/opusdec.wasm.zst`: [libopus](https://github.com/xiph/opus) (notice in `pkg/opus/COPYING.libopus`) | BSD-3-Clause |
 | `pkg/drdec/drdec.wasm.zst`: [dr_libs](https://github.com/mackron/dr_libs) (dr_mp3, dr_flac, dr_wav; `pkg/drdec/LICENSE.dr_libs`) | Unlicense OR MIT-0 |
 | `pkg/lottie/tlottie.wasm.zst`: [tlottie](https://github.com/dkaraush/tlottie) and the Rust standard library | MIT; MIT OR Apache-2.0 |
