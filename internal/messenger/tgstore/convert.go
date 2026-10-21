@@ -171,6 +171,8 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 			if page, ok := media.Webpage.(*tg.WebPage); ok {
 				out.WebPage = &model.WebPreview{URL: page.URL, DisplayURL: page.DisplayURL, Site: page.SiteName, Title: page.Title, Description: page.Description}
 				_, out.WebPage.InstantView = page.GetCachedPage()
+				out.WebPage.Type, _ = page.GetType()
+				out.WebPage.Duration, _ = page.GetDuration()
 				if photo, ok := page.Photo.(*tg.Photo); ok {
 					meta, thumb := photoMedia(photo)
 					out.WebPage.Photo = meta

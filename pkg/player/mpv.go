@@ -190,6 +190,11 @@ func (p *mpv) Seek(delta time.Duration) error {
 	return p.Command("seek", strconv.FormatFloat(delta.Seconds(), 'f', 3, 64), "relative")
 }
 
+// SeekTo moves to at from the start.
+func (p *mpv) SeekTo(at time.Duration) error {
+	return p.Command("seek", strconv.FormatFloat(max(0, at.Seconds()), 'f', 3, 64), "absolute")
+}
+
 // Status reports the latest state pushed by mpv.
 func (p *mpv) Status() Status {
 	p.mu.Lock()

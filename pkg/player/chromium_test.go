@@ -122,3 +122,42 @@ func TestChromiumCannotPlay(t *testing.T) {
 	}
 	t.Log(status.Err)
 }
+
+// TestChromiumStartsAt checks that the browser starts the video at the
+// time StartArgs names, as a timestamp opens it, and moves it to another.
+func TestChromiumStartsAt(t *testing.T) {
+	if !miniapp.Available() {
+		t.Skip("no Chromium-based browser")
+	}
+	stream := serveFile(t, chromiumVideo(t))
+	start := 1500 * time.Millisecond
+	extra := append(append([]string{}, chromiumHeadless...), player.Chromium.StartArgs(start)...)
+	p, err := player.Open(context.Background(), player.Chromium, "", stream.URL(), extra...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	status := waitFor(t, p, "duration", func(s player.Status) bool { return s.Duration > 0 || s.Err != nil })
+	if status.Err != nil {
+		t.Fatal(status.Err)
+	}
+	if status.Duration < 2*time.Second {
+		t.Skipf("the video of %v is too short", status.Duration)
+	}
+	// The first position told is that of a video that played from the
+	// start for a poll or two at most, unless it started at start, or
+	// near it: a WebM of no index, as the stickers are, seeks only to
+	// where its clusters begin.
+	first := waitFor(t, p, "playback start", func(s player.Status) bool { return s.Position > 0 })
+	if first.Position < start-500*time.Millisecond {
+		t.Fatalf("it started at %v, not %v", first.Position, start)
+	}
+	if err := p.TogglePause(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, p, "pause", func(s player.Status) bool { return s.Paused })
+	if err := p.SeekTo(500 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, p, "the seek", func(s player.Status) bool { return s.Position <= time.Second })
+}

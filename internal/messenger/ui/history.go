@@ -57,6 +57,10 @@ type messageRow struct {
 	noCopy      bool
 	text        textInteraction
 	buttons     [][]surface
+	// stampable is set when the text may have timestamps, and stamp is
+	// what they name times of (refreshStamps).
+	stampable bool
+	stamp     stampTarget
 	// reactions are the message's reaction chips, which choose or take
 	// back a reaction.
 	reactions []surface
@@ -786,8 +790,8 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	p.toast.bd = p.toastBackdrop()
 	p.toast.Layout(gtx, image.Rect(0, top, size.X, end))
 	// Audio of a format no decoder here takes goes to the external player.
-	if m := p.audio.takeExternal(); m != nil {
-		p.play(gtx, *m, p.reportMedia, l)
+	if m, at := p.audio.takeExternal(); m != nil {
+		p.playFrom(gtx, *m, at, p.reportMedia, l)
 	}
 	p.menuLayout(gtx, l)
 	p.entityMenuLayout(gtx, l)

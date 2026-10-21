@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"time"
 
 	"komarugram/pkg/miniapp"
@@ -85,6 +86,8 @@ type Player interface {
 	TogglePause() error
 	// Seek moves by delta, forward or backward.
 	Seek(delta time.Duration) error
+	// SeekTo moves to at from the start.
+	SeekTo(at time.Duration) error
 	// Close stops the player.
 	Close() error
 }
@@ -188,6 +191,25 @@ func (k Kind) SizeArgs(width, height int) []string {
 	}
 	return []string{fmt.Sprintf("--window-size=%d,%d",
 		int(math.Round(float64(width)*scale)), int(math.Round(float64(height)*scale)))}
+}
+
+// StartArgs are the arguments that start the player at at, a time from the
+// start of the file; nil for the start itself.
+func (k Kind) StartArgs(at time.Duration) []string {
+	if at <= 0 {
+		return nil
+	}
+	seconds := strconv.FormatFloat(at.Seconds(), 'f', -1, 64)
+	switch k {
+	case MPV:
+		return []string{"--start=" + seconds}
+	case VLC:
+		return []string{"--start-time=" + seconds}
+	case Chromium:
+		// Not the browser's: openChromium takes it for the page.
+		return []string{chromiumStart + seconds}
+	}
+	return nil
 }
 
 // Open starts the player at path — "" for the one found — on source, which

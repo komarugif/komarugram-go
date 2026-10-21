@@ -159,6 +159,7 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 		p.rows[m.Key.MessageID] = r
 	}
 	r.refreshDates(gtx, m, l)
+	p.refreshStamps(gtx, r, m, l)
 	// Where the article is in the history, as the last frame put it.
 	r.viewKnown = p.rowTopKnown
 	if r.viewKnown {
@@ -367,7 +368,9 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 				seen[member.Text] = true
 				member := member
 				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return p.richText(gtx, albumRow(gtx, r, member, l), l, animate)
+					child := albumRow(gtx, r, member, l)
+					p.refreshStamps(gtx, child, member, l)
+					return p.richText(gtx, child, l, animate)
 				}), vspace(4))
 			}
 		}

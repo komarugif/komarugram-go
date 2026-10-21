@@ -90,8 +90,10 @@ type audioPlayer struct {
 	shown     map[string]bool
 	busy      bool
 	// external is a message whose format no decoder here takes, for the
-	// page to open in the external player on its next frame.
-	external *model.Message
+	// page to open in the external player on its next frame, from
+	// externalAt (below 0, from the start).
+	external   *model.Message
+	externalAt time.Duration
 	// play puts a source out: audio.Play, which tests replace.
 	play func(audio.Source) (audioPlayback, error)
 }
@@ -319,16 +321,36 @@ func (v *audioPlayer) roundPicture(m model.Message, now time.Time, side int) ima
 	return video.take(now, side)
 }
 
-// takeExternal is the message to open in the external player, once.
-func (v *audioPlayer) takeExternal() *model.Message {
+// takeExternal is the message to open in the external player, once, and
+// the time to open it at (below 0, the start).
+func (v *audioPlayer) takeExternal() (*model.Message, time.Duration) {
 	if v == nil {
-		return nil
+		return nil, -1
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	m := v.external
 	v.external = nil
-	return m
+	return m, v.externalAt
+}
+
+// audioSeek is where to move what plays, of samples in all: the sample
+// to play from.
+type audioSeek func(samples int64) int64
+
+// fractionSeek moves to at, from 0 to 1, of what plays; nil below 0.
+func fractionSeek(at float32) audioSeek {
+	if at < 0 {
+		return nil
+	}
+	return func(samples int64) int64 { return int64(at * float32(samples)) }
+}
+
+// timeSeek moves to at from the start, or to the end of what is shorter.
+func timeSeek(at time.Duration) audioSeek {
+	return func(samples int64) int64 {
+		return min(samples, int64(at*audio.Rate/time.Second))
+	}
 }
 
 // toggle plays m, or pauses it, or goes on with it. at, from 0 to 1, moves
@@ -337,17 +359,29 @@ func (v *audioPlayer) toggle(p *chatPage, m model.Message, at float32) {
 	v.toggleIn(p, p.chat, m, at)
 }
 
+// playFrom plays m from at, a time from its start, as a timestamp names
+// one: m goes on from there when it plays already.
+func (v *audioPlayer) playFrom(p *chatPage, m model.Message, at time.Duration) {
+	v.start(p, p.chat, m, timeSeek(at), at)
+}
+
 // toggleIn is toggle for a message shown in list, a chat or a thread of
 // p's store, whatever p shows now.
 func (v *audioPlayer) toggleIn(p *chatPage, list int64, m model.Message, at float32) {
+	v.start(p, list, m, fractionSeek(at), -1)
+}
+
+// start is toggleIn moving to seek, unless it is nil; externalAt is the
+// time the external player is to start at when no decoder here takes m.
+func (v *audioPlayer) start(p *chatPage, list int64, m model.Message, seek audioSeek, externalAt time.Duration) {
 	v.mu.Lock()
 	if v.key == m.Key && v.key != (model.MessageKey{}) {
 		defer v.mu.Unlock()
 		if v.loading || v.playback == nil {
 			return
 		}
-		if at >= 0 {
-			_ = v.playback.SeekSample(int64(at * float32(v.samples)))
+		if seek != nil {
+			_ = v.playback.SeekSample(seek(v.samples))
 			v.playback.Resume()
 			return
 		}
@@ -361,7 +395,7 @@ func (v *audioPlayer) toggleIn(p *chatPage, list int64, m model.Message, at floa
 	v.stopLocked()
 	ctx, cancel := context.WithCancel(context.Background())
 	v.key, v.loading, v.cancel, v.work = m.Key, true, cancel, new(sync.WaitGroup)
-	v.msg, v.page, v.list = m, p, list
+	v.msg, v.page, v.list, v.externalAt = m, p, list, externalAt
 	work := v.work
 	work.Add(1)
 	v.mu.Unlock()
@@ -374,7 +408,7 @@ func (v *audioPlayer) toggleIn(p *chatPage, list int64, m model.Message, at floa
 	go func() {
 		defer work.Done()
 		defer crash.Recover("audio", func(e *crash.Panic) { v.fail(m, p, e) })
-		err := v.load(ctx, p, m, at, work)
+		err := v.load(ctx, p, m, seek, work)
 		if err != nil && ctx.Err() == nil {
 			v.fail(m, p, err)
 		}
@@ -388,7 +422,7 @@ const streamPart = 128 << 10
 
 // load opens m's file, and starts playing it; the rest of a file that
 // downloads as it plays is downloaded ahead, counted in work.
-func (v *audioPlayer) load(ctx context.Context, p *chatPage, m model.Message, at float32, work *sync.WaitGroup) error {
+func (v *audioPlayer) load(ctx context.Context, p *chatPage, m model.Message, seek audioSeek, work *sync.WaitGroup) error {
 	f, err := openFile(ctx, p.source, m)
 	if err != nil {
 		return err
@@ -432,8 +466,10 @@ func (v *audioPlayer) load(ctx context.Context, p *chatPage, m model.Message, at
 			video.close()
 		}
 	}
-	if at > 0 {
-		err = reader.SeekSample(int64(at * float32(samples)))
+	if seek != nil {
+		if pos := seek(samples); pos > 0 {
+			err = reader.SeekSample(pos)
+		}
 	}
 	stretch := audio.Stretch(reader)
 	source := &audioSource{reader: stretch}

@@ -1228,6 +1228,41 @@ Not checked: Windows and macOS (Escape there included); on the real
 account nothing was clicked, since a command sends and the menus' calls
 were checked against fakes.
 
+### Media timestamps
+
+2026-10-21, without new dependencies. As tdesktop does
+(`AddTimestampLinks`, `DurationForTimestampLinks`, `TimestampLinkBase`
+in `history_view_media.cpp`, `HistoryItem::withLocalEntities`):
+
+- **Where** (`model.TimestampEntities`, `ui/timestamps.go`): "m:ss",
+  "mm:ss", "h:mm:ss" and "hh:mm:ss" alone or between spaces, brackets,
+  quotes, commas, dots and dashes, outside other entities but spoilers and
+  quotes, become `timestamp` entities, drawn as links, when they name a
+  time up to the length of the media: the message's own video, video
+  message, voice message or music, or its link's video, or else the
+  media of the message it replies to. A reply's row links them once the
+  message replied to is loaded. GIFs and photos have none.
+- **YouTube:** a page of YouTube of type `video` (`webPage.type`, kept
+  now with `embed_duration` in `WebPreview.Type`, `Duration`; pages
+  cached before are told by their URL) links times up to its length, or
+  100 hours when it is not known. A click asks to open its URL with its
+  `t=` replaced (`model.TimestampURL`), in the link dialog as other links.
+  A page whose video Telegram keeps plays that video instead.
+- **Clicks:** a voice message, music and a video message that play in the
+  client play from the time, or move there while they play; a video, and
+  what plays in the external player by the settings, opens there from the
+  time (`player.Kind.StartArgs`: mpv `--start`, VLC `--start-time`, the
+  browser's page seeks before it plays), and a video already open there
+  moves to it (`Player.SeekTo`).
+- **Demo:** four messages at the end of demo histories: replies to the
+  video, the voice message and the video message, and a YouTube link.
+- **Tests**, each checked with its fix removed: finding timestamps and
+  their limits, other entities, parsing, the URL; a reply playing a voice
+  message from its time and moving it; a reply linked once the message
+  replied to loads; a click in the history opening YouTube at the time;
+  the browser player starting at a time and `SeekTo` (mpv and VLC: the
+  same test, skipped where they are not installed).
+
 ### Stage 1: rich messages read
 
 2026-10-05, without new dependencies.

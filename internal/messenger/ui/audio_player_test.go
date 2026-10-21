@@ -344,7 +344,7 @@ func TestUnknownFormatGoesExternal(t *testing.T) {
 	p.audio.toggle(p, m, -1)
 	var external *model.Message
 	waitAudio(t, "it did not go to the external player", func() bool {
-		external = p.audio.takeExternal()
+		external, _ = p.audio.takeExternal()
 		return external != nil
 	})
 	if external.Key != m.Key || p.audio.state(m).active {

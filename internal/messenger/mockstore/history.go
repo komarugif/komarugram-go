@@ -151,6 +151,25 @@ func (s *Store) History(chat int64) model.History {
 	add(blocksText, model.MessageText, nil, blocksEntities, nil)
 	entitiesText, entities := EntitiesExample(time.Now())
 	add(entitiesText, model.MessageText, nil, entities, nil)
+	// Timestamps: in a reply to a video, a voice message or a video
+	// message they play it from their time, and by a YouTube link they
+	// open the video at it.
+	replyTo := func(id string) model.MessageID {
+		for _, m := range messages {
+			if m.Media != nil && m.Media.ID == id {
+				return m.Key.MessageID
+			}
+		}
+		return 0
+	}
+	add("Самое интересное — на 0:12, а потом на 0:30", model.MessageText, nil, nil, nil)
+	messages[len(messages)-1].ReplyToMessageID = replyTo("demo/video")
+	add("Послушайте с 0:03", model.MessageText, nil, nil, nil)
+	messages[len(messages)-1].ReplyToMessageID = replyTo("demo/voice")
+	add("В кружке с 0:20 — самое смешное", model.MessageText, nil, nil, nil)
+	messages[len(messages)-1].ReplyToMessageID = replyTo("demo/round")
+	add("https://youtu.be/demo — смотрите с 1:23 и с 4:05", model.MessageText, nil, []model.Entity{{Kind: "url", Offset: 0, Length: 21}}, nil)
+	messages[len(messages)-1].WebPage = &model.WebPreview{URL: "https://youtu.be/demo", Site: "YouTube", Type: "video", Duration: 300, Title: "Видео на YouTube", Description: "Тайм-коды рядом со ссылкой открывают его с их времени."}
 	if s.isChannel(chat) {
 		// A channel's posts have no sender and a discussion: the last ones
 		// have comments, the others wait for the first one.

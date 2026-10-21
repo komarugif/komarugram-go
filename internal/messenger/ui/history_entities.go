@@ -35,8 +35,9 @@ import (
 
 // messageRuns are the runs of m's text with its dates written as l writes
 // them at now, as Telegram Desktop writes a date entity with a format, and
-// when a relative one among them changes next (zero for never).
-func messageRuns(m model.Message, l localization.Catalog, now time.Time) ([]model.TextRun, time.Time) {
+// its timestamps up to stamps linked (none for 0), and when a relative date
+// among them changes next (zero for never).
+func messageRuns(m model.Message, l localization.Catalog, now time.Time, stamps time.Duration) ([]model.TextRun, time.Time) {
 	var next time.Time
 	text, entities := model.FormatDates(m.Text, m.Entities, func(e model.Entity) string {
 		if e.Date == 0 {
@@ -48,13 +49,16 @@ func messageRuns(m model.Message, l localization.Catalog, now time.Time) ([]mode
 		}
 		return s
 	})
+	entities = model.TimestampEntities(text, entities, stamps)
 	return model.TextRuns(text, entities), next
 }
 
-// newMessageRow is the row of m, with its text's runs.
+// newMessageRow is the row of m, with its text's runs; its timestamps are
+// linked once refreshStamps finds what they name times of.
 func newMessageRow(m model.Message, l localization.Catalog, now time.Time) *messageRow {
 	r := &messageRow{revision: m.ContentRevision, noCopy: m.NoForwards, sender: m.SenderID, source: m.Text, language: l.Language(), key: m.Key, streaming: m.Streaming}
-	r.runs, r.datesDue = messageRuns(m, l, now)
+	r.stampable = m.Rich == nil && model.MayHaveTimestamps(m.Text)
+	r.runs, r.datesDue = messageRuns(m, l, now, 0)
 	r.prepareArticle(m, l, now)
 	return r
 }
@@ -92,8 +96,14 @@ func (r *messageRow) refreshDates(gtx layout.Context, m model.Message, l localiz
 		}
 		return
 	}
+	r.rewrite(gtx, m, l)
+}
+
+// rewrite makes r's runs again from m, keeping what the reader did with
+// its blocks, and asks for a frame when a relative date changes next.
+func (r *messageRow) rewrite(gtx layout.Context, m model.Message, l localization.Catalog) {
 	old := r.textBlocks
-	r.runs, r.datesDue = messageRuns(m, l, gtx.Now)
+	r.runs, r.datesDue = messageRuns(m, l, gtx.Now, r.stamp.limit)
 	r.prepareArticle(m, l, gtx.Now)
 	r.language = l.Language()
 	r.textBlocks = nil
@@ -250,6 +260,9 @@ func (p *chatPage) activateRun(gtx layout.Context, r *messageRow, run model.Text
 		if run.Date != 0 {
 			p.openEntityMenu(gtx, entityTarget{kind: "date", date: run.Date, text: r.source})
 		}
+		return
+	case "timestamp":
+		p.openTimestamp(gtx, r, run.Value, localization.For(string(r.language)))
 		return
 	case "button":
 		// A button in an article's text, pressed as one under a message.

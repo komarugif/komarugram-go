@@ -19,7 +19,8 @@ type TextRun struct {
 	Pre, Collapsed bool
 	Language       string
 	// Action is what a click on the run does when it opens no URL: the kind
-	// of its entity (hashtag, cashtag, bot_command, bank_card or date), with
+	// of its entity (hashtag, cashtag, bot_command, bank_card, date or
+	// timestamp, which TimestampEntities adds), with
 	// Value, the entity's whole text, and Date, a date's Unix time.
 	Action, Value string
 	Date          int64
@@ -35,7 +36,7 @@ type TextRun struct {
 }
 
 // actionKinds are the entities a click acts on without a URL.
-var actionKinds = map[string]bool{"hashtag": true, "cashtag": true, "bot_command": true, "bank_card": true, "date": true}
+var actionKinds = map[string]bool{"hashtag": true, "cashtag": true, "bot_command": true, "bank_card": true, "date": true, "timestamp": true}
 
 // entityHeap gives later entities priority, matching Telegram entity order.
 // Removed entries are discarded lazily, so overlapping hostile intervals
@@ -114,7 +115,7 @@ func TextRuns(text string, entities []Entity) []TextRun {
 			if ev.start {
 				delta = 1
 				switch e.Kind {
-				case "url", "mention", "email", "phone", "hashtag", "cashtag", "bot_command", "bank_card", "date", "button":
+				case "url", "mention", "email", "phone", "hashtag", "cashtag", "bot_command", "bank_card", "date", "timestamp", "button":
 					heap.Push(&links, ev.index)
 				case "emoji":
 					heap.Push(&emojis, ev.index)

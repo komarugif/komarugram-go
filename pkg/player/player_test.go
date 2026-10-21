@@ -123,6 +123,29 @@ func testControl(t *testing.T, kind player.Kind, path string) {
 	}
 }
 
+// TestStartAt checks that the player starts at the time StartArgs names,
+// as a timestamp opens a video, and that SeekTo moves it to another.
+func TestStartAt(t *testing.T) {
+	eachPlayer(t, func(t *testing.T, kind player.Kind, path string) {
+		args := append(append([]string{}, headless[kind]...), kind.StartArgs(15*time.Second)...)
+		p, err := player.Open(context.Background(), kind, path, sampleVideo(t), args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer p.Close()
+		// The first position told is that of a video that played from the
+		// start for a moment, unless it started at 15 seconds.
+		first := waitFor(t, p, "playback start", func(s player.Status) bool { return s.Position > 0 })
+		if first.Position < 14*time.Second {
+			t.Fatalf("%s started at %v, not 15s", kind, first.Position)
+		}
+		if err := p.SeekTo(5 * time.Second); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, p, "the seek", func(s player.Status) bool { return s.Position >= 4*time.Second && s.Position < 9*time.Second })
+	})
+}
+
 // throttled makes reads slow enough that the player cannot simply swallow the
 // whole file, the way a download over a real network behaves.
 type throttled struct {

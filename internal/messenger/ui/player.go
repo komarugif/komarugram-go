@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"time"
 
 	"gio-mw/token"
 	"gio-mw/widget/radio"
@@ -81,6 +82,7 @@ type playerChoice struct {
 	modal  modal
 	kinds  []player.Kind
 	msg    model.Message
+	start  time.Duration
 	report func(error)
 	cancel surface
 	pick   map[player.Kind]*surface
@@ -89,6 +91,12 @@ type playerChoice struct {
 // play opens m in the external player, asking which one first when the user
 // has not chosen and more than one is installed.
 func (p *chatPage) play(gtx layout.Context, m model.Message, report func(error), l localization.Catalog) {
+	p.playFrom(gtx, m, -1, report, l)
+}
+
+// playFrom is play from start, a time from the start of m (below 0, from
+// the start); m moves there when it plays already.
+func (p *chatPage) playFrom(gtx layout.Context, m model.Message, start time.Duration, report func(error), l localization.Catalog) {
 	report(nil)
 	var chosen player.Kind
 	if p.player != nil {
@@ -100,13 +108,13 @@ func (p *chatPage) play(gtx layout.Context, m model.Message, report func(error),
 	switch {
 	case ask:
 		c := &p.playerChoice
-		c.kinds, c.msg, c.report = dedicatedPlayers(installed), m, report
+		c.kinds, c.msg, c.start, c.report = dedicatedPlayers(installed), m, start, report
 		c.modal.Open()
 		gtx.Execute(op.InvalidateCmd{})
 	case kind == "":
 		report(errors.New(playerText(l, "player.none")))
 	default:
-		p.media.Play(m, kind, kind.Resolve(p.customPlayers()[kind]), report)
+		p.media.PlayFrom(m, kind, kind.Resolve(p.customPlayers()[kind]), start, report)
 	}
 }
 
@@ -150,7 +158,7 @@ func (p *chatPage) playerDialog(gtx layout.Context, l localization.Catalog) {
 			if p.setPlayer != nil {
 				p.setPlayer(kind)
 			}
-			p.media.Play(c.msg, kind, kind.Resolve(p.customPlayers()[kind]), c.report)
+			p.media.PlayFrom(c.msg, kind, kind.Resolve(p.customPlayers()[kind]), c.start, c.report)
 			c.modal.Close()
 		}
 	}

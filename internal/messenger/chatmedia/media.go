@@ -111,6 +111,12 @@ type Manager struct {
 	sem                           chan struct{}
 	wg                            sync.WaitGroup
 	playing                       atomic.Bool
+	// played is the message the external player plays, and player the
+	// player once it is open, for a timestamp to move it; playMu guards
+	// both.
+	playMu sync.Mutex
+	played model.MessageKey
+	player player.Player
 	// dropLoops, when set, drops the loops of stickers off screen at the
 	// end of the frame, and is told the bytes freed.
 	dropLoops func(freed int64)
@@ -1345,11 +1351,34 @@ func cloneRGBA(im *image.RGBA) *image.RGBA {
 // Play opens a single external player of kind, the one at path or the one
 // found when path is "", and owns its in-memory stream until exit.
 func (m *Manager) Play(msg model.Message, kind player.Kind, path string, report func(error)) {
+	m.PlayFrom(msg, kind, path, -1, report)
+}
+
+// PlayFrom is Play from start, a time from the start of the file; below 0,
+// from the start, or, when msg plays already, from where it is. A
+// message that plays already moves to start.
+func (m *Manager) PlayFrom(msg model.Message, kind player.Kind, path string, start time.Duration, report func(error)) {
 	if !m.playing.CompareAndSwap(false, true) {
+		m.playMu.Lock()
+		p, played := m.player, m.played
+		m.playMu.Unlock()
+		if start >= 0 && p != nil && played == msg.Key {
+			if err := p.SeekTo(start); err != nil {
+				report(err)
+			}
+		}
 		return
 	}
+	m.playMu.Lock()
+	m.played = msg.Key
+	m.playMu.Unlock()
 	m.wg.Go(func() {
 		defer m.playing.Store(false)
+		defer func() {
+			m.playMu.Lock()
+			m.played, m.player = model.MessageKey{}, nil
+			m.playMu.Unlock()
+		}()
 		defer crash.Recover("chatmedia play", func(p *crash.Panic) { report(p) })
 
 		var reader io.ReaderAt
@@ -1382,12 +1411,16 @@ func (m *Manager) Play(msg model.Message, kind player.Kind, path string, report 
 		if msg.Media != nil {
 			args = append(args, kind.SizeArgs(msg.Media.Width, msg.Media.Height)...)
 		}
+		args = append(args, kind.StartArgs(start)...)
 		p, err := player.Open(m.ctx, kind, path, stream.URL(), args...)
 		if err != nil {
 			report(err)
 			return
 		}
 		defer p.Close()
+		m.playMu.Lock()
+		m.player = p
+		m.playMu.Unlock()
 		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()
 		for {
