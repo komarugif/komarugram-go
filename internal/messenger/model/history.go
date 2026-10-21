@@ -36,6 +36,9 @@ const (
 	MessageGIF
 	MessageMusic
 	MessagePoll
+	// MessageRound is a video message, the round one, which plays in the
+	// client with its sound, as a voice message does.
+	MessageRound
 )
 
 // MaxMediaBytes is the most of a file the client reads into memory whole,

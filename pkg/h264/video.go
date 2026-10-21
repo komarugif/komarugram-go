@@ -100,6 +100,32 @@ func (v *Video) feed(ctx context.Context) error {
 	return nil
 }
 
+// Pictures is how many pictures one loop shows.
+func (v *Video) Pictures() int { return len(v.File.Times) }
+
+// Seek makes Next go on from the last keyframe that shows at t or before
+// it, and returns the index Next gives that keyframe; the caller decodes on
+// from there to the picture it wants. A keyframe is taken to be an IDR
+// picture, as encoders put them: every picture sent before it shows before
+// it, so that the k-th sample, a keyframe, is the k-th picture out. The
+// picture decoded last stays until Next decodes another.
+func (v *Video) Seek(ctx context.Context, t time.Duration) (int, error) {
+	k := 0
+	for i, s := range v.File.Samples {
+		if i < len(v.File.Times) && v.File.Times[i] > t {
+			break
+		}
+		if s.Keyframe {
+			k = i
+		}
+	}
+	if err := v.decoder.Flush(ctx); err != nil {
+		return 0, err
+	}
+	v.next, v.shown, v.ended = k, k, false
+	return k, nil
+}
+
 // Time is when picture i of the loop shows.
 func (v *Video) Time(i int) time.Duration {
 	if i < 0 || i >= len(v.File.Times) {

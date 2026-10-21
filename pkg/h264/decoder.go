@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Unlicense OR MIT
 
-// Package h264 decodes the H.264 video Telegram uses for GIFs and animated
-// avatars, without cgo and without an FFmpeg of the user's.
+// Package h264 decodes the H.264 video Telegram uses for GIFs, animated
+// avatars and video messages, without cgo and without an FFmpeg of the
+// user's.
 //
 // The decoder is FFmpeg's, alone, compiled to WebAssembly and executed by
 // wazero, as the vp9 package does with libvpx: frames arrive from strangers,

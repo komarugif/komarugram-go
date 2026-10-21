@@ -40,6 +40,9 @@ func fitMediaSize(w, h, maxW, maxH int) image.Point {
 	return image.Pt(width, height)
 }
 func (p *chatPage) mediaLayout(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog, animate bool) layout.Dimensions {
+	if m.Kind == model.MessageRound && m.Media != nil {
+		return p.roundLayout(gtx, r, m, l, animate)
+	}
 	if m.Kind != model.MessagePhoto && m.Kind != model.MessageVideo && m.Kind != model.MessageGIF && m.Kind != model.MessageSticker {
 		return p.fileLayout(gtx, r, m, l)
 	}

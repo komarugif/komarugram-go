@@ -24,11 +24,11 @@ import (
 	"komarugram/internal/messenger/model"
 )
 
-// Stickers and a message of a single emoji are drawn without a bubble, over
-// the chat's background, as the official clients draw them (Telegram
-// Desktop's UnwrappedMedia and LargeEmoji). The time sits on a plate of its
-// own beside the picture, or over its corner for the account's own; a reply
-// or a forward goes in a small card at the side.
+// Stickers, video messages and a message of a single emoji are drawn
+// without a bubble, over the chat's background, as the official clients
+// draw them (Telegram Desktop's UnwrappedMedia and LargeEmoji). The time
+// sits on a plate of its own beside the picture, or over its corner for the
+// account's own; a reply or a forward goes in a small card at the side.
 const (
 	// stickerMax is the most a sticker takes on either side; a lone emoji
 	// takes half of it.
@@ -44,7 +44,7 @@ func (p *chatPage) unwrapped(m model.Message) bool {
 	if len(m.Buttons) > 0 || m.Poll != nil || m.WebPage != nil || len(m.Attachments) > 1 || p.showsComments(m) {
 		return false
 	}
-	if m.Kind == model.MessageSticker {
+	if m.Kind == model.MessageSticker || m.Kind == model.MessageRound {
 		return m.Media != nil && m.Text == ""
 	}
 	_, _, ok := loneEmoji(m)
@@ -122,7 +122,7 @@ func (p *chatPage) unwrappedBody(gtx layout.Context, r *messageRow, m model.Mess
 	r.shown = m
 	msg := &r.shown
 	picture := func(gtx layout.Context) layout.Dimensions {
-		if msg.Kind == model.MessageSticker {
+		if msg.Kind == model.MessageSticker || msg.Kind == model.MessageRound {
 			return p.mediaLayout(gtx, r, *msg, l, animate)
 		}
 		return p.largeEmoji(gtx, *msg, animate)

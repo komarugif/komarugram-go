@@ -1422,6 +1422,7 @@
 "service.pinned_media_file" = "файл";
 "service.pinned_media_gif" = "GIF";
 "service.pinned_media_photo" = "фото";
+"service.pinned_media_round" = "видеосообщение";
 "service.pinned_media_sticker" = "стикер";
 "service.pinned_media_video" = "видео";
 "service.pinned_media_voice" = "голосовое сообщение";

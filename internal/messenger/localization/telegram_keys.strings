@@ -464,6 +464,7 @@
 "service.pinned_media_file" = "lng_action_pinned_media_file";
 "service.pinned_media_gif" = "lng_action_pinned_media_gif";
 "service.pinned_media_photo" = "lng_action_pinned_media_photo";
+"service.pinned_media_round" = "lng_action_pinned_media_video_message";
 "service.pinned_media_sticker" = "lng_action_pinned_media_sticker";
 "service.pinned_media_video" = "lng_action_pinned_media_video";
 "service.pinned_media_voice" = "lng_action_pinned_media_voice";

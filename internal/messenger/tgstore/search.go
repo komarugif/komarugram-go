@@ -267,7 +267,8 @@ func (s *Store) searchLocal(ctx context.Context, q model.SearchQuery) ([]model.F
 	case model.SearchMusic:
 		query.Kinds = []model.MessageKind{model.MessageMusic}
 	case model.SearchVoice:
-		query.Kinds = []model.MessageKind{model.MessageVoice}
+		// Telegram's section has video messages too (RoundVoice).
+		query.Kinds = []model.MessageKind{model.MessageVoice, model.MessageRound}
 	default:
 		return nil, false, nil
 	}

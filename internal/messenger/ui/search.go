@@ -333,6 +333,8 @@ func foundText(m model.Message, l localization.Catalog) string {
 		media = l.T("history.video")
 	case model.MessageGIF:
 		media = l.T("history.gif")
+	case model.MessageRound:
+		media = l.T("preview.round")
 	case model.MessageSticker:
 		media = l.T("history.sticker")
 	case model.MessageFile, model.MessageMusic, model.MessageVoice:

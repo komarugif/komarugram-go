@@ -185,6 +185,16 @@ func TestAudioFormats(t *testing.T) {
 	if audioFormat(model.Message{Kind: model.MessageFile, Media: &model.MessageMedia{MIMEType: "audio/mpeg"}}) != "" {
 		t.Error("a file plays as audio")
 	}
+	// A video message plays in the client when it is an MP4, as Telegram's
+	// are.
+	for mime, want := range map[string]string{"video/mp4": "round", "": "round", "video/webm": ""} {
+		if got := audioFormat(model.Message{Kind: model.MessageRound, Media: &model.MessageMedia{MIMEType: mime}}); got != want {
+			t.Errorf("video message %q: %q, want %q", mime, got, want)
+		}
+	}
+	if audioFormat(model.Message{Kind: model.MessageVideo, Media: &model.MessageMedia{MIMEType: "video/mp4"}}) != "" {
+		t.Error("a video plays in the client")
+	}
 }
 
 // An MP3 voice message, as some bots send, plays in the client and moves.

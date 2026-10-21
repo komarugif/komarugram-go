@@ -33,7 +33,7 @@ func (s *Store) SharedMedia(ctx context.Context, chat int64, kind model.SharedKi
 		case model.SharedMusic:
 			match = m.Kind == model.MessageMusic
 		case model.SharedVoice:
-			match = m.Kind == model.MessageVoice
+			match = m.Kind == model.MessageVoice || m.Kind == model.MessageRound
 		case model.SharedGIFs:
 			match = m.Kind == model.MessageGIF
 		case model.SharedPolls:

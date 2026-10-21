@@ -39,7 +39,23 @@ var audioSpeeds = []float64{1, 1.5, 2}
 
 // speedChanges reports whether m plays at the speed chosen.
 func speedChanges(m model.Message) bool {
-	return m.Kind == model.MessageVoice || m.Media != nil && m.Media.Duration >= speedMinLength
+	return listenable(m) || m.Media != nil && m.Media.Duration >= speedMinLength
+}
+
+// listenable reports whether m is a voice message or a video message: the
+// messages Telegram marks listened to, which play one after another, as one
+// kind, in the official clients.
+func listenable(m model.Message) bool {
+	return m.Kind == model.MessageVoice || m.Kind == model.MessageRound
+}
+
+// audioKind is the kind the player goes through messages of from one of
+// kind: a video message's is a voice message's.
+func audioKind(kind model.MessageKind) model.MessageKind {
+	if kind == model.MessageRound {
+		return model.MessageVoice
+	}
+	return kind
 }
 
 // current is the message that plays or loads, what the player tells of it,
@@ -138,15 +154,15 @@ func (v *audioPlayer) advance(m model.Message) {
 	page.invalidate()
 }
 
-// nextAudio is the message after m among messages that is of m's kind, a
-// voice message or music, if it plays in the client.
+// nextAudio is the message after m among messages that is of m's kind,
+// music, or a voice or video message, if it plays in the client.
 func nextAudio(messages []model.Message, m model.Message) (model.Message, bool) {
 	return neighborAudio(messages, m, 1)
 }
 
-// neighborAudio is the message of m's kind, a voice message or music, that
-// follows m among messages, or precedes it when delta is below 0, if it
-// plays in the client.
+// neighborAudio is the message of m's kind, music, or a voice or video
+// message, that follows m among messages, or precedes it when delta is
+// below 0, if it plays in the client.
 func neighborAudio(messages []model.Message, m model.Message, delta int) (model.Message, bool) {
 	var before *model.Message
 	after := false
@@ -160,7 +176,7 @@ func neighborAudio(messages []model.Message, m model.Message, delta int) (model.
 				return *before, internalAudio(*before)
 			}
 			after = true
-		case other.Kind != m.Kind || other.Media == nil || other.Deleted:
+		case audioKind(other.Kind) != audioKind(m.Kind) || other.Media == nil || other.Deleted:
 		case after:
 			return other, internalAudio(other)
 		default:
@@ -415,6 +431,9 @@ func audioTitle(m model.Message, now time.Time, l localization.Catalog) (string,
 	name := m.SenderName
 	if m.Outgoing {
 		name = l.T("history.you")
+	}
+	if name == "" && m.Kind == model.MessageRound {
+		name = l.T("preview.round")
 	}
 	if name == "" {
 		name = l.T("history.voice")

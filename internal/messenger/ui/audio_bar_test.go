@@ -94,8 +94,16 @@ func TestAudioPlaysNextAfterTheEnd(t *testing.T) {
 	if next, ok := nextAudio(messages, find("demo/music")); ok {
 		t.Fatalf("music is followed by %+v", next.Media)
 	}
-	if _, ok := nextAudio(messages, find("demo/voice-m4a")); ok {
-		t.Fatal("something follows the last voice message")
+	// Video messages are of the voice messages' kind, as in the official
+	// clients: one follows the last voice message.
+	if next, ok := nextAudio(messages, find("demo/voice-m4a")); !ok || next.Media.ID != "demo/round" {
+		t.Fatalf("after the last voice message comes %+v, not the video message", next.Media)
+	}
+	if before, ok := neighborAudio(messages, find("demo/round"), -1); !ok || before.Media.ID != "demo/voice-m4a" {
+		t.Fatalf("before the video message comes %+v", before.Media)
+	}
+	if _, ok := nextAudio(messages, find("demo/round")); ok {
+		t.Fatal("something follows the last video message")
 	}
 	if _, ok := nextAudio(nil, first); ok {
 		t.Fatal("something follows a message that is not in the history")

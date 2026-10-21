@@ -106,6 +106,11 @@ func (s *Store) History(chat int64) model.History {
 	add("", model.MessageMusic, &model.MessageMedia{ID: "demo/music", MIMEType: "audio/mpeg", Size: int64(len(demoVoiceMP3)), Duration: 5 * time.Second, Title: "Ночной трамвай", Performer: "Демо-оркестр"}, nil, nil)
 	// An M4A voice message, as one sent from a file; its decoder is fetched.
 	add("", model.MessageVoice, &model.MessageMedia{ID: "demo/voice-m4a", MIMEType: "audio/mp4", Size: int64(len(demoVoiceM4A)), Duration: 5 * time.Second}, nil, nil)
+	// A video message, assets/video.mp4 with its sound, in a circle: it
+	// plays in the chat, after the voice messages, and its decoder is
+	// fetched.
+	add("", model.MessageRound, &model.MessageMedia{ID: "demo/round", MIMEType: "video/mp4", Width: 720, Height: 1280, Size: 7789765, Duration: 36 * time.Second, Thumbnail: &model.MessageMedia{ID: "demo/portrait", MIMEType: "image/png", Width: 180, Height: 320}}, nil, nil)
+	messages[len(messages)-1].MediaUnread = true
 	add("Кнопки бота: ссылки и обратные вызовы работают.", model.MessageText, nil, nil, [][]model.MessageButton{{{Text: "Telegram", Kind: "url", URL: "https://telegram.org"}, {Text: "Обновить", Kind: "callback", Data: []byte("refresh")}}})
 	for i := 0; i < 3; i++ {
 		add("Альбом: несколько вложений в одном сообщении", model.MessagePhoto, demoPhoto(len(demoPhotoSizes)-3+i), nil, nil)
@@ -217,7 +222,7 @@ func (s *Store) media(ctx context.Context, m model.Message) ([]byte, error) {
 		return os.ReadFile("assets/stickers/sample.tgs")
 	case "demo/webm":
 		return os.ReadFile("assets/stickers/circle.webm")
-	case "demo/video", "demo/gifv":
+	case "demo/video", "demo/gifv", "demo/round":
 		return os.ReadFile("assets/video.mp4")
 	case "demo/photo":
 		e := png.Encode(&b, gradient(640, 360))

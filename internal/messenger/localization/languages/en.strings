@@ -1374,6 +1374,7 @@
 "service.pinned_media_file" = "a file";
 "service.pinned_media_gif" = "a GIF";
 "service.pinned_media_photo" = "a photo";
+"service.pinned_media_round" = "a video message";
 "service.pinned_media_sticker" = "a sticker";
 "service.pinned_media_video" = "a video";
 "service.pinned_media_voice" = "a voice message";

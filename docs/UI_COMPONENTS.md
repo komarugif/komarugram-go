@@ -502,7 +502,13 @@ size-stability fixes remain in place.
   after the end (`nextAudio`);
   `voiceLayout`, the row with its button, waveform (`drawWaveform`) and
   time, and `musicLayout`, with the title, the performer and a bar
-  (`drawBar`); `audioRow.update` takes their clicks and drags. `showWaveform`
+  (`drawBar`); `audioRow.update` takes their clicks and drags. A video
+  message (`model.MessageRound`) plays in the same player, as the voice
+  messages' kind (`listenable`, `audioKind`): `roundLayout`
+  (`history_round.go`) draws its circle, without a bubble, its ring of what
+  was seen and its time, `roundSeek` takes its clicks and the drags round
+  its ring, and `roundVideo` (`round_player.go`) decodes its pictures with
+  pkg/h264 as its sound comes to them, none while the circle is not drawn. `showWaveform`
   works one out, as soon as it is shown, for a voice message sent without
   one; `audioFormat` picks libopus, dr_libs or fdk-aac, and a format none
   takes goes to the external player (`takeExternal`); tests give
@@ -511,8 +517,8 @@ size-stability fixes remain in place.
   decoded in Go); large GIFs have none and stay blank until played, as in the
   official clients. `ffprobe` and `ffmpeg` start when it plays, and `ffmpeg`
   exits a second after it stops.
-- **Without a bubble** (`history_unwrapped.go`): stickers and a lone emoji
-  (half a sticker's size) lie on the chat's background, as in the official
+- **Without a bubble** (`history_unwrapped.go`): stickers, video messages
+  and a lone emoji (half a sticker's size) lie on the chat's background, as in the official
   clients; `infoPlate` is their time, and a reply or forward goes in a card
   at the side.
 - **Reactions** (`reactions.go`): chips under a message toggle a reaction

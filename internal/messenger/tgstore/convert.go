@@ -306,6 +306,9 @@ func documentMedia(d *tg.Document) (model.MessageKind, *model.MessageMedia, *fil
 			m.Width, m.Height = a.W, a.H
 		case *tg.DocumentAttributeVideo:
 			k = model.MessageVideo
+			if a.RoundMessage {
+				k = model.MessageRound
+			}
 			m.Width, m.Height = a.W, a.H
 			m.Duration = time.Duration(a.Duration * float64(time.Second))
 		case *tg.DocumentAttributeAudio:

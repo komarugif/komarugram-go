@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Unlicense OR MIT
 
 // Package mp4 takes apart the MP4 files Telegram uses for GIFs and animated
-// avatars, H.264 video without sound, looped; and M4A files, AAC sound, for
-// voice messages and music.
+// avatars, H.264 video without sound, looped; for video messages, H.264
+// video with AAC sound; and M4A files, AAC sound, for voice messages and
+// music.
 //
 // The container is parsed here, in Go, and only the compressed samples are
 // handed to the decoder, as the webm package does for stickers. The file
