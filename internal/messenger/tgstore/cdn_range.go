@@ -20,7 +20,7 @@ import (
 
 // A streaming seek may start inside a CDN hash window. Fetch and authenticate
 // the whole window before returning any bytes, bounded to one MiB per window.
-// Calls are serialized by rangeReader.mu. Keys/tokens never enter disk caches.
+// Calls are serialized by rangeReader.cdnMu. Keys/tokens never enter disk caches.
 type cdnRange struct {
 	origin         downloader.Client
 	provider       downloader.CDNProvider

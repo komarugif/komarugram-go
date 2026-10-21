@@ -290,3 +290,67 @@ func TestPhotosPageAroundAnchorWithIndex(t *testing.T) {
 		t.Fatalf("gallery query does not use the photo index:\n%s", plan)
 	}
 }
+
+// Media stay within the budget, the newest kept; an eviction frees an eighth
+// of it, so that the writes after it do not each evict again. The size kept
+// follows replaced entries.
+func TestMediaBudget(t *testing.T) {
+	ctx := context.Background()
+	c, e := Open(filepath.Join(t.TempDir(), "history"), "a", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer c.Close()
+	c.mediaBudget = 1 << 20
+	size := func() int64 {
+		var n int64
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if e := c.db.QueryRow(`SELECT coalesce(sum(length(data)),0) FROM media`).Scan(&n); e != nil {
+			t.Fatal(e)
+		}
+		return n
+	}
+	blob := make([]byte, 100<<10)
+	evicted := false
+	for i := range 30 {
+		before := size()
+		if e := c.SaveMedia(ctx, fmt.Sprintf("m/%d", i), blob); e != nil {
+			t.Fatal(e)
+		}
+		after := size()
+		if after > c.mediaBudget {
+			t.Fatalf("save %d: %d bytes over a budget of %d", i, after, c.mediaBudget)
+		}
+		if after < before+int64(len(blob)) && !evicted {
+			evicted = true
+			if after > c.mediaBudget-c.mediaBudget/8 {
+				t.Fatalf("an eviction left %d bytes of %d: no room for the next writes", after, c.mediaBudget)
+			}
+		}
+		c.mu.Lock()
+		kept := c.mediaBytes
+		c.mu.Unlock()
+		if kept != after {
+			t.Fatalf("save %d: kept size %d, table %d", i, kept, after)
+		}
+	}
+	if !evicted {
+		t.Fatal("nothing evicted")
+	}
+	if b, _ := c.Media(ctx, "m/29"); len(b) != len(blob) {
+		t.Fatal("the newest evicted")
+	}
+	if b, _ := c.Media(ctx, "m/0"); b != nil {
+		t.Fatal("the oldest kept")
+	}
+	if e := c.SaveMedia(ctx, "m/29", make([]byte, 10)); e != nil {
+		t.Fatal(e)
+	}
+	c.mu.Lock()
+	kept := c.mediaBytes
+	c.mu.Unlock()
+	if kept != size() {
+		t.Fatalf("after a replacement: kept size %d, table %d", kept, size())
+	}
+}

@@ -29,12 +29,15 @@ type Cache struct {
 	protection             *security.Manager
 	encrypted              bool
 	closed                 bool
-	unregister             func()
-	unregisterPlain        func()
+	// mediaBudget bounds the media table; mediaBytes is its size, -1 until
+	// counted.
+	mediaBudget, mediaBytes int64
+	unregister              func()
+	unregisterPlain         func()
 }
 
 func Open(path, account string, protection *security.Manager) (*Cache, error) {
-	c := &Cache{path: path, account: account, protection: protection}
+	c := &Cache{path: path, account: account, protection: protection, mediaBudget: mediaBudget}
 	if err := c.open(); err != nil {
 		return nil, err
 	}
@@ -77,6 +80,7 @@ func (c *Cache) open() error {
 		return err
 	}
 	c.db.SetMaxOpenConns(1)
+	c.mediaBytes = -1
 	// Telegram's language packs were kept here, a copy an account, under
 	// "language/"; package langpack keeps one for all now.
 	_, err = c.db.Exec(`PRAGMA temp_store=memory;
@@ -394,16 +398,44 @@ func (c *Cache) Media(ctx context.Context, key string) ([]byte, error) {
 	}
 	return b, e
 }
+
+// mediaBudget is an account's disk budget for media, originals the external
+// player needs included.
+const mediaBudget = 256 << 20
+
 func (c *Cache) SaveMedia(ctx context.Context, key string, b []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	_, e := c.db.ExecContext(ctx, `INSERT OR REPLACE INTO media VALUES(?,?,?)`, key, b, time.Now().UnixNano())
-	if e != nil {
+	// The table's size is counted once and then kept: summing it on every
+	// write took longer the fuller it was, with the cache locked meanwhile.
+	if c.mediaBytes < 0 {
+		if e := c.db.QueryRowContext(ctx, `SELECT coalesce(sum(length(data)),0) FROM media`).Scan(&c.mediaBytes); e != nil {
+			c.mediaBytes = -1
+			return e
+		}
+	}
+	var replaced int64
+	if e := c.db.QueryRowContext(ctx, `SELECT length(data) FROM media WHERE key=?`, key).Scan(&replaced); e != nil && !errors.Is(e, sql.ErrNoRows) {
 		return e
 	}
-	// Account-scoped 256 MiB disk budget, including originals needed by the external player.
-	_, e = c.db.ExecContext(ctx, `DELETE FROM media WHERE key IN (SELECT key FROM (SELECT key,SUM(length(data)) OVER (ORDER BY used DESC) AS total FROM media) WHERE total>268435456)`)
-	return e
+	if _, e := c.db.ExecContext(ctx, `INSERT OR REPLACE INTO media VALUES(?,?,?)`, key, b, time.Now().UnixNano()); e != nil {
+		return e
+	}
+	c.mediaBytes += int64(len(b)) - replaced
+	if c.mediaBytes <= c.mediaBudget {
+		return nil
+	}
+	// The oldest go until an eighth of the budget is free, so that the
+	// writes after this one do not each evict again.
+	keep := c.mediaBudget - c.mediaBudget/8
+	if _, e := c.db.ExecContext(ctx, `DELETE FROM media WHERE key IN (SELECT key FROM (SELECT key,SUM(length(data)) OVER (ORDER BY used DESC) AS total FROM media) WHERE total>?)`, keep); e != nil {
+		c.mediaBytes = -1
+		return e
+	}
+	if e := c.db.QueryRowContext(ctx, `SELECT coalesce(sum(length(data)),0) FROM media`).Scan(&c.mediaBytes); e != nil {
+		c.mediaBytes = -1
+	}
+	return nil
 }
 
 // Page reads adjacent cached messages without requiring a Telegram connection.
