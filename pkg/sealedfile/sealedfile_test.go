@@ -53,7 +53,15 @@ func TestRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// As long as it will be, before a chunk is written.
+			st, err := os.Stat(path)
+			if err != nil || st.Size() != f.end() {
+				t.Fatalf("%d, %d bytes: a file of %d made, %d once written", alg, size, st.Size(), f.end())
+			}
 			writeAll(t, f, data)
+			if st, _ := os.Stat(path); st.Size() != f.end() {
+				t.Fatalf("%d, %d bytes: %d written, %d expected", alg, size, st.Size(), f.end())
+			}
 			f.Close()
 			if f, err = Open(path, key, "c"); err != nil {
 				t.Fatal(alg, size, err)
@@ -219,6 +227,50 @@ func BenchmarkChunk(b *testing.B) {
 					b.Fatal(err)
 				}
 				i++
+			}
+		})
+	}
+}
+
+// A chunk's tag is told from another chunk's, another place's, another
+// file's, a changed chunk's, and the last chunk's from one in the middle.
+func TestTagger(t *testing.T) {
+	key := bytes.Repeat([]byte{7}, 32)
+	for _, alg := range []Algorithm{AESGCM, ChaCha20Poly1305} {
+		tagger, err := NewTagger(key, alg, "a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		other, _ := NewTagger(key, alg, "b")
+		data := content(ChunkSize)
+		tag := tagger.Tag(3, data, false)
+		if !tagger.Check(3, data, false, tag[:]) {
+			t.Fatal("its own tag")
+		}
+		changed := bytes.Clone(data)
+		changed[1000] ^= 1
+		for name, ok := range map[string]bool{
+			"changed":      tagger.Check(3, changed, false, tag[:]),
+			"moved":        tagger.Check(4, data, false, tag[:]),
+			"as the last":  tagger.Check(3, data, true, tag[:]),
+			"another file": other.Check(3, data, false, tag[:]),
+			"cut":          tagger.Check(3, data, false, tag[:8]),
+		} {
+			if ok {
+				t.Errorf("%d: %s passes", alg, name)
+			}
+		}
+	}
+}
+
+func BenchmarkTag(b *testing.B) {
+	data := content(ChunkSize)
+	for _, alg := range []Algorithm{AESGCM, ChaCha20Poly1305} {
+		tagger, _ := NewTagger(bytes.Repeat([]byte{7}, 32), alg, "a")
+		b.Run([]string{"", "gmac", "poly1305"}[alg], func(b *testing.B) {
+			b.SetBytes(ChunkSize)
+			for b.Loop() {
+				tagger.Tag(1, data, false)
 			}
 		})
 	}

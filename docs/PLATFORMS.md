@@ -541,6 +541,16 @@ answer, so its own thread may send it).
   ID is `$(NF-3)`, not `$2`.
 - `hey` drives a window by scripting:
   `hey messenger set Minimize of Window 0 to true`.
+- BFS keeps no sparse files: one byte written at 512 MiB of a new file
+  took 524 292 KiB (R1/beta6, 2026-10-21). And chunks written at once,
+  from several threads, past the end of a new file are lost now and then:
+  16 chunks of 128 KiB written together with `pwrite` read back wrong 439
+  and 514 times of 1600, in 57 of 100 files, where Linux lost none; a
+  file given its size first (`ftruncate`) lost none on Haiku either
+  (2026-10-21; the zeros one write fills the file with up to its offset
+  seem to overwrite another's chunk). `pkg/sealedfile` gives a file its
+  size when it makes it, and the media cache keeps media in segments of
+  8 MiB (`docs/MEDIA_STORE.md`).
 
 ## Windows 7
 

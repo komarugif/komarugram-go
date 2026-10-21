@@ -120,8 +120,30 @@ func Create(path string, key []byte, alg Algorithm, size int64, context string) 
 		f.Close()
 		return nil, err
 	}
+	// The file is as long as it will be before any chunk is written: on
+	// Haiku's BFS (R1/beta6), which keeps no sparse files, chunks written
+	// at once past the end of a file are overwritten by the zeros another
+	// write fills the file with up to its own (one in four chunks lost
+	// writing 16 at once). Where files are sparse it costs nothing.
+	if err := f.Truncate(file.end()); err != nil {
+		f.Close()
+		return nil, err
+	}
 	file.f = f
 	return file, nil
+}
+
+// end is the size of the file once every chunk is written.
+func (f *File) end() int64 {
+	n := f.Chunks()
+	if n == 0 {
+		return HeaderSize
+	}
+	last := int64(f.ChunkLen(n - 1))
+	if f.aead != nil {
+		last += Overhead
+	}
+	return f.place(n-1) + last
 }
 
 // Open opens the file at path, sealed under key for context.
@@ -168,19 +190,23 @@ func (f *File) init(key []byte, context string) error {
 	if err != nil {
 		return err
 	}
+	f.aead, err = newAEAD(alg, fileKey)
+	return err
+}
+
+// newAEAD is alg under key.
+func newAEAD(alg Algorithm, key []byte) (cipher.AEAD, error) {
 	switch alg {
 	case AESGCM:
-		block, err := aes.NewCipher(fileKey)
+		block, err := aes.NewCipher(key)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		f.aead, err = cipher.NewGCM(block)
-		return err
+		return cipher.NewGCM(block)
 	case ChaCha20Poly1305:
-		f.aead, err = chacha20poly1305.New(fileKey)
-		return err
+		return chacha20poly1305.New(key)
 	}
-	return ErrCorrupt
+	return nil, ErrCorrupt
 }
 
 // Algorithm is how the file is sealed.
