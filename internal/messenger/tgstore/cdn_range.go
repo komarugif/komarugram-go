@@ -139,10 +139,14 @@ func (c *cdnRange) window(ctx context.Context, h tg.FileHash) ([]byte, error) {
 			}
 			break
 		}
-		take := min(limit, h.Limit-len(data))
-		if len(encrypted) < take || len(encrypted) > limit {
-			return nil, io.ErrUnexpectedEOF
+		if len(encrypted) > limit {
+			return nil, errors.New("oversized CDN part")
 		}
+		// Fewer bytes than asked for are the end of the file, as Telegram
+		// Desktop takes them: the hash of the last window may give a whole
+		// part's size, and only the bytes there tell whether it ends.
+		want := min(limit, h.Limit-len(data))
+		take := min(len(encrypted), want)
 		iv := append([]byte(nil), c.redirect.EncryptionIv...)
 		if offset/16 > int64(^uint32(0)) {
 			return nil, errors.New("CDN counter overflow")
@@ -151,6 +155,9 @@ func (c *cdnRange) window(ctx context.Context, h tg.FileHash) ([]byte, error) {
 		plain := make([]byte, take)
 		cipher.NewCTR(block, iv).XORKeyStream(plain, encrypted[:take])
 		data = append(data, plain...)
+		if take < want {
+			break
+		}
 	}
 	digest := sha256.Sum256(data)
 	if subtle.ConstantTimeCompare(digest[:], h.Hash) != 1 {
