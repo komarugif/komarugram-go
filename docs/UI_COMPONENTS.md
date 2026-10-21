@@ -547,7 +547,12 @@ size-stability fixes remain in place.
   and a press where they were shows them. Space or K plays or pauses it, J
   and L move it 5 s, M mutes it (shortcuts `viewer.play_pause`,
   `viewer.seek_back`, `viewer.seek_forward`, `viewer.mute`). Another item,
-  or closing the viewer, stops it.
+  or closing the viewer, stops it. Every FFmpeg and ffprobe that reads a
+  stranger's file runs with its memory bounded (`program.StartLimited`:
+  a job object on Windows, RLIMIT_DATA and a watch on Linux, a watch of
+  its footprint on macOS and of its areas on Haiku; `video.DecodeMemory`)
+  and `-max_alloc`, and a reader is told `program.ErrMemory` when it was
+  killed for it.
 - **Without a bubble** (`history_unwrapped.go`): stickers, video messages
   and a lone emoji (half a sticker's size) lie on the chat's background, as in the official
   clients; `infoPlate` is their time, and a reply or forward goes in a card

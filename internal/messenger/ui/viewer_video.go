@@ -170,7 +170,7 @@ func (f *ffmpegVideo) run(ctx context.Context, clock func() time.Duration, shown
 				frames.Close()
 			}
 			var err error
-			frames, err = video.NewFrames(f.url, f.ffmpeg, pos, f.size, f.media.FPS)
+			frames, err = video.NewFrames(f.url, f.ffmpeg, pos, image.Pt(f.media.Width, f.media.Height), f.size, f.media.FPS)
 			if err != nil {
 				return err
 			}

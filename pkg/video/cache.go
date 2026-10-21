@@ -92,7 +92,8 @@ func DecodeClip(path string, maxHeight int, fps float64, maxFrames int, format F
 		return nil, errors.New("ffmpeg is not installed")
 	}
 	// No -re here: the clip is read as fast as ffmpeg can decode it.
-	cmd := program.Command(ffmpeg,
+	memory := DecodeMemory(image.Pt(info.Width, info.Height))
+	cmd := program.Command(ffmpeg, append(LimitArgs(memory),
 		"-hide_banner", "-loglevel", "error",
 		"-threads", "1",
 		"-i", path,
@@ -103,14 +104,15 @@ func DecodeClip(path string, maxHeight int, fps float64, maxFrames int, format F
 		"-vf", fmt.Sprintf("fps=%g,scale=%d:%d:out_range=jpeg", fps, size.X, size.Y),
 		"-pix_fmt", format.pixFmt(),
 		"-f", "rawvideo", "-",
-	)
+	)...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
 	}
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
+	limit, err := startLimited(cmd, memory)
+	if err != nil {
 		return nil, fmt.Errorf("start ffmpeg: %w", err)
 	}
 	defer func() {
@@ -136,6 +138,9 @@ func DecodeClip(path string, maxHeight int, fps float64, maxFrames int, format F
 		pixels = append(pixels, make([]byte, frameSize)...)
 		if _, err := io.ReadFull(stdout, pixels[offset:]); err != nil {
 			pixels = pixels[:offset]
+			if limit.exceeded.Load() {
+				return nil, limit.explain(err)
+			}
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
 				break
 			}

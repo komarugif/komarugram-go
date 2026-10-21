@@ -28,6 +28,9 @@ type Info struct {
 	Width  int
 	Height int
 	FPS    float64
+	// source is the size of the file's pictures, which bounds the memory
+	// its decoder may take, when Width and Height were scaled from it.
+	source image.Point
 }
 
 // String describes the decoded stream, e.g. "404x720 · 29.97 fps".
@@ -45,13 +48,13 @@ func probe(path, ffmpeg string) (Info, error) {
 	if ffprobe == "" {
 		return Info{}, errors.New("ffprobe is not installed")
 	}
-	out, err := program.CommandContext(ctx, ffprobe,
+	args := append(LimitArgs(ProbeMemory),
 		"-format_whitelist", "mov,matroska,webm,gif",
 		"-v", "error",
 		"-select_streams", "v:0",
 		"-show_entries", "stream=width,height,r_frame_rate",
-		"-of", "json", path,
-	).Output()
+		"-of", "json", path)
+	out, err := outputLimited(program.CommandContext(ctx, ffprobe, args...), ProbeMemory)
 	if err != nil {
 		return Info{}, fmt.Errorf("ffprobe %s: %w", path, err)
 	}
@@ -126,6 +129,7 @@ func NewPlayerWithFFmpeg(path string, maxHeight int, ffmpeg string) (*Player, er
 	if err != nil {
 		return nil, err
 	}
+	info.source = image.Pt(info.Width, info.Height)
 	if maxHeight > 0 && info.Height > maxHeight {
 		info.Width = info.Width * maxHeight / info.Height
 		info.Height = maxHeight
@@ -218,11 +222,16 @@ func (p *Player) decode() error {
 	start := p.start
 	p.start, p.base, p.decoded = 0, start, 0
 	p.mu.Unlock()
-	args := []string{
+	source := p.info.source
+	if source == (image.Point{}) {
+		source = image.Pt(p.info.Width, p.info.Height)
+	}
+	memory := DecodeMemory(source)
+	args := append(LimitArgs(memory),
 		"-hide_banner", "-loglevel", "error",
 		"-re",
 		"-threads", "2", "-format_whitelist", "mov,matroska,webm,gif",
-	}
+	)
 	if start > 0 {
 		// The first pass, from start to the end: the passes after it,
 		// looped, start over from the start.
@@ -246,7 +255,8 @@ func (p *Player) decode() error {
 	}
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
+	limit, err := startLimited(cmd, memory)
+	if err != nil {
 		return fmt.Errorf("start ffmpeg: %w", err)
 	}
 	defer func() {
@@ -264,6 +274,9 @@ func (p *Player) decode() error {
 		// an image of its own, over pixels given back if there are any.
 		frame := p.newFrame(frameSize)
 		if _, err := io.ReadFull(stdout, frame.Pix[:frameSize]); err != nil {
+			if limit.exceeded.Load() {
+				return limit.explain(err)
+			}
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
 				return nil // the stream ended: the caller starts it again
 			}

@@ -25,7 +25,7 @@ func TestProbeFramesSound(t *testing.T) {
 	if m.Width != 720 || m.Height != 1280 || !m.Sound || m.Duration < 35*time.Second || m.Duration > 37*time.Second || m.FPS <= 0 {
 		t.Fatalf("probed %+v", m)
 	}
-	f, err := NewFrames(path, "", 10*time.Second, image.Pt(90, 160), 25)
+	f, err := NewFrames(path, "", 10*time.Second, image.Pt(720, 1280), image.Pt(90, 160), 25)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestProbeFramesSound(t *testing.T) {
 	if seconds := float64(len(pcm)) / 4 / SoundRate; seconds < 1.5 || seconds > 2.5 {
 		t.Fatalf("%.2f s of sound from 34 s", seconds)
 	}
-	end, err := NewFrames(path, "", 40*time.Second, image.Pt(90, 160), 25)
+	end, err := NewFrames(path, "", 40*time.Second, image.Pt(720, 1280), image.Pt(90, 160), 25)
 	if err != nil {
 		t.Fatal(err)
 	}

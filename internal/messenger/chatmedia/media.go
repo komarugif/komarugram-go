@@ -1145,7 +1145,7 @@ func (m *Manager) playGIF(ctx context.Context, e *entry, url string, long time.D
 			// The picture there alone, from an FFmpeg that decodes it and
 			// stops: one that plays would read ahead of it.
 			seek = -1
-			frames, err := video.NewFrames(url, e.ffmpeg, max(from, 0), image.Pt(info.Width, info.Height), max(info.FPS, 1))
+			frames, err := video.NewFrames(url, e.ffmpeg, max(from, 0), image.Pt(info.Width, info.Height), image.Pt(info.Width, info.Height), max(info.FPS, 1))
 			if err != nil {
 				publish(nil, err)
 				return

@@ -37,12 +37,12 @@ func ProbeMedia(ctx context.Context, path, ffmpeg string) (Media, error) {
 	if ffprobe == "" {
 		return Media{}, errors.New("ffprobe is not installed")
 	}
-	out, err := program.CommandContext(ctx, ffprobe,
+	args := append(LimitArgs(ProbeMemory),
 		"-format_whitelist", "mov,matroska,webm",
 		"-v", "error",
 		"-show_entries", "stream=codec_type,width,height,r_frame_rate:format=duration",
-		"-of", "json", path,
-	).Output()
+		"-of", "json", path)
+	out, err := outputLimited(program.CommandContext(ctx, ffprobe, args...), ProbeMemory)
 	if err != nil {
 		return Media{}, fmt.Errorf("ffprobe: %w", err)
 	}
@@ -98,6 +98,7 @@ func ProbeMedia(ctx context.Context, path, ffmpeg string) (Media, error) {
 // the pace, and an ffmpeg nobody reads from waits on its pipe.
 type Frames struct {
 	cmd    interface{ Wait() error }
+	limit  *limited
 	stdout io.ReadCloser
 	cancel context.CancelFunc
 	stderr *strings.Builder
@@ -110,15 +111,17 @@ type Frames struct {
 	free [][]uint8
 }
 
-// NewFrames starts an ffmpeg decoding the file at path from start, its
-// pictures scaled to size, fps a second.
-func NewFrames(path, ffmpeg string, start time.Duration, size image.Point, fps float64) (*Frames, error) {
+// NewFrames starts an ffmpeg decoding the file at path, whose pictures
+// are of source, from start, its pictures scaled to size, fps a second.
+// The ffmpeg may take DecodeMemory(source).
+func NewFrames(path, ffmpeg string, start time.Duration, source, size image.Point, fps float64) (*Frames, error) {
 	if size.X <= 0 || size.Y <= 0 || fps <= 0 {
 		return nil, fmt.Errorf("frames of %v at %v fps", size, fps)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin",
-		"-threads", "2", "-format_whitelist", "mov,matroska,webm,gif"}
+	memory := DecodeMemory(source)
+	args := append(LimitArgs(memory), "-hide_banner", "-loglevel", "error", "-nostdin",
+		"-threads", "2", "-format_whitelist", "mov,matroska,webm,gif")
 	if start > 0 {
 		args = append(args, "-ss", strconv.FormatFloat(start.Seconds(), 'f', 3, 64))
 	}
@@ -136,11 +139,12 @@ func NewFrames(path, ffmpeg string, start time.Duration, size image.Point, fps f
 	}
 	stderr := new(strings.Builder)
 	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
+	limit, err := startLimited(cmd, memory)
+	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("start ffmpeg: %w", err)
 	}
-	return &Frames{cmd: cmd, stdout: stdout, cancel: cancel, stderr: stderr, size: size, fps: fps, start: start}, nil
+	return &Frames{cmd: cmd, limit: limit, stdout: stdout, cancel: cancel, stderr: stderr, size: size, fps: fps, start: start}, nil
 }
 
 // Next reads the next picture and the time it shows at; io.EOF at the end.
@@ -156,6 +160,9 @@ func (f *Frames) Next() (*image.RGBA, time.Duration, error) {
 		pix = make([]uint8, n)
 	}
 	if _, err := io.ReadFull(f.stdout, pix); err != nil {
+		if f.limit.exceeded.Load() {
+			return nil, 0, f.limit.explain(err)
+		}
 		if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
 			if msg := strings.TrimSpace(f.stderr.String()); msg != "" && f.n == 0 {
 				return nil, 0, fmt.Errorf("ffmpeg: %s", msg)
@@ -195,6 +202,7 @@ const SoundRate = 48000
 // SoundRate, little-endian, in an ffmpeg of its own, as fast as it is read.
 type Sound struct {
 	cmd    interface{ Wait() error }
+	limit  *limited
 	stdout io.ReadCloser
 	cancel context.CancelFunc
 	stderr *strings.Builder
@@ -202,11 +210,11 @@ type Sound struct {
 }
 
 // NewSound starts an ffmpeg decoding the sound of the file at path from
-// start.
+// start. The ffmpeg may take ProbeMemory.
 func NewSound(path, ffmpeg string, start time.Duration) (*Sound, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin",
-		"-threads", "1", "-format_whitelist", "mov,matroska,webm"}
+	args := append(LimitArgs(ProbeMemory), "-hide_banner", "-loglevel", "error", "-nostdin",
+		"-threads", "1", "-format_whitelist", "mov,matroska,webm")
 	if start > 0 {
 		args = append(args, "-ss", strconv.FormatFloat(start.Seconds(), 'f', 3, 64))
 	}
@@ -220,17 +228,21 @@ func NewSound(path, ffmpeg string, start time.Duration) (*Sound, error) {
 	}
 	stderr := new(strings.Builder)
 	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
+	limit, err := startLimited(cmd, ProbeMemory)
+	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("start ffmpeg: %w", err)
 	}
-	return &Sound{cmd: cmd, stdout: stdout, cancel: cancel, stderr: stderr}, nil
+	return &Sound{cmd: cmd, limit: limit, stdout: stdout, cancel: cancel, stderr: stderr}, nil
 }
 
 // Read reads samples, four bytes a frame; io.EOF at the end.
 func (s *Sound) Read(p []byte) (int, error) {
 	n, err := s.stdout.Read(p)
 	s.read += int64(n)
+	if err != nil && s.limit.exceeded.Load() {
+		return n, s.limit.explain(err)
+	}
 	if errors.Is(err, io.EOF) && s.read == 0 {
 		if msg := strings.TrimSpace(s.stderr.String()); msg != "" {
 			return n, fmt.Errorf("ffmpeg: %s", msg)
