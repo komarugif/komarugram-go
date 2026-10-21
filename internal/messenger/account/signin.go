@@ -656,7 +656,7 @@ func (m *Manager) protectSessions() error {
 		return err
 	}
 	for _, account := range m.Accounts() {
-		if err := historycache.ProtectFile(account.HistoryPath(), account.ID, m.security); err != nil {
+		if err := historycache.ProtectFile(account.HistoryPath(), account.MediaPath(), account.ID, m.security); err != nil {
 			return err
 		}
 		if err := account.storage.protect(); err != nil {

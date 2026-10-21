@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/gotd/td/session"
@@ -341,11 +342,21 @@ func TestRemoveAccount(t *testing.T) {
 		t.Fatalf("removed a connected account: %v", err)
 	}
 	gone.busy.Store(false)
+	// Its media, in the cache directory.
+	if err := os.MkdirAll(filepath.Join(gone.MediaPath(), "ab"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(gone.MediaPath(), root) || strings.HasPrefix(gone.MediaPath(), gone.dir) {
+		t.Fatalf("media in %s", gone.MediaPath())
+	}
 	if err := m.Remove(gone); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(gone.dir); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("account directory left behind: %v", err)
+	}
+	if _, err := os.Stat(gone.MediaPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("media left behind: %v", err)
 	}
 	if accounts := m.Accounts(); len(accounts) != 1 || accounts[0] != added[1] {
 		t.Fatalf("accounts after removal: %+v", accounts)

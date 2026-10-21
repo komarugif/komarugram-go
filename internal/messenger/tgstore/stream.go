@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"komarugram/internal/messenger/historycache"
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/dcpool"
 
@@ -20,7 +21,8 @@ import (
 )
 
 const (
-	streamPartSize = 128 << 10
+	// streamPartSize is a chunk of the media file the parts are kept in.
+	streamPartSize = historycache.MediaChunk
 	// streamAhead parts past the one read are fetched before they are asked
 	// for, streamParallel at once: a part a round trip to Telegram is slower
 	// than a video plays, and a player that waits for each one stutters.
@@ -29,9 +31,10 @@ const (
 )
 
 // rangeReader fetches only aligned ranges requested by the external player (including seeks),
-// and the parts that follow them.
+// and the parts that follow them, into the medium's file in the cache.
 // The decrypted working set is bounded independently of the file's total size.
 type rangeReader struct {
+	file *historycache.MediaFile
 	// cdnMu serializes the reads of cdn, whose verified window is shared;
 	// it is taken before mu.
 	cdnMu sync.Mutex
@@ -77,26 +80,35 @@ func (s *Store) MediaStream(ctx context.Context, m model.Message) (io.ReaderAt, 
 	if cache == nil {
 		return nil, 0, nil, errors.New("cache unavailable")
 	}
-	if b, e := cache.Media(ctx, m.Media.ID); e != nil {
-		return nil, 0, nil, e
-	} else if len(b) > 0 {
-		return bytes.NewReader(b), int64(len(b)), func() {}, nil
+	if m.Media.Size <= streamPartSize {
+		// A small medium is in the database whole, when it is there.
+		if b, e := cache.Media(ctx, m.Media.ID); e != nil {
+			return nil, 0, nil, e
+		} else if len(b) > 0 {
+			return bytes.NewReader(b), int64(len(b)), func() {}, nil
+		}
 	}
-	if !ok {
+	file, e := cache.MediaFile(ctx, m.Media.ID, m.Media.Size)
+	if e != nil {
+		return nil, 0, nil, e
+	}
+	if !ok && !file.Complete() {
 		var e error
 		ok, e = cache.Get(ctx, "ref/"+m.Media.ID, &ref)
-		if e != nil {
-			return nil, 0, nil, e
+		if e == nil && !ok {
+			e = errors.New("video location unavailable")
 		}
-		if !ok {
-			return nil, 0, nil, errors.New("video location unavailable")
+		if e != nil {
+			file.Close()
+			return nil, 0, nil, e
 		}
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	r := &rangeReader{ctx: ctx, cancel: cancel, store: s, message: m, location: ref, size: m.Media.Size,
+	r := &rangeReader{file: file, ctx: ctx, cancel: cancel, store: s, message: m, location: ref, size: m.Media.Size,
 		chunks: map[int64][]byte{}, pending: map[int64]*pendingPart{}, ahead: make(chan struct{}, streamParallel)}
 	return r, r.size, func() {
 		cancel()
+		r.file.Close()
 		r.cdnMu.Lock()
 		defer r.cdnMu.Unlock()
 		r.mu.Lock()
@@ -244,18 +256,19 @@ func (r *rangeReader) chunk(offset int64) ([]byte, error) {
 	return p.b, nil
 }
 
-// load reads the part at offset from the cache, or downloads and caches it.
+// load reads the part at offset from the medium's file, or downloads it
+// into the file.
 func (r *rangeReader) load(offset int64) ([]byte, error) {
 	if e := r.ctx.Err(); e != nil {
 		return nil, e
 	}
 	c := r.store.history
 	c.mu.Lock()
-	cache, pool := c.cache, c.pool
+	pool := c.pool
 	c.mu.Unlock()
-	key := fmt.Sprintf("%s/range/%d", r.message.Media.ID, offset)
-	b, e := cache.Media(r.ctx, key)
-	if e != nil || len(b) > 0 {
+	chunk := int(offset / streamPartSize)
+	b, e := r.file.ReadChunk(chunk, nil)
+	if !errors.Is(e, historycache.ErrMissing) {
 		return b, e
 	}
 	if pool == nil {
@@ -328,13 +341,10 @@ func (r *rangeReader) load(offset int64) ([]byte, error) {
 	if e != nil {
 		return nil, e
 	}
-	if len(b) > streamPartSize {
-		return nil, errors.New("oversized video range")
+	if want := min(int64(streamPartSize), r.size-offset); int64(len(b)) != want {
+		return nil, fmt.Errorf("video range of %d bytes, %d expected", len(b), want)
 	}
-	if len(b) == 0 {
-		return nil, io.ErrUnexpectedEOF
-	}
-	if e = cache.SaveMedia(ctx, key, b); e != nil {
+	if e = r.file.WriteChunk(chunk, b); e != nil {
 		return nil, e
 	}
 	return b, nil

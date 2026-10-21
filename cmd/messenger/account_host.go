@@ -952,6 +952,7 @@ func (h *accountWindows) runStore(ctx context.Context, a *account.Account, store
 }
 
 func (h *accountWindows) runClient(ctx context.Context, a *account.Account, store *tgstore.Store) error {
+	store.SetMediaDir(a.MediaPath())
 	if err := store.Configure(ctx, a.ID, a.HistoryPath(), h.security); err != nil {
 		return err
 	}

@@ -311,7 +311,8 @@ func TestMediaBudget(t *testing.T) {
 		}
 		return n
 	}
-	blob := make([]byte, 100<<10)
+	// Small media: the larger are files.
+	blob := make([]byte, smallMedia-1)
 	evicted := false
 	for i := range 30 {
 		before := size()

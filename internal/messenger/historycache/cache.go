@@ -34,10 +34,19 @@ type Cache struct {
 	mediaBudget, mediaBytes int64
 	unregister              func()
 	unregisterPlain         func()
+	// filesMu guards the media files, opened at their first use, and the
+	// directory they are in; it is taken before mu.
+	filesMu    sync.Mutex
+	mediaDir   string
+	mediaFiles *mediaFiles
+	// moving moves the large media of the table to files, until stop.
+	moving        sync.WaitGroup
+	movingStarted bool
+	stop          chan struct{}
 }
 
 func Open(path, account string, protection *security.Manager) (*Cache, error) {
-	c := &Cache{path: path, account: account, protection: protection, mediaBudget: mediaBudget}
+	c := &Cache{path: path, account: account, protection: protection, mediaBudget: mediaBudget, stop: make(chan struct{})}
 	if err := c.open(); err != nil {
 		return nil, err
 	}
@@ -89,6 +98,7 @@ func (c *Cache) open() error {
  CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY, value BLOB);
  CREATE TABLE IF NOT EXISTS layouts(chat INTEGER,id INTEGER,env TEXT,revision INTEGER,height INTEGER,PRIMARY KEY(chat,id,env));
  CREATE TABLE IF NOT EXISTS media(key TEXT PRIMARY KEY,data BLOB,used INTEGER);
+ CREATE TABLE IF NOT EXISTS media_files(name TEXT PRIMARY KEY,id TEXT,size INTEGER,chunks BLOB,used INTEGER);
  CREATE TABLE IF NOT EXISTS edits(chat INTEGER,id INTEGER,at INTEGER,payload BLOB,PRIMARY KEY(chat,id,at));
  CREATE TABLE IF NOT EXISTS spans(chat INTEGER,low INTEGER,high INTEGER,PRIMARY KEY(chat,low));
  DROP INDEX IF EXISTS photos;
@@ -125,11 +135,15 @@ func PurgePlain(path string) error { return removePlain(path) }
 
 // Protect copies a live plaintext history cache to encrypted SQLite.
 func (c *Cache) Protect() error {
+	c.filesMu.Lock()
+	defer c.filesMu.Unlock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed || c.encrypted {
 		return nil
 	}
+	// Media files kept as they are must not outlive the protection.
+	defer c.dropFilesLocked()
 
 	if err := securedb.CopyEncrypted(c.db, c.path+".secure", c.account, c.protection); err != nil {
 		return err
@@ -142,8 +156,9 @@ func (c *Cache) Protect() error {
 }
 
 // ProtectFile encrypts a cache that has no active Store and preserves all
-// tables, including messages and media.
-func ProtectFile(path, account string, protection *security.Manager) error {
+// tables, including messages and media; its media files in mediaDir (beside
+// the database when empty), kept as they are, are removed.
+func ProtectFile(path, mediaDir, account string, protection *security.Manager) error {
 	plain, secure := path+".plain", path+".secure"
 	if _, err := os.Stat(plain); errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -166,17 +181,27 @@ func ProtectFile(path, account string, protection *security.Manager) error {
 	if err != nil {
 		return err
 	}
+	if mediaDir == "" {
+		mediaDir = path + ".media"
+	}
+	if err := os.RemoveAll(mediaDir); err != nil {
+		return err
+	}
 	return removePlain(path)
 }
 
 // Unprotect switches a live history cache to its plaintext copy under the
 // cache mutex, so writes cannot go to the old database after the copy.
 func (c *Cache) Unprotect() error {
+	c.filesMu.Lock()
+	defer c.filesMu.Unlock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed || !c.encrypted {
 		return nil
 	}
+	// The key of the media files goes with the protection.
+	defer c.dropFilesLocked()
 	if err := securedb.CopyPlain(c.db, c.path+".plain"); err != nil {
 		return err
 	}
@@ -197,9 +222,41 @@ func (c *Cache) Close() error {
 		c.unregisterPlain()
 	}
 	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil
+	}
+	c.mu.Unlock()
+	close(c.stop)
+	c.moving.Wait()
+	c.filesMu.Lock()
+	if c.mediaFiles != nil {
+		c.mediaFiles.close()
+	}
+	c.filesMu.Unlock()
+	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.closed = true
 	return c.db.Close()
+}
+
+// dropFilesLocked removes the media files, which their key or their being
+// sealed no longer fits; they are made again as media come. It runs with
+// filesMu and mu held.
+func (c *Cache) dropFilesLocked() {
+	if c.mediaFiles != nil {
+		_ = c.mediaFiles.drop()
+		c.mediaFiles = nil
+		return
+	}
+	dir := c.mediaDir
+	if dir == "" {
+		dir = c.path + ".media"
+	}
+	_ = os.RemoveAll(dir)
+	if c.db != nil {
+		_, _ = c.db.Exec(`DELETE FROM media_files`)
+	}
 }
 func (c *Cache) Put(ctx context.Context, key string, value any) error {
 	b, err := json.Marshal(value)
@@ -390,20 +447,23 @@ func (c *Cache) Layouts(ctx context.Context, chat int64, env model.RenderEnviron
 }
 func (c *Cache) Media(ctx context.Context, key string) ([]byte, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	var b []byte
 	e := c.db.QueryRowContext(ctx, `SELECT data FROM media WHERE key=?`, key).Scan(&b)
+	c.mu.Unlock()
 	if errors.Is(e, sql.ErrNoRows) {
-		return nil, nil
+		return c.fileMedia(key)
 	}
 	return b, e
 }
 
-// mediaBudget is an account's disk budget for media, originals the external
-// player needs included.
-const mediaBudget = 256 << 20
+// mediaBudget bounds the small media in the database: thumbnails, previews,
+// avatars, stickers. The larger are files (filesBudget).
+const mediaBudget = 64 << 20
 
 func (c *Cache) SaveMedia(ctx context.Context, key string, b []byte) error {
+	if len(b) > smallMedia {
+		return c.saveFileMedia(key, b)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// The table's size is counted once and then kept: summing it on every

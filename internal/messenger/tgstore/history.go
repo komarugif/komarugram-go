@@ -90,6 +90,8 @@ func (p peerRecord) input() tg.InputPeerClass {
 }
 
 type conversation struct {
+	// mediaDir is where the cache keeps large media, beside it when empty.
+	mediaDir      string
 	persist       sync.Mutex
 	avatars       map[int64]avatarSnapshot
 	top           map[int64]int
@@ -147,6 +149,16 @@ type viewSave struct {
 func newConversation() *conversation {
 	return &conversation{top: map[int64]int{}, globalDeleted: map[int]bool{}, ctx: context.Background(), peers: map[int64]peerRecord{}, histories: map[int64]*model.History{}, epochs: map[int64]uint64{}, reveals: map[int64]model.MessageID{}, views: map[int64]model.Viewport{}, refs: map[string]fileLocation{}, touched: map[model.MessageKey]uint64{}, deleted: map[model.MessageKey]bool{}, saves: make(chan viewSave, 64), live: map[int64]bool{}, firsts: map[int64]int{}}
 }
+
+// SetMediaDir keeps the account's large media in dir; it is called before
+// Configure.
+func (s *Store) SetMediaDir(dir string) {
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.mediaDir = dir
+}
+
 func (s *Store) Configure(ctx context.Context, account, path string, p *security.Manager) error {
 	c := s.history
 	c.mu.Lock()
@@ -157,6 +169,9 @@ func (s *Store) Configure(ctx context.Context, account, path string, p *security
 	if cache == nil {
 		if cache, e = historycache.Open(path, account, p); e != nil {
 			return e
+		}
+		if c.mediaDir != "" {
+			cache.SetMediaDir(c.mediaDir)
 		}
 		c.cache = cache
 		c.wg.Go(func() {

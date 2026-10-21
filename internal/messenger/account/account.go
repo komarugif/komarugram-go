@@ -68,6 +68,7 @@ type Account struct {
 
 	keyID   string
 	dir     string
+	media   string
 	storage *fileStorage
 	busy    atomic.Bool
 }
@@ -86,12 +87,19 @@ func (a *Account) HistoryPath() string {
 	return filepath.Join(a.dir, "history.db")
 }
 
+// MediaPath is the directory of the account's large media, in the user's
+// cache directory: a cache, which the configuration directory (roaming on
+// Windows) must not carry.
+func (a *Account) MediaPath() string { return a.media }
+
 // Manager holds the accounts of the client.
 type Manager struct {
 	identity Identity
 	security *security.Manager
 	// lockDir holds one lock file per auth key.
 	lockDir string
+	// mediaDir holds the accounts' large media, a directory each.
+	mediaDir string
 	// accountsDir holds one private directory per account.
 	accountsDir string
 	registry    *registry
@@ -184,7 +192,8 @@ func newManager(identity Identity, protection *security.Manager, dir, lockDir st
 	}
 	m := &Manager{
 		identity: identity, security: protection, lockDir: lockDir, accountsDir: accountsDir,
-		registry: &registry{path: filepath.Join(dir, "accounts.db"), protection: protection},
+		mediaDir:     filepath.Join(filepath.Dir(lockDir), "media"),
+		registry:     &registry{path: filepath.Join(dir, "accounts.db"), protection: protection},
 		proxyChanged: make(chan struct{}),
 	}
 	if protection != nil {
@@ -227,7 +236,7 @@ func (m *Manager) loadLocked() error {
 
 func (m *Manager) account(rec record, dir string) *Account {
 	return &Account{
-		ID: rec.ID, UserID: rec.UserID, DC: rec.DC, keyID: rec.KeyID, dir: dir,
+		ID: rec.ID, UserID: rec.UserID, DC: rec.DC, keyID: rec.KeyID, dir: dir, media: filepath.Join(m.mediaDir, rec.ID),
 		storage: m.fileStorage(filepath.Join(dir, "session.json")),
 	}
 }
@@ -617,6 +626,9 @@ func (m *Manager) Remove(a *Account) error {
 	os.Remove(filepath.Join(m.lockDir, a.keyID+".lock"))
 	if err := os.RemoveAll(a.dir); err != nil {
 		return fmt.Errorf("account %s: remove local data: %w", a.ID, err)
+	}
+	if err := os.RemoveAll(a.media); err != nil {
+		return fmt.Errorf("account %s: remove media: %w", a.ID, err)
 	}
 	return nil
 }
