@@ -247,6 +247,14 @@ type settingsPage struct {
 	localPremium       func() bool
 	setLocalPremium    func(bool)
 	localPremiumToggle *toggle.Toggle[string]
+	// hidePeerBadges and setHidePeerBadges read and switch the hiding of the
+	// marks of exteraGram, AyuGram and KomaruGram beside names.
+	// premiumMark draws the Premium star beside a name; without it the star
+	// is drawn by the client.
+	premiumMark          func(gtx layout.Context, size unit.Dp) layout.Dimensions
+	hidePeerBadges       func() bool
+	setHidePeerBadges    func(bool)
+	hidePeerBadgesToggle *toggle.Toggle[string]
 	// premiumMedia and setPremiumMedia read and switch the Premium address for
 	// files over WebSocket, which the Premium page offers to who has Premium.
 	premiumMedia       func() bool
@@ -321,6 +329,11 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 	p.localPremiumToggle = toggle.NewToggle([]string{"local"}, nil, func(values []string) {
 		if p.setLocalPremium != nil {
 			p.setLocalPremium(len(values) == 1)
+		}
+	})
+	p.hidePeerBadgesToggle = toggle.NewToggle([]string{"hide"}, nil, func(values []string) {
+		if p.setHidePeerBadges != nil {
+			p.setHidePeerBadges(len(values) == 1)
 		}
 	})
 	p.premiumMediaToggle = toggle.NewToggle([]string{"media"}, nil, func(values []string) {
@@ -887,7 +900,7 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 							row.badge = func(gtx layout.Context) layout.Dimensions {
 								px := gtx.Dp(18)
 								return exact(gtx, image.Pt(px, px), func(gtx layout.Context) layout.Dimensions {
-									return layoutPremiumStar(gtx, 18)
+									return p.layoutPremiumMark(gtx, 18)
 								})
 							}
 						}
@@ -1426,6 +1439,15 @@ func (p *settingsPage) premiumText(l localization.Catalog) string {
 	return l.T("premium.off")
 }
 
+// layoutPremiumMark draws the Premium star in a square of size, nothing
+// where there is no window to take it from.
+func (p *settingsPage) layoutPremiumMark(gtx layout.Context, size unit.Dp) layout.Dimensions {
+	if p.premiumMark != nil {
+		return p.premiumMark(gtx, size)
+	}
+	return layout.Dimensions{}
+}
+
 // isLocalPremium reports whether Local Premium is on.
 func (p *settingsPage) isLocalPremium() bool {
 	return p.localPremium != nil && p.localPremium()
@@ -1452,6 +1474,15 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 				p.localPremiumToggle.SetValues([]string{"local"})
 			} else {
 				p.localPremiumToggle.SetValues(nil)
+			}
+		}
+	}
+	if p.hidePeerBadges != nil {
+		if want := p.hidePeerBadges(); want != (len(p.hidePeerBadgesToggle.GetValues()) == 1) {
+			if want {
+				p.hidePeerBadgesToggle.SetValues([]string{"hide"})
+			} else {
+				p.hidePeerBadgesToggle.SetValues(nil)
 			}
 		}
 	}
@@ -1490,7 +1521,7 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 			}, func(gtx layout.Context) layout.Dimensions {
 				px := gtx.Dp(20)
 				return exact(gtx, image.Pt(px, px), func(gtx layout.Context) layout.Dimensions {
-					return layoutPremiumStar(gtx, 20)
+					return p.layoutPremiumMark(gtx, 20)
 				})
 			})
 		}),
@@ -1575,6 +1606,24 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 						vspace(4),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							return label(gtx, l.T("premium.local_body"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
+						}),
+					)
+				}, defaultCardPadding)
+			})
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			if p.hidePeerBadges == nil {
+				return layout.Dimensions{}
+			}
+			return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return p.cardHeight("layoutPremium-badges").Card(gtx, func(gtx layout.Context) layout.Dimensions {
+					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return p.hidePeerBadgesToggle.Layout(gtx, map[string]string{"hide": l.T("badges.hide")})
+						}),
+						vspace(4),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return label(gtx, l.T("badges.hide_body"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
 						}),
 					)
 				}, defaultCardPadding)

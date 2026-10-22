@@ -16,6 +16,7 @@ import (
 	_ "image/png"
 	"io"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -233,9 +234,16 @@ func (m *Manager) box(want image.Point) image.Point {
 }
 
 // Animated stickers use a small size step. A 56px grid cell becomes 64px,
-// without restarting the decoder for every pixel of a window resize.
+// without restarting the decoder for every pixel of a window resize. A media
+// whose ID ends in "@pixels", as the custom emoji of the badges beside names
+// do, is shown in just that size, which does not change with the window: it
+// is decoded in exactly it, as a picture drawn at another size is resampled
+// and blurred.
 func (m *Manager) animationBox(msg model.Message, want image.Point) image.Point {
 	const step = 16
+	if want.X > 0 && want.Y > 0 && strings.Contains(msg.Media.ID, "@") {
+		return want
+	}
 	maxSide := min(m.imageSize, 512)
 	if msg.Media.MIMEType == "application/x-tgsticker" || msg.Media.MIMEType == "application/x-custom-emoji" {
 		maxSide = min(maxSide, 256)

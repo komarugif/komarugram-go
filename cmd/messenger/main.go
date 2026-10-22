@@ -36,6 +36,7 @@ import (
 	"komarugram/internal/messenger/login"
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
+	"komarugram/internal/messenger/peerbadges"
 	"komarugram/internal/messenger/preferences"
 	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/messenger/security"
@@ -260,6 +261,7 @@ func main() {
 		}
 	})
 	accounts := newAccountWindows(process, windowOptions(sharedPreferences), manager, proxies, protection, sharedPreferences, sharedMiniApps, imports)
+	accounts.peerBadges = openPeerBadges(sharedPreferences)
 	balloon := &trayBalloon{}
 	notifier := notify.New(catalog.T("app.title"), balloon)
 	accounts.notifier = notifier
@@ -585,6 +587,18 @@ func checkAccounts(manager *account.Manager, imports []*account.TData) error {
 		printSummary(store)
 	}
 	return nil
+}
+
+// openPeerBadges returns the marks of exteraGram, AyuGram and KomaruGram, which
+// read their lists unless the settings hide them.
+func openPeerBadges(prefs *preferences.Store) *peerbadges.Registry {
+	dir := ""
+	if config, err := os.UserConfigDir(); err == nil {
+		dir = filepath.Join(config, "komarugram-go", "peer_badges")
+	}
+	reg := peerbadges.New(dir)
+	reg.Start(context.Background(), func() bool { return prefs == nil || !prefs.Global().HidePeerBadges })
+	return reg
 }
 
 // newManager returns an account manager that connects through the proxy the

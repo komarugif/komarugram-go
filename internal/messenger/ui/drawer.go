@@ -146,7 +146,7 @@ func (d *drawer) Layout(gtx layout.Context, entries []drawerEntry, current secti
 	offset(textGtx, image.Pt(pad, pad+gtx.Dp(64)), func(gtx layout.Context) layout.Dimensions {
 		var before, after layout.Widget
 		if d.badges != nil {
-			before, after = d.badges(me.Badges, 18, false)
+			before, after = d.badges(me.Badges, me.Name(), 18, false)
 		}
 		return withBadges(gtx, before, func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, me.Name(), token.TypestyleTitleMediumEmphasized, sc.Surface.OnColor, 1)

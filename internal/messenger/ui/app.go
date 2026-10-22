@@ -26,6 +26,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
+	"gioui.org/widget"
 
 	"gio-mw/exp/appearance"
 
@@ -36,6 +37,7 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/login"
 	"komarugram/internal/messenger/model"
+	"komarugram/internal/messenger/peerbadges"
 	"komarugram/internal/messenger/preferences"
 	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/messenger/security"
@@ -63,6 +65,16 @@ type App struct {
 	// ownUsers are the users of the accounts signed in here, which Local
 	// Premium marks.
 	ownUsers atomic.Pointer[map[int64]bool]
+	// peerBadges knows the marks of the forks of Telegram clients; nil shows
+	// none. badgeClicks are the clicks on them, and stopBadges stops the
+	// window following the lists.
+	peerBadges  *peerbadges.Registry
+	badgeClicks map[badgeKey]*widget.Clickable
+	stopBadges  func()
+	// premiumSet, komaruSet and arrowSet are the emoji sets the Premium star,
+	// the Komaru faces and the arrow beside names are taken from
+	// (peer_badges.go).
+	premiumSet, komaruSet, arrowSet emojiSet
 	// focused is set while the window has the focus.
 	focused bool
 	// shownChat and shownFocus tell other goroutines the open chat and the
@@ -190,6 +202,10 @@ type Services struct {
 	// registration points the account's chats tell (registration_offer.go),
 	// where the store collects them; tests and renders leave it off.
 	OfferRegistrationPoints bool
+	// PeerBadges knows who wears the marks of exteraGram, AyuGram and
+	// KomaruGram beside a name; nil shows none, as in tests and the demo,
+	// which reach no one.
+	PeerBadges *peerbadges.Registry
 	// Uninstall opens the window that uninstalls the program and quits
 	// it; the settings offer it beside leaving the account. It is set
 	// where the program installs itself (Windows and Linux), whether or
@@ -215,6 +231,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		window:       w,
 		store:        store,
 		preferences:  services.Preferences,
+		peerBadges:   services.PeerBadges,
 		sidebar:      newSidebar(),
 		chats:        newChatList(),
 		menu:         button.Text(),
@@ -374,6 +391,20 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		if err := services.Preferences.SetStreamerMode(on); err != nil {
 			log.Printf("save settings: %v", err)
 		}
+	}
+	if a.peerBadges != nil {
+		a.stopBadges = a.peerBadges.Subscribe(w.Invalidate)
+	}
+	a.settings.premiumMark = a.layoutPremiumMark
+	a.settings.hidePeerBadges = func() bool { return a.preferences.Global().HidePeerBadges }
+	a.settings.setHidePeerBadges = func(on bool) {
+		if err := services.Preferences.SetHidePeerBadges(on); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+		if a.peerBadges != nil {
+			a.peerBadges.Wake()
+		}
+		w.Invalidate()
 	}
 	a.settings.localPremium = func() bool { return a.preferences.Global().LocalPremium }
 	a.settings.setLocalPremium = func(on bool) {
@@ -711,6 +742,9 @@ func (a *App) messageFilter() *messageFilter {
 
 // Close releases process-wide subscriptions when this window closes.
 func (a *App) Close() {
+	if a.stopBadges != nil {
+		a.stopBadges()
+	}
 	if a.settings != nil && a.settings.shortcuts != nil {
 		a.settings.shortcuts.Close()
 	}

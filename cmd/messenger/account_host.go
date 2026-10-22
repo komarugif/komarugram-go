@@ -27,6 +27,7 @@ import (
 	"komarugram/internal/messenger/account"
 	"komarugram/internal/messenger/install"
 	"komarugram/internal/messenger/localization"
+	"komarugram/internal/messenger/peerbadges"
 	"komarugram/internal/messenger/login"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/preferences"
@@ -57,6 +58,7 @@ type accountWindows struct {
 	manager *account.Manager
 	// proxies are the proxies the user keeps, and the one in use.
 	proxies     *proxy.Store
+	peerBadges  *peerbadges.Registry
 	security    *security.Manager
 	preferences *preferences.Store
 	miniapps    *miniappprefs.Settings
@@ -588,6 +590,7 @@ func (h *accountWindows) windowSpec(a *account.Account, session *accountSession,
 			session.window.Store(w)
 			content := ui.New(w, session.store, ui.Services{
 				Preferences: h.preferences, MiniApps: h.miniapps, Accounts: h, Security: h.security, Proxies: h.proxies,
+				PeerBadges:     h.peerBadges,
 				WindowLocked:   &session.locked,
 				CurrentAccount: session.accountID,
 				OpenWindow:     h.process.Open,

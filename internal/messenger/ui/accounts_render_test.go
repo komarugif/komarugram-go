@@ -189,7 +189,7 @@ func TestRenderAccountScreens(t *testing.T) {
 
 	// Premium: the section with and without a subscription, the chat list
 	// and the profile with the star.
-	// Without media, custom emoji do not load: the star stands for a status.
+	// Without media, custom emoji do not load: the star and the status are blank.
 	badges := (&App{}).badges
 	for name, active := range map[string]bool{"premium-on": true, "premium-off": false} {
 		page := newSettingsPage(motion.New(func() {}), miniappprefs.New(miniapp.Ephemeral), nil, func() {}, nil,
@@ -215,13 +215,13 @@ func TestRenderAccountScreens(t *testing.T) {
 	// The marks themselves, large, to compare with Telegram's; and each
 	// kind beside a name.
 	renderPNG(t, filepath.Join(dir, "badge-shapes.png"), image.Pt(480, 200), 1, func(gtx layout.Context) {
-		offset(gtx, image.Pt(20, 20), func(gtx layout.Context) layout.Dimensions { return layoutPremiumStar(gtx, 128) })
+		offset(gtx, image.Pt(20, 20), func(gtx layout.Context) layout.Dimensions { return premiumStarIcon(gtx, token.MatColor(telegramBlue), 128) })
 		offset(gtx, image.Pt(220, 20), func(gtx layout.Context) layout.Dimensions { return layoutVerified(gtx, 128) })
 	})
 	renderPNG(t, filepath.Join(dir, "badge-names.png"), image.Pt(420, 220), 1, func(gtx layout.Context) {
 		for i, b := range []model.Badges{{Premium: true}, {Verified: true}, {Verified: true, Premium: true}, {Scam: true}, {Fake: true, Premium: true}} {
 			offset(gtx, image.Pt(16, 12+i*40), func(gtx layout.Context) layout.Dimensions {
-				before, after := badges(b, 18, false)
+				before, after := badges(b, "", 18, false)
 				return withBadges(gtx, before, func(gtx layout.Context) layout.Dimensions {
 					return label(gtx, "Имя Фамилия", token.TypestyleTitleMediumEmphasized, scheme(gtx).Surface.OnColor, 1)
 				}, after)

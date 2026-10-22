@@ -50,6 +50,17 @@
 "audio.volume" = "Volume";
 "audio.yesterday" = "yesterday at {time}";
 
+"badge.extera_developer" = "{name} is a member of the exteraGram or AyuGram development team.";
+"badge.extera_official" = "{name} is an official resource of exteraGram or AyuGram.";
+"badge.extera_supporter" = "{name} supported exteraGram or AyuGram and received a unique badge.";
+"badge.komaru_developer" = "{name} is a member of the KomaruGram development team.";
+"badge.komaru_official" = "{name} is an official resource of KomaruGram.";
+"badge.komaru_partner" = "{name} is a partner from KomaruGif.";
+"badge.komaru_supporter" = "{name} supported KomaruGram and received a unique badge.";
+
+"badges.hide" = "Hide badges of exteraGram, AyuGram and KomaruGram";
+"badges.hide_body" = "The arrow and the cat's face beside the names of the developers and supporters of those clients. They come from lists the clients keep: this app reads them from their servers unless you hide the badges.";
+
 "bot.failed" = "Could not press the button";
 "bot.hide_keyboard" = "Hide keyboard";
 "bot.menu" = "Menu";

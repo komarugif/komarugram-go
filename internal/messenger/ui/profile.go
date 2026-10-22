@@ -163,7 +163,7 @@ func (p *profilePage) Layout(gtx layout.Context, me model.Profile, l localizatio
 				var before, after layout.Widget
 				if p.badges != nil {
 					// The profile shows the check mark and the status both.
-					before, after = p.badges(me.Badges, 24, true)
+					before, after = p.badges(me.Badges, me.Name(), 24, true)
 				}
 				if before == nil && after == nil {
 					return centeredLabel(gtx, me.Name(), token.TypestyleHeadlineSmall, sc.Surface.OnColor, 2)

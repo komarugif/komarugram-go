@@ -111,7 +111,7 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 	offset(textGtx, image.Pt(textX, gtx.Dp(8)), func(gtx layout.Context) layout.Dimensions {
 		var before, after layout.Widget
 		if badges != nil && head == nil {
-			before, after = badges(c.Badges, 18, false)
+			before, after = badges(c.Badges, title, 18, false)
 		}
 		return withBadges(gtx, before, func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, title, token.TypestyleTitleMediumEmphasized, sc.Surface.OnColor, 1)

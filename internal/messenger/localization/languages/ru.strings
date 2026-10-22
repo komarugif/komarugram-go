@@ -55,6 +55,17 @@
 "audio.volume" = "Громкость";
 "audio.yesterday" = "вчера в {time}";
 
+"badge.extera_developer" = "{name} — участник команды разработки exteraGram или AyuGram.";
+"badge.extera_official" = "{name} — официальный ресурс exteraGram или AyuGram.";
+"badge.extera_supporter" = "{name} поддержал exteraGram или AyuGram и получил уникальный значок.";
+"badge.komaru_developer" = "{name} — участник команды разработки KomaruGram.";
+"badge.komaru_official" = "{name} — официальный ресурс KomaruGram.";
+"badge.komaru_partner" = "{name} — партнёр из KomaruGif.";
+"badge.komaru_supporter" = "{name} поддержал KomaruGram и получил уникальный значок.";
+
+"badges.hide" = "Скрыть значки exteraGram, AyuGram и KomaruGram";
+"badges.hide_body" = "Стрелка и кошачья морда у имён разработчиков и сторонников этих клиентов. Они берутся из списков, которые клиенты ведут сами: приложение читает их с их серверов, пока значки не скрыты.";
+
 "bot.failed" = "Не удалось нажать кнопку";
 "bot.hide_keyboard" = "Скрыть клавиатуру";
 "bot.menu" = "Меню";

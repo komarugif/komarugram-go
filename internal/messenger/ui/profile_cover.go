@@ -236,7 +236,7 @@ func (p *chatInfo) layoutCover(gtx layout.Context, l localization.Catalog, anima
 	macro := op.Record(gtx.Ops)
 	var before, after layout.Widget
 	if p.badges != nil {
-		before, after = p.badges(p.chat.Badges, 22, true)
+		before, after = p.badges(p.chat.Badges, p.chat.Title, 22, true)
 	}
 	nameDims := withBadges(textGtx, before, func(gtx layout.Context) layout.Dimensions {
 		return label(gtx, l.ChatTitle(p.chat), token.TypestyleTitleLarge, textColor, 1)

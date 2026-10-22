@@ -89,6 +89,9 @@ type Badges struct {
 	// It lets the client tell an account of its own, which Local Premium
 	// marks, from any other.
 	User int64
+	// Channel is the channel the badges belong to, 0 for a chat that is not
+	// one: the bare id its official mark is looked up by.
+	Channel int64
 }
 
 // Folder is a chat folder. It holds the chats Match accepts or, without

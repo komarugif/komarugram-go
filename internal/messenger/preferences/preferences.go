@@ -73,6 +73,10 @@ type Global struct {
 	// and the Premium section of the settings. Telegram does not know of it,
 	// so nothing else changes.
 	LocalPremium bool `json:"local_premium,omitempty"`
+	// HidePeerBadges hides the marks of exteraGram, AyuGram and KomaruGram
+	// beside names (package peerbadges), and keeps the client from reading
+	// their lists.
+	HidePeerBadges bool `json:"hide_peer_badges,omitempty"`
 	// PremiumMedia has the WebSocket connections for files go to the address
 	// Telegram's web clients take them to for Premium accounts, which no other
 	// account is known to need: a lever for those who have Premium to try.
@@ -614,6 +618,12 @@ func (s *Store) SetVisualPrivacy(on bool) error {
 // SetLocalPremium makes the accounts look Premium to themselves, or not.
 func (s *Store) SetLocalPremium(on bool) error {
 	return s.change(func(g *Global) { g.LocalPremium = on })
+}
+
+// SetHidePeerBadges hides the marks of exteraGram, AyuGram and KomaruGram
+// beside names, or shows them.
+func (s *Store) SetHidePeerBadges(on bool) error {
+	return s.change(func(g *Global) { g.HidePeerBadges = on })
 }
 
 // SetPremiumMedia switches the Premium address for files over WebSocket.

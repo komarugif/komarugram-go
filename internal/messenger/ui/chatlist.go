@@ -424,7 +424,7 @@ func (l *chatList) layoutRowText(gtx layout.Context, c model.Chat, area image.Re
 	offset(titleGtx, area.Min, func(gtx layout.Context) layout.Dimensions {
 		var before, after layout.Widget
 		if l.badges != nil {
-			before, after = l.badges(c.Badges, 16, false)
+			before, after = l.badges(c.Badges, catalog.ChatTitle(c), 16, false)
 		}
 		return withBadges(gtx, before, func(gtx layout.Context) layout.Dimensions {
 			kind := chatKindIcon(c.Kind)

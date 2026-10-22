@@ -97,7 +97,7 @@ func userBadges(u *tg.User, now time.Time) model.Badges {
 // its own, but may have an emoji status.
 func channelBadges(c *tg.Channel, now time.Time) model.Badges {
 	return model.Badges{
-		EmojiStatus: emojiStatus(c.EmojiStatus, now),
+		EmojiStatus: emojiStatus(c.EmojiStatus, now), Channel: c.ID,
 		Verified:    c.Verified, Scam: c.Scam, Fake: c.Fake, BotVerification: c.BotVerificationIcon,
 	}
 }

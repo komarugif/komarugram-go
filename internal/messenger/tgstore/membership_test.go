@@ -330,6 +330,7 @@ func TestMembershipRefreshPreservesDialogState(t *testing.T) {
 	updated := s.Chats()[0]
 	original.Members = 15
 	original.Verified = true
+	original.Channel = ch.ID
 	if updated != original {
 		t.Fatalf("dialog state or metadata lost:\nwant %+v\ngot  %+v", original, updated)
 	}
