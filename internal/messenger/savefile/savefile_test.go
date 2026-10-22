@@ -5,6 +5,9 @@ package savefile
 import (
 	"bytes"
 	"testing"
+	"time"
+
+	"komarugram/internal/messenger/model"
 )
 
 func TestSafeName(t *testing.T) {
@@ -25,6 +28,25 @@ func TestSafeName(t *testing.T) {
 	} {
 		if got := SafeName(in); got != want {
 			t.Errorf("%q: %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A sticker is named after its document, not the name every sticker
+// carries; the others after what the sender named them.
+func TestName(t *testing.T) {
+	date := time.Date(2026, 10, 22, 12, 0, 0, 0, time.Local)
+	for _, c := range []struct {
+		m    model.Message
+		want string
+	}{
+		{model.Message{Kind: model.MessageSticker, Date: date, Media: &model.MessageMedia{ID: "document/5170233102089322756", FileName: "sticker.webp", MIMEType: "image/webp"}}, "sticker_5170233102089322756.webp"},
+		{model.Message{Kind: model.MessageSticker, Date: date, Media: &model.MessageMedia{ID: "document/42", MIMEType: "application/x-tgsticker"}}, "sticker_42.tgs"},
+		{model.Message{Kind: model.MessageFile, Date: date, Media: &model.MessageMedia{ID: "document/7", FileName: "report.pdf"}}, "report.pdf"},
+		{model.Message{Kind: model.MessageVideo, Date: date, Media: &model.MessageMedia{ID: "document/8", MIMEType: "video/mp4"}}, "video_2026-10-22_12-00-00.mp4"},
+	} {
+		if got := Name(c.m); got != c.want {
+			t.Errorf("%q, want %q", got, c.want)
 		}
 	}
 }

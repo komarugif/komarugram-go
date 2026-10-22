@@ -51,8 +51,17 @@ func Place(tmp, dir, name string) (string, error) {
 
 // Name is the name m's file is downloaded as: the one the sender
 // gave it, made safe, or Telegram Desktop's kind and date, as
-// "photo_2026-10-21_19-14-15.jpg".
+// "photo_2026-10-21_19-14-15.jpg". A sticker is named after its document,
+// as "sticker_5170233102089322756.webp": stickers mostly carry one name,
+// "sticker.webp", and one sticker is sent many times.
 func Name(m model.Message) string {
+	if m.Kind == model.MessageSticker && m.Media != nil && m.Media.ID != "" {
+		ext := filepath.Ext(m.Media.FileName)
+		if ext == "" {
+			ext = extensionOf(m)
+		}
+		return SafeName("sticker_" + m.Media.ID[strings.LastIndexByte(m.Media.ID, '/')+1:] + ext)
+	}
 	name := ""
 	if m.Media != nil {
 		name = m.Media.FileName
@@ -105,6 +114,8 @@ func extensionOf(m model.Message) string {
 		return ".mp3"
 	case "audio/mp4", "audio/m4a", "audio/x-m4a":
 		return ".m4a"
+	case "application/x-tgsticker":
+		return ".tgs"
 	case "":
 		if m.Kind == model.MessagePhoto {
 			return ".jpg"
