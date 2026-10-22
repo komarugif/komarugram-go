@@ -8,12 +8,9 @@
 // the toolchain's own copy of golang.org/x/sys is where the module's
 // Haiku files come from. Five modules need patches for Haiku
 // (docs/haiku/*.patch): they are downloaded, copied out of the module
-// cache, patched, and named in a copy of go.mod beside them, which every
-// go command it runs takes with -modfile. The copy names the Go of go-haiku
-// when that is older than go.mod asks: such a Go refuses go.mod itself,
-// and is run with a copy as well (docs/BUILD_HAIKU.md).
+// cache, patched, and named in a go.work beside them.
 //
-//	go run -modfile=/tmp/komarugram.mod ./cmd/haiku-build -o /boot/home/apps/KomaruGram
+//	go run -ldflags=-linkmode=internal ./cmd/haiku-build -o /boot/home/apps/KomaruGram
 //
 // With -test it runs the tests instead, with the same modules and flags,
 // and with the four libraries built into the work directory, where the
@@ -21,8 +18,8 @@
 // test as it is: packages and its flags, after a "--"; with nothing, the
 // tests of ./internal/... ./cmd/... ./pkg/...
 //
-//	go run ./cmd/haiku-build -test
-//	go run ./cmd/haiku-build -test -- -run TestPlayback ./pkg/audio
+//	go run -ldflags=-linkmode=internal ./cmd/haiku-build -test
+//	go run -ldflags=-linkmode=internal ./cmd/haiku-build -test -- -run TestPlayback ./pkg/audio
 package main
 
 import (
@@ -31,14 +28,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"go/version"
 	"io"
 	"io/fs"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 
@@ -78,7 +73,7 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	repo, err := repoRoot()
+	repo, err := goOutput("list", "-m", "-f", "{{.Dir}}")
 	if err != nil {
 		log.Fatalf("run it from the repository: %v", err)
 	}
@@ -89,48 +84,24 @@ func main() {
 		}
 		*work = filepath.Join(cache, "komarugram-go-haiku-build")
 	}
-	modFile, dirs, err := prepareWork(repo, *work)
+	goWork, dirs, err := prepareWork(repo, *work)
 	if err != nil {
 		log.Fatal(err)
 	}
 	if *test {
-		err = runTests(repo, *work, modFile, dirs, flag.Args())
+		err = runTests(repo, *work, goWork, dirs, flag.Args())
 	} else {
-		err = build(repo, *work, modFile, dirs, *out)
+		err = build(repo, *work, goWork, dirs, *out)
 	}
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-// repoRoot is the repository haiku-build runs in: the directory of the
-// go.mod above the working directory. No go command is asked: one in the
-// repository reads its go.mod, which an older go-haiku refuses.
-func repoRoot() (string, error) {
-	dir, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", errors.New("no go.mod above the working directory")
-		}
-		dir = parent
-	}
-}
-
-// prepareWork prepares the patched modules in work and writes the copy of
-// go.mod that names them, messenger.mod, with go.sum beside it as
-// messenger.sum; it returns its path and the modules' directories.
+// prepareWork prepares the patched modules in work and writes the go.work
+// that names them, returning its path and the modules' directories.
 func prepareWork(repo, work string) (string, map[string]string, error) {
-	if err := os.MkdirAll(work, 0o755); err != nil {
-		return "", nil, err
-	}
-	goroot, err := goOutput(work, "env", "GOROOT")
+	goroot, err := goOutput("env", "GOROOT")
 	if err != nil {
 		return "", nil, err
 	}
@@ -138,11 +109,18 @@ func prepareWork(repo, work string) (string, map[string]string, error) {
 	if names, _ := filepath.Glob(filepath.Join(haikuSys, "*_haiku*.go")); len(names) == 0 {
 		return "", nil, fmt.Errorf("this Go (%s) has no Haiku files of golang.org/x/sys: build with the Go of github.com/komarugif/go-haiku", goroot)
 	}
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		return "", nil, err
+	}
 	goMod, err := os.ReadFile(filepath.Join(repo, "go.mod"))
 	if err != nil {
 		return "", nil, err
 	}
-	modText := modFor(string(goMod), runtime.Version())
+	goLine := modGoLine(string(goMod))
+	if goLine == "" {
+		return "", nil, errors.New("go.mod has no go line")
+	}
+	workFile := fmt.Sprintf("%s\n\nuse %s\n\n", goLine, repo)
 	dirs := map[string]string{}
 	for _, m := range modules {
 		dir, err := prepare(repo, work, m, haikuSys)
@@ -150,54 +128,34 @@ func prepareWork(repo, work string) (string, map[string]string, error) {
 			return "", nil, fmt.Errorf("%s: %w", m.path, err)
 		}
 		dirs[m.path] = dir
-		modText += fmt.Sprintf("\nreplace %s => %s\n", m.path, dir)
+		workFile += fmt.Sprintf("replace %s => %s\n", m.path, dir)
 	}
-	modFile := filepath.Join(work, "messenger.mod")
-	if err := os.WriteFile(modFile, []byte(modText), 0o644); err != nil {
+	goWork := filepath.Join(work, "go.work")
+	if err := os.WriteFile(goWork, []byte(workFile), 0o644); err != nil {
 		return "", nil, err
 	}
-	if err := copyFile(filepath.Join(repo, "go.sum"), filepath.Join(work, "messenger.sum")); err != nil {
-		return "", nil, err
-	}
-	return modFile, dirs, nil
+	return goWork, dirs, nil
 }
 
-// goVersion is the version a Go names itself by, as runtime.Version says
-// it, without what a port adds after it.
-var goVersion = regexp.MustCompile(`^go[0-9]+(\.[0-9]+)*`)
-
-// modFor is goMod for the Go of running, a runtime.Version: its go line
-// lowered to that Go when the line asks for a newer one, which that Go
-// would refuse. go-haiku follows Go's releases behind them, and builds
-// the messenger meanwhile with what it has.
-func modFor(goMod, running string) string {
-	have := goVersion.FindString(running)
-	if have == "" {
-		return goMod
-	}
-	lines := strings.Split(goMod, "\n")
-	for i, line := range lines {
-		want, ok := strings.CutPrefix(strings.TrimSpace(line), "go ")
-		if ok && version.Compare("go"+want, have) > 0 {
-			lines[i] = "go " + strings.TrimPrefix(have, "go")
+// modGoLine is the go line of goMod, which go.work repeats: Go refuses a
+// go.work that asks for an older Go than a module it uses.
+func modGoLine(goMod string) string {
+	for _, line := range strings.Split(goMod, "\n") {
+		if line = strings.TrimSpace(line); strings.HasPrefix(line, "go ") {
+			return line
 		}
 	}
-	return strings.Join(lines, "\n")
+	return ""
 }
 
 // goEnv is the environment of the go commands that build the messenger
-// and its tests: with the copy of go.mod, modFile.
-func goEnv(modFile string) []string {
-	env := append(os.Environ(), "GOWORK=off", "GOFLAGS="+modFlags(modFile), "CGO_ENABLED=1")
+// and its tests.
+func goEnv(goWork string) []string {
+	env := append(os.Environ(), "GOWORK="+goWork, "CGO_ENABLED=1")
 	if _, set := os.LookupEnv("GOGC"); !set {
 		env = append(env, "GOGC=50")
 	}
 	return env
-}
-
-// modFlags is GOFLAGS with the copy of go.mod, modFile.
-func modFlags(modFile string) string {
-	return strings.TrimSpace(os.Getenv("GOFLAGS") + " -modfile=" + modFile)
 }
 
 // Apply limits to this build process and all Go children, including the
@@ -216,7 +174,7 @@ func enableLowMemory() error {
 	return os.Setenv("GOFLAGS", flags)
 }
 
-func build(repo, work, modFile string, dirs map[string]string, out string) error {
+func build(repo, work, goWork string, dirs map[string]string, out string) error {
 	out, err := filepath.Abs(out)
 	if err != nil {
 		return err
@@ -230,11 +188,11 @@ func build(repo, work, modFile string, dirs map[string]string, out string) error
 	// and a collector that runs sooner, keep it within reach.
 	cmd := program.Command("go", "build", "-p", "1", "-ldflags=-linkmode=internal", "-tags", "sqlite3_flock", "-o", binary, "./cmd/messenger")
 	cmd.Dir = repo
-	cmd.Env = goEnv(modFile)
+	cmd.Env = goEnv(goWork)
 	if err := run(cmd); err != nil {
 		return err
 	}
-	if _, err := buildLibs(repo, modFile, dirs, out); err != nil {
+	if _, err := buildLibs(repo, dirs, out); err != nil {
 		return err
 	}
 	// The signature, flags, version and icon, from the resource definition.
@@ -266,9 +224,8 @@ func libs(repo string, dirs map[string]string) []lib {
 }
 
 // buildLibs builds the libraries into out, and returns the variables that
-// name them there. Those of the repository build with its copy of go.mod,
-// modFile; oto's, with its own.
-func buildLibs(repo, modFile string, dirs map[string]string, out string) ([]string, error) {
+// name them there.
+func buildLibs(repo string, dirs map[string]string, out string) ([]string, error) {
 	var env []string
 	for _, l := range libs(repo, dirs) {
 		log.Printf("building %s", l.name)
@@ -276,9 +233,6 @@ func buildLibs(repo, modFile string, dirs map[string]string, out string) ([]stri
 		cmd := program.Command("go", "run", l.build, "-o", path)
 		cmd.Dir = filepath.Dir(l.build)
 		cmd.Env = append(os.Environ(), "GOWORK=off")
-		if rel, err := filepath.Rel(repo, l.build); err == nil && !strings.HasPrefix(rel, "..") {
-			cmd.Env = append(cmd.Env, "GOFLAGS="+modFlags(modFile))
-		}
 		if err := run(cmd); err != nil {
 			return nil, err
 		}
@@ -290,12 +244,12 @@ func buildLibs(repo, modFile string, dirs map[string]string, out string) ([]stri
 // runTests runs go test with args, or with the tests of the repository,
 // as the messenger is built. A test binary runs from a temporary
 // directory, so the libraries are named by their variables.
-func runTests(repo, work, modFile string, dirs map[string]string, args []string) error {
+func runTests(repo, work, goWork string, dirs map[string]string, args []string) error {
 	libDir := filepath.Join(work, "lib")
 	if err := os.MkdirAll(libDir, 0o755); err != nil {
 		return err
 	}
-	libEnv, err := buildLibs(repo, modFile, dirs, libDir)
+	libEnv, err := buildLibs(repo, dirs, libDir)
 	if err != nil {
 		return err
 	}
@@ -305,7 +259,7 @@ func runTests(repo, work, modFile string, dirs map[string]string, args []string)
 	log.Printf("running the tests: the first build takes several minutes, and about 4.5 GB of memory")
 	cmd := program.Command("go", append([]string{"test", "-p", "1", "-ldflags=-linkmode=internal", "-tags", "sqlite3_flock"}, args...)...)
 	cmd.Dir = repo
-	cmd.Env = append(goEnv(modFile), libEnv...)
+	cmd.Env = append(goEnv(goWork), libEnv...)
 	return run(cmd)
 }
 
@@ -316,10 +270,8 @@ func prepare(repo, work string, m patched, haikuSys string) (string, error) {
 	if _, err := os.Stat(filepath.Join(dir, ".patched")); err == nil {
 		return dir, nil
 	}
-	// Outside the repository, whose go.mod an older go-haiku refuses: a
-	// module of a version is downloaded as well without one.
 	cmd := program.Command("go", "mod", "download", "-json", m.path+"@"+m.version)
-	cmd.Dir = work
+	cmd.Dir = repo
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	data, err := cmd.Output()
 	if err != nil {
@@ -397,11 +349,9 @@ func run(cmd *exec.Cmd) error {
 	return nil
 }
 
-// goOutput runs go with args in dir, and returns what it printed.
-func goOutput(dir string, args ...string) (string, error) {
+func goOutput(args ...string) (string, error) {
 	var stderr bytes.Buffer
 	cmd := program.Command("go", args...)
-	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
