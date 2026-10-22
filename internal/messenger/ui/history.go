@@ -46,8 +46,11 @@ type messageRow struct {
 	children []layout.FlexChild
 	// mediaTold is the failure to load the row's media told in the toast
 	// last, so that a failure is told once, not on every frame.
-	mediaTold   error
+	mediaTold error
+	// avatarPoint is where the sender's avatar is drawn; bodyLeft, where
+	// the message with it starts.
 	avatarPoint image.Point
+	bodyLeft    int
 	bodySize    image.Point
 	bodyTop     int
 	album       map[model.MessageID]*messageRow

@@ -193,7 +193,7 @@ func (p *chatPage) selectionAreas(gtx layout.Context) {
 		m := p.messages[i]
 		height := int(p.heights.Prefix(i+1) - p.heights.Prefix(i))
 		if r := p.rows[m.Key.MessageID]; r != nil && m.Kind != model.MessageService {
-			left := r.avatarPoint.X
+			left := r.bodyLeft
 			right := left + r.bodySize.X
 			for _, rect := range []image.Rectangle{
 				image.Rect(0, top+r.bodyTop, left, top+height),

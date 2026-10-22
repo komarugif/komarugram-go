@@ -9,6 +9,7 @@ import (
 
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/unit"
 	"gioui.org/widget"
@@ -136,6 +137,25 @@ func (p *chatPage) withSenderAvatar(gtx layout.Context, m model.Message, bubble 
 	})
 	gap := layout.Rigid(func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{Size: image.Pt(gtx.Dp(8), 0)} })
 	body := layout.Rigid(bubble)
+	if m.Outgoing {
+		// On the side the message is on, as a sent one is on the right.
+		// The avatar's place is kept first: a flex lays its children out
+		// in order, and a bubble before it took the whole width, which a
+		// long message filled, the avatar then drawn over its end.
+		slot := gtx.Dp(34) + gtx.Dp(8)
+		bodyGtx := gtx
+		bodyGtx.Constraints.Max.X = max(0, gtx.Constraints.Max.X-slot)
+		macro := op.Record(gtx.Ops)
+		bd := bubble(bodyGtx)
+		call := macro.Stop()
+		size := image.Pt(bd.Size.X+slot, max(bd.Size.Y, gtx.Dp(34)))
+		offset(gtx, image.Pt(0, size.Y-bd.Size.Y), func(gtx layout.Context) layout.Dimensions {
+			call.Add(gtx.Ops)
+			return bd
+		})
+		p.rows[m.Key.MessageID].bodySize = size
+		return layout.Dimensions{Size: size}
+	}
 	dims := layout.Flex{Alignment: layout.End}.Layout(gtx, avatar, gap, body)
 	p.rows[m.Key.MessageID].bodySize = dims.Size
 	return dims

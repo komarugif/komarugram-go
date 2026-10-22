@@ -256,6 +256,12 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 	if m.Outgoing {
 		x = max(x, gtx.Constraints.Max.X-gtx.Dp(20)-r.bodySize.X)
 	}
+	r.bodyLeft = x
+	// The avatar is at the start of an incoming message, at the end of a
+	// sent one.
+	if m.Outgoing {
+		x += max(0, r.bodySize.X-gtx.Dp(34))
+	}
 	r.avatarPoint = image.Pt(x, r.bodyTop+r.bodySize.Y-gtx.Dp(34))
 	return dims
 }
