@@ -27,13 +27,41 @@ type Options struct {
 	MaxFPS int
 	// MaxBytes is the size the file should keep within: it is encoded
 	// again, at a lower quality, while it is larger, down to the lowest
-	// quality tried.
+	// quality tried. Below zero, the file is not kept within a size, and
+	// is encoded once, at the best quality.
 	MaxBytes int
 	// Speed is libvpx's (0 slowest, 9 fastest): 6 by default, the slowest
 	// of its real time mode, which encodes a sticker of 3 s in about 3.5 s
 	// here where its good quality (5) takes 13, for files about a quarter
 	// larger at one quality.
 	Speed int
+	// Progress, when set, is told how far Convert has come, from its
+	// goroutine.
+	Progress func(Progress)
+}
+
+// Stage is a part of a conversion.
+type Stage int
+
+const (
+	// Drawing draws the animation's frames.
+	Drawing Stage = iota
+	// Encoding encodes them.
+	Encoding
+)
+
+// Progress is how far a conversion has come: Done of Total frames of its
+// Stage. Pass counts the encodings from 1: the second and later ones are
+// at a lower quality, as the file was larger than MaxBytes.
+type Progress struct {
+	Stage             Stage
+	Done, Total, Pass int
+}
+
+func (o Options) tell(p Progress) {
+	if o.Progress != nil {
+		o.Progress(p)
+	}
 }
 
 func (o Options) withDefaults() Options {
@@ -43,7 +71,7 @@ func (o Options) withDefaults() Options {
 	if o.MaxFPS <= 0 {
 		o.MaxFPS = 30
 	}
-	if o.MaxBytes <= 0 {
+	if o.MaxBytes == 0 {
 		o.MaxBytes = 256 << 10
 	}
 	if o.Speed <= 0 {
@@ -80,23 +108,29 @@ func Convert(ctx context.Context, data []byte, options Options) ([]byte, error) 
 	// The pictures are drawn once, and encoded at each quality tried.
 	pictures := make([]*image.RGBA, frames)
 	for i := range pictures {
+		o.tell(Progress{Stage: Drawing, Done: i, Total: frames})
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		pictures[i] = image.NewRGBA(image.Rectangle{Max: anim.Size})
 		elapsed := time.Duration(i) * time.Second / time.Duration(fps)
 		if _, err := anim.FrameInto(ctx, elapsed, pictures[i]); err != nil {
 			return nil, err
 		}
 	}
+	o.tell(Progress{Stage: Drawing, Done: frames, Total: frames})
 	er, err := vp9.NewEncoderRuntime(ctx, vp9.EncoderLimits)
 	if err != nil {
 		return nil, err
 	}
 	defer er.Close(ctx)
 	var out []byte
-	for _, cq := range qualities {
-		if out, err = encode(ctx, er, pictures, anim.Size, fps, cq, o.Speed); err != nil {
+	for pass, cq := range qualities {
+		tell := func(done int) { o.tell(Progress{Stage: Encoding, Done: done, Total: frames, Pass: pass + 1}) }
+		if out, err = encode(ctx, er, pictures, anim.Size, fps, cq, o.Speed, tell); err != nil {
 			return nil, err
 		}
-		if len(out) <= o.MaxBytes {
+		if o.MaxBytes < 0 || len(out) <= o.MaxBytes {
 			break
 		}
 	}
@@ -104,7 +138,8 @@ func Convert(ctx context.Context, data []byte, options Options) ([]byte, error) 
 }
 
 // encode encodes pictures at quality cq, a key frame every two seconds.
-func encode(ctx context.Context, er *vp9.EncoderRuntime, pictures []*image.RGBA, size image.Point, fps, cq, speed int) ([]byte, error) {
+// It tells how many frames it has encoded.
+func encode(ctx context.Context, er *vp9.EncoderRuntime, pictures []*image.RGBA, size image.Point, fps, cq, speed int, tell func(int)) ([]byte, error) {
 	enc, err := er.NewAlphaEncoder(ctx, vp9.EncoderConfig{Width: size.X, Height: size.Y, FPS: fps, CQ: cq, Speed: speed})
 	if err != nil {
 		return nil, err
@@ -123,6 +158,7 @@ func encode(ctx context.Context, er *vp9.EncoderRuntime, pictures []*image.RGBA,
 		return nil
 	}
 	for i, p := range pictures {
+		tell(i)
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -141,5 +177,6 @@ func encode(ctx context.Context, er *vp9.EncoderRuntime, pictures []*image.RGBA,
 	if err := take(color, alpha); err != nil {
 		return nil, err
 	}
+	tell(len(pictures))
 	return webm.Mux(size.X, size.Y, frameDuration, frames)
 }

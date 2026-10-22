@@ -970,7 +970,6 @@
 "menu.album_saved#one" = "Сохранён {count} файл: {path}";
 "menu.album_saved#other" = "Сохранено {count} файла: {path}";
 "menu.clear_selection" = "Отменить выделение";
-"menu.converting" = "Делаю видео из стикера…";
 "menu.copy_message_link" = "Копировать ссылку";
 "menu.copy_post_link" = "Копировать ссылку";
 "menu.copy_selected" = "Копировать выделенный текст";
@@ -1694,6 +1693,19 @@
 "sticker_player.video_hint" = "Видео играют в просмотрщике так, как выбран внутренний плеер MP4-анимаций: WASM-песочница играет MP4 до HD, FFmpeg — любое видео; остальное открывается во внешнем плеере.";
 "sticker_player.video_title" = "Плеер видео";
 "sticker_player.wasm" = "WASM-песочница";
+
+"sticker_video.about" = "Lottie-стикер играет только в Telegram, поэтому он сохранится как видео WebM с прозрачностью — его откроют и другие программы.";
+"sticker_video.cancel" = "Отмена";
+"sticker_video.drawing" = "Рисую кадры: {done} из {total}";
+"sticker_video.encoding" = "Кодирую кадры: {done} из {total}";
+"sticker_video.encoding_again" = "Сжимаю до 256 КБ (проход {pass}): {done} из {total}";
+"sticker_video.fps_30" = "30 кадров/с";
+"sticker_video.fps_30_sendable" = "30 кадров/с до 256 КБ";
+"sticker_video.fps_60" = "60 кадров/с";
+"sticker_video.loading" = "Загружаю стикер…";
+"sticker_video.quality" = "Качество";
+"sticker_video.save" = "Сохранить";
+"sticker_video.title" = "Сохранить как видео";
 
 "stickers.action_failed" = "Не удалось изменить набор";
 "stickers.add" = "Добавить стикеры";

@@ -924,7 +924,6 @@
 "menu.album_saved#one" = "Saved {count} file: {path}";
 "menu.album_saved#other" = "Saved {count} files: {path}";
 "menu.clear_selection" = "Clear Selection";
-"menu.converting" = "Making a video of the sticker…";
 "menu.copy_message_link" = "Copy Message Link";
 "menu.copy_post_link" = "Copy Post Link";
 "menu.copy_selected" = "Copy Selected Text";
@@ -1632,6 +1631,19 @@
 "sticker_player.video_hint" = "Videos play in the media viewer as the internal MP4 animation player is chosen: the WASM sandbox plays HD MP4 videos, FFmpeg any video; anything else opens in the external player.";
 "sticker_player.video_title" = "Video player";
 "sticker_player.wasm" = "WASM sandbox";
+
+"sticker_video.about" = "A Lottie sticker plays only in Telegram: it is saved as a WebM video with transparency, which other programs play.";
+"sticker_video.cancel" = "Cancel";
+"sticker_video.drawing" = "Drawing frames: {done} of {total}";
+"sticker_video.encoding" = "Encoding frames: {done} of {total}";
+"sticker_video.encoding_again" = "Fitting into 256 KB (pass {pass}): {done} of {total}";
+"sticker_video.fps_30" = "30 fps";
+"sticker_video.fps_30_sendable" = "30 fps within 256 KB";
+"sticker_video.fps_60" = "60 fps";
+"sticker_video.loading" = "Loading the sticker…";
+"sticker_video.quality" = "Quality";
+"sticker_video.save" = "Save";
+"sticker_video.title" = "Save as Video";
 
 "stickers.action_failed" = "Could not change sticker set";
 "stickers.add" = "Add stickers";

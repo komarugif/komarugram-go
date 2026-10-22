@@ -326,6 +326,8 @@ type chatPage struct {
 	snapshotting bool
 	shot         shotDialog
 	historyWidth int
+	// stickerVideo saves a Lottie sticker as a video.
+	stickerVideo stickerVideoDialog
 	// albumSave asks what of an album to save.
 	albumSave albumSaveDialog
 	// player and setPlayer read and save the external player the user
@@ -560,6 +562,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.reacted.stop()
 		p.edits.stop()
 		p.shot.stop()
+		p.stickerVideo.close()
 		p.albumSave = albumSaveDialog{}
 		p.translation.stop()
 		p.closeChatSearch()
@@ -853,6 +856,7 @@ func (p *chatPage) layoutDialogs(gtx layout.Context, l localization.Catalog) {
 	p.reacted.layout(gtx, p, l)
 	p.edits.layout(gtx, p, l)
 	p.shot.layout(gtx, p, l)
+	p.stickerVideo.layout(gtx, p, l)
 	p.albumSave.layout(gtx, p, l)
 	p.translation.layout(gtx, p, l)
 	if p.composer != nil {

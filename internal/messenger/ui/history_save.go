@@ -14,7 +14,6 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/savefile"
-	"komarugram/pkg/tgswebm"
 )
 
 // The item of a message's menu that saves its file. A photo goes into the
@@ -98,10 +97,11 @@ func (p *chatPage) saveMessage(m model.Message, way saveWay, l localization.Cata
 			p.reportNotice(l.Format("viewer.saved", map[string]string{"path": path}))
 		}()
 	case saveAs:
-		name := savefile.Name(m)
 		if lottieSticker(m) {
-			name = strings.TrimSuffix(name, filepath.Ext(name)) + ".webm"
+			p.stickerVideo.open(m)
+			return
 		}
+		name := savefile.Name(m)
 		kind := l.Format("menu.save_files", map[string]string{"ext": strings.ToUpper(strings.TrimPrefix(filepath.Ext(name), "."))})
 		go func() {
 			defer crash.Recover("save file", func(e *crash.Panic) { p.reportMedia(e) })
@@ -109,9 +109,6 @@ func (p *chatPage) saveMessage(m model.Message, way saveWay, l localization.Cata
 			defer cancel()
 			path, err := chooseSavePath(ctx, name, kind)
 			if err == nil && path != "" {
-				if lottieSticker(m) {
-					p.reportNotice(l.T("menu.converting"))
-				}
 				err = p.writeMedia(ctx, m, path)
 			}
 			switch {
@@ -124,9 +121,32 @@ func (p *chatPage) saveMessage(m model.Message, way saveWay, l localization.Cata
 	}
 }
 
-// writeMedia writes m's file at path, which the user chose: into a file
-// beside it first, which takes its place once whole.
+// writeMedia writes m's file at path, which the user chose.
 func (p *chatPage) writeMedia(ctx context.Context, m model.Message, path string) error {
+	return writeWhole(ctx, path, func(f *os.File) error {
+		if source, ok := p.source.(interface {
+			MediaStream(context.Context, model.Message) (io.ReaderAt, int64, func(), error)
+		}); ok && !m.Media.Whole() {
+			r, size, closeStream, err := source.MediaStream(ctx, m)
+			if err != nil {
+				return err
+			}
+			defer closeStream()
+			_, err = io.Copy(f, io.NewSectionReader(r, 0, size))
+			return err
+		}
+		data, err := p.source.Media(ctx, m)
+		if err != nil {
+			return err
+		}
+		_, err = f.Write(data)
+		return err
+	})
+}
+
+// writeWhole writes a file at path with write: into a file beside it
+// first, which takes its place once whole.
+func writeWhole(ctx context.Context, path string, write func(*os.File) error) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".komarugram-*.part")
 	if err != nil {
 		return err
@@ -138,37 +158,8 @@ func (p *chatPage) writeMedia(ctx context.Context, m model.Message, path string)
 			os.Remove(tmp.Name())
 		}
 	}()
-	if lottieSticker(m) {
-		data, err := p.source.Media(ctx, m)
-		if err == nil {
-			data, err = tgswebm.Convert(ctx, data, tgswebm.Options{})
-		}
-		if err != nil {
-			return err
-		}
-		if _, err := tmp.Write(data); err != nil {
-			return err
-		}
-	} else if source, ok := p.source.(interface {
-		MediaStream(context.Context, model.Message) (io.ReaderAt, int64, func(), error)
-	}); ok && !m.Media.Whole() {
-		r, size, closeStream, err := source.MediaStream(ctx, m)
-		if err != nil {
-			return err
-		}
-		_, err = io.Copy(tmp, io.NewSectionReader(r, 0, size))
-		closeStream()
-		if err != nil {
-			return err
-		}
-	} else {
-		data, err := p.source.Media(ctx, m)
-		if err != nil {
-			return err
-		}
-		if _, err := tmp.Write(data); err != nil {
-			return err
-		}
+	if err := write(tmp); err != nil {
+		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err

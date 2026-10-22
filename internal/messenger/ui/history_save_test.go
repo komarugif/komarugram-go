@@ -14,6 +14,7 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
+	"komarugram/pkg/tgswebm"
 	"komarugram/pkg/webm"
 )
 
@@ -97,14 +98,50 @@ func TestSaveMessage(t *testing.T) {
 	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
 		t.Fatal("files left beside it:", len(entries))
 	}
-	// A Lottie sticker is saved as a video sticker.
+	// A Lottie sticker is saved as a video, at the frame rate chosen,
+	// telling how far it has come.
 	sticker := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "demo/tgs", MIMEType: "application/x-tgsticker", Size: 1}}
 	target = filepath.Join(dir, "sticker.webm")
-	if err := p.writeMedia(context.Background(), sticker, target); err != nil {
+	var last tgswebm.Progress
+	share := float32(0)
+	options := tgswebm.Options{MaxFPS: 60, MaxBytes: -1, Progress: func(progress tgswebm.Progress) {
+		if s := stickerVideoShare(progress, false); s < share {
+			t.Errorf("the bar went back from %v to %v at %+v", share, s, progress)
+		} else {
+			share = s
+		}
+		last = progress
+	}}
+	if err := p.writeStickerVideo(context.Background(), sticker, target, options); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(target)
-	if file, err := webm.Demux(data); err != nil || !file.HasAlpha() || file.Width != 512 || len(file.Frames) == 0 {
-		t.Fatal("not a video sticker:", err)
+	if file, err := webm.Demux(data); err != nil || !file.HasAlpha() || file.Width != 512 || len(file.Frames) == 0 || file.FrameDuration != time.Second/60 {
+		t.Fatal("not a video sticker of 60 frames a second:", err)
+	}
+	if last.Stage != tgswebm.Encoding || last.Done != last.Total || last.Pass != 1 || share != 1 {
+		t.Fatalf("progress ended at %+v, %v", last, share)
+	}
+}
+
+// The bar of a video kept within a size never goes back, though a pass at
+// a lower quality encodes the frames again.
+func TestStickerVideoShare(t *testing.T) {
+	share := float32(0)
+	steps := []tgswebm.Progress{{Stage: tgswebm.Drawing, Total: 90}, {Stage: tgswebm.Drawing, Done: 90, Total: 90}}
+	for pass := 1; pass <= 4; pass++ {
+		for _, done := range []int{0, 45, 90} {
+			steps = append(steps, tgswebm.Progress{Stage: tgswebm.Encoding, Done: done, Total: 90, Pass: pass})
+		}
+	}
+	for _, p := range steps {
+		s := stickerVideoShare(p, true)
+		if s < share || s > 1 {
+			t.Fatalf("%+v: %v after %v", p, s, share)
+		}
+		share = s
+	}
+	if share != 1 {
+		t.Fatal("the bar ended at", share)
 	}
 }

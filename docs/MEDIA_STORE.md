@@ -213,13 +213,24 @@ with the one that opened it. A right click on an album while a menu is
 open only closes the menu: the open menu takes that press, and no part
 sees it.
 
-A Lottie sticker is saved as a video sticker (`pkg/tgswebm`), which other
-programs play; the set's archive keeps the TGS. It is drawn by pkg/lottie
-and encoded by libvpx's VP9 encoder in its sandbox (`pkg/vp9/encoder.go`,
-`vpxenc.wasm.zst`, 424 KB, built by `build/build.sh` with `KIND=encoder`),
-as Telegram's video stickers are: 512 pixels, at most 30 frames a second,
-its own length, within 256 KiB when it can be (encoded again at a lower
-quality while it is larger). The alpha is a second VP9 stream in each
+A Lottie sticker is saved as a video (`pkg/tgswebm`, `ui/sticker_video.go`),
+which other programs play; the set's archive keeps the TGS. A dialog asks
+for the quality: 60 frames a second, as Telegram plays it (most stickers
+are made at 60); 30; or 30 within 256 KiB, a video sticker as Telegram
+takes them (encoded again at a lower quality while it is larger). It is
+mostly saved for a video editor, which takes any size: the first two are
+not kept within one. The dialog then shows a bar of the conversion: the
+frames drawn (about 15% of the time of an encoding), then encoded, the
+frames counted. A pass at a lower quality continues the bar rather than
+start it again (its parts end at 15, 70, 88, 96 and 100%), and says so;
+Cancel stops it. A sticker's file is named after its document,
+`sticker_<id>`, as stickers mostly carry one name, `sticker.webp`; the
+video adds its quality, `sticker_<id>_60fps.webm`.
+
+It is drawn by pkg/lottie and encoded by libvpx's VP9 encoder in its sandbox (`pkg/vp9/encoder.go`, `vpxenc.wasm.zst`, 424 KB,
+built by `build/build.sh` with `KIND=encoder`), at 512 pixels and its own
+length. The sample sticker at 60 frames a second: 390 KiB, one encode,
+about 2.7 s here. The alpha is a second VP9 stream in each
 block's BlockAdditional, as FFmpeg's libvpx-vp9 writes it, both streams in
 full-range BT.601, which the bitstream says; `pkg/webm/mux.go` writes the
 file. libvpx's real time mode at speed 6 encodes the sample sticker (3 s)
