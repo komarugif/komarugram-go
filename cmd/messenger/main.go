@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -62,6 +63,8 @@ func main() {
 	demoChats := flag.Int("demo-chats", 0, "run on demo data with this many generated chats added")
 	demoPanic := flag.Bool("demo-panic", false, "show the recovered-panic dialog once on demo data")
 	demoNotify := flag.Duration("demo-notify", 0, "on demo data, receive a message this often, to try notifications")
+	demoOpen := flag.String("demo-open", "", "on demo data, open a chat at a message: CHAT or CHAT/MESSAGE by their IDs, or a message of the demo's history by name ("+strings.Join(mockstore.Landmarks(), ", ")+")")
+	demoQuiet := flag.Bool("demo-quiet", false, "on demo data, offer nothing unasked (an emoji pack, the registration points): no dialog comes over what is being tried")
 	demoSignInFlag := flag.Bool("demo-signin", false, "on demo data, first go through everything before an account is added: the offers to install and to protect local data, the QR code, the phone number, the code ("+demoCode+") and the cloud password ("+demoPassword+"); nothing is installed or saved")
 	var tdataPaths pathsFlag
 	flag.Var(&tdataPaths, "tdata", "import a Telegram Desktop tdata zip or every zip in a directory; may be repeated")
@@ -166,7 +169,7 @@ func main() {
 
 	if demoMode {
 		reportLastCrash(catalog)
-		runDemo(*demoChats, *profile, *profileDir, *demoPanic, *demoNotify, *demoSignInFlag)
+		runDemo(*demoChats, *profile, *profileDir, *demoPanic, *demoNotify, *demoSignInFlag, *demoOpen, *demoQuiet)
 		return
 	}
 	// A second start brings the running instance back from the tray.
@@ -346,7 +349,7 @@ func reportLastCrash(catalog localization.Catalog) {
 // neither reads nor changes the user's settings, accounts or local-data
 // protection. With signIn the window starts at the sign-in that comes before
 // the first account (demo_signin.go), and the demo's data show once it is done.
-func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive time.Duration, signIn bool) {
+func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive time.Duration, signIn bool, open string, quiet bool) {
 	prefs := preferences.Memory()
 	followLanguage(prefs)
 	process := newProcess(profile, profileDir, nil)
@@ -371,6 +374,10 @@ func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive
 	opts.ProfileName = "demo"
 	opts.DemoPanic = panicDemo
 	store := mockstore.New(time.Now(), chats)
+	openAt, err := demoMessage(store, open)
+	if err != nil {
+		log.Fatalf("-demo-open: %v", err)
+	}
 	var window atomic.Pointer[appwindow.Window]
 	var app atomic.Pointer[ui.App]
 	catalog := localization.For(prefs.Global().Language)
@@ -450,12 +457,18 @@ func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive
 			MiniApps:    miniApps(prefs),
 			Security:    protection,
 			OpenWindow:  process.Open,
-			OfferEmoji:  true,
+			OfferEmoji:  !quiet,
 			// The demo's points go nowhere.
-			OfferRegistrationPoints: true,
+			OfferRegistrationPoints: !quiet,
 		})
 		window.Store(w)
 		app.Store(content)
+		if openAt.ChatID != 0 {
+			// The first window only: one opened again from the tray
+			// stays where the user is.
+			content.OpenMessage(openAt.ChatID, openAt.MessageID)
+			openAt = model.MessageKey{}
+		}
 		if signIn {
 			l := login.New(w.Invalidate)
 			content.RequireDemoLogin(l)
@@ -696,4 +709,28 @@ func useWasmCache() {
 		return
 	}
 	sandbox.SetCache(c)
+}
+
+// demoMessage is the message -demo-open names: "CHAT", "CHAT/MESSAGE" or a
+// landmark of the demo's history; none for an empty value.
+func demoMessage(store *mockstore.Store, value string) (model.MessageKey, error) {
+	if value == "" {
+		return model.MessageKey{}, nil
+	}
+	chat, message, hasMessage := strings.Cut(value, "/")
+	if id, err := strconv.ParseInt(chat, 10, 64); err == nil {
+		key := model.MessageKey{ChatID: id}
+		if hasMessage {
+			n, err := strconv.Atoi(message)
+			if err != nil || n <= 0 {
+				return model.MessageKey{}, fmt.Errorf("%q is not a message ID", message)
+			}
+			key.MessageID = model.MessageID(n)
+		}
+		return key, nil
+	}
+	if key, ok := store.Landmark(value); ok {
+		return key, nil
+	}
+	return model.MessageKey{}, fmt.Errorf("%q is neither CHAT/MESSAGE nor one of %s", value, strings.Join(mockstore.Landmarks(), ", "))
 }

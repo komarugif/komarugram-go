@@ -66,10 +66,11 @@ type App struct {
 	// focused is set while the window has the focus.
 	focused bool
 	// shownChat and shownFocus tell other goroutines the open chat and the
-	// focus (see Showing); openChat is a chat to open (see OpenChat).
+	// focus (see Showing); openChat is a chat to open (see OpenChat and
+	// OpenMessage).
 	shownChat  atomic.Int64
 	shownFocus atomic.Bool
-	openChat   atomic.Int64
+	openChat   atomic.Pointer[chatPick]
 	// usernames are the chats the settings asked for by their usernames,
 	// as Telegram resolved them.
 	usernames chan usernameResult
@@ -894,8 +895,8 @@ func (a *App) Update(gtx layout.Context) {
 		a.registrationOffer.Update(gtx, a.chats.toast.Show, a.catalog(), a.window.Invalidate)
 	}
 	a.frozen.Update(gtx)
-	if id := a.openChat.Swap(0); id != 0 {
-		a.open(chatPick{ID: id})
+	if pick := a.openChat.Swap(nil); pick != nil {
+		a.open(*pick)
 	}
 	select {
 	case r := <-a.usernames:
@@ -1444,7 +1445,14 @@ func mediaFrame(gtx layout.Context, m *chatmedia.Manager) func() {
 // OpenChat opens chat in the window, as a click in the chat list would; it
 // may be called from any goroutine.
 func (a *App) OpenChat(chat int64) {
-	a.openChat.Store(chat)
+	a.openChat.Store(&chatPick{ID: chat})
+	a.window.Invalidate()
+}
+
+// OpenMessage opens chat at message, as a click on a quote of it would;
+// it may be called from any goroutine.
+func (a *App) OpenMessage(chat int64, message model.MessageID) {
+	a.openChat.Store(&chatPick{ID: chat, Message: message})
 	a.window.Invalidate()
 }
 

@@ -37,6 +37,17 @@ func (s *Store) SaveView(v model.Viewport, ls []model.MessageLayout) {
 	}
 	s.views[v.ChatID] = v
 }
+
+// Reveal implements model.MessageRevealer: the whole history is there, and
+// only its viewport starts at the message.
+func (s *Store) Reveal(chat int64, id model.MessageID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.views == nil {
+		s.views = map[int64]model.Viewport{}
+	}
+	s.views[chat] = model.Viewport{AccountID: "demo", ChatID: chat, AnchorMessageID: id, UpdatedAt: time.Now()}
+}
 func (s *Store) Layouts(int64, model.RenderEnvironment) []model.MessageLayout { return nil }
 func (s *Store) History(chat int64) model.History {
 	s.mu.Lock()

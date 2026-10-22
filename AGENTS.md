@@ -182,7 +182,12 @@ working on this code".
 ## Testing the app live
 
 - `-demo` runs on made-up data, without an account; nothing it does
-  reaches Telegram.
+  reaches Telegram. `-demo-open` opens a chat at a message, by
+  `CHAT/MESSAGE` or by the name of one of the demo's (`album`, `sticker`,
+  `voice`… : `mockstore.Landmarks`), at the top of the history; `-demo-quiet`
+  keeps the demo's offers (an emoji pack, the registration points, 20 s
+  after the start) from coming over what is tried:
+  `messenger -demo -demo-quiet -demo-open sticker`.
 - `-no-integrations` makes the client find no FFmpeg, player or browser on
   the system, only the paths set in the settings: the way to see it as on a
   machine without them.
@@ -202,7 +207,13 @@ On Linux under X11 (XFCE here):
 - Drive a window with `xdotool mousemove --window <id> x y click 1` (client
   coordinates) and `xdotool type`; find it by its title with `wmctrl -l`
   (Gio's windows carry no PID there, `wmctrl -lp` shows 0); screenshot the
-  active window with `xfce4-screenshooter -w -s file.png`.
+  active window with `xfce4-screenshooter -w -s file.png`. The screenshot
+  has the window's title bar, about 24 px, above the client area: take it
+  off a point read from it before clicking there.
+- What the client saves goes into the user's downloads and pictures, which
+  `user-dirs.dirs` names: run it with `XDG_CONFIG_HOME` at a directory
+  whose `user-dirs.dirs` names scratch ones (`XDG_DOWNLOAD_DIR`,
+  `XDG_PICTURES_DIR`).
 - Close windows with `wmctrl -i -c <id>`, not `xdotool windowclose`: Gio never
   sees a `DestroyEvent` then.
 - The tray (SNI) can be called over D-Bus: `busctl --user call

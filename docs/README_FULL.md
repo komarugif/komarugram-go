@@ -74,6 +74,7 @@ From the repository root, so that the kitchen finds its media:
 go run ./cmd/messenger                     # sign in by phone number; the session is kept
 go run ./cmd/messenger -demo               # demo data, no account
 go run ./cmd/messenger -demo-signin        # demo data, after the sign-in that comes before an account (code 12345, cloud password demo)
+go run ./cmd/messenger -demo -demo-open album -demo-quiet   # demo data, opened at the album, without the demo's offers
 go run ./cmd/messenger -demo-chats 50000   # try the UI with a huge chat list
 go run ./cmd/messenger -tdata pkg/tdata/assets/tdata.zip          # import and open a real account
 go run ./cmd/messenger -tdata assets                              # import every tdata zip and open one window per account
