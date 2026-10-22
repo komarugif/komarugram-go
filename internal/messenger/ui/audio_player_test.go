@@ -356,3 +356,34 @@ func TestUnknownFormatGoesExternal(t *testing.T) {
 		t.Fatalf("an error was told: %v", p.mediaError)
 	}
 }
+
+// panickyPlayback panics where the system's audio would.
+type panickyPlayback struct{ silentPlayback }
+
+func (*panickyPlayback) SetVolume(float64) { panic("the system's audio") }
+
+// A panic of the playback while the volume is set leaves the player's lock
+// free: held, it would hang every frame after the panic.
+func TestVolumePanicLeavesLockFree(t *testing.T) {
+	type player struct {
+		name string
+		mu   *sync.Mutex
+		set  func()
+	}
+	a := newAudioPlayer()
+	a.playback = &panickyPlayback{}
+	v := &viewerVideo{playback: &panickyPlayback{}}
+	for _, p := range []player{
+		{"audio", &a.mu, func() { a.setVolume(.5, false) }},
+		{"viewer's video", &v.mu, func() { v.setVolume(.5, false) }},
+	} {
+		func() {
+			defer func() { _ = recover() }()
+			p.set()
+		}()
+		if !p.mu.TryLock() {
+			t.Fatalf("the %s player's lock stayed held", p.name)
+		}
+		p.mu.Unlock()
+	}
+}

@@ -233,11 +233,12 @@ func (a *articleWindow) layout(gtx layout.Context, animate bool) {
 	p.keyboardEvents(gtx, a.catalog)
 	p.botUpdate(l)
 	p.errorMu.Lock()
-	if err := p.mediaError; err != nil {
-		p.mediaError = nil
-		p.toast.Show(mediaErrorText(err))
-	}
+	mediaErr := p.mediaError
+	p.mediaError = nil
 	p.errorMu.Unlock()
+	if mediaErr != nil {
+		p.toast.Show(mediaErrorText(mediaErr))
+	}
 	p.toast.Layout(gtx, image.Rectangle{Max: size})
 	p.entityMenuLayout(gtx, l)
 	p.layoutDialogs(gtx, l)

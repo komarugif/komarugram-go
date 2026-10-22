@@ -1715,6 +1715,7 @@
 
 "viewer.close" = "Close";
 "viewer.copied" = "Photo copied to clipboard.";
+"viewer.recovered" = "Could not display the photo. The viewer was closed.";
 "viewer.counter" = "%d of %d";
 "viewer.failed" = "Could not load the photo · click to retry";
 "viewer.keep_failed" = "Could not keep the photo";
@@ -1742,6 +1743,7 @@
 "window.issue_opened" = "The form is open in the browser";
 "window.issue_paste" = "The report is too long for the link and was copied: paste it into the form";
 "window.panic" = "An error occurred in the app";
+"window.recovered" = "Could not display this. Returned to the chat list.";
 "window.redrawing" = "The window failed to draw. Trying again…";
 "window.report_issue" = "Report on GitHub";
 "window.reports" = "Reports: {path}";

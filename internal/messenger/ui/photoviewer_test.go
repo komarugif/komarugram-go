@@ -455,3 +455,48 @@ func TestPhotoViewerPlacesPhotoInGallery(t *testing.T) {
 		t.Fatalf("cached gallery read whole: %s", got)
 	}
 }
+
+// A video without a thumbnail has an empty plate in the strip: it panicked
+// there, and the window stayed on its panic screen.
+func TestPhotoViewerStripShowsVideoWithoutThumbnail(t *testing.T) {
+	h := newViewerHarness(t)
+	s := h.store
+	s.photos[15].Kind = model.MessageVideo
+	h.viewer.Open(1, s.photos[14], s.photos[13:16])
+	h.frame()
+	// Three thumbnails, centred: the third is at x 431…487.
+	h.click(459, 558)
+	if h.viewer.current != s.photos[15].Key.MessageID {
+		t.Fatalf("the plate selected %d", h.viewer.current)
+	}
+}
+
+// A viewer whose layout panicked closes in the frame after, for the window
+// to show what is under it, instead of panicking again in every frame.
+func TestPhotoViewerClosesAfterPanic(t *testing.T) {
+	h := newViewerHarness(t)
+	s := h.store
+	h.viewer.Open(1, s.photos[14], s.photos[13:16])
+	h.frame()
+	if h.viewer.recoverFrame() {
+		t.Fatal("a viewer drawn whole recovered")
+	}
+	// The thumbnails' state is written in every frame: without it, Layout
+	// panics.
+	h.viewer.thumbState = nil
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("no panic")
+			}
+		}()
+		h.frame()
+	}()
+	if !h.viewer.recoverFrame() || h.viewer.open {
+		t.Fatal("the viewer stayed open after its layout panicked")
+	}
+	h.viewer.thumbState = map[model.MessageID]*viewerThumbState{}
+	h.viewer.Open(1, s.photos[14], s.photos[13:16])
+	h.frame()
+	h.frame()
+}

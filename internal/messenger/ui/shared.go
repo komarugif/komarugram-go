@@ -370,11 +370,12 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 	// What the media shown here tell goes in this dialog's toast: the
 	// renderer's own is not drawn.
 	p.renderer.errorMu.Lock()
-	if err := p.renderer.mediaError; err != nil {
-		p.renderer.mediaError = nil
-		p.modal.Toast(mediaErrorText(err))
-	}
+	mediaErr := p.renderer.mediaError
+	p.renderer.mediaError = nil
 	p.renderer.errorMu.Unlock()
+	if mediaErr != nil {
+		p.modal.Toast(mediaErrorText(mediaErr))
+	}
 	if text := p.renderer.toast.Text(); text != "" {
 		p.renderer.toast.Hide()
 		p.modal.Toast(text)

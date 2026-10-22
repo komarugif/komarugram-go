@@ -303,11 +303,12 @@ func (p *downloadsPage) Layout(gtx layout.Context, l localization.Catalog, anima
 		defer mediaFrame(gtx, p.media)()
 	}
 	p.mu.Lock()
-	if p.notice != "" {
-		p.page.toast.Show(p.notice)
-		p.notice = ""
-	}
+	notice := p.notice
+	p.notice = ""
 	p.mu.Unlock()
+	if notice != "" {
+		p.page.toast.Show(notice)
+	}
 	list, loaded, err := p.shown()
 	told := ""
 	if err != nil {

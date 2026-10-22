@@ -71,6 +71,12 @@ func (p *photoWindow) Layout(gtx layout.Context) {
 	}
 }
 
+// RecoverFrame closes the viewer whose layout panicked, and with it the
+// window, in the frame after.
+func (p *photoWindow) RecoverFrame() bool {
+	return p.viewer.recoverFrame()
+}
+
 func (p *photoWindow) Locale() system.Locale {
 	return WindowLocale(p.catalog)
 }

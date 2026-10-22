@@ -5,6 +5,7 @@ package layout
 import (
 	"image"
 	"math"
+	"time"
 
 	"gioui.org/gesture"
 	"gioui.org/io/pointer"
@@ -50,6 +51,9 @@ type List struct {
 	maxSize  int
 	children []scrollChild
 	dir      iterationDir
+	// started is the frame time of the last Layout, to tell a child left
+	// unfinished by a panic in an earlier frame from a nested Layout.
+	started time.Time
 }
 
 // ListElement is a function that computes the dimensions of
@@ -94,8 +98,14 @@ const inf = 1e6
 // init prepares the list for iterating through its children with next.
 func (l *List) init(gtx Context, len int) {
 	if l.more() {
-		panic("unfinished child")
+		if gtx.Now.Equal(l.started) {
+			panic("unfinished child")
+		}
+		// A child panicked in an earlier frame, which was dropped: start
+		// again rather than panic in every frame after it.
+		l.dir = iterateNone
 	}
+	l.started = gtx.Now
 	l.cs = gtx.Constraints
 	l.maxSize = 0
 	l.children = l.children[:0]

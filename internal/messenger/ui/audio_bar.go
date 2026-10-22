@@ -248,16 +248,20 @@ func (v *audioPlayer) loudness() float64 {
 // moves, nor when it comes from what was kept.
 func (v *audioPlayer) setVolume(volume float64, keep bool) {
 	volume = min(max(volume, 0), 1)
-	v.mu.Lock()
-	v.volume = volume
-	if volume > 0 {
-		v.unmuted = volume
-	}
-	if v.playback != nil {
-		v.playback.SetVolume(volume)
-	}
-	save := v.saveVolume
-	v.mu.Unlock()
+	save := func() func(float64) {
+		// Deferred: the playback is the system's, and a panic there must
+		// not leave the lock held for every frame after.
+		v.mu.Lock()
+		defer v.mu.Unlock()
+		v.volume = volume
+		if volume > 0 {
+			v.unmuted = volume
+		}
+		if v.playback != nil {
+			v.playback.SetVolume(volume)
+		}
+		return v.saveVolume
+	}()
 	if keep && save != nil {
 		save(volume)
 	}

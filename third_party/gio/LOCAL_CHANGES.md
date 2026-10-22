@@ -617,3 +617,10 @@ Run the focused check from the project root:
   take the left arrow there at all, the caret being at the start, so the
   selection stayed. With a selection, the editor takes the arrows at either
   end of the text. `TestArrowCollapsesSelection`.
+- `layout/list.go` (`List.init`): a list whose child panicked in an earlier
+  frame starts again, instead of panicking with "unfinished child". The
+  messenger drops a frame whose layout panicked and draws the next one, but
+  a list the panic left in the middle of a child panicked in every frame
+  after it, and the window never came back. A nested Layout of the list,
+  in the same frame (the same `gtx.Now`), still panics.
+  `TestListAfterPanickedChild`.

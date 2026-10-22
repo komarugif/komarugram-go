@@ -182,7 +182,9 @@ type App struct {
 	windowLocked *atomic.Bool
 	visualLock   *visualLockView
 	lastInput    time.Time
-	unsubscribe  []func()
+	// panics counts the frames in a row that panicked, for RecoverFrame.
+	panics      int
+	unsubscribe []func()
 }
 
 // Services are process-wide dependencies shared by every account window.
@@ -1123,6 +1125,7 @@ func (a *App) open(pick chatPick) {
 func (a *App) Layout(gtx layout.Context) {
 	transparent, _ := a.window.Translucency()
 	a.layoutWindow(gtx, transparent)
+	a.panics = 0
 }
 
 // layoutWindow paints the main window using the transparency granted by the backend.

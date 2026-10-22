@@ -81,3 +81,47 @@ func TestReporterNotifiesWithSavedReport(t *testing.T) {
 		t.Fatalf("saved report differs from copy text: %v", err)
 	}
 }
+
+// A deferred call that panics as the stack unwinds replaces the value
+// recovered; the report still names where the first panic was.
+func TestFirstNamesThePanicUnderACascade(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
+	t.Setenv("LOCALAPPDATA", cache)
+	p := Guard("cascade", func() {
+		defer func() { panic("stack push and pop must not cross macro boundary") }()
+		var m map[string]int
+		m["first"] = 1
+	})
+	if p == nil || p.Value != "stack push and pop must not cross macro boundary" {
+		t.Fatalf("recovered %v", p)
+	}
+	if got := p.First(); !strings.Contains(got, "TestFirstNamesThePanicUnderACascade.func1 crash_test.go:") {
+		t.Fatalf("first panic at %q", got)
+	}
+	if !strings.Contains(p.Error(), "(first at ") || !strings.Contains(p.Text(), "\nfirst panic: ") {
+		t.Fatalf("the report does not name the first panic:\n%s", p.Text())
+	}
+	// From the report of the photo viewer's strip, as Go printed it.
+	p.Stack = []byte(`goroutine 53 [running, locked to thread]:
+runtime/debug.Stack()
+	/usr/local/go/src/runtime/debug/stack.go:26 +0x5e
+panic({0x2e11868?, 0x1b9f0d0?})
+	/usr/local/go/src/runtime/panic.go:859 +0x125
+gioui.org/op.TransformStack.Pop(...)
+	/home/kitty/projects/komarugram-go/third_party/gio/op/op.go:225
+panic({0x2e3a010?, 0x304d720?})
+	/usr/local/go/src/runtime/panic.go:859 +0x125
+komarugram/internal/messenger/ui.(*photoViewer).layoutStrip.func1.1.1({{{0x0, 0x38}, {0xf423a, 0x38}}, ...)
+	/home/kitty/projects/komarugram-go/internal/messenger/ui/photoviewer.go:1016 +0x35
+gioui.org/layout.Inset.Layout({0x0?, 0x0?, 0x0?, 0x0?}, ...)
+	/home/kitty/projects/komarugram-go/third_party/gio/layout/layout.go:169 +0x382
+`)
+	if got, want := p.First(), "ui.(*photoViewer).layoutStrip.func1.1.1 photoviewer.go:1016"; got != want {
+		t.Fatalf("first panic at %q, want %q", got, want)
+	}
+	// One panic needs no word of a first.
+	if p := Guard("single", func() { panic("alone") }); p.First() != "" || strings.Contains(p.Error(), "first at") {
+		t.Fatalf("a single panic names a first: %s", p.Error())
+	}
+}

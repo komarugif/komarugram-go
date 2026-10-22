@@ -468,6 +468,13 @@ func (p *chatPage) photos() []model.Message {
 	}
 	return out
 }
+
+// abandon forgets the chat whose layout panicked, with what is open over
+// it: laid out again, the chat opens anew, as another one would.
+func (p *chatPage) abandon() {
+	p.chat, p.forgot = 0, 0
+}
+
 func (p *chatPage) save(force bool) {
 	if len(p.messages) == 0 || p.chat == 0 {
 		return
@@ -817,16 +824,18 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		end = p.composer.top
 	}
 	p.jumpButtons(gtx, size, end, max(0, size.Y-top-bottom), history, l)
+	// Taken under the lock and told after it: a panic while it is held
+	// would hang every frame after.
 	p.errorMu.Lock()
-	if err := p.mediaError; err != nil {
-		p.mediaError = nil
-		p.toast.Show(mediaErrorText(err))
-	}
-	if p.notice != "" {
-		p.toast.Show(p.notice)
-		p.notice = ""
-	}
+	mediaErr, notice := p.mediaError, p.notice
+	p.mediaError, p.notice = nil, ""
 	p.errorMu.Unlock()
+	if mediaErr != nil {
+		p.toast.Show(mediaErrorText(mediaErr))
+	}
+	if notice != "" {
+		p.toast.Show(notice)
+	}
 	p.botUpdate(l)
 	p.toast.bd = p.toastBackdrop()
 	p.toast.Layout(gtx, image.Rect(0, top, size.X, end))

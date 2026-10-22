@@ -121,6 +121,8 @@ type photoViewer struct {
 	drag          stripDrag
 	thumbState    map[model.MessageID]*viewerThumbState
 	targets       map[model.MessageID]model.Message
+	// layingOut stays set when Layout panics, for recoverFrame.
+	layingOut bool
 	// play opens a video in the external player from a time, below 0 from
 	// the start; playErrs bring what it failed with.
 	play     func(gtx layout.Context, m model.Message, start time.Duration, l localization.Catalog)
@@ -193,28 +195,34 @@ func (v *photoViewer) Open(chat int64, m model.Message, known []model.Message) {
 
 // openList shows photo m of chat among what list tells of the others.
 func (v *photoViewer) openList(chat int64, m model.Message, list photoList) {
-	v.mu.Lock()
-	if v.cancel != nil {
-		v.cancel()
-	}
-	v.session++
-	v.items = mergePhotos(nil, list.items)
-	if indexOf(v.items, m.Key.MessageID) < 0 {
-		v.items = append(v.items, m)
-		sort.Slice(v.items, func(i, j int) bool { return v.items[i].Key.MessageID < v.items[j].Key.MessageID })
-	}
-	v.total, v.ended, v.profile, v.offset = list.total, list.ended, list.profile, list.offset
-	pageless := v.gallery == nil || m.Key.MessageID < 0
-	if v.profile {
-		// The photos of a profile start at the one it shows now.
-		v.ended[0] = true
-		pageless = v.profiles == nil
-	}
-	v.loading, v.exhausted = [2]bool{}, [2]bool{pageless || v.ended[0], pageless || v.ended[1]}
-	v.ctx, v.cancel = context.WithCancel(context.Background())
-	ctx, session := v.ctx, v.session
-	first, last := v.items[0].Key.MessageID, v.items[len(v.items)-1].Key.MessageID
-	v.mu.Unlock()
+	var ctx context.Context
+	var session int
+	var first, last model.MessageID
+	func() {
+		// Deferred: a panic while it is held would hang every frame after.
+		v.mu.Lock()
+		defer v.mu.Unlock()
+		if v.cancel != nil {
+			v.cancel()
+		}
+		v.session++
+		v.items = mergePhotos(nil, list.items)
+		if indexOf(v.items, m.Key.MessageID) < 0 {
+			v.items = append(v.items, m)
+			sort.Slice(v.items, func(i, j int) bool { return v.items[i].Key.MessageID < v.items[j].Key.MessageID })
+		}
+		v.total, v.ended, v.profile, v.offset = list.total, list.ended, list.profile, list.offset
+		pageless := v.gallery == nil || m.Key.MessageID < 0
+		if v.profile {
+			// The photos of a profile start at the one it shows now.
+			v.ended[0] = true
+			pageless = v.profiles == nil
+		}
+		v.loading, v.exhausted = [2]bool{}, [2]bool{pageless || v.ended[0], pageless || v.ended[1]}
+		v.ctx, v.cancel = context.WithCancel(context.Background())
+		ctx, session = v.ctx, v.session
+		first, last = v.items[0].Key.MessageID, v.items[len(v.items)-1].Key.MessageID
+	}()
 	v.open, v.focus, v.center = true, true, true
 	v.zoom.reset()
 	v.chat, v.current = chat, m.Key.MessageID
@@ -356,7 +364,7 @@ func (v *photoViewer) viewerTarget(m model.Message) (model.Message, bool) {
 	if m.Kind != model.MessageVideo {
 		return m, m.Media != nil
 	}
-	if m.Media.Thumbnail == nil {
+	if m.Media == nil || m.Media.Thumbnail == nil {
 		return m, false
 	}
 	if t, ok := v.targets[m.Key.MessageID]; ok {
@@ -447,6 +455,24 @@ func (v *photoViewer) Layout(gtx layout.Context, l localization.Catalog, animate
 	if !v.open {
 		return
 	}
+	v.layingOut = true
+	v.layout(gtx, l, animate)
+	v.layingOut = false
+}
+
+// recoverFrame closes the viewer when its layout panicked, and reports
+// whether it did: a photo it cannot draw would panic in every frame, and
+// the viewer covers what the window could show instead.
+func (v *photoViewer) recoverFrame() bool {
+	if !v.layingOut {
+		return false
+	}
+	v.layingOut = false
+	v.Close()
+	return true
+}
+
+func (v *photoViewer) layout(gtx layout.Context, l localization.Catalog, animate bool) {
 	v.full.BeginFrame()
 	defer v.full.EndFrame()
 	v.mid.BeginFrame()
@@ -1007,11 +1033,17 @@ func (v *photoViewer) layoutStrip(gtx layout.Context, items []model.Message, cur
 	offset(stripGtx, image.Pt(x, y), func(gtx layout.Context) layout.Dimensions {
 		dims := v.strip.Layout(gtx, len(items), func(gtx layout.Context, i int) layout.Dimensions {
 			m := items[i]
+			// A video without a thumbnail has no picture: its thumbnail is
+			// the empty plate, which still selects it.
 			var t *model.Message
 			if target, ok := v.viewerTarget(m); ok {
 				t = v.thumb(target, side)
 			}
 			st := v.thumbState[m.Key.MessageID]
+			if st == nil {
+				st = &viewerThumbState{}
+				v.thumbState[m.Key.MessageID] = st
+			}
 			return layout.Inset{Right: unit.Dp(float32(gap) / gtx.Metric.PxPerDp)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return st.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					pointer.CursorPointer.Add(gtx.Ops)
@@ -1019,10 +1051,13 @@ func (v *photoViewer) layoutStrip(gtx layout.Context, items []model.Message, cur
 					gtx.Constraints = layout.Exact(size)
 					defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(6)).Push(gtx.Ops).Pop()
 					fillRect(gtx, token.NewMatColorFromHexRGB(0x2a2f37), size)
-					status := v.thumbs.StatusFit(*t, false, size, true)
-					im := status.Frame
-					if im == nil {
-						im = status.Preview
+					var im image.Image
+					if t != nil {
+						status := v.thumbs.StatusFit(*t, false, size, true)
+						im = status.Frame
+						if im == nil {
+							im = status.Preview
+						}
 					}
 					if im != nil {
 						if i != current {

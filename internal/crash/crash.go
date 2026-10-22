@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 )
@@ -24,7 +25,68 @@ type Panic struct {
 	Path  string
 }
 
-func (p *Panic) Error() string { return fmt.Sprintf("panic in %s: %v", p.Where, p.Value) }
+func (p *Panic) Error() string {
+	text := fmt.Sprintf("panic in %s: %v", p.Where, p.Value)
+	if at := p.First(); at != "" {
+		text += " (first at " + at + ")"
+	}
+	return text
+}
+
+// First is where the first of the panics in the stack was raised, when
+// there are several, and "" otherwise. A deferred call that panics while
+// the stack unwinds, as Gio's Pop finding its stack unbalanced, replaces the
+// value recovered: Value is then that panic's, and only the stack tells
+// where the one that started it was.
+func (p *Panic) First() string {
+	lines := strings.Split(string(p.Stack), "\n")
+	last, panics := -1, 0
+	for i, l := range lines {
+		if strings.HasPrefix(l, "panic(") {
+			last, panics = i, panics+1
+		}
+	}
+	if panics < 2 {
+		return ""
+	}
+	// Below the outermost panic( and its file line: the frame that
+	// panicked, past the runtime's own, as runtime.sigpanic.
+	for i := last + 2; i+1 < len(lines); i += 2 {
+		name := frameName(lines[i])
+		if name == "" || strings.HasPrefix(name, "runtime.") {
+			continue
+		}
+		file := strings.TrimSpace(lines[i+1])
+		if cut := strings.LastIndex(file, " +0x"); cut >= 0 {
+			file = file[:cut]
+		}
+		if slash := strings.LastIndexAny(file, `/\`); slash >= 0 {
+			file = file[slash+1:]
+		}
+		return name + " " + file
+	}
+	return ""
+}
+
+// frameName is the function of a frame's line of a Go stack, without its
+// package path and its arguments.
+func frameName(line string) string {
+	if line == "" || strings.HasPrefix(line, "\t") {
+		return ""
+	}
+	// The arguments open with the first parenthesis not of a method's
+	// receiver, as (*photoViewer).
+	for i := 0; i < len(line); i++ {
+		if line[i] == '(' && (i+1 == len(line) || line[i+1] != '*') {
+			line = line[:i]
+			break
+		}
+	}
+	if slash := strings.LastIndex(line, "/"); slash >= 0 {
+		line = line[slash+1:]
+	}
+	return line
+}
 
 // Text is the complete report offered by the copy button, even if writing a
 // file failed.
@@ -33,7 +95,11 @@ func (p *Panic) Text() string {
 	if at.IsZero() {
 		at = time.Now()
 	}
-	return fmt.Sprintf("time: %s\nwhere: %s\npanic: %v\n\n%s", at.Format(time.RFC3339Nano), p.Where, p.Value, p.Stack)
+	first := ""
+	if place := p.First(); place != "" {
+		first = "\nfirst panic: " + place
+	}
+	return fmt.Sprintf("time: %s\nwhere: %s\npanic: %v%s\n\n%s", at.Format(time.RFC3339Nano), p.Where, p.Value, first, p.Stack)
 }
 
 // Guard runs fn and returns the recovered panic, if any. The panic is

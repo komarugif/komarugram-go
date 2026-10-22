@@ -537,6 +537,14 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 	var fallback panicScreen
 	demoPanicked := false
 	focused := false
+	where := "window " + opts.Title
+	if opts.panicDialog {
+		where = panicDialogWhere
+	}
+	// tell passes what happened to the window on to the content. A panic
+	// there is reported, as one in a frame, and the window goes on: these
+	// calls run outside a frame, where a panic would end the window.
+	tell := func(fn func()) { crash.Guard(where, fn) }
 	for {
 		ev := w.Event()
 		w.applyTitle()
@@ -557,11 +565,11 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 			}
 			hidden := e.Config.Suspended || e.Config.Mode == app.Minimized
 			if observer, ok := content.(interface{ SetMinimized(bool) }); ok {
-				observer.SetMinimized(hidden)
+				tell(func() { observer.SetMinimized(hidden) })
 			}
 			if w.suspended.Swap(hidden) != hidden {
 				if observer, ok := content.(interface{ SetSuspended(bool) }); ok {
-					observer.SetSuspended(hidden)
+					tell(func() { observer.SetSuspended(hidden) })
 				}
 				if hidden {
 					// Reset keeps the buffers of the last frame; a hidden
@@ -581,17 +589,17 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 				}
 			}
 			if e.Config.Focused && !focused && activated != nil {
-				activated()
+				tell(activated)
 			}
 			if observer, ok := content.(interface{ SetFocused(bool) }); ok && e.Config.Focused != focused {
-				observer.SetFocused(e.Config.Focused)
+				tell(func() { observer.SetFocused(e.Config.Focused) })
 			}
 			focused = e.Config.Focused
 		case app.DropEvent:
 			// Files dragged from other programs, where the content is.
 			if target, ok := content.(interface{ Drop(app.DropEvent) }); ok {
 				e.Position.Y -= float32(w.caption)
-				target.Drop(e)
+				tell(func() { target.Drop(e) })
 				w.Invalidate()
 			}
 		case app.FrameEvent:
@@ -648,10 +656,6 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 			if trace != nil {
 				phase = time.Now()
 				frame.Setup = phase.Sub(frame.At)
-			}
-			where := "window " + opts.Title
-			if opts.panicDialog {
-				where = panicDialogWhere
 			}
 			if p := crash.Guard(where, func() {
 				if opts.DemoPanic && !demoPanicked {
