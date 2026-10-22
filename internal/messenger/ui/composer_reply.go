@@ -25,10 +25,18 @@ type replyBar struct {
 	chat         int64
 	shown        *model.Message
 	show, remove surface
+	// lines is how tall the name and the text were laid out last, which
+	// the strip makes room for: they are taller than a height of its own
+	// left them (37 px of 34 at 1 px a dp), and the fonts change it.
+	lines int
 }
 
-// replyGap is the space between a floating composer and its reply strip.
-const replyGap = 6
+// replyGap is the space between a floating composer and its reply strip;
+// replyPad, the space over and under its name and text.
+const (
+	replyGap = 6
+	replyPad = 5
+)
 
 // replyTo makes what is sent next to chat a reply to m, and focuses the
 // message field.
@@ -54,7 +62,7 @@ func (c *messageComposer) replyHeight(gtx layout.Context, chat int64, classic bo
 	target := 0
 	if d := c.drafts[chat]; d != nil && d.reply != nil {
 		b.shown = d.reply
-		target = gtx.Dp(44)
+		target = max(gtx.Dp(44), b.lines+2*gtx.Dp(replyPad))
 		if !classic {
 			target += gtx.Dp(replyGap)
 		}
@@ -112,11 +120,13 @@ func (c *messageComposer) replyLayout(gtx layout.Context, chat int64, bar image.
 			area := gtx.Constraints.Max
 			style := surfaceStyle{background: sc.Primary.Color.SetOpacity(0), content: sc.Primary.Color, button: l.Format("composer.reply_to", map[string]string{"name": name})}
 			return c.replies.show.Layout(gtx, area, style, func(gtx layout.Context) layout.Dimensions {
-				return layout.Inset{Left: 16, Right: 8, Top: 5, Bottom: 5}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Left: 16, Right: 8, Top: replyPad, Bottom: replyPad}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min = image.Point{}
 					fillRect(gtx, sc.Primary.Color, image.Pt(gtx.Dp(3), gtx.Constraints.Max.Y))
 					return layout.Inset{Left: 11}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+						// Measured as tall as they are, not as the strip is.
+						gtx.Constraints.Max.Y = 1 << 20
+						dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return label(gtx, l.Format("composer.reply_to", map[string]string{"name": name}), token.TypestyleLabelLargeEmphasized, sc.Primary.Color, 1)
 							}),
@@ -124,6 +134,11 @@ func (c *messageComposer) replyLayout(gtx layout.Context, chat int64, bar image.
 								return label(gtx, text, token.TypestyleBodySmall, sc.Surface.OnColor, 1)
 							}),
 						)
+						if c.replies.lines != dims.Size.Y {
+							c.replies.lines = dims.Size.Y
+							gtx.Execute(op.InvalidateCmd{})
+						}
+						return dims
 					})
 				})
 			})

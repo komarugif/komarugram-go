@@ -347,6 +347,21 @@ func TestMessageMenuReply(t *testing.T) {
 	}
 }
 
+// The reply strip is as tall as its name and text: at 44 dp it cut the
+// text's last pixels off (37 px of them in 34).
+func TestReplyStripHoldsItsLines(t *testing.T) {
+	h := newMenuHarness(t, nil)
+	h.openMenu(3)
+	h.choose(actionReply)
+	h.frames(40)
+	c := h.page.composer
+	gtx := layout.Context{Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Now: h.now}
+	inner := c.replyHeight(gtx, 1, false) - replyGap - 2*replyPad
+	if c.replies.lines == 0 || inner < c.replies.lines {
+		t.Fatalf("%d px for lines %d px tall", inner, c.replies.lines)
+	}
+}
+
 func TestReplyStripCancels(t *testing.T) {
 	h := newMenuHarness(t, nil)
 	h.openMenu(3)
