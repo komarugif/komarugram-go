@@ -44,7 +44,7 @@ func (r *Runtime) OpenFile(ctx context.Context, file *mp4.File) (*Video, error) 
 	if file.Width > r.maxSide || file.Height > r.maxSide {
 		return nil, fmt.Errorf("h264: size %dx%d is over the limit of %d", file.Width, file.Height, r.maxSide)
 	}
-	decoder, err := r.NewDecoder(ctx, file.Config)
+	decoder, err := r.NewDecoderOf(ctx, file.Codec, file.Config)
 	if err != nil {
 		return nil, err
 	}

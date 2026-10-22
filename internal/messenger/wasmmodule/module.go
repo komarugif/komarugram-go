@@ -189,14 +189,15 @@ func sha256Hex(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// AVCDec is FFmpeg's H.264 decoder, LGPL, from libavcodec-wasm, for GIFs and
-// animated avatars without an FFmpeg. KOMARUGRAM_AVCDEC names a build of
-// the user's instead, as the LGPL lets them.
+// AVCDec is FFmpeg's H.264 and MPEG-4 Part 2 decoders, LGPL, from
+// libavcodec-wasm, for GIFs and animated avatars without an FFmpeg.
+// KOMARUGRAM_AVCDEC names a build of the user's instead, as the LGPL lets
+// them.
 var AVCDec = Module{
 	Name:   "avcdec",
 	Env:    "KOMARUGRAM_AVCDEC",
-	URL:    "https://raw.githubusercontent.com/komarugif/libavcodec-wasm/199f1e982d62562b379a802b9ea89233e64dac81/avcdec.wasm.zst",
-	SHA256: "816854953193c042dda7b1e36a33d9f2c3d36c4d930a0b983f7e9c25099cb92f",
+	URL:    "https://raw.githubusercontent.com/komarugif/libavcodec-wasm/288da0d4785c2b2c7b33673b1260494a4aacd8c5/avcdec.wasm.zst",
+	SHA256: "c538daceaf64b59ea08c4fa36016b15745bb56d42bde83ad8943bd1ad76eada2",
 }
 
 // AACDec is the decoder of fdk-aac, from fdk-aac-wasm, for voice messages

@@ -41,8 +41,23 @@ const MaxAudioSamples = 1 << 22
 // ErrNotMP4 is returned for data that is not an MP4 file at all.
 var ErrNotMP4 = errors.New("mp4: not an MP4 file")
 
-// ErrUnsupported is returned for an MP4 file without an H.264 video track.
-var ErrUnsupported = errors.New("mp4: no H.264 video track")
+// ErrUnsupported is returned for an MP4 file without a video track of a
+// codec read here: H.264 or MPEG-4 Part 2.
+var ErrUnsupported = errors.New("mp4: no H.264 or MPEG-4 video track")
+
+// Codec is the codec of a video track.
+type Codec int
+
+const (
+	// H264 is H.264 (avc1, avc3), configured by its avcC record, its
+	// samples NAL units with a length before each.
+	H264 Codec = iota
+	// MPEG4 is MPEG-4 Part 2 (mp4v; Xvid, DivX), configured by the
+	// DecoderSpecificInfo of its esds, its visual object sequence and
+	// object layer headers, which may be empty when the samples carry
+	// them; its samples are the bitstream as it is.
+	MPEG4
+)
 
 // Sample is one coded picture in decoding order, as length-prefixed NAL units.
 type Sample struct {
@@ -50,11 +65,14 @@ type Sample struct {
 	Keyframe bool
 }
 
-// File is the H.264 video track of an MP4 file.
+// File is the video track of an MP4 file.
 type File struct {
 	Width, Height int
-	// Config is the AVCDecoderConfigurationRecord (avcC): the parameter sets
-	// and the length of the NAL unit prefixes of the samples.
+	// Codec is the track's codec, which Config is the configuration of.
+	Codec Codec
+	// Config is, for H.264, the AVCDecoderConfigurationRecord (avcC): the
+	// parameter sets and the length of the NAL unit prefixes of the
+	// samples; for MPEG-4, see MPEG4.
 	Config []byte
 	// Samples are in decoding order, which is also the order to feed them;
 	// a file read where it lies (DemuxAt) has none, its samples read with
@@ -115,13 +133,16 @@ func (f *File) Sample(i int, buf []byte) ([]byte, error) {
 
 // track is what is read of one trak box.
 type track struct {
-	video, audio         bool
-	channels             int
-	rate                 uint32
-	timescale            uint32
-	width, height        int
-	codec                string
-	config               []byte
+	video, audio  bool
+	channels      int
+	rate          uint32
+	timescale     uint32
+	width, height int
+	codec         string
+	config        []byte
+	// mpeg4 is set for an mp4v entry of MPEG-4 Visual, whose config may
+	// be empty.
+	mpeg4                bool
 	deltas, offsets      []uint32 // stts and ctts, expanded per sample
 	sizes                []uint32
 	chunkOffsets         []uint64
@@ -132,6 +153,11 @@ type track struct {
 	// long is set for a video read where it lies, which may have up to
 	// MaxVideoSamples pictures.
 	long bool
+}
+
+// playable tells whether t is a video track of a codec read here.
+func (t *track) playable() bool {
+	return t.video && ((t.codec == "avc1" || t.codec == "avc3") && t.config != nil || t.codec == "mp4v" && t.mpeg4)
 }
 
 // chunkRun is an stsc entry: from chunk first on, chunks hold samples each.
@@ -169,7 +195,7 @@ func Demux(data []byte) (*File, error) {
 		if err := parseTrak(body, t); err != nil {
 			return err
 		}
-		if t.video && (t.codec == "avc1" || t.codec == "avc3") && t.config != nil {
+		if t.playable() {
 			found = t
 		}
 		return nil
@@ -201,7 +227,7 @@ func DemuxAt(r io.ReaderAt, size int64) (*File, error) {
 		if err := parseTrak(body, t); err != nil {
 			return err
 		}
-		if t.video && (t.codec == "avc1" || t.codec == "avc3") && t.config != nil {
+		if t.playable() {
 			found = t
 		}
 		return nil
@@ -369,7 +395,7 @@ func parseTable(kind string, body []byte, t *track) error {
 			if kind == "mp4a" {
 				return parseMP4A(body, t)
 			}
-			if kind != "avc1" && kind != "avc3" {
+			if kind != "avc1" && kind != "avc3" && kind != "mp4v" {
 				return nil
 			}
 			// A VisualSampleEntry: 8 bytes of SampleEntry, 16 reserved, the
@@ -380,7 +406,20 @@ func parseTable(kind string, body []byte, t *track) error {
 			t.width = int(binary.BigEndian.Uint16(body[24:]))
 			t.height = int(binary.BigEndian.Uint16(body[26:]))
 			return walk(body[78:], func(kind string, body []byte) error {
-				if kind == "avcC" && t.config == nil {
+				if kind == "esds" && t.codec == "mp4v" && !t.mpeg4 {
+					_, rest, err := fullBox(body)
+					if err != nil {
+						return err
+					}
+					object, info, err := esConfig(rest)
+					if err != nil {
+						return err
+					}
+					// 0x20 is MPEG-4 Visual; MPEG-1 and -2 video (0x60 to
+					// 0x6a) and the rest are left out.
+					t.mpeg4, t.config = object == 0x20, info
+				}
+				if kind == "avcC" && t.config == nil && t.codec != "mp4v" {
 					if len(body) < 7 || body[0] != 1 {
 						return fmt.Errorf("mp4: bad avcC")
 					}
@@ -538,6 +577,9 @@ func (t *track) timing(file *File) error {
 		return fmt.Errorf("mp4: size %dx%d", t.width, t.height)
 	}
 	file.Width, file.Height, file.Config = t.width, t.height, t.config
+	if t.codec == "mp4v" {
+		file.Codec = MPEG4
+	}
 	if !file.Keyframe(0) {
 		return fmt.Errorf("mp4: the first sample is not a keyframe")
 	}
@@ -825,19 +867,38 @@ func parseMP4A(body []byte, t *track) error {
 }
 
 // audioConfig finds the DecoderSpecificInfo, the AudioSpecificConfig, in
-// the descriptors of an esds box (ISO/IEC 14496-1): ES_Descriptor (3)
-// holds DecoderConfigDescriptor (4), which holds it (5).
+// the descriptors of an esds box: see esConfig. Its object type is 0x40,
+// MPEG-4 audio, or 0x66 to 0x68, MPEG-2 AAC.
 func audioConfig(data []byte) ([]byte, error) {
+	object, info, err := esConfig(data)
+	switch {
+	case err != nil:
+		return nil, err
+	case object != 0 && object != 0x40 && (object < 0x66 || object > 0x68):
+		return nil, ErrUnsupportedAudio
+	case info == nil:
+		return nil, fmt.Errorf("mp4: no AudioSpecificConfig")
+	case len(info) == 0:
+		return nil, fmt.Errorf("mp4: empty AudioSpecificConfig")
+	}
+	return info, nil
+}
+
+// esConfig finds, in the descriptors of an esds box (ISO/IEC 14496-1), the
+// object type of the DecoderConfigDescriptor (4), and the
+// DecoderSpecificInfo (5) it holds, nil when it holds none: the
+// ES_Descriptor (3) holds the first.
+func esConfig(data []byte) (object byte, info []byte, err error) {
 	for len(data) > 0 {
 		tag, body, rest, err := descriptor(data)
 		if err != nil {
-			return nil, err
+			return 0, nil, err
 		}
 		switch tag {
 		case 3:
 			// ES_ID, then flags that tell what optional fields follow.
 			if len(body) < 3 {
-				return nil, fmt.Errorf("mp4: truncated ES descriptor")
+				return 0, nil, fmt.Errorf("mp4: truncated ES descriptor")
 			}
 			flags, at := body[2], 3
 			if flags&0x80 != 0 {
@@ -845,7 +906,7 @@ func audioConfig(data []byte) ([]byte, error) {
 			}
 			if flags&0x40 != 0 {
 				if len(body) <= at {
-					return nil, fmt.Errorf("mp4: truncated ES descriptor")
+					return 0, nil, fmt.Errorf("mp4: truncated ES descriptor")
 				}
 				at += 1 + int(body[at])
 			}
@@ -853,28 +914,22 @@ func audioConfig(data []byte) ([]byte, error) {
 				at += 2
 			}
 			if len(body) < at {
-				return nil, fmt.Errorf("mp4: truncated ES descriptor")
+				return 0, nil, fmt.Errorf("mp4: truncated ES descriptor")
 			}
-			return audioConfig(body[at:])
+			return esConfig(body[at:])
 		case 4:
 			// Object type, stream type, buffer size and bit rates: 13 bytes.
-			// 0x40 is MPEG-4 audio, 0x66 to 0x68 MPEG-2 AAC.
 			if len(body) < 13 {
-				return nil, fmt.Errorf("mp4: truncated decoder config")
+				return 0, nil, fmt.Errorf("mp4: truncated decoder config")
 			}
-			if body[0] != 0x40 && (body[0] < 0x66 || body[0] > 0x68) {
-				return nil, ErrUnsupportedAudio
-			}
-			return audioConfig(body[13:])
+			_, info, err := esConfig(body[13:])
+			return body[0], info, err
 		case 5:
-			if len(body) == 0 {
-				return nil, fmt.Errorf("mp4: empty AudioSpecificConfig")
-			}
-			return body, nil
+			return 0, body, nil
 		}
 		data = rest
 	}
-	return nil, fmt.Errorf("mp4: no AudioSpecificConfig")
+	return 0, nil, nil
 }
 
 // descriptor reads one descriptor: its tag, body and what follows it. Its

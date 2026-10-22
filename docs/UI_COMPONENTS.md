@@ -503,11 +503,15 @@ size-stability fixes remain in place.
   `ffprobe`. The internal MP4 animation player (`decoderSettings.animations`,
   `sticker_player.go`) is the same choice for GIFs and animated avatars:
   FFmpeg when found, otherwise, or when chosen, FFmpeg's H.264 decoder in a
-  WASM sandbox, one GIF at a time on hover. That decoder is not in the
+  WASM sandbox, one GIF at a time on hover, and its MPEG-4 Part 2 one for
+  GIFs in that (Telegram's video codec "mpeg4", MP4's mp4v; `pkg/mp4` reads
+  its esds), since 2026-10-22: before, such a GIF asked to play with FFmpeg
+  or in the external player (`gif_fallback.go`), as it still does with a
+  module of the user's without it. That decoder is not in the
   binary: `wasmmodule.AVCDec` downloads it the first time it is needed
   from [libavcodec-wasm](https://github.com/komarugif/libavcodec-wasm), at a
-  pinned commit, zstd-compressed (`avcdec.wasm.zst`, 419 KB instead of
-  2 MB), checks its SHA-256 and keeps it in the cache directory as it came,
+  pinned commit, zstd-compressed (`avcdec.wasm.zst`, 490 KB instead of
+  2.4 MB; 70 KB more with MPEG-4 Part 2), checks its SHA-256 and keeps it in the cache directory as it came,
   unpacking it as it loads it; `KOMARUGRAM_AVCDEC` names a build of the
   user's instead (a path or a URL, plain or `.zst`). MP4 GIFs played through
   the compressed module were checked live by the maintainer on 2026-10-13.
