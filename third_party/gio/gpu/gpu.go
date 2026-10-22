@@ -394,9 +394,34 @@ func (g *gpu) Release() {
 	g.ctx.Release()
 }
 
-func (g *gpu) Frame(frameOps *op.Ops, target RenderTarget, viewport image.Point) error {
+func (g *gpu) Frame(frameOps *op.Ops, target RenderTarget, viewport image.Point) (err error) {
+	defer recoverDeviceLost(&err)
 	g.collect(viewport, frameOps)
 	return g.frame(target)
+}
+
+// recoverDeviceLost turns a panic over a lost device into ErrDeviceLost in
+// *err, for the window to draw again with a new device. A frame panics on
+// any failure to make its resources, and a device the driver removes, as
+// the Direct3D 11 of VirtualBox's driver for Windows 7 does now and then,
+// fails them all. Other panics go on.
+func recoverDeviceLost(err *error) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	if e, ok := r.(error); ok && deviceLost(e) {
+		*err = ErrDeviceLost
+		return
+	}
+	panic(r)
+}
+
+// deviceLost reports whether err says the device was lost: ErrDeviceLost,
+// or an error of a driver's API that tells it by its DeviceLost.
+func deviceLost(err error) bool {
+	var code interface{ DeviceLost() bool }
+	return errors.Is(err, ErrDeviceLost) || errors.As(err, &code) && code.DeviceLost()
 }
 
 func (g *gpu) collect(viewport image.Point, frameOps *op.Ops) {

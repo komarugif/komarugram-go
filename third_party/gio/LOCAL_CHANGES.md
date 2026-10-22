@@ -560,6 +560,15 @@ Run the focused check from the project root:
   - `app/window.go`: a device lost on `Present` is let go and the next frame
     drawn with a new one, as a device lost while drawing is; the window used
     to close with "GPU device lost". `TestDeviceLostOnPresentDrawsAgain`.
+  - `gpu/gpu.go`, `internal/d3d11/d3d11_windows.go`: a device lost while a
+    frame makes its resources is returned from `Frame` as `ErrDeviceLost`,
+    and the window draws again with a new device. The frame panics on any
+    failure to make them, and the Direct3D 11 of VirtualBox's driver for
+    Windows 7 without Aero removes the device now and then
+    (`DeviceCreateBuffer: 0x887a0005`, `DXGI_ERROR_DEVICE_REMOVED`): the
+    panic ended the process. `d3d11.ErrorCode` tells such codes by its
+    `DeviceLost`; other panics go on. `TestDeviceLostInAFrameIsReturned`,
+    `TestOtherPanicsInAFrameGoOn`.
   - `app/os_windows.go`, `app/internal/windows/translucency.go`,
     `app/glass_windows.go`, `app/glass_other.go`: `BlurBehind` is Aero's
     glass on Windows 7, where there is no acrylic: `DwmEnableBlurBehindWindow` over all of the window,
