@@ -229,9 +229,29 @@ func TestGutterDragRoutesToSelectionAndChatSwitchClears(t *testing.T) {
 	if p.selectionCount() != 0 {
 		t.Fatal("Escape did not clear selection")
 	}
+	// With nothing selected a click selects nothing, as in Telegram Desktop.
 	event(pointer.Press, y(1))
 	event(pointer.Release, y(1))
+	if p.selectionCount() != 0 {
+		t.Fatal("a click with nothing selected selected a message")
+	}
+	// Nor does a press that moves within the message less than a drag.
+	event(pointer.Press, y(1))
+	event(pointer.Move, y(1)+3)
+	event(pointer.Release, y(1)+3)
+	if p.selectionCount() != 0 {
+		t.Fatal("a press that hardly moved selected a message")
+	}
+	event(pointer.Press, y(0))
+	event(pointer.Move, y(0)+12)
+	event(pointer.Release, y(0)+12)
 	if p.selectionCount() != 1 {
+		t.Fatal("a drag within a message did not select it")
+	}
+	// Once one is selected, a click toggles another.
+	event(pointer.Press, y(1))
+	event(pointer.Release, y(1))
+	if p.selectionCount() != 2 {
 		t.Fatal("click did not toggle message")
 	}
 	render(2)
@@ -389,5 +409,52 @@ func TestEntityCursors(t *testing.T) {
 	h.frame()
 	if got := cursorOver(5); got != pointer.CursorText {
 		t.Errorf("over a spoiler revealed: %v", got)
+	}
+}
+
+// A double click beside a message replies to it, as in Telegram Desktop;
+// two clicks beside two messages, or far apart in time, do not.
+func TestGutterDoubleClickReplies(t *testing.T) {
+	h := newComposerHarness(t)
+	p := h.p
+	var at f32.Point
+	var want model.MessageID
+	// One in the middle, away from the pinned bar and the composer. The
+	// history is below the bar, and as high as what is left.
+	first := p.list.Position.First
+	top := h.size.Y - p.viewHeight - p.list.Position.Offset
+	for i := first; i < len(p.messages); i++ {
+		m := p.messages[i]
+		r := p.rows[m.Key.MessageID]
+		height := int(p.heights.Prefix(i+1) - p.heights.Prefix(i))
+		if r != nil && m.Kind != model.MessageService && r.bodyLeft > 4 && top+r.bodyTop >= 150 && top+height < h.size.Y-200 {
+			at, want = f32.Pt(2, float32(top+r.bodyTop+4)), m.Key.MessageID
+			break
+		}
+		top += height
+	}
+	if want == 0 {
+		t.Fatal("no message with a gutter on the screen")
+	}
+	click := func(when time.Duration, pos f32.Point) {
+		h.router.Queue(
+			pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Position: pos, Buttons: pointer.ButtonPrimary, Time: when},
+			pointer.Event{Kind: pointer.Release, Source: pointer.Mouse, Position: pos, Time: when + 30*time.Millisecond},
+		)
+		h.frame()
+	}
+	reply := func() *model.Message { return p.composer.draft(1).reply }
+	click(time.Second, at)
+	click(2*time.Second, at)
+	if reply() != nil || p.selectionCount() != 0 {
+		t.Fatalf("slow clicks: reply %v, %d selected", reply(), p.selectionCount())
+	}
+	click(3*time.Second, at)
+	click(3*time.Second+120*time.Millisecond, at)
+	if r := reply(); r == nil || r.Key.MessageID != want {
+		t.Fatalf("double click replied to %v, want %d", r, want)
+	}
+	if p.selectionCount() != 0 {
+		t.Fatal("double click selected messages")
 	}
 }
