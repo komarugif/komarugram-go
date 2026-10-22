@@ -762,6 +762,9 @@ func (s *Store) fetchAt(epoch uint64, chat int64, dir, anchor int) {
 	if e == nil && dir <= 0 {
 		s.noteFirst(ctx, chat, msgs)
 	}
+	if e == nil && dir == 0 && anchor != 0 {
+		s.learnTop(ctx, api, peer, chat, modified.GetMessages(), anchor, req.Limit)
+	}
 	// Telegram's page lacks the messages kept deleted; the cache has them.
 	for _, m := range cached {
 		if m.Deleted {
@@ -769,6 +772,42 @@ func (s *Store) fetchAt(epoch uint64, chat int64, dir, anchor int) {
 		}
 	}
 	s.finishPageAt(epoch, chat, dir, msgs, len(modified.GetMessages()) >= req.Limit, e, start)
+}
+
+// learnTop learns the newest message of a chat opened at a message
+// (anchor), which a chat the account is not in, as a channel opened from a
+// link or a search, has no dialog to tell: whether newer messages follow
+// the history is told by it, and without it a channel opened in its past
+// had none, its newer messages never loaded. The page around anchor tells
+// it when it reaches the end; one message more, the newest, otherwise.
+func (s *Store) learnTop(ctx context.Context, api *tg.Client, peer peerRecord, chat int64, page []tg.MessageClass, anchor, limit int) {
+	c := s.history
+	c.mu.Lock()
+	known := c.top[chat] != 0
+	c.mu.Unlock()
+	if known {
+		return
+	}
+	ids := make([]int, 0, len(page))
+	for _, m := range page {
+		ids = append(ids, m.GetID())
+	}
+	top := 0
+	if _, high, end, ok := pageSpan(ids, 0, anchor, limit); ok && end {
+		top = high
+	} else if newest, err := api.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{Peer: peer.input(), Limit: 1}); err == nil {
+		if m, ok := newest.AsModified(); ok {
+			for _, raw := range m.GetMessages() {
+				top = max(top, raw.GetID())
+			}
+		}
+	}
+	if top == 0 {
+		return
+	}
+	c.mu.Lock()
+	c.top[chat] = max(c.top[chat], top)
+	c.mu.Unlock()
 }
 
 // noteFirst keeps the chat's first message as firsts says, when the
