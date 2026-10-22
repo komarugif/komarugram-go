@@ -461,12 +461,15 @@ func TestPhotoViewerPlacesPhotoInGallery(t *testing.T) {
 func TestPhotoViewerStripShowsVideoWithoutThumbnail(t *testing.T) {
 	h := newViewerHarness(t)
 	s := h.store
-	s.photos[15].Kind = model.MessageVideo
-	h.viewer.Open(1, s.photos[14], s.photos[13:16])
-	h.frame()
+	// The gallery has these three alone: pages loaded behind would move
+	// the strip under the click.
+	s.photos = s.photos[13:16]
+	s.photos[2].Kind = model.MessageVideo
+	h.viewer.Open(1, s.photos[1], s.photos)
+	h.until("the gallery's ends", func() bool { _, _, exhausted, _, _ := h.viewer.snapshot(); return exhausted[0] && exhausted[1] })
 	// Three thumbnails, centred: the third is at x 431…487.
 	h.click(459, 558)
-	if h.viewer.current != s.photos[15].Key.MessageID {
+	if h.viewer.current != s.photos[2].Key.MessageID {
 		t.Fatalf("the plate selected %d", h.viewer.current)
 	}
 }
