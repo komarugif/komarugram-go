@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -12,6 +13,7 @@ import (
 
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
+	"komarugram/pkg/mp4"
 
 	"gio-mw/token"
 
@@ -120,7 +122,10 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			progress = min(1, float32(status.Downloaded)/float32(status.Total))
 		}
 	}
-	if err != nil && err != r.mediaTold && !cancelled {
+	// A GIF the sandbox cannot play, not in H.264, is no failure to tell:
+	// a click asks where else to play it (gifUnplayable).
+	unplayable := inline && errors.Is(err, mp4.ErrUnsupported)
+	if err != nil && err != r.mediaTold && !cancelled && !unplayable {
 		p.toast.Show(mediaErrorText(err))
 	}
 	r.mediaTold = err
@@ -131,6 +136,8 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			p.openAlone(m)
 		} else if m.Kind == model.MessagePhoto && p.openPhoto != nil {
 			p.openPhoto(m)
+		} else if unplayable {
+			p.gifUnplayable(m, l)
 		} else if inline && err == nil && !cancelled && !loading {
 			p.media.ToggleGIF(m)
 			gtx.Execute(op.InvalidateCmd{})
@@ -170,7 +177,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 				paint.FillShape(gtx.Ops, color.NRGBA{A: 145}, clip.Ellipse{Max: image.Pt(diameter, diameter)}.Op(gtx.Ops))
 				// White on the dark circle in either theme.
 				white := token.NewMatColorFromHexRGB(0xffffff)
-				if video {
+				if video || unplayable {
 					// An icon, not "▶": the text's fonts lack it, and the
 					// emoji font drew it as the colored emoji.
 					inset := diameter / 6

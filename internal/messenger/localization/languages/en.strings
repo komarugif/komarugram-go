@@ -669,6 +669,16 @@
 "ghost.title" = "Ghost Mode";
 "ghost.typing" = "Send typing";
 
+"gif_fallback.both" = "It can play here with FFmpeg, outside the sandbox, or open in the external player.";
+"gif_fallback.cancel" = "Cancel";
+"gif_fallback.ffmpeg" = "With FFmpeg";
+"gif_fallback.ffmpeg_only" = "It can play here with FFmpeg, outside the sandbox.";
+"gif_fallback.none" = "The sandbox cannot play this animation, which is not in H.264. Install FFmpeg or a video player (mpv, VLC), or set the path to one in the settings.";
+"gif_fallback.player" = "External Player";
+"gif_fallback.player_only" = "It can open in the external player.";
+"gif_fallback.text" = "The sandbox plays animations only in H.264, and this one is in another format.";
+"gif_fallback.title" = "The sandbox cannot play this animation";
+
 "gift.backdrop" = "Backdrop";
 "gift.date" = "Date";
 "gift.from" = "From";

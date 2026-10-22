@@ -164,6 +164,10 @@ type Manager struct {
 	// ffmpegChecked is whether the search was made for the FFmpeg
 	// configured.
 	sandboxGIFs, ffmpegChecked bool
+	// ffmpegGIFs are the GIFs, by media ID, the user chose to play with
+	// FFmpeg, out of the sandbox, which cannot play them
+	// (PlayGIFWithFFmpeg).
+	ffmpegGIFs map[string]bool
 	// paused stops every animation where it is; UI thread only.
 	paused bool
 	// holding stops the media asked for where they are; UI thread only.
@@ -309,7 +313,7 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 			m.evict(true)
 		}
 		ctx, cancel := context.WithCancel(m.ctx)
-		e = &entry{wake: make(chan struct{}, 1), consumed: make(chan struct{}, 1), wasm: wasm, ffmpeg: m.ffmpeg, sandboxGIF: m.SandboxGIFs(), seen: m.generation, animate: animate, cancel: cancel, cancelled: m.cancelled[key], frame: previous, preview: preview, still: still, clip: clip, box: box, cover: cover, sticker: animatedSticker || msg.Kind == model.MessageSticker}
+		e = &entry{wake: make(chan struct{}, 1), consumed: make(chan struct{}, 1), wasm: wasm, ffmpeg: m.ffmpeg, sandboxGIF: m.SandboxGIFs() && !m.ffmpegGIFs[key], seen: m.generation, animate: animate, cancel: cancel, cancelled: m.cancelled[key], frame: previous, preview: preview, still: still, clip: clip, box: box, cover: cover, sticker: animatedSticker || msg.Kind == model.MessageSticker}
 		m.entries[key] = e
 		if at, ok := m.seeks[key]; ok {
 			delete(m.seeks, key)
@@ -692,6 +696,27 @@ func (m *Manager) Retry(msg model.Message) {
 			delete(m.entries, msg.Media.ID)
 		}
 	}
+}
+
+// FFmpegFound reports whether an FFmpeg is there to play a GIF with: the
+// one the settings name, or one on the system.
+func (m *Manager) FFmpegFound() bool {
+	return video.ResolveFFmpeg(m.ffmpeg) != ""
+}
+
+// PlayGIFWithFFmpeg plays the GIF of msg with FFmpeg, out of the sandbox,
+// which cannot play it (mp4.ErrUnsupported), as the user chose to: the
+// other GIFs stay in the sandbox.
+func (m *Manager) PlayGIFWithFFmpeg(msg model.Message) {
+	if msg.Media == nil {
+		return
+	}
+	if m.ffmpegGIFs == nil {
+		m.ffmpegGIFs = map[string]bool{}
+	}
+	m.ffmpegGIFs[msg.Media.ID] = true
+	m.Retry(msg)
+	m.changed()
 }
 
 // Retain drops every entry but those of the given media IDs, so that a

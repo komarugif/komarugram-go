@@ -338,6 +338,8 @@ type chatPage struct {
 	stickerVideo stickerVideoDialog
 	// albumSave asks what of an album to save.
 	albumSave albumSaveDialog
+	// gifFallback asks where to play a GIF the sandbox cannot.
+	gifFallback gifFallback
 	// player and setPlayer read and save the external player the user
 	// chose; playerChoice asks for it.
 	player      func() player.Kind
@@ -578,6 +580,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 			p.shot.stop()
 			p.stickerVideo.close()
 			p.albumSave = albumSaveDialog{}
+			p.gifFallback.modal.Hide()
 			p.translation.stop()
 			p.closeChatSearch()
 			p.chatMenu.open = false
@@ -873,6 +876,7 @@ func (p *chatPage) layoutDialogs(gtx layout.Context, l localization.Catalog) {
 	p.shot.layout(gtx, p, l)
 	p.stickerVideo.layout(gtx, p, l)
 	p.albumSave.layout(gtx, p, l)
+	p.gifFallbackDialog(gtx, l)
 	p.translation.layout(gtx, p, l)
 	if p.composer != nil {
 		p.composer.layoutConfirm(gtx, p, l)
