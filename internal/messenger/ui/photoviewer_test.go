@@ -37,8 +37,12 @@ import (
 type galleryStore struct {
 	benchmarkHistory
 	photos []model.Message
-	mu     sync.Mutex
-	reads  []string
+	// gifs are the chat's GIFs, 15, 25, … 295, each with a thumbnail;
+	// gifPages counts the pages of them asked for.
+	gifs     []model.Message
+	gifPages int
+	mu       sync.Mutex
+	reads    []string
 	// hold, when set, keeps originals downloading until it is closed.
 	hold    chan struct{}
 	encoded map[image.Point][]byte
@@ -51,18 +55,32 @@ func newGalleryStore() *galleryStore {
 	for id := 10; id <= 300; id += 10 {
 		media := &model.MessageMedia{ID: fmt.Sprintf("p%d/w", id), Width: 1600, Height: 1200, Variants: []model.MessageMedia{{ID: fmt.Sprintf("p%d/m", id), Width: 320, Height: 240}, {ID: fmt.Sprintf("p%d/x", id), Width: 800, Height: 600}}}
 		s.photos = append(s.photos, model.Message{Key: model.MessageKey{ChatID: 1, MessageID: model.MessageID(id)}, Kind: model.MessagePhoto, Media: media, Date: time.Unix(int64(id), 0)})
+		gif := &model.MessageMedia{ID: fmt.Sprintf("g%d", id+5), MIMEType: "video/mp4", Width: 320, Height: 240, Thumbnail: &model.MessageMedia{ID: fmt.Sprintf("g%d/thumb", id+5), Width: 90, Height: 68}}
+		s.gifs = append(s.gifs, model.Message{Key: model.MessageKey{ChatID: 1, MessageID: model.MessageID(id + 5)}, Kind: model.MessageGIF, Media: gif, Date: time.Unix(int64(id+5), 0)})
 	}
 	return s
 }
 
 func (s *galleryStore) ChatPhotos(_ context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.PhotoPage, error) {
+	return s.page(s.photos, anchor, dir, limit), nil
+}
+
+func (s *galleryStore) ChatGIFs(_ context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.PhotoPage, error) {
+	s.mu.Lock()
+	s.gifPages++
+	s.mu.Unlock()
+	return s.page(s.gifs, anchor, dir, limit), nil
+}
+
+// page is the page of list past anchor in dir.
+func (s *galleryStore) page(list []model.Message, anchor model.MessageID, dir, limit int) model.PhotoPage {
 	var out []model.Message
-	for _, m := range s.photos {
+	for _, m := range list {
 		if dir < 0 && m.Key.MessageID < anchor || dir > 0 && m.Key.MessageID > anchor {
 			out = append(out, m)
 		}
 	}
-	page := model.PhotoPage{Total: len(s.photos), More: len(out) > limit}
+	page := model.PhotoPage{Total: len(list), More: len(out) > limit}
 	if s.cached {
 		page.Total = 0
 	}
@@ -71,7 +89,7 @@ func (s *galleryStore) ChatPhotos(_ context.Context, chat int64, anchor model.Me
 	} else {
 		page.Messages = out[:min(len(out), limit)]
 	}
-	return page, nil
+	return page
 }
 
 func (s *galleryStore) Media(ctx context.Context, m model.Message) ([]byte, error) {
@@ -502,4 +520,66 @@ func TestPhotoViewerClosesAfterPanic(t *testing.T) {
 	h.viewer.Open(1, s.photos[14], s.photos[13:16])
 	h.frame()
 	h.frame()
+}
+
+// A GIF opens among the chat's GIFs, paged from their own gallery, and the
+// arrows go from GIF to GIF; the photos stay out of it, as the GIFs stay
+// out of a photo's gallery. The strip shows the GIFs' thumbnails, not the
+// GIFs, which would be read whole for a frame each.
+func TestPhotoViewerGoesThroughTheChatsGIFs(t *testing.T) {
+	h := newViewerHarness(t)
+	s := h.store
+	// What the history has loaded: photos and GIFs, mixed.
+	known := []model.Message{s.photos[13], s.gifs[13], s.photos[14], s.gifs[14], s.photos[15], s.gifs[15]}
+	h.viewer.OpenGIF(1, s.gifs[14], known)
+	h.until("the GIFs' pages", func() bool { return h.count() == len(s.gifs) })
+	items, _, _, _, _ := h.viewer.snapshot()
+	for _, m := range items {
+		if m.Kind != model.MessageGIF {
+			t.Fatalf("the GIFs' gallery holds message %d of kind %d", m.Key.MessageID, m.Kind)
+		}
+	}
+	s.mu.Lock()
+	pages := s.gifPages
+	s.mu.Unlock()
+	if pages == 0 {
+		t.Fatal("no page of GIFs was asked for")
+	}
+	if h.viewer.current != s.gifs[14].Key.MessageID {
+		t.Fatalf("opened on %d", h.viewer.current)
+	}
+	h.key(key.NameRightArrow)
+	if h.viewer.current != s.gifs[15].Key.MessageID {
+		t.Fatalf("the right arrow went to %d, not the next GIF", h.viewer.current)
+	}
+	h.key(key.NameLeftArrow)
+	h.key(key.NameLeftArrow)
+	if h.viewer.current != s.gifs[13].Key.MessageID {
+		t.Fatalf("the left arrow went to %d, not the GIF before", h.viewer.current)
+	}
+	// GIF 9 is on the strip only: never shown, nor next to what was.
+	strip := s.gifs[9]
+	h.until("the strip's thumbnails", func() bool {
+		for _, id := range s.read() {
+			if id == strip.Media.Thumbnail.ID {
+				return true
+			}
+		}
+		return false
+	})
+	for _, id := range s.read() {
+		if id == strip.Media.ID {
+			t.Fatalf("the strip read GIF %s whole for its thumbnail", id)
+		}
+	}
+
+	// A photo of the same chat opens among the photos alone.
+	h.viewer.Open(1, s.photos[14], known)
+	h.until("the photos' pages", func() bool { return h.count() == len(s.photos) })
+	items, _, _, _, _ = h.viewer.snapshot()
+	for _, m := range items {
+		if m.Kind == model.MessageGIF {
+			t.Fatalf("the photos' gallery holds GIF %d", m.Key.MessageID)
+		}
+	}
 }

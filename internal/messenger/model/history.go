@@ -383,7 +383,15 @@ type PhotoGallery interface {
 	ChatPhotos(ctx context.Context, chat int64, anchor MessageID, dir, limit int) (PhotoPage, error)
 }
 
-// PhotoPage is a page of a chat's photos or of the photos of its profile.
+// GIFGallery pages a chat's GIFs, as PhotoGallery its photos and videos: a
+// GIF opened goes on to the chat's other GIFs, as in Telegram Desktop, and
+// a photo to its photos and videos, not to the GIFs.
+type GIFGallery interface {
+	ChatGIFs(ctx context.Context, chat int64, anchor MessageID, dir, limit int) (PhotoPage, error)
+}
+
+// PhotoPage is a page of a chat's photos, of its GIFs or of the photos of
+// its profile.
 type PhotoPage struct {
 	Messages []Message
 	// Total counts the photos of the whole gallery, 0 when it is not known,

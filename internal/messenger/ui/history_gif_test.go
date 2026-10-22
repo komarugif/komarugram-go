@@ -57,7 +57,7 @@ func TestGIFClickPausesMiddleOpens(t *testing.T) {
 		messages[1].Kind, messages[1].Text, messages[1].Media = gifMessage.Kind, "", gifMessage.Media
 	}, func(s *menuStore) model.ConversationStore { return gifStore{s, data} })
 	var opened []model.Message
-	h.page.openAlone = func(m model.Message) { opened = append(opened, m) }
+	h.page.openGIF = func(m model.Message) { opened = append(opened, m) }
 	h.frames(2)
 	click := func(button pointer.Buttons, at f32.Point) {
 		// Clicks a moment apart, not a double click.

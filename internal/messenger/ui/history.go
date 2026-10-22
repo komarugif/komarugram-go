@@ -281,6 +281,8 @@ type chatPage struct {
 	// openPhoto shows a photo in the viewer; nil leaves photos inline.
 	openPhoto func(model.Message)
 	openAlone func(model.Message)
+	// openGIF opens a GIF in the viewer, among the chat's GIFs.
+	openGIF func(model.Message)
 	// openArticle shows the whole of rich message m, at its anchor
 	// fragment unless it is empty; nil when it cannot.
 	openArticle func(m model.Message, fragment string)

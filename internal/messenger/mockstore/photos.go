@@ -118,15 +118,26 @@ func clampByte(v float64) uint8 { return uint8(max(0, min(255, v))) }
 
 var (
 	_ model.PhotoGallery       = (*Store)(nil)
+	_ model.GIFGallery         = (*Store)(nil)
 	_ model.ProfilePhotoSource = (*Store)(nil)
 )
 
 // ChatPhotos implements model.PhotoGallery over the demo history.
 func (s *Store) ChatPhotos(ctx context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.PhotoPage, error) {
+	return s.gallery(ctx, chat, anchor, dir, limit, func(k model.MessageKind) bool { return k == model.MessagePhoto || k == model.MessageVideo })
+}
+
+// ChatGIFs implements model.GIFGallery over the demo history.
+func (s *Store) ChatGIFs(ctx context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.PhotoPage, error) {
+	return s.gallery(ctx, chat, anchor, dir, limit, func(k model.MessageKind) bool { return k == model.MessageGIF })
+}
+
+// gallery pages the media of the demo history of the kinds in tells.
+func (s *Store) gallery(ctx context.Context, chat int64, anchor model.MessageID, dir, limit int, in func(model.MessageKind) bool) (model.PhotoPage, error) {
 	var photos []model.Message
 	total := 0
 	for _, m := range s.History(chat).Messages {
-		if m.Kind != model.MessagePhoto && m.Kind != model.MessageVideo || m.Media == nil {
+		if !in(m.Kind) || m.Media == nil {
 			continue
 		}
 		total++

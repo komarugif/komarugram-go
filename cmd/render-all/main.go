@@ -57,6 +57,7 @@ func renders() []render {
 		render{"reacted", "TestRenderReacted", []string{"REACTED_PNG={out}/reacted.png"}},
 		render{"viewer", "TestRenderPhotoViewer", []string{"VIEWER_PNG={out}/viewer.png"}},
 		render{"viewer-zoom", "TestRenderPhotoViewer", []string{"VIEWER_ZOOM=2", "VIEWER_PNG={out}/viewer-zoom.png"}},
+		render{"viewer-gifs", "TestRenderPhotoViewer", []string{"VIEWER_GIFS=1", "VIEWER_PNG={out}/viewer-gifs.png"}},
 		render{"player", "TestRenderPlayerChoice", []string{"PLAYER_PNG={out}/player.png"}},
 		render{"comments", "TestRenderCommentsHead", []string{"COMMENTS_PNG={out}/comments.png"}},
 		render{"forum", "TestRenderForum", []string{"FORUM_PNG={out}/forum.png"}},

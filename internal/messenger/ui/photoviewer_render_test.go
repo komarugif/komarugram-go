@@ -30,7 +30,8 @@ import (
 //
 //	VIEWER_PNG=/tmp/viewer.png go test ./internal/messenger/ui -run RenderPhotoViewer
 //
-// With VIEWER_PROFILE set it shows the photos of a chat's profile.
+// With VIEWER_PROFILE set it shows the photos of a chat's profile, and with
+// VIEWER_GIFS a GIF of the chat among its GIFs.
 func TestRenderPhotoViewer(t *testing.T) {
 	out := os.Getenv("VIEWER_PNG")
 	if out == "" {
@@ -61,6 +62,16 @@ func TestRenderPhotoViewer(t *testing.T) {
 		// The photos of the chat's profile, as its avatar opens them.
 		start, _ = store.ProfilePhoto(2)
 		v.OpenProfile(2)
+	} else if os.Getenv("VIEWER_GIFS") != "" {
+		for _, m := range h.Messages {
+			if m.Kind == model.MessageGIF && m.Media != nil && m.Media.ID == "demo/gif" {
+				start = m
+				if m.Key.MessageID > 100 {
+					break
+				}
+			}
+		}
+		v.OpenGIF(2, start, nil)
 	} else {
 		v.Open(2, start, nil)
 	}

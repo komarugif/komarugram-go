@@ -79,6 +79,10 @@ func (s *Store) History(chat int64) model.History {
 			n := i / 35
 			m.Kind, m.Media, m.Text = model.MessagePhoto, demoPhoto(n), fmt.Sprintf("Фото %d — откройте, чтобы листать все фото чата", n)
 		}
+		if i%45 == 22 {
+			// GIFs between the photos, which the viewer goes through apart.
+			m.Kind, m.Media, m.Text = model.MessageGIF, &model.MessageMedia{ID: "demo/gif", MIMEType: "image/gif", Width: 240, Height: 140}, fmt.Sprintf("GIF %d — откройте, чтобы листать все GIF чата", i/45+1)
+		}
 		messages = append(messages, m)
 	}
 	add := func(text string, kind model.MessageKind, media *model.MessageMedia, entities []model.Entity, buttons [][]model.MessageButton) {

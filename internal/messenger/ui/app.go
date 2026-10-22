@@ -160,7 +160,7 @@ type App struct {
 	// in; photoWindows and articleWindows, their lists, which close with
 	// this window and when it locks.
 	openWindow     func(appwindow.Spec)
-	photoWindows   photoWindows
+	photoWindows  photoWindows
 	articleWindows articleWindows
 	settings       *settingsPage
 	// sessionEnded asks what to do once Telegram ended the session.
@@ -660,6 +660,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		// the same bar, as the chat's.
 		a.info.renderer.audio = a.history.audio
 		a.info.renderer.openPhoto = func(m model.Message) { a.viewer.Open(m.Key.ChatID, m, a.info.messages) }
+		a.info.renderer.openGIF = func(m model.Message) { a.viewer.OpenGIF(m.Key.ChatID, m, a.info.messages) }
 		a.info.openAvatar = func(chat int64) { a.viewer.OpenProfile(chat) }
 		if services.OpenWindow != nil {
 			a.openWindow = services.OpenWindow
@@ -714,6 +715,7 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 	p.openVideo = func(m model.Message, at time.Duration) { a.viewer.OpenVideo(p.chat, m, p.photos(), at) }
 	p.videoEngine = a.videoEngine
 	p.openAlone = func(m model.Message) { a.viewer.OpenAlone(p.chat, m) }
+	p.openGIF = func(m model.Message) { a.viewer.OpenGIF(p.chat, m, p.photos()) }
 	p.releaseMemory, p.keepMemory = w.ReleaseMemoryLater, w.KeepMemory
 	formula.SetRelease(w.MemoryReleaser())
 	p.openWebApp = a.launchWebApp

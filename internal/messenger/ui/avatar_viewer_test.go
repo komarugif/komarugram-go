@@ -149,7 +149,7 @@ func TestProfilePhotosGoOnInWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v.openList(2, page.Messages[0], photoList{items: page.Messages, total: page.Total, ended: [2]bool{true, false}, profile: true, offset: page.Next})
+	v.openList(2, page.Messages[0], photoList{items: page.Messages, total: page.Total, ended: [2]bool{true, false}, gallery: galleryProfile, offset: page.Next})
 	deadline := time.Now().Add(3 * time.Second)
 	// Opening asks for the page after those it was given.
 	for ; ; time.Sleep(time.Millisecond) {

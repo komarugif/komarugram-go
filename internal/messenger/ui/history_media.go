@@ -94,8 +94,8 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	// One that plays here pauses on a click, and opens in the viewer on
 	// one of the middle button.
 	inline := m.Kind == model.MessageGIF && !gif
-	if inline && r.gif.update(gtx, p, m) && p.openAlone != nil {
-		p.openAlone(m)
+	if inline && r.gif.update(gtx, p, m) && p.openGIF != nil {
+		p.openGIF(m)
 	}
 	if video {
 		target.Kind = model.MessagePhoto

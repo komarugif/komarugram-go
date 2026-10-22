@@ -107,7 +107,8 @@ func (c *Cache) open() error {
  CREATE TABLE IF NOT EXISTS spans(chat INTEGER,low INTEGER,high INTEGER,PRIMARY KEY(chat,low));
  DROP INDEX IF EXISTS photos;
  DELETE FROM kv WHERE key >= 'language/' AND key < 'language0';
- CREATE INDEX IF NOT EXISTS photo_videos ON messages(chat,id) WHERE ` + photoWhere + `;`)
+ CREATE INDEX IF NOT EXISTS photo_videos ON messages(chat,id) WHERE ` + photoWhere + `;
+ CREATE INDEX IF NOT EXISTS gifs ON messages(chat,id) WHERE ` + gifWhere + `;`)
 	for _, col := range [][2]string{{"topic", "INTEGER NOT NULL DEFAULT 0"}, {"kind", "INTEGER NOT NULL DEFAULT 0"}, {"thumb", "BLOB"}} {
 		if err == nil {
 			err = c.addColumn("downloads", col[0], col[1])
@@ -600,14 +601,28 @@ func (c *Cache) Page(ctx context.Context, chat int64, anchor, dir, limit int) ([
 // what makes a gallery query cheap in a large chat.
 const photoWhere = `json_extract(CAST(payload AS TEXT),'$.Kind') IN (1,2)`
 
+// gifWhere selects GIFs (model.MessageGIF), as photoWhere photos, with an
+// index of its own.
+const gifWhere = `json_extract(CAST(payload AS TEXT),'$.Kind')=7`
+
 // Photos reads a page of cached photo messages next to anchor, oldest
 // first: before it when dir is negative, after it otherwise.
 func (c *Cache) Photos(ctx context.Context, chat int64, anchor, dir, limit int) ([]model.Message, error) {
+	return c.gallery(ctx, photoWhere, chat, anchor, dir, limit)
+}
+
+// GIFs reads a page of cached GIFs next to anchor, as Photos does photos.
+func (c *Cache) GIFs(ctx context.Context, chat int64, anchor, dir, limit int) ([]model.Message, error) {
+	return c.gallery(ctx, gifWhere, chat, anchor, dir, limit)
+}
+
+// gallery reads a page of the messages where selects next to anchor.
+func (c *Cache) gallery(ctx context.Context, where string, chat int64, anchor, dir, limit int) ([]model.Message, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	query := `SELECT payload FROM (SELECT id,payload FROM messages WHERE chat=? AND ` + photoWhere + ` AND deleted!=1 AND id<? ORDER BY id DESC LIMIT ?) ORDER BY id`
+	query := `SELECT payload FROM (SELECT id,payload FROM messages WHERE chat=? AND ` + where + ` AND deleted!=1 AND id<? ORDER BY id DESC LIMIT ?) ORDER BY id`
 	if dir > 0 {
-		query = `SELECT payload FROM messages WHERE chat=? AND ` + photoWhere + ` AND deleted!=1 AND id>? ORDER BY id LIMIT ?`
+		query = `SELECT payload FROM messages WHERE chat=? AND ` + where + ` AND deleted!=1 AND id>? ORDER BY id LIMIT ?`
 	}
 	rows, e := c.db.QueryContext(ctx, query, chat, anchor, limit)
 	if e != nil {

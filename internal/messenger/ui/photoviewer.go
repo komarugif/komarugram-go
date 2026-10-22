@@ -60,12 +60,14 @@ const (
 
 // photoViewer shows a chat's photos over the whole window: the current one
 // at its own size, as far as the window allows, arrows to its neighbours and
-// a strip of thumbnails below. It pages the chat's photos, or the photos of
-// its profile, as the strip comes near either end.
+// a strip of thumbnails below. It pages the chat's photos and videos, its
+// GIFs, or the photos of its profile, as the strip comes near either end.
 type photoViewer struct {
-	shortcuts  shortcutPreferences
-	source     model.ConversationStore
-	gallery    model.PhotoGallery
+	shortcuts shortcutPreferences
+	source    model.ConversationStore
+	// photos, gifs and profiles page the galleries of viewerGallery.
+	photos     model.PhotoGallery
+	gifs       model.GIFGallery
 	profiles   model.ProfilePhotoSource
 	images     *imageOps
 	invalidate func()
@@ -96,9 +98,9 @@ type photoViewer struct {
 	// total, the count of all its photos, places the photos shown in it.
 	ended [2]bool
 	total int
-	// profile tells that items are the photos of the chat's profile,
-	// paged from offset, not its photo messages.
-	profile bool
+	// gallery is what items are; the photos of a profile are paged from
+	// offset, not by their messages.
+	gallery viewerGallery
 	offset  string
 
 	backdrop, picture, prev, next, close, detach widget.Clickable
@@ -170,14 +172,50 @@ type photoList struct {
 	items   []model.Message
 	total   int
 	ended   [2]bool
-	profile bool
+	gallery viewerGallery
 	offset  string
+}
+
+// viewerGallery is what the viewer goes through: the photos and videos of
+// a chat, its GIFs, or the photos of its profile, as Telegram Desktop's
+// shared media of a type. Each is paged from a source of its own, and holds
+// its own kind of media alone: a GIF opened goes on to the chat's GIFs,
+// a photo to its photos and videos.
+type viewerGallery uint8
+
+const (
+	galleryPhotos viewerGallery = iota
+	galleryGIFs
+	galleryProfile
+)
+
+// holds reports whether m is of the gallery's kind of media.
+func (g viewerGallery) holds(m model.Message) bool {
+	if m.Media == nil {
+		return false
+	}
+	if g == galleryGIFs {
+		return m.Kind == model.MessageGIF
+	}
+	return m.Kind == model.MessagePhoto || m.Kind == model.MessageVideo
+}
+
+// pages reports whether v has where to page gallery g from.
+func (v *photoViewer) pages(g viewerGallery) bool {
+	switch g {
+	case galleryGIFs:
+		return v.gifs != nil
+	case galleryProfile:
+		return v.profiles != nil
+	}
+	return v.photos != nil
 }
 
 func newPhotoViewer(source model.ConversationStore, images *imageOps, invalidate func()) *photoViewer {
 	v := &photoViewer{source: source, images: images, invalidate: invalidate, thumbState: map[model.MessageID]*viewerThumbState{}, backdropColor: viewerBackdrop, playErrs: make(chan error, 1)}
 	v.video = newViewerVideo(invalidate)
-	v.gallery, _ = source.(model.PhotoGallery)
+	v.photos, _ = source.(model.PhotoGallery)
+	v.gifs, _ = source.(model.GIFGallery)
 	v.profiles, _ = source.(model.ProfilePhotoSource)
 	v.full = chatmedia.NewSized(source, invalidate, viewerFullLimit, 4096)
 	v.mid = chatmedia.NewSized(source, invalidate, 3, 1024)
@@ -190,7 +228,18 @@ func newPhotoViewer(source model.ConversationStore, images *imageOps, invalidate
 // as those of the loaded history, so that the strip is not empty while the
 // cache is read.
 func (v *photoViewer) Open(chat int64, m model.Message, known []model.Message) {
-	v.openList(chat, m, photoList{items: known, profile: model.IsProfilePhoto(m.Key.MessageID)})
+	gallery := galleryPhotos
+	if model.IsProfilePhoto(m.Key.MessageID) {
+		gallery = galleryProfile
+	}
+	v.openList(chat, m, photoList{items: known, gallery: gallery})
+}
+
+// OpenGIF shows GIF m of chat among the chat's GIFs, as Open shows a photo
+// among its photos; known are messages the caller has, of which the GIFs
+// are taken.
+func (v *photoViewer) OpenGIF(chat int64, m model.Message, known []model.Message) {
+	v.openList(chat, m, photoList{items: known, gallery: galleryGIFs})
 }
 
 // openList shows photo m of chat among what list tells of the others.
@@ -206,17 +255,19 @@ func (v *photoViewer) openList(chat int64, m model.Message, list photoList) {
 			v.cancel()
 		}
 		v.session++
-		v.items = mergePhotos(nil, list.items)
+		v.items = mergePhotos(list.gallery, nil, list.items)
 		if indexOf(v.items, m.Key.MessageID) < 0 {
 			v.items = append(v.items, m)
 			sort.Slice(v.items, func(i, j int) bool { return v.items[i].Key.MessageID < v.items[j].Key.MessageID })
 		}
-		v.total, v.ended, v.profile, v.offset = list.total, list.ended, list.profile, list.offset
-		pageless := v.gallery == nil || m.Key.MessageID < 0
-		if v.profile {
+		v.total, v.ended, v.gallery, v.offset = list.total, list.ended, list.gallery, list.offset
+		pageless := !v.pages(v.gallery)
+		if v.gallery == galleryProfile {
 			// The photos of a profile start at the one it shows now.
 			v.ended[0] = true
-			pageless = v.profiles == nil
+		} else {
+			// A message not sent yet is in no gallery.
+			pageless = pageless || m.Key.MessageID < 0
 		}
 		v.loading, v.exhausted = [2]bool{}, [2]bool{pageless || v.ended[0], pageless || v.ended[1]}
 		v.ctx, v.cancel = context.WithCancel(context.Background())
@@ -266,7 +317,7 @@ func (v *photoViewer) OpenProfile(chat int64) bool {
 	}
 	// The photo shown stays as it is, already decoded: the first page's
 	// photo of the same place is not merged.
-	v.openList(chat, current, photoList{profile: true})
+	v.openList(chat, current, photoList{gallery: galleryProfile})
 	return true
 }
 
@@ -315,7 +366,7 @@ func (v *photoViewer) fetch(ctx context.Context, session, dir int, anchor model.
 		return
 	}
 	v.loading[side] = true
-	chat, profile, offset := v.chat, v.profile, v.offset
+	chat, gallery, offset := v.chat, v.gallery, v.offset
 	v.mu.Unlock()
 	go func() {
 		defer crash.Recover("photo gallery", func(*crash.Panic) {
@@ -327,10 +378,13 @@ func (v *photoViewer) fetch(ctx context.Context, session, dir int, anchor model.
 		})
 		var page model.PhotoPage
 		var err error
-		if profile {
+		switch gallery {
+		case galleryProfile:
 			page, err = v.profiles.ProfilePhotos(ctx, chat, offset, viewerPage)
-		} else {
-			page, err = v.gallery.ChatPhotos(ctx, chat, anchor, dir, viewerPage)
+		case galleryGIFs:
+			page, err = v.gifs.ChatGIFs(ctx, chat, anchor, dir, viewerPage)
+		default:
+			page, err = v.photos.ChatPhotos(ctx, chat, anchor, dir, viewerPage)
 		}
 		v.mu.Lock()
 		defer v.invalidate()
@@ -350,12 +404,8 @@ func (v *photoViewer) fetch(ctx context.Context, session, dir int, anchor model.
 			v.total = page.Total
 		}
 		v.offset = page.Next
-		v.items = mergePhotos(v.items, page.Messages)
+		v.items = mergePhotos(gallery, v.items, page.Messages)
 	}()
-}
-
-func inGallery(m model.Message) bool {
-	return (m.Kind == model.MessagePhoto || m.Kind == model.MessageVideo) && m.Media != nil
 }
 
 // viewerTarget is what the viewer decodes for m: a video's thumbnail, in the
@@ -364,6 +414,22 @@ func (v *photoViewer) viewerTarget(m model.Message) (model.Message, bool) {
 	if m.Kind != model.MessageVideo {
 		return m, m.Media != nil
 	}
+	return v.thumbnailTarget(m)
+}
+
+// stripTarget is what the strip shows of m: a GIF's thumbnail, as a
+// video's, rather than the GIF, which would be read whole for a frame; one
+// without a thumbnail shows its own first frame.
+func (v *photoViewer) stripTarget(m model.Message) (model.Message, bool) {
+	if m.Kind == model.MessageGIF && m.Media != nil && m.Media.Thumbnail != nil {
+		return v.thumbnailTarget(m)
+	}
+	return v.viewerTarget(m)
+}
+
+// thumbnailTarget is m's thumbnail as a photo, in m's proportions; ok is
+// false when m has none.
+func (v *photoViewer) thumbnailTarget(m model.Message) (model.Message, bool) {
 	if m.Media == nil || m.Media.Thumbnail == nil {
 		return m, false
 	}
@@ -384,14 +450,14 @@ func (v *photoViewer) viewerTarget(m model.Message) (model.Message, bool) {
 	return t, true
 }
 
-// mergePhotos adds photos and videos to a sorted list, once each.
-func mergePhotos(items, add []model.Message) []model.Message {
+// mergePhotos adds the media of gallery's kind to a sorted list, once each.
+func mergePhotos(gallery viewerGallery, items, add []model.Message) []model.Message {
 	seen := make(map[model.MessageID]bool, len(items))
 	for _, m := range items {
 		seen[m.Key.MessageID] = true
 	}
 	for _, m := range add {
-		if inGallery(m) && !seen[m.Key.MessageID] {
+		if gallery.holds(m) && !seen[m.Key.MessageID] {
 			seen[m.Key.MessageID] = true
 			items = append(items, m)
 		}
@@ -544,7 +610,7 @@ func (v *photoViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	if v.detach.Clicked(gtx) && v.popout != nil {
 		i := indexOf(items, v.current)
 		v.mu.Lock()
-		list := photoList{items: items, total: v.total, ended: v.ended, profile: v.profile, offset: v.offset}
+		list := photoList{items: items, total: v.total, ended: v.ended, gallery: v.gallery, offset: v.offset}
 		v.mu.Unlock()
 		v.popout(v.chat, items[i], list)
 		v.Close()
@@ -1036,7 +1102,7 @@ func (v *photoViewer) layoutStrip(gtx layout.Context, items []model.Message, cur
 			// A video without a thumbnail has no picture: its thumbnail is
 			// the empty plate, which still selects it.
 			var t *model.Message
-			if target, ok := v.viewerTarget(m); ok {
+			if target, ok := v.stripTarget(m); ok {
 				t = v.thumb(target, side)
 			}
 			st := v.thumbState[m.Key.MessageID]

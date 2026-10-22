@@ -291,6 +291,74 @@ func TestPhotosPageAroundAnchorWithIndex(t *testing.T) {
 	}
 }
 
+// The GIFs of a chat are a gallery of their own, which the photos' leaves
+// out, with an index of its own built over the rows of a cache opened.
+func TestGIFsPageAroundAnchorWithIndex(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "h")
+	c, e := Open(path, "a", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	ctx := context.Background()
+	var msgs []model.Message
+	for i := 1; i <= 20; i++ {
+		m := model.Message{Key: model.MessageKey{AccountID: "a", ChatID: 9, MessageID: model.MessageID(i)}, Text: "text"}
+		switch {
+		case i%3 == 0:
+			m.Kind, m.Media = model.MessageGIF, &model.MessageMedia{ID: fmt.Sprint("g", i)}
+		case i%4 == 0:
+			m.Kind, m.Media = model.MessagePhoto, &model.MessageMedia{ID: fmt.Sprint("p", i)}
+		}
+		msgs = append(msgs, m)
+	}
+	msgs = append(msgs, model.Message{Key: model.MessageKey{AccountID: "a", ChatID: 10, MessageID: 6}, Kind: model.MessageGIF})
+	if e = c.SaveMessages(ctx, msgs); e != nil {
+		t.Fatal(e)
+	}
+	if e = c.Delete(ctx, 9, []int{9}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = c.db.Exec(`DROP INDEX gifs`); e != nil {
+		t.Fatal(e)
+	}
+	c.Close()
+	if c, e = Open(path, "a", nil); e != nil {
+		t.Fatal(e)
+	}
+	defer c.Close()
+	ids := func(ms []model.Message) (out []int) {
+		for _, m := range ms {
+			out = append(out, int(m.Key.MessageID))
+		}
+		return
+	}
+	// 9 is deleted, chat 10 is another chat, and 4, 8, 16 and 20 are photos.
+	if all, _ := c.GIFs(ctx, 9, 0, 1, 100); fmt.Sprint(ids(all)) != "[3 6 12 15 18]" {
+		t.Fatalf("GIFs: %v", ids(all))
+	}
+	if older, e := c.GIFs(ctx, 9, 15, -1, 2); e != nil || fmt.Sprint(ids(older)) != "[6 12]" {
+		t.Fatalf("older: %v %v", ids(older), e)
+	}
+	if photos, _ := c.Photos(ctx, 9, 0, 1, 100); fmt.Sprint(ids(photos)) != "[4 8 16 20]" {
+		t.Fatalf("photos: %v", ids(photos))
+	}
+	var plan string
+	rows, e := c.db.Query(`EXPLAIN QUERY PLAN SELECT id FROM messages WHERE chat=? AND `+gifWhere+` AND deleted=0 AND id>? ORDER BY id LIMIT 5`, 9, 0)
+	if e != nil {
+		t.Fatal(e)
+	}
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		rows.Scan(&id, &parent, &unused, &detail)
+		plan += detail + "\n"
+	}
+	rows.Close()
+	if !strings.Contains(plan, "gifs") {
+		t.Fatalf("GIF query does not use the GIF index:\n%s", plan)
+	}
+}
+
 // Media stay within the budget, the newest kept; an eviction frees an eighth
 // of it, so that the writes after it do not each evict again. The size kept
 // follows replaced entries.
