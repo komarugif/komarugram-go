@@ -42,7 +42,14 @@ animate as Material 3 describes, and every animation can be turned off.
   a target given every frame, from wherever it is when the target changes.
   The zero value starts at the first target; without a clock (`gtx.Now`
   zero, as in tests) or with animations off they jump to the target.
-  `wdk/animation_test.go`.
+  A target given while the value moves is timed from the frame before,
+  with the standard decelerate easing (unless one is set): timed from its
+  own frame, the value stood in place in every frame with a new target, so
+  progress given every frame never moved a bar until it stopped coming
+  (2026-10-22: 0% all the way to a target of 100% in 40 frames); with the
+  standard easing, which starts at rest, it moved but kept up to 40% behind.
+  Now it keeps about two frames behind. `wdk/animation_test.go`
+  (`TestFloatTweenFollowsMovingTarget`).
 - `wdk/motion.go`: `SetAnimationsEnabled` / `AnimationsEnabled` turn
   animations off for a frame through `gtx.Values`. The messenger sets it
   every frame from `internal/motion` (the user's choice, power saving).
@@ -88,7 +95,13 @@ animate as Material 3 describes, and every animation can be turned off.
     fade); `ClearItem` closes an item, which is removed once it has animated
     out (at once with animations off). `CloseOnScrim` and `Closed` are new.
     The top item is the last one not closing.
-  - `indicator`: progress animates with a `FloatTween`;
+  - `indicator`: progress animates with a `FloatTween`; a linear one
+    spans its whole width, as Material 3's: upstream put `EnabledSpacing`,
+    the gap between the active indicator and the track, at both ends too,
+    and took the gap itself from a constant of its own rather than the
+    theme. It ends without Material 3's stop indicator, the dot at the end
+    of the track, by the maintainer's choice (2026-10-22): its thickness is
+    0 by default, which draws none, and a theme can give it one;
     `CircularIndeterminate` (`indeterminate.go`) is the rotating spinner,
     where upstream had a TODO. `indeterminate_test.go`.
   - `slider`: the handle slides between the stops (a `FloatTween` of the
@@ -143,7 +156,14 @@ animate as Material 3 describes, and every animation can be turned off.
   each device scrolls is in `docs/SCROLLING.md`. `scroll_test.go`,
   `drag_test.go`.
 
-## Known
+## Tests
 
-- `wdk/block`'s `TestPadding_layout_LTR` fails, as it does at the base
-  commit: `wdk/block` is not changed here.
+- `wdk/block`: `TestPadding_layout_LTR` and `_RTL` failed at the base
+  commit already. Upstream took the clipping out of `Padding` (`69641f4`,
+  "remove clip behavior from Padding") and let it pad a widget with no
+  size (`d25314f`, "allow empty Padding widget"), and left 14 cases
+  expecting both, with `getClipBaseline`, called by nothing. The cases
+  expect what `Padding` does now (the widget's size and the padding, the
+  padding's offset, the baseline above the bottom padding), and the
+  function is gone. `line.go` returned after a `panic`, which `go vet`
+  called unreachable.

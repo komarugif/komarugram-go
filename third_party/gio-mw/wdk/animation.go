@@ -60,6 +60,10 @@ type tween[V comparable] struct {
 	from, to, value V
 	start           time.Time
 	started         bool
+	// last is the time of the frame before; interrupted is set while the
+	// animation runs to a target given while it ran to another.
+	last        time.Time
+	interrupted bool
 }
 
 func (tw *tween[V]) animate(gtx layout.Context, target V, duration time.Duration, easing *token.Easing, lerp func(a, b V, t float32) V) V {
@@ -69,13 +73,26 @@ func (tw *tween[V]) animate(gtx layout.Context, target V, duration time.Duration
 	if !tw.started || gtx.Now.IsZero() || !AnimationsEnabled(gtx) {
 		tw.started = true
 		tw.from, tw.to, tw.value = target, target, target
+		tw.last = gtx.Now
 		return target
 	}
+	last := tw.last
+	tw.last = gtx.Now
 	if target != tw.to {
+		moving := tw.value != tw.to
 		tw.from, tw.to = tw.value, target
-		tw.start = gtx.Now
+		tw.start, tw.interrupted = gtx.Now, moving
+		if moving {
+			// A value in motion keeps moving: timed from the frame
+			// before, this frame moves it. Timed from this one, as an
+			// animation from rest is, it stood still in every frame
+			// with a new target: progress given every frame never
+			// moved a bar.
+			tw.start = last
+		}
 	}
 	if tw.value == tw.to {
+		tw.interrupted = false
 		return tw.value
 	}
 	if duration <= 0 {
@@ -83,11 +100,16 @@ func (tw *tween[V]) animate(gtx layout.Context, target V, duration time.Duration
 	}
 	progress := float64(gtx.Now.Sub(tw.start)) / float64(duration)
 	if progress >= 1 {
-		tw.value = tw.to
+		tw.value, tw.interrupted = tw.to, false
 		return tw.value
 	}
 	if easing == nil {
 		easing = &defaultTweenEasing
+		if tw.interrupted {
+			// The standard easing starts at rest; a value in motion
+			// would slow down to start again at each new target.
+			easing = &token.EasingStandardDecelerate
+		}
 	}
 	tw.value = lerp(tw.from, tw.to, float32(easing.Ease(progress)))
 	gtx.Execute(op.InvalidateCmd{})

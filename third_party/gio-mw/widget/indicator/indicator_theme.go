@@ -49,7 +49,9 @@ func BuildTheme(gtx layout.Context) *Theme {
 			Kind:        token.CornerKindRound,
 			AdaptToSize: true,
 		}),
-		EnabledStopIndicatorThickness: unit.Dp(4),
+		// Material 3 ends the track with a dot of 4 dp; the messenger's
+		// bars end without one.
+		EnabledStopIndicatorThickness: 0,
 		EnabledSpacing:                unit.Dp(4),
 	}
 	wdk.InitWidgetThemeInTheme(materialTheme, Namespace, widgetTheme)

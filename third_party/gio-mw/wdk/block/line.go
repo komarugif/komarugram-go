@@ -428,7 +428,6 @@ func getBaselineOffset(segment Segment, rSegment *renderedSegment) int {
 		return rSegment.dimensions.Size.Y
 	default:
 		panic(fmt.Errorf("getBaselineOffset: Invalid cross alignment: %d", segment.CrossAlign))
-		return 0
 	}
 }
 
@@ -451,6 +450,5 @@ func getSegmentXOffset(gtx layout.Context, segment Segment, rSegment *renderedSe
 		return availableWidth - rSegment.dimensions.Size.X
 	default:
 		panic(fmt.Errorf("getSegmentXOffset: Invalid cross alignment: %d", segment.CrossAlign))
-		return 0
 	}
 }
