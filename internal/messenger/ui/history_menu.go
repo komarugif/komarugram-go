@@ -64,14 +64,19 @@ type messageMenu struct {
 	// id is the message the menu is about, the first of an album; at is
 	// where the menu opened, and top where the history starts, in the
 	// chat page.
-	id     model.MessageID
-	at     image.Point
-	top    int
-	corner menuCorner
-	rect   image.Rectangle
-	shown  []menuAction
-	items  [menuActions]surface
-	packs  emojiPackLookup
+	id model.MessageID
+	at image.Point
+	// pressed is when the press that opened the menu came, and part the
+	// part of an album pressed last, with when; the menu is of that part
+	// when the two are of one press.
+	pressed time.Duration
+	part    albumPart
+	top     int
+	corner  menuCorner
+	rect    image.Rectangle
+	shown   []menuAction
+	items   [menuActions]surface
+	packs   emojiPackLookup
 	// reactions is the strip at the top, when the chat allows reactions;
 	// reactedOf, the reactions of the message, which its item counts.
 	reactions reactionStrip
@@ -100,7 +105,7 @@ func (p *chatPage) menuArea(gtx layout.Context, top int) {
 			break
 		}
 		if e, ok := ev.(pointer.Event); ok && e.Source == pointer.Mouse && e.Buttons == pointer.ButtonSecondary {
-			p.openMenu(gtx, e.Position, top)
+			p.openMenu(gtx, e.Position, e.Time, top)
 		}
 	}
 	pass := pointer.PassOp{}.Push(gtx.Ops)
@@ -111,8 +116,8 @@ func (p *chatPage) menuArea(gtx layout.Context, top int) {
 }
 
 // openMenu opens the menu of the message at pos in the history, which
-// starts at top in the chat page.
-func (p *chatPage) openMenu(gtx layout.Context, pos f32.Point, top int) {
+// starts at top in the chat page, pressed at time pressed.
+func (p *chatPage) openMenu(gtx layout.Context, pos f32.Point, pressed time.Duration, top int) {
 	m := &p.messageMenu
 	m.open = false
 	i := p.rowAt(pos.Y)
@@ -120,7 +125,7 @@ func (p *chatPage) openMenu(gtx layout.Context, pos f32.Point, top int) {
 		return
 	}
 	msg := p.messages[i]
-	m.open, m.id, m.top = true, msg.Key.MessageID, top
+	m.open, m.id, m.top, m.pressed = true, msg.Key.MessageID, top, pressed
 	m.menu = contextMenu{}
 	m.list.Position = layout.Position{}
 	m.reactions.expanded = false
@@ -248,7 +253,7 @@ func (p *chatPage) menuActions(m model.Message) []menuAction {
 	if canSaveHTML(m) && (!selected || len(p.selection.selected) == 1) {
 		out = append(out, actionSaveHTML)
 	}
-	if !selected && p.saveWayOf(m) != saveNone {
+	if !selected && p.canSave(m) {
 		out = append(out, actionSave)
 	}
 	if p.messageMenu.packs.id == m.Key.MessageID && len(p.messageMenu.packs.found.refs) > 0 {
@@ -368,7 +373,14 @@ func (p *chatPage) menuDo(gtx layout.Context, a menuAction, m model.Message, l l
 	case actionSaveHTML:
 		p.saveHTML(m, l)
 	case actionSave:
-		p.saveMessage(m, p.saveWayOf(m), l)
+		switch part, ok := p.menuPart(m); {
+		case ok:
+			p.albumSave.open(m, part)
+		case len(m.Attachments) > 1:
+			p.saveAlbum(m.Attachments, l)
+		default:
+			p.saveMessage(m, p.saveWayOf(m), l)
+		}
 	case actionFilter:
 		// A filter of the words selected, in every chat, as AyuGram's
 		// quick filter.
@@ -430,6 +442,12 @@ func (p *chatPage) menuLabel(a menuAction, l localization.Catalog) string {
 		return l.T("rich.save_html")
 	case actionSave:
 		if m, ok := p.menuMessage(); ok {
+			if _, ok := p.menuPart(m); ok {
+				return l.T("menu.save")
+			}
+			if len(m.Attachments) > 1 {
+				return l.T("menu.save_album")
+			}
 			return saveLabel(p.saveWayOf(m), l)
 		}
 		return l.T("menu.save_as")
@@ -505,8 +523,13 @@ func (p *chatPage) menuLayout(gtx layout.Context, l localization.Catalog) {
 			}
 			p.closeMenu()
 			if e.Source == pointer.Mouse && e.Buttons == pointer.ButtonSecondary && e.Position.Y >= float32(m.top) {
-				// A right click elsewhere opens the menu there.
-				p.openMenu(gtx, e.Position.Sub(f32.Pt(0, float32(m.top))), m.top)
+				// A right click elsewhere opens the menu there; not on
+				// an album, whose parts this press passes by: its menu
+				// would not know whether a part or the album was meant.
+				pos := e.Position.Sub(f32.Pt(0, float32(m.top)))
+				if i := p.rowAt(pos.Y); i < 0 || i >= len(p.messages) || len(p.messages[i].Attachments) < 2 {
+					p.openMenu(gtx, pos, e.Time, m.top)
+				}
 			}
 			gtx.Execute(op.InvalidateCmd{})
 		}

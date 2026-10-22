@@ -51,12 +51,15 @@ type messageRow struct {
 	bodySize    image.Point
 	bodyTop     int
 	album       map[model.MessageID]*messageRow
-	revision    uint64
-	runs        []model.TextRun
-	textBlocks  []messageTextBlock
-	noCopy      bool
-	text        textInteraction
-	buttons     [][]surface
+	// partPress takes right presses on a part of an album, which tell the
+	// menu the part.
+	partPress  byte
+	revision   uint64
+	runs       []model.TextRun
+	textBlocks []messageTextBlock
+	noCopy     bool
+	text       textInteraction
+	buttons    [][]surface
 	// stampable is set when the text may have timestamps, and stamp is
 	// what they name times of (refreshStamps).
 	stampable bool
@@ -323,6 +326,8 @@ type chatPage struct {
 	snapshotting bool
 	shot         shotDialog
 	historyWidth int
+	// albumSave asks what of an album to save.
+	albumSave albumSaveDialog
 	// player and setPlayer read and save the external player the user
 	// chose; playerChoice asks for it.
 	player      func() player.Kind
@@ -555,6 +560,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.reacted.stop()
 		p.edits.stop()
 		p.shot.stop()
+		p.albumSave = albumSaveDialog{}
 		p.translation.stop()
 		p.closeChatSearch()
 		p.chatMenu.open = false
@@ -847,6 +853,7 @@ func (p *chatPage) layoutDialogs(gtx layout.Context, l localization.Catalog) {
 	p.reacted.layout(gtx, p, l)
 	p.edits.layout(gtx, p, l)
 	p.shot.layout(gtx, p, l)
+	p.albumSave.layout(gtx, p, l)
 	p.translation.layout(gtx, p, l)
 	if p.composer != nil {
 		p.composer.layoutConfirm(gtx, p, l)

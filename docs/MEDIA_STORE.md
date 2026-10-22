@@ -201,7 +201,17 @@ into the pictures, as the viewer's button does; a video, a GIF or a document
 through the downloads above; music, voice and video messages and stickers
 where the user chooses, in the system's dialog (`ui/save_as.go`), written
 beside the path and moved there whole. Not where the chat protects its
-content, nor an album at once.
+content.
+
+An album (`ui/album_save.go`): the menu opened on one of its parts asks,
+in a dialog, whether to save that part or the whole album; opened beside
+the parts, it saves the whole album at once, its photos into the pictures
+and the rest through the downloads (the system's dialog would ask for each
+part), and tells how many and where. Each part takes the right presses
+over it, passing them on, and the menu is of the part whose press came
+with the one that opened it. A right click on an album while a menu is
+open only closes the menu: the open menu takes that press, and no part
+sees it.
 
 A Lottie sticker is saved as a video sticker (`pkg/tgswebm`), which other
 programs play; the set's archive keeps the TGS. It is drawn by pkg/lottie

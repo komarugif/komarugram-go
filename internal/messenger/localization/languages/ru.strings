@@ -20,6 +20,15 @@
 "account.logout_hint" = "Завершить сеанс и удалить данные с компьютера";
 "account.logout_offline" = "Если Telegram недоступен, сеанс останется в списке устройств аккаунта: завершите его там.";
 
+"album_save.all" = "Весь альбом";
+"album_save.cancel" = "Отмена";
+"album_save.one" = "Только этот";
+"album_save.text#few" = "Сохранить только выбранный файл или весь альбом из {count} файлов?";
+"album_save.text#many" = "Сохранить только выбранный файл или весь альбом из {count} файлов?";
+"album_save.text#one" = "Сохранить только выбранный файл или весь альбом из {count} файла?";
+"album_save.text#other" = "Сохранить только выбранный файл или весь альбом из {count} файла?";
+"album_save.title" = "Сохранить";
+
 "animations.battery" = "батарея %.0f%%, %s";
 "animations.low_battery" = "Низкий заряд: %d%% и ниже";
 "animations.mode_auto" = "Авто: выключать в режиме энергосбережения, при низком заряде или если они отключены в системе";
@@ -956,6 +965,10 @@
 "membership.sure_group" = "Вы уверены, что хотите выйти из группы?";
 "membership.verification" = "Для вступления нужна проверка через бота. Завершите её в Telegram Desktop.";
 
+"menu.album_saved#few" = "Сохранено {count} файла: {path}";
+"menu.album_saved#many" = "Сохранено {count} файлов: {path}";
+"menu.album_saved#one" = "Сохранён {count} файл: {path}";
+"menu.album_saved#other" = "Сохранено {count} файла: {path}";
 "menu.clear_selection" = "Отменить выделение";
 "menu.converting" = "Делаю видео из стикера…";
 "menu.copy_message_link" = "Копировать ссылку";
@@ -982,6 +995,8 @@
 "menu.read" = "Прочитать";
 "menu.repeat" = "Повторить";
 "menu.reply" = "Ответить";
+"menu.save" = "Сохранить…";
+"menu.save_album" = "Сохранить альбом";
 "menu.save_as" = "Сохранить как…";
 "menu.save_files" = "Файлы {ext}";
 "menu.save_to_pictures" = "Сохранить в изображения";

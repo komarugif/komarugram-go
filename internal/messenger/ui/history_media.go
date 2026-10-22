@@ -314,7 +314,11 @@ func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Messag
 				children = append(children, vspace(8))
 			}
 			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return p.mediaLayout(gtx, albumRow(gtx, r, member, l), member, l, animate)
+				child := albumRow(gtx, r, member, l)
+				p.partPresses(gtx, m, child, member)
+				dims := p.mediaLayout(gtx, child, member, l, animate)
+				partPressArea(gtx, child, dims.Size)
+				return dims
 			}))
 		}
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
@@ -351,7 +355,11 @@ func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Messag
 			tileGtx := gtx
 			tileGtx.Constraints = layout.Exact(image.Pt(w, height))
 			offset(tileGtx, image.Pt(x, y), func(gtx layout.Context) layout.Dimensions {
-				return p.mediaTile(gtx, albumRow(gtx, r, member, l), member, image.Pt(w, height), true, l, animate)
+				child := albumRow(gtx, r, member, l)
+				p.partPresses(gtx, m, child, member)
+				dims := p.mediaTile(gtx, child, member, image.Pt(w, height), true, l, animate)
+				partPressArea(gtx, child, image.Pt(w, height))
+				return dims
 			})
 			x += w + gap
 		}

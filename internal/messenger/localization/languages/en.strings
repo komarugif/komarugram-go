@@ -17,6 +17,13 @@
 "account.logout_hint" = "End the session and delete the data from this computer";
 "account.logout_offline" = "If Telegram cannot be reached, the session stays in the account's list of devices: end it there.";
 
+"album_save.all" = "Whole album";
+"album_save.cancel" = "Cancel";
+"album_save.one" = "This one";
+"album_save.text#one" = "Save only the file chosen, or the whole album of {count} file?";
+"album_save.text#other" = "Save only the file chosen, or the whole album of {count} files?";
+"album_save.title" = "Save";
+
 "animations.battery" = "battery %.0f%% %s";
 "animations.low_battery" = "Low battery: at or below %d%%";
 "animations.mode_auto" = "Auto: off in power saving mode, on low battery or when disabled in the system";
@@ -914,6 +921,8 @@
 "membership.sure_group" = "Are you sure you want to leave this group?";
 "membership.verification" = "Joining requires bot verification. Complete it in Telegram Desktop.";
 
+"menu.album_saved#one" = "Saved {count} file: {path}";
+"menu.album_saved#other" = "Saved {count} files: {path}";
 "menu.clear_selection" = "Clear Selection";
 "menu.converting" = "Making a video of the sticker…";
 "menu.copy_message_link" = "Copy Message Link";
@@ -938,6 +947,8 @@
 "menu.read" = "Read Message";
 "menu.repeat" = "Repeat Message";
 "menu.reply" = "Reply";
+"menu.save" = "Save...";
+"menu.save_album" = "Save Album";
 "menu.save_as" = "Save As...";
 "menu.save_files" = "{ext} files";
 "menu.save_to_pictures" = "Save to Pictures";
