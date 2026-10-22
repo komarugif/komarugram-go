@@ -23,13 +23,14 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"komarugram/internal/appwindow"
+	"komarugram/internal/crash"
 	"komarugram/internal/diagnostics"
 	"komarugram/internal/messenger/account"
 	"komarugram/internal/messenger/install"
 	"komarugram/internal/messenger/localization"
-	"komarugram/internal/messenger/peerbadges"
 	"komarugram/internal/messenger/login"
 	"komarugram/internal/messenger/model"
+	"komarugram/internal/messenger/peerbadges"
 	"komarugram/internal/messenger/preferences"
 	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/messenger/security"
@@ -368,6 +369,7 @@ func (h *accountWindows) Quit() {
 	}
 	for id, s := range background {
 		go func() {
+			defer crash.Recover("stop session", nil)
 			s.stop()
 			h.forgetSession(id, s)
 		}()
@@ -456,6 +458,12 @@ func (h *accountWindows) LogOut(id string) {
 		}
 	}
 	go func() {
+		defer crash.Recover("leave account", func(*crash.Panic) {
+			h.mu.Lock()
+			delete(h.leaving, id)
+			h.mu.Unlock()
+			h.notify()
+		})
 		defer release()
 		if window != nil {
 			// The window stops the session as it closes.

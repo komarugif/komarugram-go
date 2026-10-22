@@ -510,6 +510,7 @@ func (v *audioPlayer) load(ctx context.Context, p *chatPage, m model.Message, se
 	work.Add(1)
 	go func() {
 		defer work.Done()
+		defer crash.Recover("audio playback", func(e *crash.Panic) { v.fail(m, p, e) })
 		v.watch(ctx, m, playback)
 	}()
 	if video != nil {
@@ -536,6 +537,7 @@ func (v *audioPlayer) load(ctx context.Context, p *chatPage, m model.Message, se
 		work.Add(1)
 		go func() {
 			defer work.Done()
+			defer crash.Recover("audio stream", nil)
 			buf := make([]byte, streamPart)
 			for off := int64(0); off < f.size && ctx.Err() == nil; off += streamPart {
 				if _, err := f.r.ReadAt(buf[:min(int64(streamPart), f.size-off)], off); err != nil && !errors.Is(err, io.EOF) {
@@ -698,6 +700,7 @@ func (v *audioPlayer) stopLocked() {
 		// The output may be reading the source: its decoder is freed once
 		// it is done, and the UI does not wait for that.
 		go func() {
+			defer crash.Recover("audio release", nil)
 			source.close()
 			if work != nil {
 				work.Wait()

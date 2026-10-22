@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -45,6 +46,7 @@ func (p *chatPage) chatStatusOnline(c model.Chat, now time.Time, l localization.
 		o.asked = now
 		chat := c.ID
 		go func() {
+			defer crash.Recover("online count", nil)
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			n, err := details.Online(ctx, chat)

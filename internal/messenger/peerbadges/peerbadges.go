@@ -24,6 +24,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"komarugram/internal/crash"
 )
 
 // Where the lists are. AyuGram's is asked first, and exteraGram's when it
@@ -178,7 +180,11 @@ func (r *Registry) Start(ctx context.Context, enabled func() bool) {
 	go func() {
 		for {
 			if enabled() {
-				r.Refresh(ctx)
+				func() {
+					// A round that panics is tried again at the next.
+					defer crash.Recover("peer badges", nil)
+					r.Refresh(ctx)
+				}()
 			}
 			select {
 			case <-ctx.Done():

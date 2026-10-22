@@ -19,6 +19,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -294,6 +295,13 @@ func (p *chatPage) pressButton(gtx layout.Context, m model.Message, y, x int, b 
 		bp.pressing[id] = true
 		bp.mu.Unlock()
 		go func() {
+			defer crash.Recover("bot button", func(e *crash.Panic) {
+				bp.mu.Lock()
+				delete(bp.pressing, id)
+				bp.outcome = &botOutcome{err: e}
+				bp.mu.Unlock()
+				p.invalidate()
+			})
 			ctx, cancel := context.WithTimeout(context.Background(), botWait)
 			defer cancel()
 			answer, err := store.PressButton(ctx, m.Key, b.Data)

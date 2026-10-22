@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/diagnostics"
 	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/codehighlight"
@@ -1268,6 +1269,12 @@ func (p *chatPage) linkDialog(gtx layout.Context, l localization.Catalog) {
 		target := p.link
 		p.linkModal.Close()
 		go func() {
+			defer crash.Recover("open link", func(e *crash.Panic) {
+				p.errorMu.Lock()
+				p.mediaError = e
+				p.errorMu.Unlock()
+				p.invalidate()
+			})
 			if err := openBrowser(target); err != nil {
 				p.errorMu.Lock()
 				p.mediaError = err

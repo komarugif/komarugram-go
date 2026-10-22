@@ -29,6 +29,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -421,6 +422,13 @@ func (p *chatPage) openEntityMenu(gtx layout.Context, t entityTarget) {
 		m.cancel, m.loading, m.results = cancel, true, results
 		go func() {
 			defer cancel()
+			// A lookup that panics finds nothing.
+			defer crash.Recover("entity lookup", func(*crash.Panic) {
+				results <- entityLookup{}
+				if invalidate != nil {
+					invalidate()
+				}
+			})
 			results <- lookup(ctx)
 			if invalidate != nil {
 				invalidate()

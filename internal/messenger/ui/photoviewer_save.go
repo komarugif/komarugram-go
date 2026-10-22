@@ -18,6 +18,7 @@ import (
 	"gioui.org/io/clipboard"
 	"gioui.org/layout"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -43,6 +44,13 @@ func (v *photoViewer) keepPhoto(m model.Message, copy bool, l localization.Catal
 	}
 	ctx, results, source := v.ctx, v.kept, v.source
 	go func() {
+		defer crash.Recover("keep photo", func(e *crash.Panic) {
+			select {
+			case results <- viewerFile{notice: l.T("viewer.keep_failed") + ": " + mediaErrorText(e)}:
+				v.invalidate()
+			case <-ctx.Done():
+			}
+		})
 		ctx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()
 		var res viewerFile

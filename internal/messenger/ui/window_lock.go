@@ -13,6 +13,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/unit"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/security"
 )
@@ -70,6 +71,7 @@ func (v *visualLockView) Update(gtx layout.Context, locked *atomic.Bool) {
 		v.failed, v.empty = false, false
 		v.running = true
 		go func() {
+			defer crash.Recover("verify password", func(e *crash.Panic) { v.result <- e; v.invalidate() })
 			v.result <- v.security.VerifyPassword(context.Background(), password)
 			v.invalidate()
 		}()

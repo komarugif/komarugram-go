@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
@@ -246,6 +247,13 @@ func (c *messageComposer) request(l localization.Catalog, appendPage bool) {
 	}
 	go func() {
 		defer cancel()
+		defer crash.Recover("picker", func(e *crash.Panic) {
+			select {
+			case c.results <- pickerResult{generation: generation, err: e, append: appendPage}:
+				c.invalidate()
+			case <-c.ctx.Done():
+			}
+		})
 		page, err := c.source.Picker(ctx, req)
 		select {
 		case c.results <- pickerResult{generation: generation, page: page, err: err, append: appendPage}:
@@ -284,6 +292,13 @@ func (c *messageComposer) loadFeatured(pack model.PickerPack) {
 	generation, tab := c.featuredGeneration, c.tab
 	go func() {
 		defer cancel()
+		defer crash.Recover("featured sticker set", func(e *crash.Panic) {
+			select {
+			case c.featuredResults <- featuredPackResult{generation: generation, id: pack.ID, tab: tab, err: e}:
+				c.invalidate()
+			case <-c.ctx.Done():
+			}
+		})
 		full, err := source.StickerSet(ctx, pack.Ref)
 		select {
 		case c.featuredResults <- featuredPackResult{generation: generation, id: pack.ID, tab: tab, pack: full, err: err}:
@@ -341,6 +356,13 @@ func (c *messageComposer) submit(chat int64, msg model.OutgoingMessage) {
 	d.err = nil
 	c.noteSent(chat)
 	go func() {
+		defer crash.Recover("send", func(e *crash.Panic) {
+			select {
+			case c.sends <- composerResult{chat: chat, request: msg, err: e}:
+				c.invalidate()
+			case <-c.ctx.Done():
+			}
+		})
 		ctx, cancel := context.WithTimeout(c.ctx, 10*time.Minute)
 		defer cancel()
 		err := c.source.Send(ctx, chat, msg)
@@ -426,7 +448,10 @@ func (c *messageComposer) update(gtx layout.Context, chat int64, l localization.
 	if c.nextRights.IsZero() || !gtx.Now.Before(c.nextRights) {
 		c.nextRights = gtx.Now.Add(time.Minute)
 		if source, ok := c.source.(model.SendPermissionsRefresher); ok {
-			go func() { _ = source.RefreshSendPermissions(c.ctx, chat) }()
+			go func() {
+				defer crash.Recover("send permissions", nil)
+				_ = source.RefreshSendPermissions(c.ctx, chat)
+			}()
 		}
 	}
 	if _, ok := c.source.(model.SendPermissionsRefresher); ok {
@@ -1212,6 +1237,13 @@ func (c *messageComposer) formLayout(gtx layout.Context, bar image.Rectangle, l 
 			media := form == 1
 			chat := c.chat
 			go func() {
+				defer crash.Recover("choose attachment", func(e *crash.Panic) {
+					select {
+					case c.fileResults <- fileChoice{chat: chat, form: form, err: e}:
+						c.invalidate()
+					case <-ctx.Done():
+					}
+				})
 				f := chooseAttachment(ctx, media)
 				f.chat, f.form = chat, form
 				select {

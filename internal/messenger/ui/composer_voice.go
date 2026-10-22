@@ -17,6 +17,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/voice"
@@ -140,6 +141,13 @@ func (c *messageComposer) chooseVoiceFile(l localization.Catalog) {
 	ctx, chat, choose := c.ctx, c.chat, c.voice.choose
 	name, noFFmpeg, badFile := l.T("record.audio_files"), l.T("record.no_ffmpeg"), l.T("record.bad_file")
 	go func() {
+		defer crash.Recover("choose voice file", func(e *crash.Panic) {
+			select {
+			case c.voicePicks <- voicePick{chat: chat, err: e}:
+				c.invalidate()
+			case <-ctx.Done():
+			}
+		})
 		f := choose(ctx, name)
 		pick := voicePick{chat: chat, path: f.path}
 		switch {
@@ -184,6 +192,13 @@ func (c *messageComposer) finishRecording() {
 		return c.voice.encode(ctx, ffmpeg, pcm, path)
 	}
 	go func() {
+		defer crash.Recover("voice message", func(e *crash.Panic) {
+			select {
+			case c.voiceResults <- voiceResult{chat: r.chat, err: e}:
+				c.invalidate()
+			case <-ctx.Done():
+			}
+		})
 		res := voiceResult{chat: r.chat}
 		pcm, err := r.rec.Stop()
 		switch {

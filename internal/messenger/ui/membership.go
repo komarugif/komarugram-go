@@ -9,6 +9,7 @@ import (
 
 	"gio-mw/token"
 	"gioui.org/layout"
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -76,6 +77,7 @@ func (p *chatPage) startMembership(chat int64, operation membershipOperation) {
 		ctx = p.composer.ctx
 	}
 	go func() {
+		defer crash.Recover("membership", func(e *crash.Panic) { results <- membershipResult{operation: operation, err: e}; p.invalidate() })
 		ctx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()
 		result := membershipResult{operation: operation}

@@ -11,6 +11,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op/clip"
 	"image"
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/preferences"
 	"komarugram/internal/messenger/shortcuts"
@@ -136,6 +137,14 @@ func (s *shortcutSettings) probe(chords []shortcuts.Chord) {
 	s.busy = true
 	go func() {
 		defer cancel()
+		// A check that panics reports nothing taken.
+		defer crash.Recover("shortcut check", func(*crash.Panic) {
+			select {
+			case s.answers <- shortcutProbe{generation: generation}:
+				s.invalidate()
+			case <-ctx.Done():
+			}
+		})
 		job, done := context.WithTimeout(ctx, 4*time.Second)
 		answer := shortcutProbe{generation, s.check(job, chords)}
 		done()

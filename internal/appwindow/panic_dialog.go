@@ -136,7 +136,11 @@ func (d *panicDialog) Update(gtx layout.Context) {
 			d.copyReport(gtx)
 		}
 		d.opening, d.issueFilled = true, filled
-		go func() { d.opened <- openBrowser(link); d.w.Invalidate() }()
+		go func() {
+			defer crash.Recover(panicDialogWhere, func(e *crash.Panic) { d.opened <- e; d.w.Invalidate() })
+			d.opened <- openBrowser(link)
+			d.w.Invalidate()
+		}()
 	}
 	select {
 	case err := <-d.opened:

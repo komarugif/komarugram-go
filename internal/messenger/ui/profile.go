@@ -18,6 +18,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/widget"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -139,6 +140,7 @@ func (p *profilePage) Update(gtx layout.Context, me model.Profile, invalidate fu
 	}
 	p.saving, p.problem = true, nil
 	go func() {
+		defer crash.Recover("edit profile", func(e *crash.Panic) { p.result <- e; invalidate() })
 		ctx, cancel := context.WithTimeout(context.Background(), profileSaveTimeout)
 		defer cancel()
 		p.result <- p.editor.EditProfile(ctx, e)

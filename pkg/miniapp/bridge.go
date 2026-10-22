@@ -497,7 +497,16 @@ func (b *Bridge) stopBrowser() {
 // stopped working unless it was closed.
 func (b *Bridge) watch(ctx context.Context, r *rpc) {
 	go func() {
-		err := r.read(ctx)
+		// The connection carries what the page sends: a panic reading it
+		// stops the bridge, as an error would, not the process.
+		err := func() (err error) {
+			defer func() {
+				if v := recover(); v != nil {
+					err = fmt.Errorf("mini app bridge: panic: %v", v)
+				}
+			}()
+			return r.read(ctx)
+		}()
 		b.mu.Lock()
 		if !b.closed && b.err == nil {
 			b.err = err

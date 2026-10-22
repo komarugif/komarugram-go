@@ -13,6 +13,7 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/peerbadges"
 )
@@ -179,6 +180,7 @@ func (s *emojiSet) load(a *App, name string) []model.PickerItem {
 		return nil
 	}
 	go func() {
+		defer crash.Recover("badge icons", nil)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		ref := model.StickerSetRef{Type: "short_name", ShortName: name}

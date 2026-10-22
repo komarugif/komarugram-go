@@ -473,6 +473,7 @@ func (v *viewerVideo) load(ctx context.Context, source model.ConversationStore, 
 		}
 	}()
 	go func() {
+		defer crash.Recover("video end", nil)
 		// The end, when it comes, is drawn.
 		defer work.Done()
 		tick := time.NewTicker(200 * time.Millisecond)
@@ -569,6 +570,7 @@ func (v *viewerVideo) stopLocked() {
 	}
 	if release, source, work := v.release, v.source, v.work; release != nil {
 		go func() {
+			defer crash.Recover("video release", nil)
 			source.close()
 			if work != nil {
 				work.Wait()

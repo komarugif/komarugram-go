@@ -22,6 +22,7 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/widget"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/sendfiles"
@@ -123,10 +124,15 @@ func (b *filesBox) addPaths(c *messageComposer, paths []string, documents bool) 
 	go func() {
 		for _, f := range added {
 			res := boxResult{generation: generation, file: f}
-			res.info, res.err = sendfiles.Inspect(f.Path)
-			if res.err == nil {
-				res.thumb = boxThumbnail(ctx, ffmpeg, res.info)
-			}
+			func() {
+				// A file is anything the user picked: one that panics is
+				// told as one that failed, and the others go on.
+				defer crash.Recover("inspect file", func(e *crash.Panic) { res.err = e })
+				res.info, res.err = sendfiles.Inspect(f.Path)
+				if res.err == nil {
+					res.thumb = boxThumbnail(ctx, ffmpeg, res.info)
+				}
+			}()
 			select {
 			case results <- res:
 				invalidate()
@@ -338,6 +344,13 @@ func (c *messageComposer) chooseAttachments(form int) {
 	c.choosing = true
 	ctx, chat, choose := c.ctx, c.chat, c.chooser
 	go func() {
+		defer crash.Recover("choose files", func(e *crash.Panic) {
+			select {
+			case c.fileResults <- fileChoice{chat: chat, form: form, menu: true, err: e}:
+				c.invalidate()
+			case <-ctx.Done():
+			}
+		})
 		var filter *fileFilter
 		if form == 1 {
 			filter = &mediaFilter
@@ -360,6 +373,13 @@ func (c *messageComposer) chooseMore() {
 	c.choosing = true
 	ctx, chat, choose := c.ctx, c.chat, c.chooser
 	go func() {
+		defer crash.Recover("choose files", func(e *crash.Panic) {
+			select {
+			case c.fileResults <- fileChoice{chat: chat, menu: true, err: e}:
+				c.invalidate()
+			case <-ctx.Done():
+			}
+		})
 		f := choose(ctx, nil, true)
 		f.chat, f.menu = chat, true
 		select {

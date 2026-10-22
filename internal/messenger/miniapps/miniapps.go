@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/miniapp"
 )
@@ -117,6 +118,11 @@ func (r *Runner) Open(l Launch, theme string) {
 	l.Request.Theme = theme
 	r.wg.Add(1)
 	go func() {
+		defer crash.Recover("mini app", func(e *crash.Panic) {
+			if r.ctx.Err() == nil && r.hooks.Failed != nil {
+				r.hooks.Failed(e)
+			}
+		})
 		defer r.wg.Done()
 		if err := r.launch(l); err != nil && r.ctx.Err() == nil && r.hooks.Failed != nil {
 			r.hooks.Failed(err)
@@ -145,7 +151,11 @@ func (r *Runner) launch(l Launch) error {
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
-		run.loop()
+		func() {
+			// The app is closed after a panic too.
+			defer crash.Recover("mini app", nil)
+			run.loop()
+		}()
 		r.mu.Lock()
 		delete(r.running, run)
 		r.mu.Unlock()

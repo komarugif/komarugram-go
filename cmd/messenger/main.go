@@ -156,6 +156,7 @@ func main() {
 		}
 		if len(captures) > 0 {
 			go func() {
+				defer crash.Recover("profile capture", nil)
 				for _, kind := range captures {
 					path, err := r.Capture(*profileDir, kind)
 					if err != nil {
@@ -441,6 +442,7 @@ func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive
 	})
 	if receive > 0 {
 		go func() {
+			defer crash.Recover("demo receive", nil)
 			for range time.Tick(receive) {
 				store.Receive()
 				if w := window.Load(); w != nil {
@@ -475,6 +477,7 @@ func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive
 			l := login.New(w.Invalidate)
 			content.RequireDemoLogin(l)
 			go func() {
+				defer crash.Recover("demo sign-in", nil)
 				if err := demoSignIn(ctx, l, demoPause); err != nil && !errors.Is(err, context.Canceled) {
 					log.Print(err)
 				}

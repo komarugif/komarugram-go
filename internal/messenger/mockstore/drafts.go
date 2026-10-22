@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/model"
 )
 
@@ -41,6 +42,7 @@ func (s *Store) startStream(chat int64) {
 	st := &demoStream{stop: make(chan struct{})}
 	s.streams[chat] = st
 	go func() {
+		defer crash.Recover("demo stream", nil)
 		whole := RichExample(false)
 		for n := 1; n <= len(whole.Blocks); n++ {
 			select {

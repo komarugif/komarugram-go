@@ -11,6 +11,7 @@ import (
 
 	"gioui.org/layout"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -61,6 +62,7 @@ func (p *chatPage) resolveTelegramLink(link model.TelegramLink, join bool) bool 
 	d.busy = true
 	results, invalidate := d.results, p.invalidate
 	go func() {
+		defer crash.Recover("telegram link", func(e *crash.Panic) { results <- tgLinkResult{link: link, err: e}; invalidate() })
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		r := tgLinkResult{link: link}

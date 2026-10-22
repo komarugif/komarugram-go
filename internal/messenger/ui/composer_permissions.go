@@ -6,6 +6,7 @@ import (
 	"gio-mw/token"
 	"gioui.org/layout"
 	"gioui.org/op"
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"time"
@@ -135,6 +136,13 @@ func (c *messageComposer) layoutReadOnly(gtx layout.Context, p *chatPage, l loca
 			c.muting = true
 			chat, mute := c.chat, !muted
 			go func() {
+				defer crash.Recover("mute chat", func(e *crash.Panic) {
+					select {
+					case c.mutes <- e:
+						c.invalidate()
+					case <-c.ctx.Done():
+					}
+				})
 				ctx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
 				defer cancel()
 				select {
@@ -162,6 +170,13 @@ func (c *messageComposer) layoutReadOnly(gtx layout.Context, p *chatPage, l loca
 		*loading = true
 		chat := c.chat
 		go func() {
+			defer crash.Recover("discussion", func(e *crash.Panic) {
+				select {
+				case c.discussions <- discussionResult{from: chat, err: e}:
+					c.invalidate()
+				case <-c.ctx.Done():
+				}
+			})
 			ctx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
 			defer cancel()
 			found, err := find(ctx, chat)

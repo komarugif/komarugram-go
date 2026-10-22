@@ -1173,10 +1173,16 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 		switch u := u.(type) {
 		case *tg.UpdateChannel:
 			id := peerID(&tg.PeerChannel{ChannelID: u.ChannelID})
-			go func() { _ = s.RefreshSendPermissions(s.history.ctx, id) }()
+			go func() {
+				defer crash.Recover("send permissions", nil)
+				_ = s.RefreshSendPermissions(s.history.ctx, id)
+			}()
 		case *tg.UpdateChat:
 			id := peerID(&tg.PeerChat{ChatID: u.ChatID})
-			go func() { _ = s.RefreshSendPermissions(s.history.ctx, id) }()
+			go func() {
+				defer crash.Recover("send permissions", nil)
+				_ = s.RefreshSendPermissions(s.history.ctx, id)
+			}()
 		case *tg.UpdateChatDefaultBannedRights:
 			c := s.history
 			c.mu.Lock()

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/preferences"
@@ -712,6 +713,8 @@ func (e *emojiPackLookup) start(p *chatPage, m model.Message) {
 	}
 	go func() {
 		defer cancel()
+		// A search that panics finds no set.
+		defer crash.Recover("emoji sets of a message", func(*crash.Panic) { results <- emojiPacks{}; p.invalidate() })
 		var found emojiPacks
 		for _, id := range ids {
 			doc, err := source.CustomEmoji(ctx, id)

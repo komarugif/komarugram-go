@@ -13,6 +13,7 @@ import (
 	"gioui.org/layout"
 	"golang.org/x/exp/shiny/materialdesign/icons"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -71,6 +72,7 @@ func (f *frozenView) Update(gtx layout.Context) {
 	if f.appeal.Clicked(gtx) {
 		if url := f.Freeze().AppealURL; url != "" {
 			go func() {
+				defer crash.Recover("open appeal", nil)
 				if err := openBrowser(url); err != nil {
 					log.Printf("open appeal: %v", err)
 				}

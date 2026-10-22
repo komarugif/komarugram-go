@@ -22,6 +22,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -226,6 +227,14 @@ func (m *chatRowMenu) pin(c model.Chat, pin bool, chats []model.Chat, toast *toa
 		}
 	}
 	go func() {
+		defer crash.Recover("pin chat", func(e *crash.Panic) {
+			m.mu.Lock()
+			m.failed = e
+			m.mu.Unlock()
+			if m.invalidate != nil {
+				m.invalidate()
+			}
+		})
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 		err := m.store.PinChat(ctx, c.ID, pin)

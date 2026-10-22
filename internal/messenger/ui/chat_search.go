@@ -18,6 +18,7 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/widget"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -129,6 +130,7 @@ func (s *chatSearch) fetch(p *chatPage) {
 	gen, chat, query, next, res := s.gen, p.chat, s.query, s.next, s.res
 	go func() {
 		defer cancel()
+		defer crash.Recover("chat search", func(e *crash.Panic) { res <- chatSearchResult{gen: gen, err: e}; p.invalidate() })
 		page, err := searcher.SearchChat(ctx, chat, query, next, chatSearchPage)
 		res <- chatSearchResult{gen, page, err}
 		p.invalidate()

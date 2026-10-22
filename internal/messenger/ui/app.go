@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"komarugram/internal/crash"
 	"komarugram/internal/diagnostics"
 	"log"
 	"math"
@@ -1637,6 +1638,7 @@ type usernameResult struct {
 func (a *App) openUsername(links model.TelegramLinkSource, name string) {
 	results, invalidate := a.usernames, a.window.Invalidate
 	go func() {
+		defer crash.Recover("username", func(e *crash.Panic) { results <- usernameResult{name: name, err: e}; invalidate() })
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		chat, err := links.ResolveUsername(ctx, name)

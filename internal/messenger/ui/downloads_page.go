@@ -22,6 +22,7 @@ import (
 	"gioui.org/widget"
 	"golang.org/x/exp/shiny/materialdesign/icons"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
@@ -123,6 +124,14 @@ func (p *downloadsPage) reload() {
 	}
 	p.mu.Unlock()
 	go func() {
+		defer crash.Recover("downloads", func(e *crash.Panic) {
+			p.mu.Lock()
+			p.loading, p.err = false, e
+			p.mu.Unlock()
+			if p.invalidate != nil {
+				p.invalidate()
+			}
+		})
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		list, err := p.source.Downloads(ctx)
@@ -233,6 +242,7 @@ func (p *downloadsPage) Update(gtx layout.Context, l localization.Catalog) {
 		case row:
 			path := d.Path
 			go func() {
+				defer crash.Recover("open download", func(e *crash.Panic) { p.tell(mediaErrorText(e)) })
 				if err := openBrowser(path); err != nil {
 					p.tell(mediaErrorText(err))
 				}
@@ -248,6 +258,7 @@ func (p *downloadsPage) Update(gtx layout.Context, l localization.Catalog) {
 	if p.folder.Clicked(gtx) {
 		dir := p.dir()
 		go func() {
+			defer crash.Recover("open downloads folder", func(e *crash.Panic) { p.tell(mediaErrorText(e)) })
 			// It is there before the first download, to be shown.
 			err := os.MkdirAll(dir, 0o755)
 			if err == nil {
@@ -278,6 +289,7 @@ func (p *downloadsPage) Update(gtx layout.Context, l localization.Catalog) {
 		ids := append([]int64(nil), p.pending...)
 		p.selected = map[int64]bool{}
 		go func() {
+			defer crash.Recover("delete downloads", func(e *crash.Panic) { p.tell(mediaErrorText(e)); p.reload() })
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			if err := p.source.DeleteDownloads(ctx, ids); err != nil {
@@ -637,6 +649,10 @@ type downloadMessage struct {
 func (a *App) openDownloaded(f model.DownloadedFile) {
 	results, invalidate, store := a.downloadMessages, a.window.Invalidate, a.store
 	go func() {
+		defer crash.Recover("open downloaded", func(e *crash.Panic) {
+			results <- downloadMessage{topic: f.Topic, message: f.Key.MessageID, err: e}
+			invalidate()
+		})
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		r := downloadMessage{topic: f.Topic, message: f.Key.MessageID}

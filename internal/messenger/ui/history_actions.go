@@ -22,6 +22,7 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/widget"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/userdirs"
@@ -285,6 +286,7 @@ func (p *chatPage) forward(target model.Chat) {
 		ctx = p.composer.ctx
 	}
 	go func() {
+		defer crash.Recover("forward", func(e *crash.Panic) { results <- e; p.invalidate() })
 		ctx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()
 		results <- source.ForwardMessages(ctx, from, ids, target.ID)
@@ -456,6 +458,7 @@ func (p *chatPage) repeat(m model.Message) {
 	}
 	chat := p.chat
 	go func() {
+		defer crash.Recover("forward to the chat", func(e *crash.Panic) { p.reportMedia(e) })
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := forwarder.ForwardMessages(ctx, chat, ids, chat); err != nil {

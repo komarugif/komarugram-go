@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
@@ -97,6 +98,7 @@ func (d *stickerSetDialog) fetch(p *chatPage) {
 	results, ref := d.results, d.ref
 	cache, _ := p.source.(model.StickerSetCache)
 	go func() {
+		defer crash.Recover("sticker set", func(e *crash.Panic) { results <- stickerSetResult{err: e}; p.invalidate() })
 		// The set as last fetched shows at once, with the first frames of its
 		// stickers still in the media cache; the fetch then brings it up to
 		// date.
@@ -124,6 +126,7 @@ func (d *stickerSetDialog) change(p *chatPage, installed bool) {
 	d.results = make(chan stickerSetResult, 1)
 	results, ref := d.results, d.pack.Ref
 	go func() {
+		defer crash.Recover("install sticker set", func(e *crash.Panic) { results <- stickerSetResult{err: e}; p.invalidate() })
 		err := source.SetStickerSetInstalled(ctx, ref, installed)
 		results <- stickerSetResult{installed: &installed, err: err}
 		p.invalidate()
@@ -147,6 +150,7 @@ func (d *stickerSetDialog) export(p *chatPage) {
 		choose = chooseStickerArchive
 	}
 	go func() {
+		defer crash.Recover("export sticker set", func(e *crash.Panic) { results <- stickerSetResult{exported: true, err: e}; p.invalidate() })
 		path, err := choose(ctx, pack.Title)
 		if err == nil && path != "" {
 			err = writeStickerSetArchive(ctx, source, pack, path)
@@ -588,6 +592,7 @@ func (d *stickerSetDialog) findAuthor(p *chatPage) {
 	d.results = make(chan stickerSetResult, 1)
 	results := d.results
 	go func() {
+		defer crash.Recover("sticker set author", func(e *crash.Panic) { results <- stickerSetResult{authorID: id, err: e}; p.invalidate() })
 		chat, err := source.StickerSetAuthor(ctx, id)
 		results <- stickerSetResult{authorID: id, author: &chat, err: err}
 		p.invalidate()

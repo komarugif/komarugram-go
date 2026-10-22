@@ -10,6 +10,7 @@ import (
 
 	"gioui.org/layout"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/emojipacks"
 	"komarugram/internal/messenger/fonts"
 	"komarugram/internal/messenger/localization"
@@ -73,6 +74,8 @@ func (o *emojiOffer) Update(gtx layout.Context, s *emojiSettings, toast func(str
 	case emojiOfferIdle:
 		o.state = emojiOfferChecking
 		go func() {
+			// A check that panics offers nothing.
+			defer crash.Recover("system emoji", func(*crash.Panic) { o.missing <- false; invalidate() })
 			o.missing <- !o.systemHasEmoji()
 			invalidate()
 		}()

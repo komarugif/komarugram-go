@@ -11,6 +11,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/pkg/miniapp"
 	"komarugram/pkg/player"
@@ -68,6 +69,7 @@ func (s *programSetting) refresh(ctx context.Context, invalidate func()) {
 	}
 	s.detected, s.customAbout, s.customPath = nil, nil, ""
 	go func() {
+		defer crash.Recover("find program", func(e *crash.Panic) { s.results <- programAnswer{err: e, found: true}; invalidate() })
 		path, about, err := s.found(ctx)
 		s.results <- programAnswer{path: path, about: about, err: err, found: true}
 		invalidate()
@@ -86,6 +88,7 @@ func (s *programSetting) askCustom() {
 		return
 	}
 	go func() {
+		defer crash.Recover("check program", func(e *crash.Panic) { s.results <- programAnswer{path: path, err: e}; s.invalidate() })
 		about, err := s.check(s.ctx, path)
 		s.results <- programAnswer{path: path, about: about, err: err}
 		s.invalidate()

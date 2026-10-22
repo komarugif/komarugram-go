@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/historycache"
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/dcpool"
@@ -207,7 +208,10 @@ func (r *rangeReader) start(offset int64, ahead bool) {
 			}
 		}
 		if p.err == nil {
-			p.b, p.err = r.load(offset)
+			func() {
+				defer crash.Recover("stream part", func(e *crash.Panic) { p.err = e })
+				p.b, p.err = r.load(offset)
+			}()
 		}
 		r.mu.Lock()
 		defer r.mu.Unlock()

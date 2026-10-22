@@ -22,6 +22,7 @@ import (
 	"gioui.org/unit"
 
 	"komarugram/internal/appwindow"
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -142,6 +143,7 @@ func newArticleView(source model.ConversationStore, catalog localization.Catalog
 	a.cancel = cancel
 	a.loaded = make(chan articleLoad, 1)
 	go func() {
+		defer crash.Recover("article", func(e *crash.Panic) { a.loaded <- articleLoad{err: e}; invalidate() })
 		page, err := store.RichMessage(ctx, m.Key)
 		a.loaded <- articleLoad{page: page, err: err}
 		invalidate()

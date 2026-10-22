@@ -15,6 +15,7 @@ import (
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/historycache"
 	"komarugram/internal/messenger/model"
 )
@@ -74,6 +75,7 @@ func (s *Store) Search(q model.SearchQuery) {
 	st.mu.Unlock()
 	s.changed()
 	go func() {
+		defer crash.Recover("search", func(e *crash.Panic) { s.finishSearch(gen, nil, false, e, nil) })
 		select {
 		case <-ctx.Done():
 			return
@@ -113,6 +115,7 @@ func (s *Store) SpendPostsSearch() {
 	st.mu.Unlock()
 	s.changed()
 	go func() {
+		defer crash.Recover("search posts", func(e *crash.Panic) { s.finishSearch(gen, nil, false, e, nil) })
 		found, more, err := s.searchPosts(ctx, q)
 		s.finishSearch(gen, found, more, err, nil)
 	}()

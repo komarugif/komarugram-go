@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/model"
 )
 
@@ -31,6 +32,10 @@ func (a *App) openSender(source model.SenderChatSource, m model.Message, thread 
 	a.senderBusy = true
 	results, invalidate := a.senders, a.window.Invalidate
 	go func() {
+		defer crash.Recover("sender chat", func(e *crash.Panic) {
+			results <- senderResult{from: from, thread: thread, message: m, err: e}
+			invalidate()
+		})
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		chat, err := source.SenderChat(ctx, m)

@@ -20,6 +20,7 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/unit"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/proxy"
 )
@@ -146,6 +147,12 @@ func (v *proxyView) startPing(id string, p *proxy.Proxy) {
 		own = &c
 	}
 	go func() {
+		defer crash.Recover("ping proxy", func(e *crash.Panic) {
+			v.mu.Lock()
+			v.pings[id] = proxyPing{err: e}
+			v.mu.Unlock()
+			v.invalidate()
+		})
 		took, err := v.ping(context.Background(), own)
 		v.mu.Lock()
 		v.pings[id] = proxyPing{took: took, err: err}
@@ -237,6 +244,12 @@ func (v *proxyView) beginAdd() {
 	v.adding = true
 	text := v.text
 	go func() {
+		defer crash.Recover("add proxy", func(e *crash.Panic) {
+			v.mu.Lock()
+			v.outcome = &addOutcome{err: e}
+			v.mu.Unlock()
+			v.invalidate()
+		})
 		p, err := proxy.ParseLookup(text, lookup)
 		v.mu.Lock()
 		v.outcome = &addOutcome{p, err}

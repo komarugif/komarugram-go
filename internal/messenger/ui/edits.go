@@ -12,6 +12,7 @@ import (
 
 	"gioui.org/layout"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -58,6 +59,7 @@ func (d *editsDialog) load(p *chatPage, store model.KeepStore) {
 	results, m := d.results, d.msg
 	go func() {
 		defer cancel()
+		defer crash.Recover("message edits", func(e *crash.Panic) { results <- editsResult{err: e}; p.invalidate() })
 		versions, err := store.MessageEdits(ctx, m)
 		results <- editsResult{versions, err}
 		p.invalidate()

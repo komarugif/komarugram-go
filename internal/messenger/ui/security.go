@@ -21,6 +21,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/preferences"
 	"komarugram/internal/messenger/security"
@@ -235,6 +236,12 @@ func (v *securityView) UpdateUnlock(gtx layout.Context) {
 func (v *securityView) start(operation func() error) {
 	v.running = true
 	go func() {
+		defer crash.Recover("security", func(e *crash.Panic) {
+			v.result <- e
+			if v.invalidate != nil {
+				v.invalidate()
+			}
+		})
 		v.result <- operation()
 		if v.invalidate != nil {
 			v.invalidate()

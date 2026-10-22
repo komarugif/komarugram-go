@@ -18,6 +18,7 @@ import (
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/historycache"
 	"komarugram/internal/messenger/securedb"
 	"komarugram/internal/messenger/security"
@@ -120,8 +121,18 @@ func askEarly(ctx context.Context, p Prompter) *early {
 		phone:    make(chan phoneAnswer, 1),
 	}
 	go func() {
+		// A panic is the answer to the question asked when it came.
+		asked := e.qr
+		defer crash.Recover("sign in", func(failure *crash.Panic) {
+			if asked == e.qr {
+				e.qr <- failure
+			} else {
+				e.phone <- phoneAnswer{err: failure}
+			}
+		})
 		err := p.QR(qrCtx, "", e.links)
 		e.qr <- err
+		asked = nil
 		// A QR code given up as signIn ended it asks for nothing more.
 		if errors.Is(err, ErrUsePhone) && qrCtx.Err() == nil {
 			phone, err := p.Phone(ctx, nil)
@@ -329,7 +340,10 @@ type qrQuestion struct {
 func askQR(ctx context.Context, p Prompter) *qrQuestion {
 	ctx, cancel := context.WithCancel(ctx)
 	q := &qrQuestion{cancel: cancel, links: make(chan string), answered: make(chan error, 1)}
-	go func() { q.answered <- p.QR(ctx, "", q.links) }()
+	go func() {
+		defer crash.Recover("sign in by QR code", func(e *crash.Panic) { q.answered <- e })
+		q.answered <- p.QR(ctx, "", q.links)
+	}()
 	return q
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
@@ -237,6 +238,7 @@ func (c *messageComposer) chooseIn(gtx layout.Context, tab model.PickerTab, item
 	}
 	if source, ok := c.source.(model.PickerRecentStore); ok && tab != model.PickerGIF {
 		go func() {
+			defer crash.Recover("remember picker", nil)
 			ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
 			defer cancel()
 			_ = source.RememberPicker(ctx, tab, item)
