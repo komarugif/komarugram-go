@@ -284,6 +284,13 @@ func TestInfoHeaderAvatar(t *testing.T) {
 	}
 	p.Open(model.Chat{ID: 2, Kind: model.KindUser, Title: "Анна Смирнова"})
 	awaitShared(t, p)
+	// Clicks land where the dialog is drawn, which scales in from the
+	// middle: they are aimed at it once it has come in. Clicked while it
+	// came in, as when the info loaded at once, the header's avatar in its
+	// corner was missed (1 run in 30).
+	for until := time.Now().Add(2 * time.Second); !p.modal.Entered() && time.Now().Before(until); time.Sleep(5 * time.Millisecond) {
+		frame()
+	}
 	frame()
 	// The dialog is centered in the window.
 	dialog := image.Pt((size.X-640)/2, (size.Y-min(size.Y, 740))/2)
