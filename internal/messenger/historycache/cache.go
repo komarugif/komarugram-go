@@ -433,6 +433,43 @@ func (c *Cache) Message(ctx context.Context, chat int64, id int) (m model.Messag
 	}
 	return m, true, json.Unmarshal(b, &m)
 }
+
+// senderBatch is how many rows SenderMessage reads under the lock at once.
+const senderBatch = 5000
+
+// SenderMessage is a message the cache has of sender in a group or a
+// channel, the newest of the rows read first, for Telegram to give the
+// sender by (inputUserFromMessage); ok is false when it has none. No index
+// has the sender: the rows are read in batches, the lock let go between
+// them, so that the history is not held up while they are.
+func (c *Cache) SenderMessage(ctx context.Context, sender int64) (key model.MessageKey, ok bool, err error) {
+	var last int64
+	c.mu.Lock()
+	err = c.db.QueryRowContext(ctx, `SELECT coalesce(max(rowid),0) FROM messages`).Scan(&last)
+	c.mu.Unlock()
+	if err != nil {
+		return key, false, err
+	}
+	for high := last; high > 0; high -= senderBatch {
+		if err := ctx.Err(); err != nil {
+			return key, false, err
+		}
+		var chat, id int64
+		c.mu.Lock()
+		err = c.db.QueryRowContext(ctx, `SELECT chat, id FROM messages WHERE rowid>? AND rowid<=? AND chat<0 AND deleted!=1
+			AND json_extract(CAST(payload AS TEXT),'$.SenderID')=? ORDER BY rowid DESC LIMIT 1`, high-senderBatch, high, sender).Scan(&chat, &id)
+		c.mu.Unlock()
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return key, false, err
+		}
+		return model.MessageKey{AccountID: c.account, ChatID: chat, MessageID: model.MessageID(id)}, true, nil
+	}
+	return key, false, nil
+}
+
 func (c *Cache) SaveView(ctx context.Context, v model.Viewport, ls []model.MessageLayout) error {
 	if v.AccountID != c.account {
 		return errors.New("historycache: wrong viewport account")

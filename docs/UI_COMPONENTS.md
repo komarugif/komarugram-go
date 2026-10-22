@@ -454,6 +454,15 @@ size-stability fixes remain in place.
   it stays as cached. Loading stays at the center of the dialog. The creator menu action opens
   an accessible user or copies the creator ID hint, decoded from known pack
   ID formats; this is undocumented Telegram metadata, not verified authorship.
+  A user known only by that ID is asked for by a message of theirs the cache
+  has in a group or a channel (`historycache.SenderMessage`, then
+  `inputUserFromMessage`), as a group's min member is; with none, the ID is
+  copied and the toast says only that. Telegram gives no username for an ID
+  otherwise: AyuGram asked third-party bots (tgdb, usinfobot) for it, and
+  stopped in April 2026, as they want a subscription or a /start. The
+  messages are read without an index, in batches of 5000 rows, the cache's
+  lock let go between them: 205 ms for 100,000 messages none of which is the
+  author's (2026-10-22).
 - **Message menu** (`history_menu.go`): a right click on a message opens a
   `contextMenu` at the pointer with Telegram Desktop's actions in its order.
   The area that takes right clicks passes every input on, and a closing menu

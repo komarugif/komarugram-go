@@ -156,6 +156,14 @@ func (s *Store) StickerSetAuthor(ctx context.Context, id int64) (model.Chat, err
 	if api == nil {
 		return model.Chat{}, errors.New("sticker creator unavailable offline")
 	}
+	// Telegram gives a user it knows only by id for a message of theirs,
+	// as it gives a group's member brought as a min user: one the cache
+	// has of them in a group or a channel.
+	if key, ok, err := s.senderMessage(ctx, id); err == nil && ok {
+		if chat, err := s.SenderChat(ctx, model.Message{Key: key, SenderID: id}); err == nil {
+			return chat, nil
+		}
+	}
 	users, err := api.UsersGetUsers(ctx, []tg.InputUserClass{&tg.InputUser{UserID: id}})
 	if err != nil {
 		return model.Chat{}, err
@@ -167,4 +175,13 @@ func (s *Store) StickerSetAuthor(ctx context.Context, id int64) (model.Chat, err
 		}
 	}
 	return model.Chat{}, errors.New("sticker creator unavailable")
+}
+
+// senderMessage is a message the cache has of sender in a group or a
+// channel, none without a cache.
+func (s *Store) senderMessage(ctx context.Context, sender int64) (model.MessageKey, bool, error) {
+	if s.history.cache == nil {
+		return model.MessageKey{}, false, nil
+	}
+	return s.history.cache.SenderMessage(ctx, sender)
 }

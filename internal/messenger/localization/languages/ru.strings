@@ -1710,7 +1710,7 @@
 "stickers.action_failed" = "Не удалось изменить набор";
 "stickers.add" = "Добавить стикеры";
 "stickers.author" = "Автор набора";
-"stickers.author_copied" = "Не удалось открыть автора. ID скопирован: {id}";
+"stickers.author_copied" = "ID автора скопирован: {id}";
 "stickers.close" = "Закрыть";
 "stickers.count#few" = "{count} стикера";
 "stickers.count#many" = "{count} стикеров";

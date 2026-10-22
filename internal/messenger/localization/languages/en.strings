@@ -1648,7 +1648,7 @@
 "stickers.action_failed" = "Could not change sticker set";
 "stickers.add" = "Add stickers";
 "stickers.author" = "Sticker set creator";
-"stickers.author_copied" = "Could not open the creator. ID copied: {id}";
+"stickers.author_copied" = "Author's ID copied: {id}";
 "stickers.close" = "Close";
 "stickers.count#one" = "{count} sticker";
 "stickers.count#other" = "{count} stickers";
