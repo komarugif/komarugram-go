@@ -37,9 +37,24 @@ func (s *Store) RecentChats() []model.Chat {
 	for i, c := range out {
 		if now, ok := live[c.ID]; ok {
 			out[i].Title, out[i].Kind, out[i].Badges, out[i].Muted = now.Title, now.Kind, now.Badges, now.Muted
+		} else if badges, ok := s.PeerBadges(c.ID); ok {
+			// A chat with no dialog gets no updates of its status: what the
+			// profile or a history brought later is newer than what was kept.
+			out[i].Badges = badges
 		}
 	}
 	return out
+}
+
+// PeerBadges implements model.PeerBadgesSource.
+func (s *Store) PeerBadges(id int64) (model.Badges, bool) {
+	s.history.mu.Lock()
+	defer s.history.mu.Unlock()
+	p, ok := s.history.peers[id]
+	if !ok || !p.Metadata.Known || p.Rights.Self {
+		return model.Badges{}, false
+	}
+	return p.Metadata.Badges, true
 }
 
 // BumpRecentChat implements model.RecentChats.

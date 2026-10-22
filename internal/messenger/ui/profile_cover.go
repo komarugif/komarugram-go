@@ -189,6 +189,11 @@ func (p *chatInfo) drainProfile() {
 		if r.chat == p.chat.ID && r.err == nil {
 			p.profile = r.profile
 			p.cover = coverState{}
+			// What Telegram says now of the marks beside the name: the chat
+			// of someone with no dialog is kept from older answers.
+			if r.profile.BadgesKnown {
+				p.chat.Badges = r.profile.Badges
+			}
 		}
 	default:
 	}

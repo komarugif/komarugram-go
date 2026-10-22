@@ -93,6 +93,8 @@ type chatInfo struct {
 	profiles      model.PeerProfileSource
 	profile       model.PeerProfile
 	profileResult chan profileResult
+	// emojiSet brings the set of an emoji status that was clicked.
+	emojiSet      chan emojiSetResult
 	profileCancel context.CancelFunc
 	cover         coverState
 	fades         coverFades
@@ -167,6 +169,8 @@ func (p *chatInfo) Open(c model.Chat) {
 	p.giftRows = map[model.MessageKey]*giftRow{}
 	p.gift = nil
 	p.closeCollectible()
+	p.renderer.stickers.stop()
+	p.emojiSet = nil
 	p.profile = model.PeerProfile{}
 	p.cover = coverState{}
 	p.fades = coverFades{places: shuffledPlaces()}
@@ -226,6 +230,8 @@ func (p *chatInfo) Close() {
 	p.gift = nil
 	p.messages = nil
 	p.closeCollectible()
+	p.renderer.stickers.stop()
+	p.emojiSet = nil
 	if p.profileCancel != nil {
 		p.profileCancel()
 		p.profileCancel = nil
@@ -351,6 +357,7 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 	}
 	p.drain()
 	p.drainProfile()
+	p.drainEmojiSet()
 	if p.problem != nil && p.problem != p.told {
 		p.modal.Toast(mediaErrorText(p.problem))
 	}
@@ -381,6 +388,9 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 	}
 	if p.collectible != nil {
 		p.collectible.modal.Update(gtx, false)
+	}
+	if p.renderer.stickers.modal.Shown() {
+		p.renderer.stickers.modal.Update(gtx, false)
 	}
 	if p.close.Clicked(gtx) {
 		p.modal.Close()
@@ -445,7 +455,7 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 		p.load(false)
 	}
 	overlayGtx := gtx
-	covered := p.gift != nil || p.collectible != nil || p.renderer.link != ""
+	covered := p.gift != nil || p.collectible != nil || p.renderer.link != "" || p.renderer.stickers.modal.Shown()
 	if covered {
 		gtx = gtx.Disabled()
 	}
@@ -508,6 +518,7 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 	}
 	p.layoutGiftDialog(overlayGtx, l, animate)
 	p.layoutCollectible(overlayGtx, l)
+	p.renderer.stickers.layout(overlayGtx, p.renderer, l)
 	if p.renderer.link != "" {
 		p.renderer.linkDialog(overlayGtx, l)
 	}

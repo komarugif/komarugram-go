@@ -20,6 +20,11 @@ type PeerProfile struct {
 	Gifts []Message
 	// Channel is the channel a user put in the profile, nil for none.
 	Channel *PersonalChannel
+	// Badges are the marks beside the name as Telegram says now, when
+	// BadgesKnown: a chat's own may be older, as the emoji status of someone
+	// with no dialog, which no update reaches.
+	Badges      Badges
+	BadgesKnown bool
 }
 
 // MaxCoverGifts is how many pinned gifts the cover shows around the avatar.

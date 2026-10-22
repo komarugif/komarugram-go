@@ -68,9 +68,12 @@ type App struct {
 	// peerBadges knows the marks of the forks of Telegram clients; nil shows
 	// none. badgeClicks are the clicks on them, and stopBadges stops the
 	// window following the lists.
-	peerBadges  *peerbadges.Registry
-	badgeClicks map[badgeKey]*widget.Clickable
-	stopBadges  func()
+	peerBadges *peerbadges.Registry
+	// statusClicked is what a click on an emoji status in the profile does:
+	// it shows the emoji's set.
+	statusClicked func(emoji int64)
+	badgeClicks   map[badgeKey]*widget.Clickable
+	stopBadges    func()
 	// premiumSet, komaruSet and arrowSet are the emoji sets the Premium star,
 	// the Komaru faces and the arrow beside names are taken from
 	// (peer_badges.go).
@@ -609,6 +612,8 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		// channel's discussion does.
 		a.info.openChannel = a.history.openReturning
 		a.info.badges = a.badges
+		a.statusClicked = a.info.openEmojiSet
+		a.info.renderer.stickers.menus = a.menuPrefs
 		a.info.avatarSprite = a.avatarSprite
 		if _, ok := store.(model.CommentsStore); ok {
 			a.history.openComments = a.openComments
@@ -1079,6 +1084,13 @@ func (a *App) selectedChat() (model.Chat, bool) {
 		return model.Chat{ID: me.ID, Kind: model.KindSaved, Title: a.catalog().T("nav.saved")}, true
 	}
 	if a.selected != 0 && a.found.ID == a.selected {
+		// A chat picked from the search is kept as it was found; what the
+		// store has heard of its marks since is newer.
+		if source, ok := a.store.(model.PeerBadgesSource); ok {
+			if badges, ok := source.PeerBadges(a.found.ID); ok {
+				a.found.Badges = badges
+			}
+		}
 		return a.found, true
 	}
 	return model.Chat{}, false

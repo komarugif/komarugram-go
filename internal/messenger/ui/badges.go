@@ -82,12 +82,18 @@ func (a *App) badges(b model.Badges, name string, size unit.Dp, both bool) (befo
 	}
 	if b.EmojiStatus != 0 && (both || !b.Verified) {
 		premium := b.Premium && !b.Verified
-		marks = append(marks, func(gtx layout.Context) layout.Dimensions {
+		status := func(gtx layout.Context) layout.Dimensions {
 			if dims := a.layoutCustomEmoji(gtx, b.EmojiStatus, size); dims.Size.X > 0 || !premium {
 				return dims
 			}
 			return a.layoutPremiumMark(gtx, size)
-		})
+		}
+		if both && a.statusClicked != nil {
+			// In the profile a click on the status shows its emoji set.
+			emoji := b.EmojiStatus
+			status = a.badgeClick(badgeKey{emoji, badgeStatus}, status, func() { a.statusClicked(emoji) })
+		}
+		marks = append(marks, status)
 	} else if b.Premium && !b.Verified {
 		marks = append(marks, func(gtx layout.Context) layout.Dimensions { return a.layoutPremiumMark(gtx, size) })
 	}

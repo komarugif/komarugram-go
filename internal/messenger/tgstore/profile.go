@@ -111,6 +111,7 @@ func (s *Store) fetchProfile(ctx context.Context, chat int64) (model.PeerProfile
 		for _, raw := range full.Users {
 			if u, ok := raw.(*tg.User); ok && u.ID == peer.ID {
 				status, color, usernames, username = u.EmojiStatus, u.ProfileColor, u.Usernames, u.Username
+				out.Badges, out.BadgesKnown = userBadges(u, time.Now()), true
 			}
 		}
 		channelID, channelMsg = full.FullUser.PersonalChannelID, full.FullUser.PersonalChannelMessage
@@ -123,6 +124,7 @@ func (s *Store) fetchProfile(ctx context.Context, chat int64) (model.PeerProfile
 		for _, raw := range full.Chats {
 			if ch, ok := raw.(*tg.Channel); ok && ch.ID == peer.ID {
 				status, color, usernames, username = ch.EmojiStatus, ch.ProfileColor, ch.Usernames, ch.Username
+				out.Badges, out.BadgesKnown = channelBadges(ch, time.Now()), true
 			}
 		}
 	default:

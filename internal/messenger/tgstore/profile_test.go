@@ -71,6 +71,10 @@ func TestPeerProfile(t *testing.T) {
 		if len(p.Gifts) != 1 || p.Gifts[0].Gift == nil || p.Gifts[0].Gift.Number != 101 {
 			t.Fatalf("gifts %+v", p.Gifts)
 		}
+		// The status Telegram says now, for a person with no dialog to bring it.
+		if !p.BadgesKnown || p.Badges.EmojiStatus != 1 || p.Badges.User != 5 {
+			t.Fatalf("badges %+v known %v", p.Badges, p.BadgesKnown)
+		}
 		ch := p.Channel
 		if ch == nil || ch.Chat.Title != "Fund" || ch.Chat.Kind != model.KindChannel || ch.Chat.Members != 6 || ch.Post.Text != "Сюда  бабки 💸" ||
 			len(ch.Entities) != 1 || ch.Entities[0].Kind != "emoji" || ch.Entities[0].DocumentID != 8 {
@@ -85,6 +89,11 @@ func TestPeerProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(p)
+	// What it said of the user is kept as well, so that a chat made of it
+	// has the new status, not the one the user was remembered with.
+	if got := s.history.peers[peerID(&tg.PeerUser{UserID: 5})].Metadata.Badges.EmojiStatus; got != 1 {
+		t.Fatalf("the user is remembered with status %d, want 1", got)
+	}
 	cached, ok := s.CachedPeerProfile(5)
 	if !ok {
 		t.Fatal("the profile is not cached")

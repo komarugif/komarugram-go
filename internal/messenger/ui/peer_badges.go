@@ -28,6 +28,7 @@ const (
 	badgeKomaruDeveloper uint8 = iota
 	badgeKomaruSupporter
 	badgeExtera
+	badgeStatus
 )
 
 // badgeClickable is the click of the mark badgeKey names. They are kept
@@ -113,16 +114,23 @@ func faceColor(f peerbadges.Face) color.NRGBA {
 // for the peer called name: the text of key, or custom, which the list may
 // bring in its place.
 func (a *App) badgeButton(key badgeKey, name, text, custom string, mark layout.Widget) layout.Widget {
-	return func(gtx layout.Context) layout.Dimensions {
-		click := a.badgeClickable(key)
-		if click.Clicked(gtx) {
-			message := custom
-			if message == "" {
-				message = a.catalog().Format(text, map[string]string{"name": name})
-			}
-			a.chats.toast.Show(strings.TrimSpace(message))
+	return a.badgeClick(key, mark, func() {
+		message := custom
+		if message == "" {
+			message = a.catalog().Format(text, map[string]string{"name": name})
 		}
-		return click.Layout(gtx, mark)
+		a.chats.toast.Show(strings.TrimSpace(message))
+	})
+}
+
+// badgeClick makes mark a click that calls click.
+func (a *App) badgeClick(key badgeKey, mark layout.Widget, click func()) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions {
+		c := a.badgeClickable(key)
+		if c.Clicked(gtx) {
+			click()
+		}
+		return c.Layout(gtx, mark)
 	}
 }
 
