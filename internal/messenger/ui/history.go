@@ -221,9 +221,11 @@ type chatPage struct {
 	media     *chatmedia.Manager
 	animate   bool
 	chat      int64
-	list      scroll.List
-	messages  []model.Message
-	rows      map[model.MessageID]*messageRow
+	// forgot is the chat forget dropped, to be loaded again, not left.
+	forgot   int64
+	list     scroll.List
+	messages []model.Message
+	rows     map[model.MessageID]*messageRow
 	// textRunes are the rune counts of the messages' texts, which the
 	// estimates of unmeasured heights need on every change of width.
 	textRunes map[model.MessageID]textRunes
@@ -430,7 +432,7 @@ func (p *chatPage) forgetDialogStickers() {
 // next Layout opens it again from where the store says: see
 // model.MessageRevealer.
 func (p *chatPage) forget() {
-	p.chat = 0
+	p.forgot, p.chat = p.chat, 0
 }
 
 func (p *chatPage) Close() {
@@ -562,20 +564,27 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		}()
 	}
 	if p.chat != c.ID {
-		p.forgetDialogStickers()
-		p.stickers.stop()
-		p.emojiPacks.stop()
-		p.reacted.stop()
-		p.edits.stop()
-		p.shot.stop()
-		p.stickerVideo.close()
-		p.albumSave = albumSaveDialog{}
-		p.translation.stop()
-		p.closeChatSearch()
-		p.chatMenu.open = false
+		// The same chat forgotten is loaded again where a jump asked
+		// (forget): what is open over it stays, as the search that
+		// jumped to a message not loaded, which closed.
+		reload := p.chat == 0 && p.forgot == c.ID
+		p.forgot = 0
+		if !reload {
+			p.forgetDialogStickers()
+			p.stickers.stop()
+			p.emojiPacks.stop()
+			p.reacted.stop()
+			p.edits.stop()
+			p.shot.stop()
+			p.stickerVideo.close()
+			p.albumSave = albumSaveDialog{}
+			p.translation.stop()
+			p.closeChatSearch()
+			p.chatMenu.open = false
+			p.clearSelection()
+		}
 		p.closeMenu()
 		p.save(true)
-		p.clearSelection()
 		p.activeText = nil
 		p.chat = c.ID
 		p.revision = 0

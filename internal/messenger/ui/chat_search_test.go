@@ -185,3 +185,45 @@ func TestRenderChatSearch(t *testing.T) {
 	})
 	_ = store
 }
+
+// farSearchStore finds a message the history has not loaded, as an old
+// one of a long channel, which the page goes to by opening the chat
+// again there.
+type farSearchStore struct {
+	*menuStore
+	revealed []model.MessageID
+}
+
+func (s *farSearchStore) SearchChat(context.Context, int64, string, string, int) (model.ChatSearchPage, error) {
+	return model.ChatSearchPage{Messages: []model.Message{{Key: model.MessageKey{ChatID: 1, MessageID: 500}, Text: "far"}}, Count: 1}, nil
+}
+
+func (s *farSearchStore) Reveal(_ int64, id model.MessageID) { s.revealed = append(s.revealed, id) }
+
+// The search stays open when it goes to a message not loaded: the chat is
+// opened again there, which closed it as if another chat were opened.
+func TestChatSearchStaysOnAFarMessage(t *testing.T) {
+	var store *farSearchStore
+	h := newMenuHarnessOn(t, nil, func(s *menuStore) model.ConversationStore {
+		store = &farSearchStore{menuStore: s}
+		return store
+	})
+	p := h.page
+	for range 3 {
+		headFrame(h)
+	}
+	headPress(h, f32.Pt(500-8-80+20, 28))
+	if !p.chatSearch.open {
+		t.Fatal("the search button did not open the search")
+	}
+	p.chatSearch.field.SetText("far")
+	for range 40 {
+		headFrame(h)
+	}
+	if len(store.revealed) != 1 || store.revealed[0] != 500 {
+		t.Fatalf("revealed %v", store.revealed)
+	}
+	if !p.chatSearch.open || p.chatSearch.query != "far" || p.chatSearch.current != 0 {
+		t.Fatalf("the search closed or forgot what it found: open %v, query %q, current %d", p.chatSearch.open, p.chatSearch.query, p.chatSearch.current)
+	}
+}
