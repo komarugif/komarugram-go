@@ -150,6 +150,12 @@ type settingsPage struct {
 	// logOut asks to leave the window's account; confirmLogOut does it.
 	logOut           settingsItem
 	confirmingLogOut bool
+	// revealLogOut is set while the confirmation opens out of the row,
+	// which the page scrolls with so that its buttons are in view: the row
+	// is at the end of a page scrolled to it, and the card grows below.
+	// belowLogOut is how tall what follows it was laid out last.
+	revealLogOut bool
+	belowLogOut  int
 	// uninstallItem opens the uninstaller through uninstall, which is nil
 	// where the program does not install itself.
 	uninstallItem settingsItem
@@ -435,7 +441,7 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		p.uninstall()
 	}
 	if p.logOut.click.Clicked(gtx) && !p.loggingOut {
-		p.confirmingLogOut = true
+		p.confirmingLogOut, p.revealLogOut = true, true
 	}
 	if p.cancelLogOut.Clicked(gtx) {
 		p.confirmingLogOut = false
@@ -750,6 +756,7 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 		)
 	})
 	p.layingOut = false
+	p.followLogOut(gtx)
 	if p.section == settingsShortcuts && p.shortcuts != nil {
 		p.shortcuts.Overlay(gtx, l)
 	}
@@ -950,23 +957,51 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 			})
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			dims := layout.Inset{Top: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return p.cardHeight("about").Card(gtx, func(gtx layout.Context) layout.Dimensions {
 					return p.items[settingsAbout].Layout(gtx, iconInfo, l.T("settings.about"), deviceinfo.Platform())
 				}, 6)
 			})
+			p.belowLogOut = dims.Size.Y
+			return dims
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			if p.uninstall == nil {
 				return layout.Dimensions{}
 			}
-			return layout.Inset{Top: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			dims := layout.Inset{Top: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return p.cardHeight("uninstall").Card(gtx, func(gtx layout.Context) layout.Dimensions {
 					return p.uninstallItem.Layout(gtx, iconUninstall, l.T("uninstall.settings"), l.T("uninstall.settings_hint"))
 				}, 6)
 			})
+			p.belowLogOut += dims.Size.Y
+			return dims
 		}),
 	)
+}
+
+// followLogOut scrolls the main page, while the confirmation of logging
+// out opens, so that its end is in view; done once it has opened, the page
+// is the user's to scroll again. Where the card ends is the page's length
+// less what follows it and the page's inset under it.
+func (p *settingsPage) followLogOut(gtx layout.Context) {
+	if !p.revealLogOut {
+		return
+	}
+	card := p.cardHeight("logout")
+	if p.section != settingsMain || !p.confirmingLogOut {
+		p.revealLogOut = false
+		return
+	}
+	bottom := p.list.Position.Length - p.belowLogOut - gtx.Dp(24)
+	// With the space before the next card under it, its corners in view.
+	if over := bottom + gtx.Dp(12) - (p.list.Position.Offset + gtx.Constraints.Max.Y); over > 0 {
+		p.list.Position.Offset += over
+		gtx.Execute(op.InvalidateCmd{})
+	}
+	if card.initialized && card.value >= card.target {
+		p.revealLogOut = false
+	}
 }
 
 // layoutLogOut draws the row that leaves the window's account and, once it

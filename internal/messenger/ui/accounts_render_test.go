@@ -234,8 +234,9 @@ func TestRenderAccountScreens(t *testing.T) {
 	p := newSettingsPage(motion.New(func() {}), miniappprefs.New(miniapp.Ephemeral), nil, func() {}, accounts,
 		func() string { return "1" }, themeAuto, "ru", func(themeMode) {}, func(string) {})
 	p.images = new(imageOps)
-	p.confirmingLogOut = true
-	renderPNG(t, filepath.Join(dir, "logout.png"), size, 1, func(gtx layout.Context) {
+	// As a click on the row asks it: the page scrolls to the card.
+	p.confirmingLogOut, p.revealLogOut = true, true
+	renderPNG(t, filepath.Join(dir, "logout.png"), size, 3, func(gtx layout.Context) {
 		p.Layout(gtx, themeAuto, appearance.Light, false, l)
 	})
 }
