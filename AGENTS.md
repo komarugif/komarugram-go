@@ -179,6 +179,37 @@ the tests as they are).
 The full list, with the story behind each item, is README_FULL.md "Pitfalls met while
 working on this code".
 
+## Panics
+
+A panic in a frame is caught (`crash.Guard` in `internal/appwindow`): the
+frame is dropped, the panic reported, and the window draws again. What
+keeps it from coming back:
+
+- **A goroutine starts with `defer crash.Recover(where, handle)`**, and
+  `handle` tells whoever waits that the work failed: it sends the
+  `*crash.Panic` (an `error`) where the result would go. Unrecovered, a
+  panic in a goroutine ends the process; recovered without a word, it
+  leaves the UI waiting for ever.
+- **No lock held across a call that may panic.** Take what the lock guards,
+  unlock, then act (show a toast, call the playback); or unlock in a
+  `defer`, in a closure when the function goes on. A lock left held hangs
+  every frame after the panic.
+- **What a frame leaves half done must be safe to meet in the next one.**
+  A flag set for the length of a layout (`layingOut`) is cleared after it,
+  not in a `defer`, so that `App.RecoverFrame` (`recovery.go`) knows where
+  the panic was.
+- **An overlay that can fail on what it shows closes itself on a panic**,
+  from `App.RecoverFrame`, as the photo viewer and a settings subsection
+  do. Elsewhere the window tries the frame once more, then closes all
+  over its list of chats.
+- **Calls on the content from the window's loop outside a frame** (focus,
+  suspension, drops of files) go through its `tell`, which guards them.
+- **Data from Telegram and from files can lack anything**: a video without
+  a thumbnail, media without a size. Check before dereferencing it.
+- **Test a recovery with a fault injected in the real layout**
+  (`recovery_test.go`), and draw the frames after it: a test that only
+  calls `RecoverFrame` misses state the panic left behind.
+
 ## Testing the app live
 
 - `-demo` runs on made-up data, without an account; nothing it does
