@@ -164,7 +164,7 @@ from korli's `go1.26.1-haiku1` release; it took the cause for the VM's I/O.
 
 1. **Go.** [komarugif/go-haiku](https://github.com/komarugif/go-haiku),
    branch `golang-1.27-haiku`, built on Linux with `src/make.bash`
-   (2 minutes): Go 1.27.1 (the version `go.mod` needs) with the Haiku port
+   (2 minutes): Go 1.27.1 (the version `go.mod` needed then) with the Haiku port
    of Jérôme Duval, [korli/go](https://github.com/korli/go), brought onto
    it, and fixes found running the client, each a commit (its `HAIKU.md`
    lists them). The ones that showed:
@@ -229,8 +229,10 @@ from korli's `go1.26.1-haiku1` release; it took the cause for the VM's I/O.
    `crtbegin*.o`, `crtend*.o`, `libgcc*`, `include` and `include-fixed`;
    add `/boot/system/lib/libgcc_s.so.1` and `libstdc++.so.6.0.32` to
    `develop/lib`, and link `$ROOT/boot/system/lib` to `develop/lib`.
-3. **Modules**, patched outside the repository and taken in with a
-   `go.work` beside it, not with `go.mod`:
+3. **Modules**, patched outside the repository and taken in with a copy
+   of `go.mod` beside them, given to every go command with `-modfile`,
+   not with `go.mod`: the copy also names the Go of go-haiku when it is
+   older than `go.mod` asks, which it would refuse:
    - `golang.org/x/sys` v0.48.0, which knows no Haiku: copy the `*_haiku*`
      files of the toolchain's own copy, `src/cmd/vendor/golang.org/x/sys/unix`,
      into `unix`, and apply
@@ -263,9 +265,11 @@ from korli's `go1.26.1-haiku1` release; it took the cause for the VM's I/O.
      for game consoles do. It needs no `BApplication`.
 
    ```
+   module komarugram
+
    go 1.27.1
 
-   use /path/to/komarugram-go
+   ... go.mod as it is ...
 
    replace golang.org/x/sys => /path/to/x-sys
    replace github.com/tetratelabs/wazero => /path/to/wazero
@@ -280,9 +284,9 @@ from korli's `go1.26.1-haiku1` release; it took the cause for the VM's I/O.
 5. **The client:**
 
    ```sh
-   GOWORK=/path/to/go.work GOOS=haiku GOARCH=amd64 CGO_ENABLED=1 \
+   GOOS=haiku GOARCH=amd64 CGO_ENABLED=1 \
      CC="clang --target=x86_64-unknown-haiku --sysroot=$ROOT -fuse-ld=lld" \
-     /path/to/go-haiku/bin/go build -ldflags=-linkmode=internal \
+     /path/to/go-haiku/bin/go build -modfile=/path/to/messenger.mod -ldflags=-linkmode=internal \
      -tags sqlite3_flock -o messenger ./cmd/messenger
    ```
 6. **libgiohaiku.so**, the C++ half of Gio's driver, which the program

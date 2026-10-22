@@ -89,8 +89,17 @@ go version
 cd ~
 git clone https://github.com/komarugif/komarugram-go
 cd komarugram-go
-go run ./cmd/haiku-build -o ~/apps/KomaruGram
+sed "s/^go .*/go 1.27.1/" go.mod > /tmp/komarugram.mod
+cp go.sum /tmp/komarugram.sum
+go run -modfile=/tmp/komarugram.mod ./cmd/haiku-build -o ~/apps/KomaruGram
 ```
+
+`go.mod` asks for Go 1.27.3, which go-haiku has not caught up with yet:
+its Go 1.27.1 refuses `go.mod`, and runs `haiku-build` with a copy that
+names 1.27.1 (the version `go version` says, if it is another). Go 1.27.3
+fixes the checking of certificates in `crypto/x509`, which a messenger
+built with 1.27.1 lacks. `haiku-build` makes a copy of its own for the
+build, `messenger.mod`, with the Go it runs on.
 
 `haiku-build` downloads the modules, applies the changes for Haiku to
 copies of them, builds the messenger and the four libraries it loads from
@@ -106,8 +115,8 @@ memory, use `-low-memory`: it defaults to `GOMAXPROCS=1` and
 inlining only in `github.com/gotd/td/tg`. It applies to `-test` too:
 
 ```sh
-go run ./cmd/haiku-build -low-memory -o ~/apps/KomaruGram
-go run ./cmd/haiku-build -low-memory -test
+go run -modfile=/tmp/komarugram.mod ./cmd/haiku-build -low-memory -o ~/apps/KomaruGram
+go run -modfile=/tmp/komarugram.mod ./cmd/haiku-build -low-memory -test
 ```
 
 Leave memory for Haiku and the native build tools. `GOMEMLIMIT` does not

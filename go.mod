@@ -1,6 +1,6 @@
 module komarugram
 
-go 1.27.1
+go 1.27.3
 
 require (
 	gio-mw v0.0.0-20260221053317-be0445f63b48
