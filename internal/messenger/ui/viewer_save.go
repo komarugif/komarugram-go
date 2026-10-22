@@ -38,7 +38,7 @@ func canKeep(m model.Message) bool {
 
 // keepPhoto saves the photo m in the user's pictures, or copies it, in the
 // background.
-func (v *photoViewer) keepPhoto(m model.Message, copy bool, l localization.Catalog) {
+func (v *mediaViewer) keepPhoto(m model.Message, copy bool, l localization.Catalog) {
 	if v.kept == nil {
 		v.kept = make(chan viewerFile, 2)
 	}
@@ -115,7 +115,7 @@ func photoFileName(m model.Message) string {
 
 // updateKept takes the results of saving and copying: the toast tells them for
 // a few seconds, and a copied picture goes on the clipboard.
-func (v *photoViewer) updateKept(gtx layout.Context) {
+func (v *mediaViewer) updateKept(gtx layout.Context) {
 	for {
 		select {
 		case r := <-v.kept:

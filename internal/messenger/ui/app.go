@@ -155,12 +155,12 @@ type App struct {
 	// forum is the list of topics that shows in place of the history of a
 	// forum; a topic opens as thread, like comments.
 	forum  *forumPage
-	viewer *photoViewer
+	viewer *mediaViewer
 	// openWindow is the host of the windows the viewer and articles open
-	// in; photoWindows and articleWindows, their lists, which close with
+	// in; viewerWindows and articleWindows, their lists, which close with
 	// this window and when it locks.
 	openWindow     func(appwindow.Spec)
-	photoWindows  photoWindows
+	viewerWindows  viewerWindows
 	articleWindows articleWindows
 	settings       *settingsPage
 	// sessionEnded asks what to do once Telegram ended the session.
@@ -583,7 +583,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.info.drawAvatar = a.layoutAvatar
 		a.avatars = newAvatarImages(source, w.Invalidate)
 		a.chats.avatar = a.layoutAvatar
-		a.viewer = newPhotoViewer(source, &a.images, w.Invalidate)
+		a.viewer = newMediaViewer(source, &a.images, w.Invalidate)
 		a.viewer.shortcuts = a.shortcutPrefs
 		a.history = a.newChatPage(source, store, w)
 		downloader, _ := source.(model.Downloader)
@@ -664,7 +664,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.info.openAvatar = func(chat int64) { a.viewer.OpenProfile(chat) }
 		if services.OpenWindow != nil {
 			a.openWindow = services.OpenWindow
-			a.viewer.popout = a.openPhotoWindow
+			a.viewer.popout = a.openViewerWindow
 			a.history.openArticle = a.openArticleWindow
 			a.history.openSourceWindow = a.openSourceWindow
 			if a.comments != nil {
@@ -711,11 +711,11 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 		a.open(chatPick{ID: m.Key.ChatID, Message: m.Key.MessageID})
 		a.window.Invalidate()
 	}
-	p.openPhoto = func(m model.Message) { a.viewer.Open(p.chat, m, p.photos()) }
-	p.openVideo = func(m model.Message, at time.Duration) { a.viewer.OpenVideo(p.chat, m, p.photos(), at) }
+	p.openPhoto = func(m model.Message) { a.viewer.Open(p.chat, m, p.viewerItems()) }
+	p.openVideo = func(m model.Message, at time.Duration) { a.viewer.OpenVideo(p.chat, m, p.viewerItems(), at) }
 	p.videoEngine = a.videoEngine
 	p.openAlone = func(m model.Message) { a.viewer.OpenAlone(p.chat, m) }
-	p.openGIF = func(m model.Message) { a.viewer.OpenGIF(p.chat, m, p.photos()) }
+	p.openGIF = func(m model.Message) { a.viewer.OpenGIF(p.chat, m, p.viewerItems()) }
 	p.releaseMemory, p.keepMemory = w.ReleaseMemoryLater, w.KeepMemory
 	formula.SetRelease(w.MemoryReleaser())
 	p.openWebApp = a.launchWebApp
@@ -760,7 +760,7 @@ func (a *App) Close() {
 		a.settings.shortcuts.Close()
 	}
 	a.closeMiniApps()
-	a.photoWindows.closeAll()
+	a.viewerWindows.closeAll()
 	a.articleWindows.closeAll()
 	if a.avatars != nil {
 		a.avatars.media.Close()
@@ -1557,7 +1557,7 @@ func (a *App) SetMinimized(minimized bool) {
 		a.preferences.Global().LockOnMinimize {
 		a.windowLocked.Store(true)
 		a.window.SetTitle(a.catalog().T("app.title"))
-		a.photoWindows.closeAll()
+		a.viewerWindows.closeAll()
 		a.articleWindows.closeAll()
 	}
 }
@@ -1601,7 +1601,7 @@ func (a *App) checkWindowLock(gtx layout.Context) bool {
 		if !gtx.Now.Before(deadline) {
 			a.windowLocked.Store(true)
 			a.window.SetTitle(a.catalog().T("app.title"))
-			a.photoWindows.closeAll()
+			a.viewerWindows.closeAll()
 			a.articleWindows.closeAll()
 			return true
 		}

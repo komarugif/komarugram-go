@@ -40,7 +40,7 @@ type articleWindow struct {
 	// invalidate asks for a frame: the window's, or a test's.
 	invalidate func()
 	page       *chatPage
-	viewer     *photoViewer
+	viewer     *mediaViewer
 	images     imageOps
 	catalog    localization.Catalog
 	mode       func() themeMode
@@ -119,7 +119,7 @@ func newArticleView(source model.ConversationStore, catalog localization.Catalog
 	a.page.images = &a.images
 	a.page.rows = map[model.MessageID]*messageRow{}
 	a.page.chat = m.Key.ChatID
-	a.viewer = newPhotoViewer(source, &a.images, invalidate)
+	a.viewer = newMediaViewer(source, &a.images, invalidate)
 	a.page.openAlone = func(photo model.Message) { a.viewer.OpenAlone(m.Key.ChatID, photo) }
 	// A link to an anchor the part does not have goes there once the whole
 	// article is shown.
@@ -176,7 +176,7 @@ func (a *articleWindow) Layout(gtx layout.Context) {
 }
 
 // layout draws the article, and over it what it opens: menus, dialogs,
-// toasts and the photo viewer.
+// toasts and the media viewer.
 func (a *articleWindow) layout(gtx layout.Context, animate bool) {
 	p, l := a.page, a.catalog
 	p.animate = animate

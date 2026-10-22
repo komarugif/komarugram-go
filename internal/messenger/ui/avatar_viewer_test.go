@@ -66,7 +66,7 @@ func TestViewerOpensProfilePhotos(t *testing.T) {
 	store := mockstore.New(time.Now(), 0)
 	var images imageOps
 	changed := make(chan struct{}, 1)
-	v := newPhotoViewer(store, &images, func() {
+	v := newMediaViewer(store, &images, func() {
 		select {
 		case changed <- struct{}{}:
 		default:
@@ -131,7 +131,7 @@ func TestViewerOpensProfilePhotos(t *testing.T) {
 		t.Fatalf("all photos known, yet paging on: %v", exhausted)
 	}
 	// A store that has no profile photos opens nothing.
-	plain := newPhotoViewer(newGalleryStore(), &images, func() {})
+	plain := newMediaViewer(newGalleryStore(), &images, func() {})
 	defer plain.Destroy()
 	if plain.OpenProfile(2) || plain.open {
 		t.Fatal("a viewer without profile photos opened")
@@ -143,13 +143,13 @@ func TestViewerOpensProfilePhotos(t *testing.T) {
 func TestProfilePhotosGoOnInWindow(t *testing.T) {
 	store := mockstore.New(time.Now(), 0)
 	var images imageOps
-	v := newPhotoViewer(store, &images, func() {})
+	v := newMediaViewer(store, &images, func() {})
 	defer v.Destroy()
 	page, err := store.ProfilePhotos(t.Context(), 2, "", viewerPage)
 	if err != nil {
 		t.Fatal(err)
 	}
-	v.openList(2, page.Messages[0], photoList{items: page.Messages, total: page.Total, ended: [2]bool{true, false}, gallery: galleryProfile, offset: page.Next})
+	v.openList(2, page.Messages[0], mediaList{items: page.Messages, total: page.Total, ended: [2]bool{true, false}, gallery: galleryProfile, offset: page.Next})
 	deadline := time.Now().Add(3 * time.Second)
 	// Opening asks for the page after those it was given.
 	for ; ; time.Sleep(time.Millisecond) {

@@ -17,7 +17,7 @@ import (
 // A video in the gallery shows its thumbnail, never downloads the video,
 // and plays in the external player by a click, as the viewer is told to
 // play videos without a videoEngine.
-func TestPhotoViewerPlaysVideos(t *testing.T) {
+func TestMediaViewerPlaysVideos(t *testing.T) {
 	h := newViewerHarness(t)
 	video := &h.store.photos[1]
 	video.Kind = model.MessageVideo
@@ -49,7 +49,7 @@ func TestPhotoViewerPlaysVideos(t *testing.T) {
 }
 
 // A GIF opens alone: no gallery is read around it.
-func TestPhotoViewerOpensGIFAlone(t *testing.T) {
+func TestMediaViewerOpensGIFAlone(t *testing.T) {
 	h := newViewerHarness(t)
 	gif := model.Message{Key: model.MessageKey{ChatID: 1, MessageID: 25}, Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "g25", MIMEType: "image/gif", Width: 200, Height: 100}}
 	h.viewer.OpenAlone(1, gif)

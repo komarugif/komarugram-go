@@ -62,7 +62,7 @@ func (c *videoControls) wake(now time.Time) { c.moved = now }
 // playVideo plays m from at, below 0 from the start: in the viewer, when
 // the settings choose it and a decoder here takes m, or else in the
 // external player.
-func (v *photoViewer) playVideo(gtx layout.Context, m model.Message, at time.Duration, l localization.Catalog) {
+func (v *mediaViewer) playVideo(gtx layout.Context, m model.Message, at time.Duration, l localization.Catalog) {
 	engine := videoExternal
 	if v.videoEngine != nil {
 		engine = v.videoEngine(m)
@@ -103,7 +103,7 @@ type externalVideo struct {
 
 // videoKey does what a key of the video's asks: play or pause, a move back
 // or ahead, or the sound off or on.
-func (v *photoViewer) videoKey(gtx layout.Context, m model.Message, id string) {
+func (v *mediaViewer) videoKey(gtx layout.Context, m model.Message, id string) {
 	if m.Kind != model.MessageVideo {
 		return
 	}
@@ -129,7 +129,7 @@ func (v *photoViewer) videoKey(gtx layout.Context, m model.Message, id string) {
 }
 
 // updateVideo takes the input of the controls of m, before they are drawn.
-func (v *photoViewer) updateVideo(gtx layout.Context, m model.Message, l localization.Catalog) {
+func (v *mediaViewer) updateVideo(gtx layout.Context, m model.Message, l localization.Catalog) {
 	c := &v.controls
 	v.externalMu.Lock()
 	next := v.externalNext
@@ -217,7 +217,7 @@ func (v *photoViewer) updateVideo(gtx layout.Context, m model.Message, l localiz
 
 // layoutVideoControls draws the controls of m, when it plays, over the
 // bottom of stage, and returns the top of their plate.
-func (v *photoViewer) layoutVideoControls(gtx layout.Context, m model.Message, stage image.Rectangle, l localization.Catalog) (int, bool) {
+func (v *mediaViewer) layoutVideoControls(gtx layout.Context, m model.Message, stage image.Rectangle, l localization.Catalog) (int, bool) {
 	c := &v.controls
 	s := v.video.state(m)
 	if m.Kind != model.MessageVideo || !s.active {

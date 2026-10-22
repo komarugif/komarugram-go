@@ -380,19 +380,19 @@ type MessageButton struct {
 // Sources may use Telegram search or an offline cache. A page is oldest
 // first: before it when dir is negative, after it otherwise.
 type PhotoGallery interface {
-	ChatPhotos(ctx context.Context, chat int64, anchor MessageID, dir, limit int) (PhotoPage, error)
+	ChatPhotos(ctx context.Context, chat int64, anchor MessageID, dir, limit int) (GalleryPage, error)
 }
 
 // GIFGallery pages a chat's GIFs, as PhotoGallery its photos and videos: a
 // GIF opened goes on to the chat's other GIFs, as in Telegram Desktop, and
 // a photo to its photos and videos, not to the GIFs.
 type GIFGallery interface {
-	ChatGIFs(ctx context.Context, chat int64, anchor MessageID, dir, limit int) (PhotoPage, error)
+	ChatGIFs(ctx context.Context, chat int64, anchor MessageID, dir, limit int) (GalleryPage, error)
 }
 
-// PhotoPage is a page of a chat's photos, of its GIFs or of the photos of
+// GalleryPage is a page of a chat's photos, of its GIFs or of the photos of
 // its profile.
-type PhotoPage struct {
+type GalleryPage struct {
 	Messages []Message
 	// Total counts the photos of the whole gallery, 0 when it is not known,
 	// as for a page read from the offline cache.

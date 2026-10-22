@@ -124,7 +124,7 @@ func (h *viewerHarness) settle() {
 
 // Layout at 800×600: the view spans y 56…516, the side zones x 0…72 and
 // 728…800, the ✕ is centred at 768, 28 and the window button at 720, 28.
-func TestPhotoViewerWheelZoomAndSides(t *testing.T) {
+func TestMediaViewerWheelZoomAndSides(t *testing.T) {
 	fixedScrollScales(t)
 	h := newViewerHarness(t)
 	s := h.store
@@ -232,12 +232,12 @@ func TestPhotoViewerWheelZoomAndSides(t *testing.T) {
 	}
 }
 
-func TestPhotoViewerOpensInWindow(t *testing.T) {
+func TestMediaViewerOpensInWindow(t *testing.T) {
 	h := newViewerHarness(t)
 	s := h.store
 	var popped []model.Message
 	var current model.Message
-	h.viewer.popout = func(chat int64, m model.Message, known photoList) { current, popped = m, known.items }
+	h.viewer.popout = func(chat int64, m model.Message, known mediaList) { current, popped = m, known.items }
 	h.viewer.Open(1, s.photos[14], s.photos)
 	h.frame()
 	h.click(720, 28)

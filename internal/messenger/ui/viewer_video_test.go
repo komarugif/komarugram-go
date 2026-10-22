@@ -74,7 +74,7 @@ func videoViewer(t *testing.T, engine string) (*viewerHarness, model.Message, *[
 	m.Kind = model.MessageVideo
 	m.Media = &model.MessageMedia{ID: "v20/file", MIMEType: "video/mp4", Width: 720, Height: 1280, Duration: 36 * time.Second, Size: int64(len(data)),
 		Thumbnail: &model.MessageMedia{ID: "v20/t", Width: 180, Height: 320}}
-	h.viewer = newPhotoViewer(videoGallery{h.store, data}, &h.images, func() {
+	h.viewer = newMediaViewer(videoGallery{h.store, data}, &h.images, func() {
 		select {
 		case h.changed <- struct{}{}:
 		default:

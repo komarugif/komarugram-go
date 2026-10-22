@@ -17,7 +17,7 @@ func IsProfilePhoto(id MessageID) bool { return id >= profilePhotoBase && id < p
 
 // ProfilePhotoSource gives the photos of a chat's profile (a user's, a
 // group's, a channel's) as photo messages of that chat with the IDs of
-// ProfilePhotoID, for the photo viewer.
+// ProfilePhotoID, for the media viewer.
 type ProfilePhotoSource interface {
 	// ProfilePhoto is the photo the chat shows now, as far as it is known
 	// without asking Telegram: the size the chat list has among its
@@ -26,5 +26,5 @@ type ProfilePhotoSource interface {
 	// ProfilePhotos asks for a page of the photos of the chat's profile,
 	// the one it shows now first: from offset, the Next of the page before
 	// it, or from the first photo when offset is empty.
-	ProfilePhotos(ctx context.Context, chat int64, offset string, limit int) (PhotoPage, error)
+	ProfilePhotos(ctx context.Context, chat int64, offset string, limit int) (GalleryPage, error)
 }

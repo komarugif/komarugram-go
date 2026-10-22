@@ -25,14 +25,14 @@ import (
 	"gioui.org/unit"
 )
 
-// TestRenderPhotoViewer draws the viewer over the demo photos on the GPU
+// TestRenderMediaViewer draws the viewer over the demo photos on the GPU
 // and saves a screenshot, for looking at it rather than asserting:
 //
 //	VIEWER_PNG=/tmp/viewer.png go test ./internal/messenger/ui -run RenderPhotoViewer
 //
 // With VIEWER_PROFILE set it shows the photos of a chat's profile, and with
 // VIEWER_GIFS a GIF of the chat among its GIFs.
-func TestRenderPhotoViewer(t *testing.T) {
+func TestRenderMediaViewer(t *testing.T) {
 	out := os.Getenv("VIEWER_PNG")
 	if out == "" {
 		t.Skip("set VIEWER_PNG to a file name")
@@ -50,14 +50,14 @@ func TestRenderPhotoViewer(t *testing.T) {
 	}
 	var images imageOps
 	changed := make(chan struct{}, 64)
-	v := newPhotoViewer(store, &images, func() {
+	v := newMediaViewer(store, &images, func() {
 		select {
 		case changed <- struct{}{}:
 		default:
 		}
 	})
 	defer v.Destroy()
-	v.popout = func(int64, model.Message, photoList) {}
+	v.popout = func(int64, model.Message, mediaList) {}
 	if os.Getenv("VIEWER_PROFILE") != "" {
 		// The photos of the chat's profile, as its avatar opens them.
 		start, _ = store.ProfilePhoto(2)

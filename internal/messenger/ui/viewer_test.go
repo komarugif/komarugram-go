@@ -61,11 +61,11 @@ func newGalleryStore() *galleryStore {
 	return s
 }
 
-func (s *galleryStore) ChatPhotos(_ context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.PhotoPage, error) {
+func (s *galleryStore) ChatPhotos(_ context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.GalleryPage, error) {
 	return s.page(s.photos, anchor, dir, limit), nil
 }
 
-func (s *galleryStore) ChatGIFs(_ context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.PhotoPage, error) {
+func (s *galleryStore) ChatGIFs(_ context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.GalleryPage, error) {
 	s.mu.Lock()
 	s.gifPages++
 	s.mu.Unlock()
@@ -73,14 +73,14 @@ func (s *galleryStore) ChatGIFs(_ context.Context, chat int64, anchor model.Mess
 }
 
 // page is the page of list past anchor in dir.
-func (s *galleryStore) page(list []model.Message, anchor model.MessageID, dir, limit int) model.PhotoPage {
+func (s *galleryStore) page(list []model.Message, anchor model.MessageID, dir, limit int) model.GalleryPage {
 	var out []model.Message
 	for _, m := range list {
 		if dir < 0 && m.Key.MessageID < anchor || dir > 0 && m.Key.MessageID > anchor {
 			out = append(out, m)
 		}
 	}
-	page := model.PhotoPage{Total: len(list), More: len(out) > limit}
+	page := model.GalleryPage{Total: len(list), More: len(out) > limit}
 	if s.cached {
 		page.Total = 0
 	}
@@ -135,7 +135,7 @@ func (s *galleryStore) read() []string {
 type viewerHarness struct {
 	t       *testing.T
 	router  input.Router
-	viewer  *photoViewer
+	viewer  *mediaViewer
 	images  imageOps
 	store   *galleryStore
 	now     time.Time
@@ -144,7 +144,7 @@ type viewerHarness struct {
 
 func newViewerHarness(t *testing.T) *viewerHarness {
 	h := &viewerHarness{t: t, store: newGalleryStore(), now: time.Unix(1000, 0), changed: make(chan struct{}, 64)}
-	h.viewer = newPhotoViewer(h.store, &h.images, func() {
+	h.viewer = newMediaViewer(h.store, &h.images, func() {
 		select {
 		case h.changed <- struct{}{}:
 		default:
@@ -198,7 +198,7 @@ func (h *viewerHarness) count() int {
 // Layout at 800×600 and 1 px per dp: the photo stage spans x 72…728 and
 // y 56…516, the arrows are centred at x 36 and 764, y 286, the close button
 // at 768, 28, and thumbnails 56 px wide at y 530…586 every 62 px.
-func TestPhotoViewerNavigatesCachedPhotos(t *testing.T) {
+func TestMediaViewerNavigatesCachedPhotos(t *testing.T) {
 	h := newViewerHarness(t)
 	s := h.store
 	h.viewer.Open(1, s.photos[14], s.photos[13:16])
@@ -356,7 +356,7 @@ func newTestMedia(s chatmedia.Source, changed chan struct{}) *chatmedia.Manager 
 
 // While an original downloads, the viewer shows the variant covering half
 // the stage, and a progress ring only once the wait is noticeable.
-func TestPhotoViewerShowsMiddleVariantWhileOriginalLoads(t *testing.T) {
+func TestMediaViewerShowsMiddleVariantWhileOriginalLoads(t *testing.T) {
 	h := newViewerHarness(t)
 	s := h.store
 	s.hold = make(chan struct{})
@@ -377,7 +377,7 @@ func TestPhotoViewerShowsMiddleVariantWhileOriginalLoads(t *testing.T) {
 
 // The bar saves the original in the user's pictures and copies it as PNG;
 // a protected photo offers neither.
-func TestPhotoViewerSavesAndCopies(t *testing.T) {
+func TestMediaViewerSavesAndCopies(t *testing.T) {
 	h := newViewerHarness(t)
 	s := h.store
 	h.viewer.Open(1, s.photos[3], nil)
@@ -413,7 +413,7 @@ func TestPhotoViewerSavesAndCopies(t *testing.T) {
 // The header places the photo in the whole gallery, as Telegram tells its
 // count, from the end the gallery is known to end at, as Telegram Desktop
 // does; until an end is reached it says only that this is a photo.
-func TestPhotoViewerPlacesPhotoInGallery(t *testing.T) {
+func TestMediaViewerPlacesPhotoInGallery(t *testing.T) {
 	h := newViewerHarness(t)
 	s := h.store
 	// 200 photos: more than one page past either side of the middle.
@@ -476,7 +476,7 @@ func TestPhotoViewerPlacesPhotoInGallery(t *testing.T) {
 
 // A video without a thumbnail has an empty plate in the strip: it panicked
 // there, and the window stayed on its panic screen.
-func TestPhotoViewerStripShowsVideoWithoutThumbnail(t *testing.T) {
+func TestMediaViewerStripShowsVideoWithoutThumbnail(t *testing.T) {
 	h := newViewerHarness(t)
 	s := h.store
 	// The gallery has these three alone: pages loaded behind would move
@@ -494,7 +494,7 @@ func TestPhotoViewerStripShowsVideoWithoutThumbnail(t *testing.T) {
 
 // A viewer whose layout panicked closes in the frame after, for the window
 // to show what is under it, instead of panicking again in every frame.
-func TestPhotoViewerClosesAfterPanic(t *testing.T) {
+func TestMediaViewerClosesAfterPanic(t *testing.T) {
 	h := newViewerHarness(t)
 	s := h.store
 	h.viewer.Open(1, s.photos[14], s.photos[13:16])
@@ -526,7 +526,7 @@ func TestPhotoViewerClosesAfterPanic(t *testing.T) {
 // arrows go from GIF to GIF; the photos stay out of it, as the GIFs stay
 // out of a photo's gallery. The strip shows the GIFs' thumbnails, not the
 // GIFs, which would be read whole for a frame each.
-func TestPhotoViewerGoesThroughTheChatsGIFs(t *testing.T) {
+func TestMediaViewerGoesThroughTheChatsGIFs(t *testing.T) {
 	h := newViewerHarness(t)
 	s := h.store
 	// What the history has loaded: photos and GIFs, mixed.

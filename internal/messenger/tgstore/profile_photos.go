@@ -66,18 +66,18 @@ func (s *Store) ProfilePhoto(chat int64) (model.Message, bool) {
 // Telegram's count of them. offset is "index/past/extra": the place of the
 // page's first photo, where Telegram goes on, and the photos counted beside
 // Telegram's (a group's current photo whose service message is gone).
-func (s *Store) ProfilePhotos(ctx context.Context, chat int64, offset string, limit int) (model.PhotoPage, error) {
+func (s *Store) ProfilePhotos(ctx context.Context, chat int64, offset string, limit int) (model.GalleryPage, error) {
 	var index, extra int
 	var past int64
 	if offset != "" {
 		if _, err := fmt.Sscanf(offset, "%d/%d/%d", &index, &past, &extra); err != nil {
-			return model.PhotoPage{}, fmt.Errorf("profile photos offset %q: %w", offset, err)
+			return model.GalleryPage{}, fmt.Errorf("profile photos offset %q: %w", offset, err)
 		}
 	}
 	limit = min(profilePhotoLimit, max(1, limit))
 	ctx, api, peer, _, done, err := s.peerOperation(ctx, chat)
 	if err != nil {
-		return model.PhotoPage{}, err
+		return model.GalleryPage{}, err
 	}
 	defer done()
 	type found struct {
@@ -98,7 +98,7 @@ func (s *Store) ProfilePhotos(ctx context.Context, chat int64, offset string, li
 	case "user":
 		res, e := api.PhotosGetUserPhotos(ctx, &tg.PhotosGetUserPhotosRequest{UserID: peer.inputUser(), MaxID: past, Limit: limit})
 		if e != nil {
-			return model.PhotoPage{}, e
+			return model.GalleryPage{}, e
 		}
 		list := res.GetPhotos()
 		total = len(list)
@@ -117,7 +117,7 @@ func (s *Store) ProfilePhotos(ctx context.Context, chat int64, offset string, li
 			if peer.Kind == "chat" {
 				full, e := api.MessagesGetFullChat(ctx, peer.ID)
 				if e != nil {
-					return model.PhotoPage{}, e
+					return model.GalleryPage{}, e
 				}
 				if f, ok := full.FullChat.(*tg.ChatFull); ok {
 					current = f.ChatPhoto
@@ -125,7 +125,7 @@ func (s *Store) ProfilePhotos(ctx context.Context, chat int64, offset string, li
 			} else {
 				full, e := api.ChannelsGetFullChannel(ctx, &tg.InputChannel{ChannelID: peer.ID, AccessHash: peer.Hash})
 				if e != nil {
-					return model.PhotoPage{}, e
+					return model.GalleryPage{}, e
 				}
 				if f, ok := full.FullChat.(*tg.ChannelFull); ok {
 					current = f.ChatPhoto
@@ -135,7 +135,7 @@ func (s *Store) ProfilePhotos(ctx context.Context, chat int64, offset string, li
 		}
 		res, e := api.MessagesSearch(ctx, &tg.MessagesSearchRequest{Peer: peer.input(), Filter: &tg.InputMessagesFilterChatPhotos{}, OffsetID: int(past), Limit: limit})
 		if e != nil {
-			return model.PhotoPage{}, e
+			return model.GalleryPage{}, e
 		}
 		total = searchTotal(res)
 		var messages []tg.MessageClass
@@ -161,9 +161,9 @@ func (s *Store) ProfilePhotos(ctx context.Context, chat int64, offset string, li
 			extra = 1
 		}
 	default:
-		return model.PhotoPage{}, errors.New("no photos")
+		return model.GalleryPage{}, errors.New("no photos")
 	}
-	page := model.PhotoPage{Total: total + extra}
+	page := model.GalleryPage{Total: total + extra}
 	c := s.history
 	c.mu.Lock()
 	defer c.mu.Unlock()

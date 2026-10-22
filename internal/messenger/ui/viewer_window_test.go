@@ -33,7 +33,7 @@ func testWindow(t *testing.T) *appwindow.Window {
 
 // The window button opens the viewer in a window of the process; the window
 // knows its account window, which closes it on the way out.
-func TestPhotoWindowOpensAndClosesWithItsAccount(t *testing.T) {
+func TestViewerWindowOpensAndClosesWithItsAccount(t *testing.T) {
 	var specs []appwindow.Spec
 	w := testWindow(t)
 	store := mockstore.New(time.Now(), 0)
@@ -44,18 +44,18 @@ func TestPhotoWindowOpensAndClosesWithItsAccount(t *testing.T) {
 	page, _ := store.ChatPhotos(t.Context(), 2, 1<<30, -1, 100)
 	photos := page.Messages
 	a.history.chat = 2
-	a.viewer.popout(2, photos[3], photoList{items: photos})
+	a.viewer.popout(2, photos[3], mediaList{items: photos})
 	if len(specs) != 1 || specs[0].Options.Title != "Фото — Анна Смирнова" {
 		t.Fatalf("opened %+v", specs)
 	}
 
 	// What the host does with the spec, on the new window's goroutine.
 	pw := testWindow(t)
-	content := specs[0].Build(pw).(*photoWindow)
+	content := specs[0].Build(pw).(*viewerWindow)
 	if !content.viewer.open || !content.viewer.standalone || content.viewer.current != photos[3].Key.MessageID {
 		t.Fatal("the window does not show the photo it was opened for")
 	}
-	if n := len(a.photoWindows.open); n != 1 {
+	if n := len(a.viewerWindows.open); n != 1 {
 		t.Fatalf("%d windows known to the account window", n)
 	}
 
@@ -75,7 +75,7 @@ func TestPhotoWindowOpensAndClosesWithItsAccount(t *testing.T) {
 	}
 	specs[0].Closed()
 	content.Close()
-	if n := len(a.photoWindows.open); n != 0 {
+	if n := len(a.viewerWindows.open); n != 0 {
 		t.Fatalf("a closed window is still known: %d", n)
 	}
 
@@ -86,7 +86,7 @@ func TestPhotoWindowOpensAndClosesWithItsAccount(t *testing.T) {
 }
 
 // Without a host that opens windows, the viewer has no such button.
-func TestPhotoViewerWithoutWindowHost(t *testing.T) {
+func TestMediaViewerWithoutWindowHost(t *testing.T) {
 	a := New(testWindow(t), mockstore.New(time.Now(), 0), Services{MiniApps: miniappprefs.New(miniapp.Shared)})
 	defer a.Close()
 	if a.viewer.popout != nil {

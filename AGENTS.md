@@ -199,7 +199,7 @@ keeps it from coming back:
   not in a `defer`, so that `App.RecoverFrame` (`recovery.go`) knows where
   the panic was.
 - **An overlay that can fail on what it shows closes itself on a panic**,
-  from `App.RecoverFrame`, as the photo viewer and a settings subsection
+  from `App.RecoverFrame`, as the media viewer and a settings subsection
   do. Elsewhere the window tries the frame once more, then closes all
   over its list of chats.
 - **Calls on the content from the window's loop outside a frame** (focus,

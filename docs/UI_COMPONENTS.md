@@ -49,11 +49,11 @@ put it next to these, and add it to this page.
 | `label`, `centeredLabel` | Text in a typestyle and color, limited to a number of lines (0 is unlimited). |
 | `card(gtx, content, padding)` | A rounded surface container; `defaultCardPadding` for settings and profile cards. |
 | `pill(gtx, text)` | Text on a rounded plate, like service messages and the "Choose a chat" hint. |
-| `toast` (`toast.go`) | Every error and outcome of an action (sent, copied, saved, failed): a grey plate at the bottom of the list or dialog it is about, gone after four seconds, a new one replacing it. Never keep such a message as text on screen. The history's is `chatPage.toast`, over the composer, floating or classic; a dialog's is `modal.Toast`, under the dialog when there is room; the chat list, `scrollPage` (settings, profile), the picker and the photo viewer have their own. A failure that repeats on every refresh is told once: compare with the one told last. A load that failed keeps a round retry button (icon only, `history_jump.go`, with the ones that scroll to the start and the end of the history), without the error text. The buttons that scroll are not there at the end of the history, nor within 480 dp of it, as in Telegram Desktop (`jumpReserve`), and the one to the start not within the same of the start; the retry stays. Errors of fields with room beside them (sign-in, passwords, profile, program paths) stay under the field. |
+| `toast` (`toast.go`) | Every error and outcome of an action (sent, copied, saved, failed): a grey plate at the bottom of the list or dialog it is about, gone after four seconds, a new one replacing it. Never keep such a message as text on screen. The history's is `chatPage.toast`, over the composer, floating or classic; a dialog's is `modal.Toast`, under the dialog when there is room; the chat list, `scrollPage` (settings, profile), the picker and the media viewer have their own. A failure that repeats on every refresh is told once: compare with the one told last. A load that failed keeps a round retry button (icon only, `history_jump.go`, with the ones that scroll to the start and the end of the history), without the error text. The buttons that scroll are not there at the end of the history, nor within 480 dp of it, as in Telegram Desktop (`jumpReserve`), and the one to the start not within the same of the start; the retry stays. Errors of fields with room beside them (sign-in, passwords, profile, program paths) stay under the field. |
 | `vspace(dp)` | Vertical gap in a `layout.Flex`. |
 | `fillRect`, `fillRounded` | Filling a size with a theme color. |
 | `offset`, `inRect`, `exact` | Placing a widget at a point, in a rectangle or at an exact size. |
-| `avatar` / `App.layoutAvatar` | A chat's photo, or its colored initials; pass `layoutAvatar` down as `avatarLayout`. The avatar in a chat's header and at the top of its info (and the account's own on the profile page) opens the photos of its profile in the photo viewer (`layoutAvatarTarget`, `photoViewer.OpenProfile`). |
+| `avatar` / `App.layoutAvatar` | A chat's photo, or its colored initials; pass `layoutAvatar` down as `avatarLayout`. The avatar in a chat's header and at the top of its info (and the account's own on the profile page) opens the photos of its profile in the media viewer (`layoutAvatarTarget`, `mediaViewer.OpenProfile`). |
 | `withBadges` / `App.badges` | A name with the Premium star, emoji status, check mark or scam marks around it. |
 | `drawBadge`, `drawBadgeRight` | Unread counters. |
 | `flatEditor` | A borderless one-line editor with a hint, as in the composer and the picker's search. |
@@ -326,12 +326,12 @@ size-stability fixes remain in place.
   fill over it at the chosen opacity. An overlay whose owner gives none is
   opaque. A toast is never less than 80% opaque (`toastMinOpacity`): its
   light text is only readable on its dark plate. A new overlay: take `p.menuBackdrop()` / `p.toastBackdrop()` (or the
-  list's), fill with `overlayFill`. Not covered: forms, dialogs' toasts, the photo viewer,
+  list's), fill with `overlayFill`. Not covered: forms, dialogs' toasts, the media viewer,
   and the toast of the search results.
 - **Main window surfaces** (`window_surface.go`): on Wayland and Windows the
   sidebar, chat list (including the compact folder bar) and chat header let
   the desktop show through at `preferences.Global.WindowTransparency`. The
-  compositor supplies blur through the same effects as the photo viewer's
+  compositor supplies blur through the same effects as the media viewer's
   window: `appwindow.Options.Transparent` / `BlurBehind`, and
   `Window.SetEffects` to change them; do not pass `app.Transparent` or
   `app.BlurBehind` to a window yourself. `fillWindowSurface` changes only the fill alpha; text, avatars and

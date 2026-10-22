@@ -251,26 +251,26 @@ func (b *cappedFile) WriteAt(p []byte, off int64) (int, error) {
 
 // ChatPhotos pages the chat's photos and videos; the local cache remains available offline.
 // A page of the cache tells no total, and has more photos when it is full.
-func (s *Store) ChatPhotos(ctx context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.PhotoPage, error) {
+func (s *Store) ChatPhotos(ctx context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.GalleryPage, error) {
 	return s.gallery(ctx, model.SharedPhotoVideos, (*historycache.Cache).Photos, chat, anchor, dir, limit)
 }
 
 // ChatGIFs pages the chat's GIFs, as ChatPhotos its photos and videos.
-func (s *Store) ChatGIFs(ctx context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.PhotoPage, error) {
+func (s *Store) ChatGIFs(ctx context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.GalleryPage, error) {
 	return s.gallery(ctx, model.SharedGIFs, (*historycache.Cache).GIFs, chat, anchor, dir, limit)
 }
 
 // gallery pages the chat's media of kind from Telegram, and from the cache
 // with cached when Telegram cannot be asked.
-func (s *Store) gallery(ctx context.Context, kind model.SharedKind, cached func(*historycache.Cache, context.Context, int64, int, int, int) ([]model.Message, error), chat int64, anchor model.MessageID, dir, limit int) (model.PhotoPage, error) {
+func (s *Store) gallery(ctx context.Context, kind model.SharedKind, cached func(*historycache.Cache, context.Context, int64, int, int, int) ([]model.Message, error), chat int64, anchor model.MessageID, dir, limit int) (model.GalleryPage, error) {
 	page, err := s.searchMedia(ctx, chat, kind, anchor, dir, limit)
 	if err == nil {
 		sort.Slice(page.Messages, func(i, j int) bool { return page.Messages[i].Key.MessageID < page.Messages[j].Key.MessageID })
-		return model.PhotoPage{Messages: page.Messages, Total: page.Total, More: page.More}, nil
+		return model.GalleryPage{Messages: page.Messages, Total: page.Total, More: page.More}, nil
 	}
 	if cache := s.Cache(); cache != nil {
 		found, err := cached(cache, ctx, chat, int(anchor), dir, limit)
-		return model.PhotoPage{Messages: found, More: len(found) >= limit}, err
+		return model.GalleryPage{Messages: found, More: len(found) >= limit}, err
 	}
-	return model.PhotoPage{}, err
+	return model.GalleryPage{}, err
 }

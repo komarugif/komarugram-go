@@ -737,7 +737,7 @@ func (a *App) videoEngine(m model.Message) string {
 
 // configureViewer lets v play videos as the settings choose, at the volume
 // the client's sound has, pausing the window's audio player as one starts.
-func (a *App) configureViewer(v *photoViewer) {
+func (a *App) configureViewer(v *mediaViewer) {
 	v.videoEngine = a.videoEngine
 	v.ffmpeg = func() string { return a.preferences.Global().FFmpegPath }
 	if a.history != nil {

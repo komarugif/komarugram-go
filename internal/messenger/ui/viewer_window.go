@@ -19,12 +19,12 @@ import (
 	"komarugram/internal/messenger/model"
 )
 
-// photoWindow is the photo viewer in a window of its own. It has its own
+// viewerWindow is the media viewer in a window of its own. It has its own
 // viewer, decoders and textures: a window draws on its own GPU context and
 // runs on its own goroutine, and shares only the store with the chat.
-type photoWindow struct {
+type viewerWindow struct {
 	w       *appwindow.Window
-	viewer  *photoViewer
+	viewer  *mediaViewer
 	images  imageOps
 	catalog localization.Catalog
 	theme   *token.Theme
@@ -33,16 +33,16 @@ type photoWindow struct {
 	closing    bool
 }
 
-func newPhotoWindow(w *appwindow.Window, source model.ConversationStore, catalog localization.Catalog, chat int64, current model.Message, known photoList) *photoWindow {
-	p := &photoWindow{w: w, catalog: catalog}
-	p.viewer = newPhotoViewer(source, &p.images, w.Invalidate)
+func newViewerWindow(w *appwindow.Window, source model.ConversationStore, catalog localization.Catalog, chat int64, current model.Message, known mediaList) *viewerWindow {
+	p := &viewerWindow{w: w, catalog: catalog}
+	p.viewer = newMediaViewer(source, &p.images, w.Invalidate)
 	p.viewer.standalone = true
 	p.viewer.openList(chat, current, known)
 	return p
 }
 
-// Theme is always dark: photos are looked at on a dark background.
-func (p *photoWindow) Theme(gtx layout.Context) *token.Theme {
+// Theme is always dark: pictures are looked at on a dark background.
+func (p *viewerWindow) Theme(gtx layout.Context) *token.Theme {
 	if v := defaults.FontsVersion(); p.theme == nil || v != p.themeFonts {
 		p.themeFonts = v
 		p.theme = defaults.NewTheme(gtx, schemes.SchemeBaselineDark())
@@ -50,9 +50,9 @@ func (p *photoWindow) Theme(gtx layout.Context) *token.Theme {
 	return p.theme
 }
 
-func (p *photoWindow) Update(layout.Context) {}
+func (p *viewerWindow) Update(layout.Context) {}
 
-func (p *photoWindow) Layout(gtx layout.Context) {
+func (p *viewerWindow) Layout(gtx layout.Context) {
 	p.images.BeginFrame()
 	defer p.images.EndFrame()
 	switch transparent, blurred := p.w.Translucency(); {
@@ -73,15 +73,15 @@ func (p *photoWindow) Layout(gtx layout.Context) {
 
 // RecoverFrame closes the viewer whose layout panicked, and with it the
 // window, in the frame after.
-func (p *photoWindow) RecoverFrame() bool {
+func (p *viewerWindow) RecoverFrame() bool {
 	return p.viewer.recoverFrame()
 }
 
-func (p *photoWindow) Locale() system.Locale {
+func (p *viewerWindow) Locale() system.Locale {
 	return WindowLocale(p.catalog)
 }
 
-func (p *photoWindow) SetSuspended(hidden bool) {
+func (p *viewerWindow) SetSuspended(hidden bool) {
 	if hidden {
 		p.viewer.Release()
 		p.images.Release()
@@ -89,16 +89,16 @@ func (p *photoWindow) SetSuspended(hidden bool) {
 }
 
 // Close is called by the window loop after the window is gone.
-func (p *photoWindow) Close() { p.viewer.Destroy() }
+func (p *viewerWindow) Close() { p.viewer.Destroy() }
 
-// photoWindows are the viewer windows opened from one account window. They
+// viewerWindows are the viewer windows opened from one account window. They
 // read that account's store, so they close with it.
-type photoWindows struct {
+type viewerWindows struct {
 	mu   sync.Mutex
 	open map[*appwindow.Window]struct{}
 }
 
-func (ws *photoWindows) add(w *appwindow.Window) {
+func (ws *viewerWindows) add(w *appwindow.Window) {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
 	if ws.open == nil {
@@ -107,13 +107,13 @@ func (ws *photoWindows) add(w *appwindow.Window) {
 	ws.open[w] = struct{}{}
 }
 
-func (ws *photoWindows) remove(w *appwindow.Window) {
+func (ws *viewerWindows) remove(w *appwindow.Window) {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
 	delete(ws.open, w)
 }
 
-func (ws *photoWindows) closeAll() {
+func (ws *viewerWindows) closeAll() {
 	ws.mu.Lock()
 	windows := make([]*appwindow.Window, 0, len(ws.open))
 	for w := range ws.open {
@@ -125,8 +125,8 @@ func (ws *photoWindows) closeAll() {
 	}
 }
 
-// openPhotoWindow shows photo m of chat in a new window.
-func (a *App) openPhotoWindow(chat int64, m model.Message, known photoList) {
+// openViewerWindow shows m of chat, among known, in a new window.
+func (a *App) openViewerWindow(chat int64, m model.Message, known mediaList) {
 	catalog := a.catalog()
 	title := catalog.T("viewer.window")
 	for _, c := range a.store.Chats() {
@@ -144,18 +144,18 @@ func (a *App) openPhotoWindow(chat int64, m model.Message, known photoList) {
 		},
 		Build: func(w *appwindow.Window) appwindow.Content {
 			opened = w
-			a.photoWindows.add(w)
-			window := newPhotoWindow(w, source, catalog, chat, m, known)
+			a.viewerWindows.add(w)
+			window := newViewerWindow(w, source, catalog, chat, m, known)
 			a.configureViewer(window.viewer)
 			return window
 		},
 		// Build and Closed run on the new window's goroutine, in that order.
-		Closed: func() { a.photoWindows.remove(opened) },
+		Closed: func() { a.viewerWindows.remove(opened) },
 	})
 }
 
 // FrameFill implements appwindow.FrameFiller: the caption of the window's
-// own frame is of the backdrop the photo lies on.
-func (p *photoWindow) FrameFill(gtx layout.Context) (fill, on color.NRGBA) {
+// own frame is of the backdrop the picture lies on.
+func (p *viewerWindow) FrameFill(gtx layout.Context) (fill, on color.NRGBA) {
 	return p.viewer.backdropColor, scheme(gtx).Surface.OnColor.AsNRGBA()
 }

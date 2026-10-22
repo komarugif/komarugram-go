@@ -22,20 +22,21 @@ import (
 const (
 	// zoomStep is the scale change of one wheel notch, scroll.NotchPixels.
 	zoomStep = 1.25
-	zoomMax  = 8 // photo pixels shown 8 screen pixels wide at most
+	zoomMax  = 8 // picture pixels shown 8 screen pixels wide at most
 	// zoomTau is the time constant of the smooth zoom: the scale covers 63%
 	// of the way to its target in that time, 95% in three times that.
 	zoomTau = 70 * time.Millisecond
 )
 
-// viewerZoom places the photo on screen once it is zoomed. Scale is screen
-// pixels per photo pixel; zero means the photo is fitted to the stage, as
-// it opens. Offsets are of the photo's centre from the stage's centre.
+// viewerZoom places the picture on screen once it is zoomed. Scale is
+// screen pixels per picture pixel; zero means the picture is fitted to the
+// stage, as it opens. Offsets are of the picture's centre from the stage's
+// centre.
 type viewerZoom struct {
 	scale, target float32
 	offset, goal  f32.Point
-	// While a zoom animates, point of the photo stays under anchor on screen,
-	// so the photo grows around the pointer rather than drifting.
+	// While a zoom animates, point of the picture stays under anchor on screen,
+	// so the picture grows around the pointer rather than drifting.
 	anchor, point f32.Point
 	anchored      bool
 	last          time.Time
@@ -47,7 +48,7 @@ type viewerZoom struct {
 		moved             float32
 	}
 	// wheel is the scroll, in pixels, not yet turned into a switch of
-	// photos; it outlives the switch, as a touchpad goes on.
+	// items; it outlives the switch, as a touchpad goes on.
 	wheel float32
 }
 
@@ -57,7 +58,7 @@ func (z *viewerZoom) reset() {
 
 func (z *viewerZoom) active() bool { return z.scale > 0 }
 
-// fitScale is the scale of a photo of native size fitted into stage, never
+// fitScale is the scale of a picture of native size fitted into stage, never
 // above its own pixels.
 func fitScale(native, stage image.Point) float32 {
 	if native.X <= 0 || native.Y <= 0 {
@@ -125,13 +126,13 @@ func (z *viewerZoom) unzoom(fit float32) {
 	}
 }
 
-// native is the photo's own size, or zero when its metadata lacks it; such
-// a photo is shown fitted and cannot be zoomed.
+// native is the picture's own size, or zero when its metadata lacks it;
+// such a picture is shown fitted and cannot be zoomed.
 func native(m model.Message) image.Point {
 	return image.Pt(max(m.Media.Width, 0), max(m.Media.Height, 0))
 }
 
-// clampOffset keeps an enlarged photo covering the view, and one that fits
+// clampOffset keeps an enlarged picture covering the view, and one that fits
 // centred in it.
 func clampOffset(o f32.Point, scale float32, native, view image.Point) f32.Point {
 	clampAxis := func(o, size, view float32) float32 {
@@ -144,7 +145,7 @@ func clampOffset(o f32.Point, scale float32, native, view image.Point) f32.Point
 	)
 }
 
-// overflows reports whether an enlarged photo is larger than the view, so
+// overflows reports whether an enlarged picture is larger than the view, so
 // that it can be moved.
 func (z *viewerZoom) overflows(native, view image.Point) bool {
 	return z.active() && (float32(native.X)*z.target > float32(view.X)+.5 || float32(native.Y)*z.target > float32(view.Y)+.5)
@@ -156,10 +157,10 @@ func (z *viewerZoom) panBy(d f32.Point, native, view image.Point) {
 	z.goal = clampOffset(z.goal.Add(d), z.target, native, view)
 }
 
-// zoomArea registers the pointer handler over the photo's view. It passes
+// zoomArea registers the pointer handler over the picture's view. It passes
 // the pointer on, so clicks still reach the side zones and the backdrop; a
 // drag takes the pointer, so it clicks nothing.
-func (v *photoViewer) zoomArea(gtx layout.Context, view image.Rectangle, native image.Point) {
+func (v *mediaViewer) zoomArea(gtx layout.Context, view image.Rectangle, native image.Point) {
 	z := &v.zoom
 	area := clip.Rect(view).Push(gtx.Ops)
 	pass := pointer.PassOp{}.Push(gtx.Ops)
@@ -175,11 +176,11 @@ func (v *photoViewer) zoomArea(gtx layout.Context, view image.Rectangle, native 
 	area.Pop()
 }
 
-// zoomEvents handles the pointer over the photo's view: Ctrl with the wheel
+// zoomEvents handles the pointer over the picture's view: Ctrl with the wheel
 // (or a pinch, which touchpads send as Ctrl and scroll) zooms, the wheel
-// switches photos or moves an enlarged one, and a drag moves it. It runs
-// before anything is drawn, since it may change the photo.
-func (v *photoViewer) zoomEvents(gtx layout.Context, items []model.Message, i int, view image.Rectangle, native image.Point, fit float32) {
+// switches items or moves an enlarged one, and a drag moves it. It runs
+// before anything is drawn, since it may change the item.
+func (v *mediaViewer) zoomEvents(gtx layout.Context, items []model.Message, i int, view image.Rectangle, native image.Point, fit float32) {
 	z := &v.zoom
 	center := layout.FPt(view.Min.Add(view.Max)).Mul(.5)
 	slop := float32(gtx.Dp(6))
@@ -225,7 +226,7 @@ func (v *photoViewer) zoomEvents(gtx layout.Context, items []model.Message, i in
 	}
 }
 
-func (v *photoViewer) wheel(gtx layout.Context, e pointer.Event, items []model.Message, i int, center f32.Point, native, view image.Point, fit float32) {
+func (v *mediaViewer) wheel(gtx layout.Context, e pointer.Event, items []model.Message, i int, center f32.Point, native, view image.Point, fit float32) {
 	z := &v.zoom
 	d := scroll.Pixels(e)
 	if e.Modifiers.Contain(key.ModShortcut) {
@@ -240,7 +241,7 @@ func (v *photoViewer) wheel(gtx layout.Context, e pointer.Event, items []model.M
 		z.panBy(d.Mul(-1), native, view)
 		return
 	}
-	// A photo for each notch of the wheel, at once however fast it turns, as
+	// An item for each notch of the wheel, at once however fast it turns, as
 	// in Telegram Desktop, and for each notch's distance on a touchpad.
 	step := d.Y
 	if math.Abs(float64(d.X)) > math.Abs(float64(step)) {
@@ -255,8 +256,8 @@ func (v *photoViewer) wheel(gtx layout.Context, e pointer.Event, items []model.M
 		return
 	}
 	if scroll.IsWheel(e) {
-		// A notch larger than NotchPixels, as on KDE Plasma, is one photo
-		// still; what is left of it would add up to skipped photos.
+		// A notch larger than NotchPixels, as on KDE Plasma, is one item
+		// still; what is left of it would add up to skipped items.
 		z.wheel = 0
 	} else {
 		z.wheel -= float32(n) * scroll.NotchPixels

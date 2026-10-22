@@ -35,7 +35,7 @@ import (
 )
 
 // The viewer's background: nearly opaque over the chat, and in a window of
-// its own lighter the more the compositor does to keep the photo readable
+// its own lighter the more the compositor does to keep the picture readable
 // over whatever the desktop shows.
 var (
 	viewerBackdrop        = color.NRGBA{R: 8, G: 9, B: 12, A: 244}
@@ -50,19 +50,19 @@ const (
 	viewerThumbGap  = unit.Dp(6)
 	viewerArrow     = unit.Dp(48)
 	viewerSide      = unit.Dp(72)
-	viewerPage      = 60 // photos asked for per request
+	viewerPage      = 60 // items asked for per request
 	viewerPrefetch  = 8  // read more when this close to a loaded end
-	viewerFullLimit = 4  // decoded full-size photos: current, neighbours, the one before
-	// viewerRingDelay keeps a photo that decodes quickly from flashing a
+	viewerFullLimit = 4  // decoded full-size pictures: current, neighbours, the one before
+	// viewerRingDelay keeps a picture that decodes quickly from flashing a
 	// progress ring on the way.
 	viewerRingDelay = 400 * time.Millisecond
 )
 
-// photoViewer shows a chat's photos over the whole window: the current one
-// at its own size, as far as the window allows, arrows to its neighbours and
-// a strip of thumbnails below. It pages the chat's photos and videos, its
+// mediaViewer shows a chat's photos, videos or GIFs over the whole window:
+// the current one at its own size, as far as the window allows, arrows to
+// its neighbours and a strip of thumbnails below. It pages the chat's photos and videos, its
 // GIFs, or the photos of its profile, as the strip comes near either end.
-type photoViewer struct {
+type mediaViewer struct {
 	shortcuts shortcutPreferences
 	source    model.ConversationStore
 	// photos, gifs and profiles page the galleries of viewerGallery.
@@ -71,7 +71,7 @@ type photoViewer struct {
 	profiles   model.ProfilePhotoSource
 	images     *imageOps
 	invalidate func()
-	// full decodes the photo on screen for the space it has; thumbs decodes
+	// full decodes the picture on screen for the space it has; thumbs decodes
 	// the smallest variant that covers a thumbnail; mid decodes one that
 	// covers half the stage, shown while the original is on its way. A
 	// chat tile has usually cached that one already.
@@ -81,8 +81,8 @@ type photoViewer struct {
 	focus   bool
 	chat    int64
 	current model.MessageID
-	center  bool // scroll the strip to the current photo on the next frame
-	// previous is the photo shown before current, kept decoded so that
+	center  bool // scroll the strip to the current item on the next frame
+	// previous is the item shown before current, kept decoded so that
 	// going back is instant; since is when current was chosen.
 	previous model.MessageID
 	since    time.Time
@@ -95,7 +95,7 @@ type photoViewer struct {
 	loading   [2]bool         // older, newer
 	exhausted [2]bool         // nothing more is asked for on that side
 	// ended tells the sides the gallery is known to end at, which, with
-	// total, the count of all its photos, places the photos shown in it.
+	// total, the count of all its items, places the items shown in it.
 	ended [2]bool
 	total int
 	// gallery is what items are; the photos of a profile are paged from
@@ -105,17 +105,17 @@ type photoViewer struct {
 
 	backdrop, picture, prev, next, close, detach widget.Clickable
 	// save and copy keep the photo on screen; kept brings what they gave,
-	// and toast tells it, over the strip of photos.
+	// and toast tells it, over the strip.
 	save, copy widget.Clickable
 	kept       chan viewerFile
 	toast      toast
 	zoom       viewerZoom
 	// popout, when set, is what the button beside ✕ calls to show the
-	// photos in a window of their own; the viewer then closes.
-	popout func(chat int64, current model.Message, known photoList)
+	// gallery in a window of its own; the viewer then closes.
+	popout func(chat int64, current model.Message, known mediaList)
 	// standalone is set in such a window: the background does not close it.
 	standalone bool
-	// backdrop is the colour under the photo; a translucent window lets
+	// backdrop is the colour under the picture; a translucent window lets
 	// the desktop show through it.
 	backdropColor color.NRGBA
 	keys          struct{}
@@ -145,7 +145,7 @@ type photoViewer struct {
 	// goroutine to open in the external player.
 	externalMu   sync.Mutex
 	externalNext *externalVideo
-	// drawn is the photo the last frame drew, for tests to compare with
+	// drawn is the item the last frame drew, for tests to compare with
 	// current.
 	drawn model.MessageID
 }
@@ -166,9 +166,9 @@ type stripDrag struct {
 	last, moved, rest float32
 }
 
-// photoList is what a viewer knows of the photos it shows, for another one
+// mediaList is what a viewer knows of the gallery it shows, for another one
 // to go on from, such as the viewer of a window of their own.
-type photoList struct {
+type mediaList struct {
 	items   []model.Message
 	total   int
 	ended   [2]bool
@@ -201,7 +201,7 @@ func (g viewerGallery) holds(m model.Message) bool {
 }
 
 // pages reports whether v has where to page gallery g from.
-func (v *photoViewer) pages(g viewerGallery) bool {
+func (v *mediaViewer) pages(g viewerGallery) bool {
 	switch g {
 	case galleryGIFs:
 		return v.gifs != nil
@@ -211,8 +211,8 @@ func (v *photoViewer) pages(g viewerGallery) bool {
 	return v.photos != nil
 }
 
-func newPhotoViewer(source model.ConversationStore, images *imageOps, invalidate func()) *photoViewer {
-	v := &photoViewer{source: source, images: images, invalidate: invalidate, thumbState: map[model.MessageID]*viewerThumbState{}, backdropColor: viewerBackdrop, playErrs: make(chan error, 1)}
+func newMediaViewer(source model.ConversationStore, images *imageOps, invalidate func()) *mediaViewer {
+	v := &mediaViewer{source: source, images: images, invalidate: invalidate, thumbState: map[model.MessageID]*viewerThumbState{}, backdropColor: viewerBackdrop, playErrs: make(chan error, 1)}
 	v.video = newViewerVideo(invalidate)
 	v.photos, _ = source.(model.PhotoGallery)
 	v.gifs, _ = source.(model.GIFGallery)
@@ -224,26 +224,27 @@ func newPhotoViewer(source model.ConversationStore, images *imageOps, invalidate
 	return v
 }
 
-// Open shows photo m of chat. known are photos the caller already has, such
+// Open shows photo or video m of chat among the chat's photos and videos.
+// known are messages the caller already has, of which those are taken, such
 // as those of the loaded history, so that the strip is not empty while the
 // cache is read.
-func (v *photoViewer) Open(chat int64, m model.Message, known []model.Message) {
+func (v *mediaViewer) Open(chat int64, m model.Message, known []model.Message) {
 	gallery := galleryPhotos
 	if model.IsProfilePhoto(m.Key.MessageID) {
 		gallery = galleryProfile
 	}
-	v.openList(chat, m, photoList{items: known, gallery: gallery})
+	v.openList(chat, m, mediaList{items: known, gallery: gallery})
 }
 
 // OpenGIF shows GIF m of chat among the chat's GIFs, as Open shows a photo
 // among its photos; known are messages the caller has, of which the GIFs
 // are taken.
-func (v *photoViewer) OpenGIF(chat int64, m model.Message, known []model.Message) {
-	v.openList(chat, m, photoList{items: known, gallery: galleryGIFs})
+func (v *mediaViewer) OpenGIF(chat int64, m model.Message, known []model.Message) {
+	v.openList(chat, m, mediaList{items: known, gallery: galleryGIFs})
 }
 
-// openList shows photo m of chat among what list tells of the others.
-func (v *photoViewer) openList(chat int64, m model.Message, list photoList) {
+// openList shows m of chat among what list tells of the others.
+func (v *mediaViewer) openList(chat int64, m model.Message, list mediaList) {
 	var ctx context.Context
 	var session int
 	var first, last model.MessageID
@@ -255,7 +256,7 @@ func (v *photoViewer) openList(chat int64, m model.Message, list photoList) {
 			v.cancel()
 		}
 		v.session++
-		v.items = mergePhotos(list.gallery, nil, list.items)
+		v.items = mergeMedia(list.gallery, nil, list.items)
 		if indexOf(v.items, m.Key.MessageID) < 0 {
 			v.items = append(v.items, m)
 			sort.Slice(v.items, func(i, j int) bool { return v.items[i].Key.MessageID < v.items[j].Key.MessageID })
@@ -287,7 +288,7 @@ func (v *photoViewer) openList(chat int64, m model.Message, list photoList) {
 // OpenVideo shows video m of chat among known, as Open does, and plays it
 // from at, below 0 from the start: in the viewer, or in the external
 // player, as the settings choose. One that plays already moves to at.
-func (v *photoViewer) OpenVideo(chat int64, m model.Message, known []model.Message, at time.Duration) {
+func (v *mediaViewer) OpenVideo(chat int64, m model.Message, known []model.Message, at time.Duration) {
 	if v.open && v.current == m.Key.MessageID && v.video.state(m).active {
 		if at >= 0 {
 			v.video.seek(at)
@@ -300,14 +301,14 @@ func (v *photoViewer) OpenVideo(chat int64, m model.Message, known []model.Messa
 }
 
 // OpenAlone shows m without a gallery, as a GIF is.
-func (v *photoViewer) OpenAlone(chat int64, m model.Message) {
-	v.openList(chat, m, photoList{ended: [2]bool{true, true}})
+func (v *mediaViewer) OpenAlone(chat int64, m model.Message) {
+	v.openList(chat, m, mediaList{ended: [2]bool{true, true}})
 }
 
 // OpenProfile shows the photos of chat's profile, the one it shows now
 // first: at once, from what is known, and with the older ones added when
 // Telegram has told them. It tells whether the store has a photo of the chat.
-func (v *photoViewer) OpenProfile(chat int64) bool {
+func (v *mediaViewer) OpenProfile(chat int64) bool {
 	if v.profiles == nil {
 		return false
 	}
@@ -317,11 +318,11 @@ func (v *photoViewer) OpenProfile(chat int64) bool {
 	}
 	// The photo shown stays as it is, already decoded: the first page's
 	// photo of the same place is not merged.
-	v.openList(chat, current, photoList{gallery: galleryProfile})
+	v.openList(chat, current, mediaList{gallery: galleryProfile})
 	return true
 }
 
-func (v *photoViewer) Close() {
+func (v *mediaViewer) Close() {
 	v.mu.Lock()
 	if v.cancel != nil {
 		v.cancel()
@@ -341,16 +342,16 @@ func (v *photoViewer) Close() {
 }
 
 // Destroy stops the viewer's workers for good, when its window closes.
-func (v *photoViewer) Destroy() {
+func (v *mediaViewer) Destroy() {
 	v.Close()
 	v.full.Close()
 	v.mid.Close()
 	v.thumbs.Close()
 }
 
-// Release drops the decoded photos of a hidden window; the open photo and
+// Release drops the decoded pictures of a hidden window; the open item and
 // its strip are decoded again when the window is shown.
-func (v *photoViewer) Release() {
+func (v *mediaViewer) Release() {
 	v.full.Release()
 	v.mid.Release()
 	v.thumbs.Release()
@@ -358,7 +359,7 @@ func (v *photoViewer) Release() {
 
 // fetch reads the next gallery page past anchor in the background; the
 // photos of a profile are paged from where the last page ended.
-func (v *photoViewer) fetch(ctx context.Context, session, dir int, anchor model.MessageID) {
+func (v *mediaViewer) fetch(ctx context.Context, session, dir int, anchor model.MessageID) {
 	side := (dir + 1) / 2
 	v.mu.Lock()
 	if v.session != session || v.loading[side] || v.exhausted[side] {
@@ -376,7 +377,7 @@ func (v *photoViewer) fetch(ctx context.Context, session, dir int, anchor model.
 			}
 			v.mu.Unlock()
 		})
-		var page model.PhotoPage
+		var page model.GalleryPage
 		var err error
 		switch gallery {
 		case galleryProfile:
@@ -394,7 +395,7 @@ func (v *photoViewer) fetch(ctx context.Context, session, dir int, anchor model.
 		}
 		v.loading[side] = false
 		if err != nil {
-			// A failed page ends the strip there; photos already known stay available.
+			// A failed page ends the strip there; items already known stay available.
 			v.exhausted[side] = true
 			return
 		}
@@ -404,13 +405,13 @@ func (v *photoViewer) fetch(ctx context.Context, session, dir int, anchor model.
 			v.total = page.Total
 		}
 		v.offset = page.Next
-		v.items = mergePhotos(gallery, v.items, page.Messages)
+		v.items = mergeMedia(gallery, v.items, page.Messages)
 	}()
 }
 
 // viewerTarget is what the viewer decodes for m: a video's thumbnail, in the
 // video's proportions; ok is false for a video without one.
-func (v *photoViewer) viewerTarget(m model.Message) (model.Message, bool) {
+func (v *mediaViewer) viewerTarget(m model.Message) (model.Message, bool) {
 	if m.Kind != model.MessageVideo {
 		return m, m.Media != nil
 	}
@@ -420,7 +421,7 @@ func (v *photoViewer) viewerTarget(m model.Message) (model.Message, bool) {
 // stripTarget is what the strip shows of m: a GIF's thumbnail, as a
 // video's, rather than the GIF, which would be read whole for a frame; one
 // without a thumbnail shows its own first frame.
-func (v *photoViewer) stripTarget(m model.Message) (model.Message, bool) {
+func (v *mediaViewer) stripTarget(m model.Message) (model.Message, bool) {
 	if m.Kind == model.MessageGIF && m.Media != nil && m.Media.Thumbnail != nil {
 		return v.thumbnailTarget(m)
 	}
@@ -429,7 +430,7 @@ func (v *photoViewer) stripTarget(m model.Message) (model.Message, bool) {
 
 // thumbnailTarget is m's thumbnail as a photo, in m's proportions; ok is
 // false when m has none.
-func (v *photoViewer) thumbnailTarget(m model.Message) (model.Message, bool) {
+func (v *mediaViewer) thumbnailTarget(m model.Message) (model.Message, bool) {
 	if m.Media == nil || m.Media.Thumbnail == nil {
 		return m, false
 	}
@@ -450,8 +451,8 @@ func (v *photoViewer) thumbnailTarget(m model.Message) (model.Message, bool) {
 	return t, true
 }
 
-// mergePhotos adds the media of gallery's kind to a sorted list, once each.
-func mergePhotos(gallery viewerGallery, items, add []model.Message) []model.Message {
+// mergeMedia adds the media of gallery's kind to a sorted list, once each.
+func mergeMedia(gallery viewerGallery, items, add []model.Message) []model.Message {
 	seen := make(map[model.MessageID]bool, len(items))
 	for _, m := range items {
 		seen[m.Key.MessageID] = true
@@ -466,11 +467,11 @@ func mergePhotos(gallery viewerGallery, items, add []model.Message) []model.Mess
 	return items
 }
 
-// place is where photo i of items is in the whole gallery, and how many
-// photos it has, when that is known: counted from the end the gallery is
+// place is where item i of items is in the whole gallery, and how many
+// items it has, when that is known: counted from the end the gallery is
 // known to end at, as Telegram Desktop does. Without a total from Telegram
 // only a gallery read to both ends is counted.
-func (v *photoViewer) place(items []model.Message, i int) (n, amount int, ok bool) {
+func (v *mediaViewer) place(items []model.Message, i int) (n, amount int, ok bool) {
 	v.mu.Lock()
 	total, ended := v.total, v.ended
 	v.mu.Unlock()
@@ -480,7 +481,7 @@ func (v *photoViewer) place(items []model.Message, i int) (n, amount int, ok boo
 		}
 		total = len(items)
 	}
-	// Photos that came after Telegram counted them are counted too.
+	// Items that came after Telegram counted them are counted too.
 	amount = max(total, len(items))
 	switch {
 	case ended[0]:
@@ -493,7 +494,7 @@ func (v *photoViewer) place(items []model.Message, i int) (n, amount int, ok boo
 	return n, amount, n >= 1 && n <= amount
 }
 
-func (v *photoViewer) snapshot() (items []model.Message, loading, exhausted [2]bool, ctx context.Context, session int) {
+func (v *mediaViewer) snapshot() (items []model.Message, loading, exhausted [2]bool, ctx context.Context, session int) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	return v.items, v.loading, v.exhausted, v.ctx, v.session
@@ -504,11 +505,11 @@ func indexOf(items []model.Message, id model.MessageID) int {
 	return min(i, len(items)-1)
 }
 
-// show makes photo i current. center scrolls the strip to it, which a
+// show makes item i current. center scrolls the strip to it, which a
 // click on the strip itself does not want.
-func (v *photoViewer) show(items []model.Message, i int, center bool) {
+func (v *mediaViewer) show(items []model.Message, i int, center bool) {
 	if i >= 0 && i < len(items) && items[i].Key.MessageID != v.current {
-		// What plays stops with another photo.
+		// What plays stops with another item.
 		v.video.stop()
 		v.previous, v.current = v.current, items[i].Key.MessageID
 		v.since = time.Time{}
@@ -517,7 +518,7 @@ func (v *photoViewer) show(items []model.Message, i int, center bool) {
 	}
 }
 
-func (v *photoViewer) Layout(gtx layout.Context, l localization.Catalog, animate bool) {
+func (v *mediaViewer) Layout(gtx layout.Context, l localization.Catalog, animate bool) {
 	if !v.open {
 		return
 	}
@@ -527,9 +528,9 @@ func (v *photoViewer) Layout(gtx layout.Context, l localization.Catalog, animate
 }
 
 // recoverFrame closes the viewer when its layout panicked, and reports
-// whether it did: a photo it cannot draw would panic in every frame, and
+// whether it did: an item it cannot draw would panic in every frame, and
 // the viewer covers what the window could show instead.
-func (v *photoViewer) recoverFrame() bool {
+func (v *mediaViewer) recoverFrame() bool {
 	if !v.layingOut {
 		return false
 	}
@@ -538,7 +539,7 @@ func (v *photoViewer) recoverFrame() bool {
 	return true
 }
 
-func (v *photoViewer) layout(gtx layout.Context, l localization.Catalog, animate bool) {
+func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate bool) {
 	v.full.BeginFrame()
 	defer v.full.EndFrame()
 	v.mid.BeginFrame()
@@ -557,7 +558,7 @@ func (v *photoViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	if size.X < 3*side {
 		stage.Min.X, stage.Max.X = 0, size.X
 	}
-	// An enlarged photo spreads under the side zones, up to the window edges.
+	// An enlarged picture spreads under the side zones, up to the window edges.
 	view := image.Rect(0, stage.Min.Y, size.X, stage.Max.Y)
 	i := indexOf(items, v.current)
 	v.keyEvents(gtx, items, i, native(items[i]), stage.Size())
@@ -574,7 +575,7 @@ func (v *photoViewer) layout(gtx layout.Context, l localization.Catalog, animate
 		v.show(items, i+1, true)
 	}
 	// Thumbnail clicks are handled here, before anything is drawn, like the
-	// arrows: handled while laying out the strip, they would change the photo
+	// arrows: handled while laying out the strip, they would change the item
 	// after it was drawn, and nothing would draw it until the next input.
 	for id, st := range v.thumbState {
 		if st.click.Clicked(gtx) {
@@ -610,7 +611,7 @@ func (v *photoViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	if v.detach.Clicked(gtx) && v.popout != nil {
 		i := indexOf(items, v.current)
 		v.mu.Lock()
-		list := photoList{items: items, total: v.total, ended: v.ended, gallery: v.gallery, offset: v.offset}
+		list := mediaList{items: items, total: v.total, ended: v.ended, gallery: v.gallery, offset: v.offset}
 		v.mu.Unlock()
 		v.popout(v.chat, items[i], list)
 		v.Close()
@@ -656,7 +657,7 @@ func (v *photoViewer) layout(gtx layout.Context, l localization.Catalog, animate
 		return layout.Dimensions{Size: size}
 	})
 
-	v.layoutPhoto(gtx, items[i], stage, view, fit, l, animate)
+	v.layoutCurrent(gtx, items[i], stage, view, fit, l, animate)
 	captionStage := stage
 	if top, ok := v.layoutVideoControls(gtx, items[i], stage, l); ok {
 		// The caption goes over the controls.
@@ -680,7 +681,7 @@ func (v *photoViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	}
 }
 
-func (v *photoViewer) keyEvents(gtx layout.Context, items []model.Message, i int, photo, stage image.Point) {
+func (v *mediaViewer) keyEvents(gtx layout.Context, items []model.Message, i int, photo, stage image.Point) {
 	if v.focus {
 		gtx.Execute(key.FocusCmd{Tag: &v.keys})
 		v.focus = false
@@ -741,16 +742,16 @@ func (v *photoViewer) keyEvents(gtx layout.Context, items []model.Message, i int
 	}
 }
 
-// layoutPhoto draws the current photo centered in stage, never larger than
+// layoutCurrent draws the current item centered in stage, never larger than
 // its own pixels. Until it is decoded, its thumbnail or blurred preview is
 // stretched to the same place.
-func (v *photoViewer) layoutPhoto(gtx layout.Context, item model.Message, stage, view image.Rectangle, fit float32, l localization.Catalog, animate bool) {
+func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stage, view image.Rectangle, fit float32, l localization.Catalog, animate bool) {
 	v.drawn = item.Key.MessageID
 	video := item.Kind == model.MessageVideo
 	m, decodable := v.viewerTarget(item)
 	box := stage.Size()
 	if v.zoom.active() && v.zoom.target > fit {
-		// Enlarged, the photo is decoded at its own size; the fitted frame
+		// Enlarged, the picture is decoded at its own size; the fitted frame
 		// stays on screen until then.
 		box = native(m)
 	}
@@ -829,7 +830,7 @@ func (v *photoViewer) layoutPhoto(gtx layout.Context, item model.Message, stage,
 	offset(gtx, origin, func(gtx layout.Context) layout.Dimensions {
 		return v.picture.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			if video || status.Err != nil || status.Cancelled {
-				// A press plays the video, or pauses it, or loads the photo
+				// A press plays the video, or pauses it, or loads the picture
 				// again.
 				pointer.CursorPointer.Add(gtx.Ops)
 			}
@@ -883,7 +884,7 @@ func (v *photoViewer) layoutPhoto(gtx layout.Context, item model.Message, stage,
 
 // reportPlay tells the viewer why a video did not play; it may be called
 // from any goroutine.
-func (v *photoViewer) reportPlay(err error) {
+func (v *mediaViewer) reportPlay(err error) {
 	if err == nil {
 		return
 	}
@@ -896,7 +897,7 @@ func (v *photoViewer) reportPlay(err error) {
 
 // layoutCaption draws m's caption over the bottom of the stage, and returns
 // where its top is.
-func (v *photoViewer) layoutCaption(gtx layout.Context, m model.Message, stage image.Rectangle) int {
+func (v *mediaViewer) layoutCaption(gtx layout.Context, m model.Message, stage image.Rectangle) int {
 	text := strings.TrimSpace(m.Text)
 	if text == "" {
 		return math.MaxInt
@@ -919,10 +920,10 @@ func (v *photoViewer) layoutCaption(gtx layout.Context, m model.Message, stage i
 	return at.Y
 }
 
-// layoutSides lays out the zones beside the photo that switch to its
+// layoutSides lays out the zones beside the picture that switch to its
 // neighbours: the whole height of the stage, not only the arrow drawn in it,
 // is the target.
-func (v *photoViewer) layoutSides(gtx layout.Context, view image.Rectangle, prev, next bool) {
+func (v *mediaViewer) layoutSides(gtx layout.Context, view image.Rectangle, prev, next bool) {
 	w := gtx.Dp(viewerSide)
 	if prev {
 		sideZone(gtx, &v.prev, image.Rect(view.Min.X, view.Min.Y, view.Min.X+w, view.Max.Y), iconChevronLeft)
@@ -951,7 +952,7 @@ func sideZone(gtx layout.Context, c *widget.Clickable, r image.Rectangle, icon w
 }
 
 // viewerIcon draws a round translucent button face that stays visible over
-// any photo.
+// any picture.
 func viewerIcon(gtx layout.Context, hovered bool, icon wdk.IconWidget, d int) layout.Dimensions {
 	size := image.Pt(d, d)
 	alpha := uint8(110)
@@ -974,7 +975,7 @@ func viewerButton(gtx layout.Context, c *widget.Clickable, icon wdk.IconWidget, 
 	})
 }
 
-func (v *photoViewer) layoutBar(gtx layout.Context, items []model.Message, i int, l localization.Catalog) {
+func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int, l localization.Catalog) {
 	bar := gtx.Dp(viewerBar)
 	white := token.NewMatColorFromHexRGB(0xffffff)
 	dim := token.NewMatColorFromHexRGB(0xb8bec8)
@@ -1048,7 +1049,7 @@ func (v *photoViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 
 // variant returns m showing variant, with the original's blurred preview.
 // The copy is kept with the thumbnail state, so drawing does not allocate.
-func (v *photoViewer) variant(m model.Message, variant *model.MessageMedia) model.Message {
+func (v *mediaViewer) variant(m model.Message, variant *model.MessageMedia) model.Message {
 	st := v.thumbState[m.Key.MessageID]
 	if st == nil {
 		st = &viewerThumbState{}
@@ -1065,8 +1066,8 @@ func (v *photoViewer) variant(m model.Message, variant *model.MessageMedia) mode
 }
 
 // thumb returns the message showing the variant of m that covers a square
-// thumbnail of side pixels, cached per photo so that frames do not allocate.
-func (v *photoViewer) thumb(m model.Message, side int) *model.Message {
+// thumbnail of side pixels, cached per item so that frames do not allocate.
+func (v *mediaViewer) thumb(m model.Message, side int) *model.Message {
 	st := v.thumbState[m.Key.MessageID]
 	if st == nil {
 		st = &viewerThumbState{}
@@ -1082,7 +1083,7 @@ func (v *photoViewer) thumb(m model.Message, side int) *model.Message {
 	return &st.msg
 }
 
-func (v *photoViewer) layoutStrip(gtx layout.Context, items []model.Message, current int, area image.Rectangle) {
+func (v *mediaViewer) layoutStrip(gtx layout.Context, items []model.Message, current int, area image.Rectangle) {
 	side, gap := gtx.Dp(viewerThumb), gtx.Dp(viewerThumbGap)
 	pitch := side + gap
 	width := min(area.Dx(), len(items)*pitch)
@@ -1148,9 +1149,9 @@ func (v *photoViewer) layoutStrip(gtx layout.Context, items []model.Message, cur
 // sits over the thumbnails but passes the pointer on, so a click still
 // selects one; once the pointer moves far enough to be a drag, it takes the
 // pointer and the thumbnail under it sees a cancelled press, not a click.
-func (v *photoViewer) dragStrip(gtx layout.Context, width int) {
+func (v *mediaViewer) dragStrip(gtx layout.Context, width int) {
 	dragHorizontalStrip(gtx, width, &v.drag, &v.strip, v.invalidate)
 }
-func (v *photoViewer) scrollStrip(px float32) {
+func (v *mediaViewer) scrollStrip(px float32) {
 	scrollHorizontalStrip(&v.drag, &v.strip, v.invalidate, px)
 }

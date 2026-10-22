@@ -460,7 +460,7 @@ func (p *chatPage) Close() {
 }
 
 // photos returns the photos of the loaded history, album members included.
-func (p *chatPage) photos() []model.Message {
+func (p *chatPage) viewerItems() []model.Message {
 	var out []model.Message
 	for _, m := range p.messages {
 		if len(m.Attachments) > 1 {

@@ -1453,7 +1453,7 @@ activateRichPagePreparedLink`, `Iv::Instance::showRichMessage`):
   `messages.getRichMessage` brings it (the store keeps it for offline
   use); an anchor the part does not have waits for the whole. It draws
   the article with a page of its own, as the history does: selection and
-  copying, links, entity menus, toasts, details, media in a photo viewer
+  copying, links, entity menus, toasts, details, media in the media viewer
   of its own, buttons. Telegram for Android expands the article in its
   bubble instead (`ChatActivity.loadFullRichMessage`); the maintainer
   chose the window, which the `.md` viewer and Instant View will share.

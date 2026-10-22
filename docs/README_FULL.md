@@ -922,7 +922,7 @@ bug, a failed test or a wrong first guess at least once.
   a drag, so the button underneath gets `Cancel` instead of a click.
 - *`layout.List` scrolls by dragging only for touch.* Mouse drags and a
   vertical wheel over a horizontal list need a handler of their own
-  (`photoViewer.dragStrip`).
+  (`mediaViewer.dragStrip`).
 - *Wheel units:* one notch is 10 on X11 and Wayland; touchpads and Wayland's
   kinetic scrolling send streams of small deltas. Accumulate to a threshold
   and keep a quiet period after acting on it.

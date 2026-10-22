@@ -28,7 +28,7 @@ type Store struct {
 	// the ones set for all in the chat, as Telegram keeps them.
 	themes     map[int64]model.ChatTheme
 	chatThemes map[int64]string
-	// mu guards histories and views: a photo viewer in its own window reads
+	// mu guards histories and views: a media viewer in its own window reads
 	// the store from that window's goroutine.
 	mu        sync.Mutex
 	histories map[int64]model.History

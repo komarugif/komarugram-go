@@ -6,7 +6,7 @@ import "komarugram/internal/messenger/model"
 
 // RecoverFrame runs after appwindow has discarded a frame whose Update or
 // Layout panicked, and reports whether to draw again at once. It closes the
-// photo viewer, or leaves the settings subsection, whose layout panicked.
+// media viewer, or leaves the settings subsection, whose layout panicked.
 // A panic elsewhere is tried once more as it was, then the window leaves
 // for its list of chats: what panics in every frame cannot keep the window
 // on its panic screen.
