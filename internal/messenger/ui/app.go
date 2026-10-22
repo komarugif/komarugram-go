@@ -68,7 +68,8 @@ type App struct {
 	// peerBadges knows the marks of the forks of Telegram clients; nil shows
 	// none. badgeClicks are the clicks on them, and stopBadges stops the
 	// window following the lists.
-	peerBadges *peerbadges.Registry
+	peerBadges     *peerbadges.Registry
+	overlayUpdated bool
 	// statusClicked is what a click on an emoji status in the profile does:
 	// it shows the emoji's set.
 	statusClicked func(emoji int64)
@@ -957,6 +958,7 @@ func (a *App) Update(gtx layout.Context) {
 	a.shortcutEvents(gtx)
 	folders := a.store.Folders()
 	a.overlay.Update(gtx)
+	a.overlayUpdated = true
 	if a.compact {
 		if a.menu.Clicked(gtx) {
 			a.drawer.open(a.overlay, a.layoutDrawer)
@@ -1356,6 +1358,12 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 		a.splitter.Layout(gtx, x, size.Y)
 	}
 	a.drop.layout(gtx, a.catalog())
+	if !a.overlayUpdated {
+		// A window locked or signing in returns from Update before the
+		// overlay's: it has to be updated once before it is drawn.
+		a.overlay.Update(gtx)
+		a.overlayUpdated = true
+	}
 	a.overlay.Layout(gtx)
 	if a.info != nil {
 		a.info.Layout(overlayGtx, a.catalog(), a.window.Motion.AnimationsEnabled())
