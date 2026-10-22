@@ -56,7 +56,10 @@ type messageRow struct {
 	album       map[model.MessageID]*messageRow
 	// partPress takes right presses on a part of an album, which tell the
 	// menu the part.
-	partPress  byte
+	partPress byte
+	// textLast is set while the text is the last of what the bubble
+	// holds, whose last line its time may go on.
+	textLast   bool
 	revision   uint64
 	runs       []model.TextRun
 	textBlocks []messageTextBlock

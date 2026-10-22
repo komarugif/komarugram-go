@@ -231,12 +231,21 @@ func (s jumpSource) LoadNewer(int64) {}
 func TestNoButtonToTheStartOfAChatOfOneRequest(t *testing.T) {
 	h := newChatInputHarness(t) // 40 messages, all there is
 	p := h.page
-	h.seek(20, 0) // far from both ends: only the one to the end is there
+	// Far from both ends, past the reserve at the start, as tall as the
+	// messages are: only the one to the end is there.
+	first := 0
+	for p.heights.Prefix(first) <= jumpReserve {
+		first++
+	}
+	h.seek(first, 0)
+	if p.heights.Prefix(len(p.messages))-p.heights.Prefix(first) <= jumpReserve+600 {
+		t.Fatal("no place in 40 messages far from both ends")
+	}
 	if !p.oneRequest(model.History{}) {
 		t.Fatal("40 messages are not one request's")
 	}
 	h.click(h.jumpButton(1)) // where the one to the start would be
-	if p.list.Position.First != 20 {
+	if p.list.Position.First != first {
 		t.Fatal("a button to the start is drawn in a chat of one request")
 	}
 	h.click(h.jumpButton(0))

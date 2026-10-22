@@ -317,3 +317,37 @@ func clipTextFragments(text *textInteraction, first int, visible image.Rectangle
 		text.fragments = append(text.fragments, f)
 	}
 }
+
+// lastLine is where the text drawn last ends: the right of its last line
+// and that line's bottom, in the text's coordinates. Not when the text
+// ends in a block of its own, as a quote or code, nor when its last line
+// does not start at the left, as one written right to left: the time
+// stays off it, as Telegram Desktop keeps it off such a line.
+func (r *messageRow) lastLine() (right, bottom int, ok bool) {
+	if len(r.textBlocks) == 0 || len(r.text.fragments) == 0 {
+		return 0, 0, false
+	}
+	if last := r.textBlocks[len(r.textBlocks)-1]; r.runs[last.first].Block != 0 {
+		return 0, 0, false
+	}
+	top := 0
+	for _, f := range r.text.fragments {
+		top = max(top, f.Bounds.Min.Y)
+	}
+	left := -1
+	for _, f := range r.text.fragments {
+		// A fragment of the last line reaches below the top of it; one
+		// of the line above ends where it starts.
+		if f.Bounds.Max.Y <= top+1 || f.Bounds.Empty() {
+			continue
+		}
+		right, bottom = max(right, f.Bounds.Max.X), max(bottom, f.Bounds.Max.Y)
+		if left < 0 || f.Bounds.Min.X < left {
+			left = f.Bounds.Min.X
+		}
+	}
+	if left != 0 || bottom != r.text.size.Y {
+		return 0, 0, false
+	}
+	return right, bottom, true
+}

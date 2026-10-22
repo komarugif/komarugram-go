@@ -121,6 +121,15 @@ The history is drawn as materialgram draws it:
 - `replyQuote` is the quote of a replied message, which jumps to it;
   `messageFooter` has the comments, views, author, edit mark and time;
   `reactions` wraps reaction chips.
+- `bubbleBody` puts the footer at the bubble's bottom right: on the
+  text's last line when it fits there 10 dp after the text (`footerGap`),
+  the bubble widening for it up to its width, as Telegram Desktop's skip
+  block and Telegram for Android do; on a line of its own otherwise, and
+  under media, a link preview, reactions, a quote or code that ends the
+  text, a last line that does not start at the left (right to left), and
+  a bot's text while it streams. The footer's own width decides, so the
+  seconds and the edit mark move it off the line sooner.
+  `TestTimeOnLastLine`.
 - Channel posts have no avatar; groups, channels and bots have an icon of
   their kind before the title in the chat list (`chatKindIcon`).
 

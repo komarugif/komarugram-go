@@ -293,7 +293,7 @@ func (p *chatPage) bubble(gtx layout.Context, r *messageRow, m model.Message, jo
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			content := func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Top: bubblePadTop, Bottom: 7, Left: 12, Right: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layout.Flex{Axis: layout.Vertical}.Layout(gtx, p.bubbleContent(gtx, r, m, join, l, animate)...)
+					return p.bubbleBody(gtx, r, m, join, l, animate)
 				})
 			}
 			if !p.showsComments(m) {
@@ -382,6 +382,8 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 		}
 	} else if msg.Text != "" {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.richText(gtx, r, l, animate) }))
+		// The time may go on its last line; not while a bot streams it.
+		r.textLast = !msg.Streaming
 	} else if msg.Media == nil && msg.Poll == nil {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			if msg.Kind == model.MessageService {
@@ -397,27 +399,72 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 		}))
 	}
 	if msg.WebPage != nil && msg.Rich == nil {
+		r.textLast = false
 		children = append(children, vspace(6), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.webPreview(gtx, r, *msg, l, animate) }))
 	}
 	if len(msg.Reactions) > 0 {
+		r.textLast = false
 		children = append(children, vspace(8), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return p.reactions(gtx, r, *msg, animate)
 		}))
 	}
-	children = append(children, vspace(4), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-		return layout.E.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			if msg.Streaming {
-				// A draft a bot streams turns a ring before its time while
-				// the bot writes it.
-				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.writing.sized(gtx, l, 12) }),
-					layout.Rigid(layout.Spacer{Width: 6}.Layout),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return messageFooter(gtx, *msg, l, false) }))
-			}
-			return messageFooter(gtx, *msg, l, !p.showsComments(*msg))
-		})
-	}))
 	return children
+}
+
+// footerGap is the least space between the end of a text's last line and
+// the time beside it, Telegram Desktop's msgDateSpace less msgDateDelta.x.
+const footerGap unit.Dp = 10
+
+// bubbleBody lays out what a bubble holds, and its time at the bottom
+// right: on the text's last line when it fits there with footerGap before
+// it, the bubble widening for it as far as it may, as Telegram Desktop and
+// Telegram for Android place it (lib_ui's skip block); on a line of its
+// own otherwise. What the time says, the seconds and the edited mark
+// included, sets its width.
+func (p *chatPage) bubbleBody(gtx layout.Context, r *messageRow, m model.Message, join bubbleJoin, l localization.Catalog, animate bool) layout.Dimensions {
+	r.textLast = false
+	children := p.bubbleContent(gtx, r, m, join, l, animate)
+	macro := op.Record(gtx.Ops)
+	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
+	body := macro.Stop()
+	footerGtx := gtx
+	footerGtx.Constraints.Min = image.Point{}
+	macro = op.Record(gtx.Ops)
+	footer := p.bubbleFooter(footerGtx, r, l)
+	foot := macro.Stop()
+	width := max(dims.Size.X, footer.Size.X)
+	at := image.Pt(0, dims.Size.Y+gtx.Dp(4))
+	height := at.Y + footer.Size.Y
+	if right, bottom, ok := r.lastLine(); ok && r.textLast {
+		if inline := right + gtx.Dp(footerGap) + footer.Size.X; inline <= gtx.Constraints.Max.X {
+			// The text is the last of what the bubble holds.
+			top := dims.Size.Y - r.text.size.Y
+			width = max(dims.Size.X, inline)
+			at.Y = top + bottom - footer.Size.Y
+			height = dims.Size.Y
+		}
+	}
+	at.X = width - footer.Size.X
+	body.Add(gtx.Ops)
+	stack := op.Offset(at).Push(gtx.Ops)
+	foot.Add(gtx.Ops)
+	stack.Pop()
+	return layout.Dimensions{Size: image.Pt(width, height)}
+}
+
+// bubbleFooter is the line of the time of the message r shows, which it
+// reads from the row, as bubbleContent does.
+func (p *chatPage) bubbleFooter(gtx layout.Context, r *messageRow, l localization.Catalog) layout.Dimensions {
+	msg := &r.shown
+	if msg.Streaming {
+		// A draft a bot streams turns a ring before its time while the
+		// bot writes it.
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.writing.sized(gtx, l, 12) }),
+			layout.Rigid(layout.Spacer{Width: 6}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return messageFooter(gtx, *msg, l, false) }))
+	}
+	return messageFooter(gtx, *msg, l, !p.showsComments(*msg))
 }
 
 // messageFooter is the line at the bottom of a bubble: comments and views
