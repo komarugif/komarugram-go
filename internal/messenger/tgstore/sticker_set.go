@@ -141,7 +141,9 @@ func (s *Store) SetStickerSetInstalled(ctx context.Context, ref model.StickerSet
 	return err
 }
 
-// StickerSetAuthor only reads peers; it never sends a message to the creator.
+// StickerSetAuthor finds the creator: known, by a message of theirs the
+// cache has, or as the lookup bot tells (userFromLookupBot), which is
+// asked the ID inline. It never sends a message, to the creator or the bot.
 func (s *Store) StickerSetAuthor(ctx context.Context, id int64) (model.Chat, error) {
 	if id <= 0 {
 		return model.Chat{}, errors.New("sticker creator unavailable")
@@ -163,6 +165,9 @@ func (s *Store) StickerSetAuthor(ctx context.Context, id int64) (model.Chat, err
 		if chat, err := s.SenderChat(ctx, model.Message{Key: key, SenderID: id}); err == nil {
 			return chat, nil
 		}
+	}
+	if chat, ok := s.userFromLookupBot(ctx, api, id); ok {
+		return chat, nil
 	}
 	users, err := api.UsersGetUsers(ctx, []tg.InputUserClass{&tg.InputUser{UserID: id}})
 	if err != nil {

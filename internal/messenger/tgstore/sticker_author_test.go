@@ -4,6 +4,7 @@ package tgstore
 
 import (
 	"context"
+	"errors"
 	"komarugram/internal/messenger/model"
 
 	"github.com/gotd/td/bin"
@@ -18,6 +19,10 @@ func TestStickerSetAuthor(t *testing.T) {
 		t.Fatalf("cached author: %+v %v", chat, err)
 	}
 	s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
+		if _, ok := in.(*tg.ContactsResolveUsernameRequest); ok {
+			// No lookup bot: the test of it is TestStickerSetAuthorFromBot.
+			return nil, errors.New("USERNAME_NOT_OCCUPIED")
+		}
 		req, ok := in.(*tg.UsersGetUsersRequest)
 		if !ok {
 			t.Fatalf("unexpected request %T", in)
@@ -63,5 +68,71 @@ func TestStickerSetAuthorFromMessage(t *testing.T) {
 	}
 	if asked == nil || asked.MsgID != 100 {
 		t.Fatalf("asked %+v", asked)
+	}
+}
+
+// An author no message is cached of is asked of the lookup bot inline: a
+// user it mentions comes from Telegram with an access hash; a bot it names
+// by its username, which is resolved and taken when it is the author. A
+// username that is not the bot's own ID's is not asked.
+func TestStickerSetAuthorFromBot(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct {
+		name    string
+		botID   int64
+		author  int64
+		wantErr bool
+	}{
+		{"user", lookupBotID, 61, false},
+		{"bot", lookupBotID, 62, false},
+		{"unknown", lookupBotID, 63, true},
+		{"another bot", 1234, 61, true},
+	} {
+		s := testStore(t)
+		queried := false
+		s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
+			switch req := in.(type) {
+			case *tg.ContactsResolveUsernameRequest:
+				switch req.Username {
+				case lookupBotUsername:
+					return &tg.ContactsResolvedPeer{Peer: &tg.PeerUser{UserID: c.botID}, Users: []tg.UserClass{&tg.User{ID: c.botID, AccessHash: 4, Bot: true, Username: lookupBotUsername}}}, nil
+				case "AuthorBot":
+					return &tg.ContactsResolvedPeer{Peer: &tg.PeerUser{UserID: 62}, Users: []tg.UserClass{&tg.User{ID: 62, AccessHash: 5, Bot: true, FirstName: "Author Bot"}}}, nil
+				}
+				return nil, errors.New("USERNAME_NOT_OCCUPIED")
+			case *tg.MessagesGetInlineBotResultsRequest:
+				queried = true
+				if bot, ok := req.Bot.(*tg.InputUser); !ok || bot.UserID != lookupBotID || bot.AccessHash != 4 {
+					t.Fatalf("%s: asked %+v", c.name, req.Bot)
+				}
+				text := func(s string) []tg.BotInlineResultClass {
+					return []tg.BotInlineResultClass{&tg.BotInlineResult{ID: "001", Type: "article", SendMessage: &tg.BotInlineMessageText{Message: s}}}
+				}
+				switch req.Query {
+				case "61":
+					return &tg.MessagesBotResults{Results: text("├ user_id: 61\n├ name: Author"), Users: []tg.UserClass{&tg.User{ID: 61, AccessHash: 6, FirstName: "Author"}}}, nil
+				case "62":
+					return &tg.MessagesBotResults{Results: text("├ id: 62\n├ name: Author Bot\n├ username: @AuthorBot")}, nil
+				}
+				return &tg.MessagesBotResults{Results: text("An empty request was sent")}, nil
+			case *tg.UsersGetUsersRequest:
+				return &tg.UserClassVector{Elems: []tg.UserClass{&tg.UserEmpty{ID: 1}}}, nil
+			}
+			t.Fatalf("%s: unexpected request %T", c.name, in)
+			return nil, nil
+		})
+		chat, err := s.StickerSetAuthor(ctx, c.author)
+		if c.wantErr {
+			if err == nil {
+				t.Errorf("%s: opened %+v", c.name, chat)
+			}
+			if c.botID != lookupBotID && queried {
+				t.Errorf("%s: the bot of another ID was asked", c.name)
+			}
+			continue
+		}
+		if err != nil || chat.ID != c.author {
+			t.Errorf("%s: %+v, %v", c.name, chat, err)
+		}
 	}
 }

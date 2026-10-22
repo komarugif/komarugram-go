@@ -456,10 +456,19 @@ size-stability fixes remain in place.
   ID formats; this is undocumented Telegram metadata, not verified authorship.
   A user known only by that ID is asked for by a message of theirs the cache
   has in a group or a channel (`historycache.SenderMessage`, then
-  `inputUserFromMessage`), as a group's min member is; with none, the ID is
-  copied and the toast says only that. Telegram gives no username for an ID
-  otherwise: AyuGram asked third-party bots (tgdb, usinfobot) for it, and
-  stopped in April 2026, as they want a subscription or a /start. The
+  `inputUserFromMessage`), as a group's min member is; then the bot
+  @oLolsBot is asked the ID inline (`tgstore/user_lookup.go`), which sends
+  no message but tells the bot the ID: its answer about a user mentions
+  them, and Telegram sends the user mentioned with an access hash of the
+  account's, which opens the chat; of a bot it tells the username, which is
+  resolved and checked to be the author's. The bot is asked by its ID too,
+  so that its username gone to another bot is not. Checked on the
+  maintainer's account, 2026-10-22: a user with no username (777000) and
+  one with came with their access hashes, BotFather by its username, a bad
+  ID with nothing. With none of these, the ID is copied and the toast says
+  only that. Telegram gives no username for an ID itself: AyuGram asked
+  third-party bots (tgdb, usinfobot) for it, and stopped in April 2026, as
+  they want a subscription or a /start. The
   messages are read without an index, in batches of 5000 rows, the cache's
   lock let go between them: 205 ms for 100,000 messages none of which is the
   author's (2026-10-22).
