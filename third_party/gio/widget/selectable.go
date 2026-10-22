@@ -359,19 +359,13 @@ func (e *Selectable) command(gtx layout.Context, k key.Event) {
 		if moveByWord {
 			e.text.MoveWord(-1*direction, selAct)
 		} else {
-			if selAct == selectionClear {
-				e.text.ClearSelection()
-			}
-			e.text.MoveCaret(-1*direction, -1*direction*int(selAct))
+			e.text.arrow(-1*direction, selAct)
 		}
 	case key.NameRightArrow:
 		if moveByWord {
 			e.text.MoveWord(1*direction, selAct)
 		} else {
-			if selAct == selectionClear {
-				e.text.ClearSelection()
-			}
-			e.text.MoveCaret(1*direction, int(selAct)*direction)
+			e.text.arrow(1*direction, selAct)
 		}
 	case key.NamePageUp:
 		e.text.MovePages(-1, selAct)

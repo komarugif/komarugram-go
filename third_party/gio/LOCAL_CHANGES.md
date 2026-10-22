@@ -608,3 +608,12 @@ Run the focused check from the project root:
   drops it silently, and a widget that takes the keyboard when nobody holds
   it (the messenger's message field, as Telegram Desktop's) saw that only
   at the next event. `TestKeyLostFocusWakes`.
+- `widget/editor.go`, `widget/selectable.go`, `widget/text.go` (`arrow`):
+  the left or right arrow without Shift collapses a selection to its edge
+  on the side of the arrow, the caret going no further, as GTK, Qt and the
+  browsers have it. Upstream cleared the selection and moved the caret a
+  step from where it was, which Select All leaves at the start of the text:
+  the right arrow put it after the first character; and the editor did not
+  take the left arrow there at all, the caret being at the start, so the
+  selection stayed. With a selection, the editor takes the arrows at either
+  end of the text. `TestArrowCollapsesSelection`.

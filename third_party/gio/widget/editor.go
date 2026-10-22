@@ -362,9 +362,11 @@ func (e *Editor) processKey(gtx layout.Context) (EditorEvent, bool) {
 	if e.text.Changed() {
 		return ChangeEvent{}, true
 	}
-	caret, _ := e.text.Selection()
-	atBeginning := caret == 0
-	atEnd := caret == e.text.Len()
+	caret, end := e.text.Selection()
+	// With a selection the arrows are the editor's at either end, as
+	// they collapse it.
+	atBeginning := caret == 0 && end == caret
+	atEnd := caret == e.text.Len() && end == caret
 	if gtx.Locale.Direction.Progression() != system.FromOrigin {
 		atEnd, atBeginning = atBeginning, atEnd
 	}
@@ -579,19 +581,13 @@ func (e *Editor) command(gtx layout.Context, k key.Event) (EditorEvent, bool) {
 		if moveByWord {
 			e.text.MoveWord(-1*direction, selAct)
 		} else {
-			if selAct == selectionClear {
-				e.text.ClearSelection()
-			}
-			e.text.MoveCaret(-1*direction, -1*direction*int(selAct))
+			e.text.arrow(-1*direction, selAct)
 		}
 	case key.NameRightArrow:
 		if moveByWord {
 			e.text.MoveWord(1*direction, selAct)
 		} else {
-			if selAct == selectionClear {
-				e.text.ClearSelection()
-			}
-			e.text.MoveCaret(1*direction, int(selAct)*direction)
+			e.text.arrow(1*direction, selAct)
 		}
 	case key.NamePageUp:
 		e.text.MovePages(-1, selAct)

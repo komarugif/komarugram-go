@@ -1142,6 +1142,70 @@ func TestSelectMove(t *testing.T) {
 	}
 }
 
+// An arrow without Shift collapses a selection to its edge on the side of
+// the arrow, the caret going no further, as GTK, Qt and the browsers have
+// it: whichever end the caret is at, and after Select All, which leaves it
+// at the start of the text, where the left arrow was not even taken.
+func TestArrowCollapsesSelection(t *testing.T) {
+	for _, c := range []struct {
+		locale     system.Locale
+		start, end int
+		key        key.Name
+		want       int
+	}{
+		{english, 0, 10, key.NameRightArrow, 10},
+		{english, 0, 10, key.NameLeftArrow, 0},
+		{english, 6, 3, key.NameLeftArrow, 3},
+		{english, 6, 3, key.NameRightArrow, 6},
+		{english, 3, 6, key.NameRightArrow, 6},
+		{english, 10, 0, key.NameLeftArrow, 0},
+		// Right to left, the right arrow goes toward the start.
+		{arabic, 3, 6, key.NameRightArrow, 3},
+		{arabic, 3, 6, key.NameLeftArrow, 6},
+	} {
+		e := new(Editor)
+		e.SetText(`0123456789`)
+		r := new(input.Router)
+		gtx := layout.Context{Ops: new(op.Ops), Locale: c.locale, Source: r.Source()}
+		shaper := text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
+		frame := func() {
+			gtx.Ops.Reset()
+			e.Layout(gtx, shaper, font.Font{}, unit.Sp(10), op.CallOp{}, op.CallOp{})
+			r.Frame(gtx.Ops)
+		}
+		gtx.Execute(key.FocusCmd{Tag: e})
+		frame()
+		e.SetCaret(c.start, c.end)
+		// The keys taken are those of the last frame's selection.
+		frame()
+		r.Queue(key.Event{State: key.Press, Name: c.key})
+		frame()
+		if start, end := e.Selection(); start != c.want || end != c.want {
+			t.Errorf("%v of %d-%d (%v): %d-%d, want %d", c.key, c.start, c.end, c.locale.Direction, start, end, c.want)
+		}
+	}
+	// With Shift, the selection still grows from the caret.
+	e := new(Editor)
+	e.SetText(`0123456789`)
+	r := new(input.Router)
+	gtx := layout.Context{Ops: new(op.Ops), Locale: english, Source: r.Source()}
+	shaper := text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
+	gtx.Execute(key.FocusCmd{Tag: e})
+	e.Layout(gtx, shaper, font.Font{}, unit.Sp(10), op.CallOp{}, op.CallOp{})
+	r.Frame(gtx.Ops)
+	e.SetCaret(6, 3)
+	gtx.Ops.Reset()
+	e.Layout(gtx, shaper, font.Font{}, unit.Sp(10), op.CallOp{}, op.CallOp{})
+	r.Frame(gtx.Ops)
+	r.Queue(key.Event{State: key.Press, Name: key.NameRightArrow, Modifiers: key.ModShift})
+	gtx.Ops.Reset()
+	e.Layout(gtx, shaper, font.Font{}, unit.Sp(10), op.CallOp{}, op.CallOp{})
+	r.Frame(gtx.Ops)
+	if start, end := e.Selection(); start != 7 || end != 3 {
+		t.Errorf("Shift+Right of 6-3: %d-%d, want 7-3", start, end)
+	}
+}
+
 func TestEditorIMEStateInvalidation(t *testing.T) {
 	e := new(Editor)
 	e.SingleLine = true

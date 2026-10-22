@@ -649,6 +649,26 @@ func (e *textView) MoveCaret(startDelta, endDelta int) {
 	e.caret.end = e.moveByGraphemes(e.caret.end, endDelta)
 }
 
+// arrow moves the caret as an arrow key does, delta graphemes along the
+// text, extending the selection with selectionExtend. Without it, a
+// selection collapses to its edge on the side of the move, the caret
+// going no further, as GTK, Qt and the browsers have it; it went the step
+// from the caret, which Select All puts at the start of the text.
+func (e *textView) arrow(delta int, selAct selectionAction) {
+	if selAct == selectionClear {
+		if start, end := e.caret.start, e.caret.end; start != end {
+			edge := min(start, end)
+			if delta > 0 {
+				edge = max(start, end)
+			}
+			e.caret.start, e.caret.end, e.caret.xoff = edge, edge, 0
+			return
+		}
+		e.ClearSelection()
+	}
+	e.MoveCaret(delta, delta*int(selAct))
+}
+
 // MoveTextStart moves the caret to the start of the text.
 func (e *textView) MoveTextStart(selAct selectionAction) {
 	caret := e.closestToRune(e.caret.end)
