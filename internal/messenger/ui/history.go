@@ -796,7 +796,11 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 				p.trace.History.RowsLaidOut++
 			}
 			rowEnd := p.trace.Begin("history.rows")
-			dims := p.flyingRow(gtx, msg.Key.MessageID, flightFrom, func(gtx layout.Context) layout.Dimensions {
+			end := 0
+			if i == len(p.messages)-1 {
+				end = tail
+			}
+			dims := p.flyingRow(gtx, i, p.viewHeight-tail+flightFrom, end, func(gtx layout.Context) layout.Dimensions {
 				return p.row(gtx, msg, date, p.joins[i], l, animate)
 			})
 			if i == len(p.messages)-1 {
