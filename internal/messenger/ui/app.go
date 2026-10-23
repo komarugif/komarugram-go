@@ -1344,42 +1344,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	// The page is where files dragged over the window are dropped, when it
 	// is a chat that takes them.
 	a.drop.page, a.drop.area, a.drop.metric = nil, image.Rect(x, pageTop, size.X, size.Y), gtx.Metric
-	column(x, pageTop, size.X-x, size.Y-pageTop, func(gtx layout.Context) layout.Dimensions {
-		l := a.catalog()
-		c, chat := a.selectedChat()
-		// A chat's page and its comments draw the bar of what plays
-		// themselves; the others get it here.
-		switch {
-		case a.section.showsChats() && a.thread != nil:
-			if a.comments.takesFiles() {
-				a.drop.page = a.comments
-			}
-			return a.layoutComments(gtx, l)
-		case a.section.showsChats() && chat && !(c.Forum && a.forum != nil):
-			if a.history.takesFiles() {
-				a.drop.page = a.history
-			}
-			return layoutChatPage(gtx, c, l, a.layoutAvatar, a.badges, a.returnButton(), func(gtx layout.Context) layout.Dimensions {
-				if a.history != nil {
-					return a.history.Layout(gtx, c, l, a.window.Motion.AnimationsEnabled())
-				}
-				return layoutEmptyPage(gtx, l)
-			}, a.history)
-		}
-		return a.withAudioBar(gtx, l, func(gtx layout.Context) layout.Dimensions {
-			switch {
-			case a.section.kind == sectionProfile:
-				return a.profile.Layout(gtx, a.store.Me(), l, a.layoutAvatar, a.private(), a.window.Motion.AnimationsEnabled())
-			case a.section.kind == sectionSettings:
-				return a.settings.Layout(gtx, a.themeMode(), a.window.Appearance.Scheme(), a.dark(), l)
-			case a.section.kind == sectionDownloads && a.downloads != nil:
-				return a.downloads.Layout(gtx, l, a.window.Motion.AnimationsEnabled())
-			case chat:
-				return a.layoutForum(gtx, c, l)
-			}
-			return layoutEmptyPage(gtx, l)
-		})
-	})
+	column(x, pageTop, size.X-x, size.Y-pageTop, a.layoutPage)
 
 	// The splitter goes last so that it takes the pointer over the columns.
 	if a.section.showsChats() {
@@ -1413,6 +1378,50 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	if a.registrationOffer != nil {
 		a.registrationOffer.Layout(overlayGtx, a.catalog())
 	}
+}
+
+// layoutPage draws the page right of the chat list: a chat's, its
+// comments, or a section's.
+func (a *App) layoutPage(gtx layout.Context) layout.Dimensions {
+	l := a.catalog()
+	if a.section.showsChats() && a.thread != nil && a.thread.back.Clicked(gtx) {
+		// Taken before the page is chosen: the channel is drawn in this
+		// frame, not after an empty one.
+		a.closeComments()
+	}
+	c, chat := a.selectedChat()
+	// A chat's page and its comments draw the bar of what plays
+	// themselves; the others get it here.
+	switch {
+	case a.section.showsChats() && a.thread != nil:
+		if a.comments.takesFiles() {
+			a.drop.page = a.comments
+		}
+		return a.layoutComments(gtx, l)
+	case a.section.showsChats() && chat && !(c.Forum && a.forum != nil):
+		if a.history.takesFiles() {
+			a.drop.page = a.history
+		}
+		return layoutChatPage(gtx, c, l, a.layoutAvatar, a.badges, a.returnButton(), func(gtx layout.Context) layout.Dimensions {
+			if a.history != nil {
+				return a.history.Layout(gtx, c, l, a.window.Motion.AnimationsEnabled())
+			}
+			return layoutEmptyPage(gtx, l)
+		}, a.history)
+	}
+	return a.withAudioBar(gtx, l, func(gtx layout.Context) layout.Dimensions {
+		switch {
+		case a.section.kind == sectionProfile:
+			return a.profile.Layout(gtx, a.store.Me(), l, a.layoutAvatar, a.private(), a.window.Motion.AnimationsEnabled())
+		case a.section.kind == sectionSettings:
+			return a.settings.Layout(gtx, a.themeMode(), a.window.Appearance.Scheme(), a.dark(), l)
+		case a.section.kind == sectionDownloads && a.downloads != nil:
+			return a.downloads.Layout(gtx, l, a.window.Motion.AnimationsEnabled())
+		case chat:
+			return a.layoutForum(gtx, c, l)
+		}
+		return layoutEmptyPage(gtx, l)
+	})
 }
 
 // withAudioBar draws the bar of what plays over a page that is not a chat's,

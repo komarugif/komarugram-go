@@ -190,12 +190,8 @@ func (a *App) closeComments() {
 // layoutComments draws the open comments in place of the channel's
 // history, under a header that goes back to it.
 func (a *App) layoutComments(gtx layout.Context, l localization.Catalog) layout.Dimensions {
+	// Its back button is taken by layoutPage.
 	t := a.thread
-	if t.back.Clicked(gtx) {
-		a.closeComments()
-		gtx.Execute(op.InvalidateCmd{})
-		return layout.Dimensions{Size: gtx.Constraints.Max}
-	}
 	h := a.comments
 	h.topic = t.topic
 	history := a.store.(model.ConversationStore).History(t.chat.ID)
