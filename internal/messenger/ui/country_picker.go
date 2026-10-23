@@ -11,7 +11,6 @@ import (
 	"gio-mw/wdk"
 	"gio-mw/widget/scroll"
 
-	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
@@ -65,11 +64,9 @@ func (c *countryPicker) Shown() bool { return c.modal.Shown() }
 func (c *countryPicker) Open(gtx layout.Context) {
 	c.search.SetText("")
 	c.list = scroll.List{List: layout.List{Axis: layout.Vertical}}
+	// The search takes the focus, not the dialog.
+	c.modal.field = &c.search
 	c.modal.Open()
-	// The search takes the focus, not the dialog: the dialog's own request,
-	// in this frame's Layout, would come after this one and win.
-	c.modal.focus = false
-	gtx.Execute(key.FocusCmd{Tag: &c.search})
 	gtx.Execute(op.InvalidateCmd{})
 }
 

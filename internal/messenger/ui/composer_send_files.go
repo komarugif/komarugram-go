@@ -16,7 +16,6 @@ import (
 	"gio-mw/widget/checkbox"
 	"gio-mw/widget/scroll"
 
-	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -37,10 +36,8 @@ type filesBox struct {
 	files []*boxFile
 	way   sendfiles.Way
 	// caption is the text of the message the files go with.
-	caption widget.Editor
-	list    scroll.List
-	// focusCaption gives the caption the keyboard on the next frame.
-	focusCaption              bool
+	caption                   widget.Editor
+	list                      scroll.List
 	add, cancel, send         surface
 	group, documents, quality *checkbox.Checkboxes[string]
 	// results bring what the reading of files found out; generation tells
@@ -102,14 +99,18 @@ func (b *filesBox) addPaths(c *messageComposer, paths []string, documents bool) 
 		b.files = nil
 		b.way = sendfiles.Way{Group: true, Documents: documents}
 		b.caption.SetText(c.draft(c.chat).editor.Text())
+		// What is typed goes on after it.
+		end := b.caption.Len()
+		b.caption.SetCaret(end, end)
 		b.group.SetValues([]string{"group"})
 		b.documents.SetValues(nil)
 		if documents {
 			b.documents.SetValues([]string{"documents"})
 		}
 		b.quality.SetValues(nil)
+		// The caption takes the keyboard from the message field.
+		b.modal.field = &b.caption
 		b.modal.Open()
-		b.focusCaption = true
 	}
 	var added []*boxFile
 	for _, path := range paths {
@@ -320,10 +321,6 @@ func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l loca
 				break
 			}
 		}
-	}
-	if b.focusCaption {
-		b.focusCaption = false
-		gtx.Execute(key.FocusCmd{Tag: &b.caption})
 	}
 	shown := b.modal.Layout(gtx, false, func(gtx layout.Context) layout.Dimensions {
 		width := min(gtx.Constraints.Max.X-2*gtx.Dp(16), gtx.Dp(filesBoxWidth))

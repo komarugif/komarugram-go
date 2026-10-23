@@ -41,8 +41,11 @@ type modal struct {
 	height         heightTransition
 	shown, closing bool
 	// focus takes the keyboard focus on the next frame, from whatever is
-	// under the dialog.
+	// under the dialog, for field, or the dialog itself when field is nil.
+	// The dialog holds it while nothing in it does, so that what is typed
+	// does not go into the message field under it.
 	focus      bool
+	field      event.Tag
 	visibility wdk.FloatTween
 	scrim      widget.Clickable
 	// panel takes the clicks on the dialog itself, which would otherwise
@@ -64,7 +67,7 @@ func (m *modal) Entered() bool { return m.shown && !m.closing && m.visible >= 1 
 
 // Open shows the dialog, animating in.
 func (m *modal) Open() {
-	*m = modal{shown: true, focus: true, back: m.back}
+	*m = modal{shown: true, focus: true, back: m.back, field: m.field}
 }
 
 // Close animates the dialog out; Layout reports when it is done.
@@ -98,7 +101,7 @@ func (m *modal) Update(gtx layout.Context, locked bool) {
 	}
 	clicked := m.scrim.Clicked(gtx)
 	for {
-		ev, ok := gtx.Event(key.Filter{Name: key.NameEscape})
+		ev, ok := gtx.Event(key.FocusFilter{Target: m}, key.Filter{Name: key.NameEscape})
 		if !ok {
 			break
 		}
@@ -139,7 +142,11 @@ func (m *modal) Layout(gtx layout.Context, locked bool, content layout.Widget) b
 	event.Op(gtx.Ops, m)
 	m.scrim.Layout(gtx, func(layout.Context) layout.Dimensions { return layout.Dimensions{Size: size} })
 	if m.focus {
-		gtx.Execute(key.FocusCmd{Tag: m})
+		var tag event.Tag = m
+		if m.field != nil {
+			tag = m.field
+		}
+		gtx.Execute(key.FocusCmd{Tag: tag})
 		m.focus = false
 	}
 

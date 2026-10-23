@@ -16,7 +16,6 @@ import (
 	"gio-mw/widget/scroll"
 
 	"gioui.org/gpu/headless"
-	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -219,8 +218,9 @@ func (p *chatPage) openForwardParts(gtx layout.Context, parts []model.Message, s
 	if f.rows == nil {
 		f.rows = map[int64]*surface{}
 	}
+	// The search takes the keyboard from the message field.
+	f.modal.field = &f.search
 	f.modal.Open()
-	gtx.Execute(key.FocusCmd{Tag: &f.search})
 	gtx.Execute(op.InvalidateCmd{})
 }
 
