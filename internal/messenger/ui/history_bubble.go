@@ -611,15 +611,19 @@ func (p *chatPage) reactions(gtx layout.Context, r *messageRow, m model.Message,
 		if chip.Clicked(gtx) && canReact && !reaction.Paid {
 			reactor.ToggleReaction(m, reaction, p.reportMedia)
 		}
-		background, content := sc.SecondaryContainer.Color, sc.SecondaryContainer.OnColor
-		if reaction.Chosen {
-			background, content = sc.Primary.Color, sc.Primary.OnColor
-		}
+		background, content := reactionChipColors(sc, reaction.Chosen, m.Outgoing)
 		macro := op.Record(gtx.Ops)
 		cgtx := gtx
 		cgtx.Constraints = layout.Constraints{Max: image.Pt(maxWidth, gtx.Dp(40))}
 		dims := layout.Inset{Top: 4, Bottom: 4, Left: 8, Right: 10}.Layout(cgtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+			// An emoji of the fonts sits on the count's baseline, which puts
+			// its middle at the digits', as in Telegram Desktop; a picture
+			// is centered on them.
+			align := layout.Baseline
+			if reaction.DocumentID != 0 {
+				align = layout.Middle
+			}
+			return layout.Flex{Alignment: align}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return p.reactionIcon(gtx, reaction, animate)
 				}),
@@ -651,6 +655,23 @@ func (p *chatPage) reactions(gtx layout.Context, r *messageRow, m model.Message,
 		lineHeight = max(lineHeight, dims.Size.Y)
 	}
 	return layout.Dimensions{Size: image.Pt(width, y+lineHeight)}
+}
+
+// reactionChipColors are the background and the content of a reaction's
+// chip in a bubble of sc, as Telegram Desktop's: the bubble's accent,
+// faint, under the accent's text (kInNonChosenOpacity,
+// kOutNonChosenOpacity), and solid for the account's own. The bubble's
+// colors are a chat theme's where it has one, which the app's containers
+// are not: chips of those were darker than a dark theme's bubble.
+func reactionChipColors(sc *token.Scheme, chosen, outgoing bool) (background, content token.MatColor) {
+	if chosen {
+		return sc.Primary.Color, sc.Primary.OnColor
+	}
+	faint := token.OpacityLevel(.12)
+	if outgoing {
+		faint = .18
+	}
+	return sc.Primary.Color.SetOpacity(faint), sc.Primary.Color
 }
 
 // reactionIcon draws a reaction's emoji, custom emoji or the star of paid

@@ -12,6 +12,9 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
+	"gio-mw/defaults/schemes"
+	"gio-mw/token"
+
 	"gioui.org/io/key"
 )
 
@@ -234,5 +237,24 @@ func TestQuoteKeepsCustomEmoji(t *testing.T) {
 	}
 	if !emoji || text != "Photo, hi 🙂 there" {
 		t.Fatalf("quote %q, custom emoji kept: %v", text, emoji)
+	}
+}
+
+// A reaction's chip is of its bubble's accent, as Telegram Desktop's,
+// which a chat theme sets: the app's own containers were darker than a
+// dark bubble.
+func TestReactionChipsFollowTheBubble(t *testing.T) {
+	sc := schemes.SchemeBaselineDark()
+	sc.Primary.Color = token.NewMatColorFromHexRGB(0xff8a80)
+	bg, fg := reactionChipColors(sc, false, false)
+	if bg.AsNRGBA().R != 0xff || bg.AsNRGBA().A == 0xff || fg != sc.Primary.Color {
+		t.Fatalf("chip %v on %v", bg.AsNRGBA(), fg.AsNRGBA())
+	}
+	out, _ := reactionChipColors(sc, false, true)
+	if out.AsNRGBA().A <= bg.AsNRGBA().A {
+		t.Fatal("an outgoing bubble's chip is not stronger, as Telegram Desktop's")
+	}
+	if chosen, _ := reactionChipColors(sc, true, false); chosen != sc.Primary.Color {
+		t.Fatal("the account's own reaction is not solid")
 	}
 }
