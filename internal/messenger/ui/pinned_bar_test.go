@@ -15,6 +15,19 @@ import (
 	"komarugram/internal/messenger/model"
 )
 
+// An album at the bottom is read up to its last message, not its first,
+// which it is drawn as.
+func TestBottomMessageAlbum(t *testing.T) {
+	msg := func(id model.MessageID) model.Message {
+		return model.Message{Key: model.MessageKey{ChatID: 1, MessageID: id}, GroupedID: 7, Media: &model.MessageMedia{}}
+	}
+	p := chatPage{restored: true, messages: model.GroupAlbums([]model.Message{msg(10), msg(11), msg(12)})}
+	p.list.Position.Count = 1
+	if id := p.bottomMessage(); id != 12 {
+		t.Fatalf("bottom %d, want 12", id)
+	}
+}
+
 func TestPinnedShown(t *testing.T) {
 	ids := []model.MessageID{3, 8, 15}
 	for _, c := range []struct {

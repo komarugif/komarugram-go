@@ -180,6 +180,9 @@ type chatPage struct {
 	filterShown  *messageFilter
 	filtered     int
 	showFiltered map[int64]bool
+	// newest is the newest message of the history loaded, a hidden one
+	// too: read once its end is.
+	newest model.MessageID
 	// addFilter saves a pattern made from selected text.
 	addFilter func(preferences.FilterPattern)
 	deletion  messageDeletion
@@ -639,6 +642,12 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	}
 	p.threadRoot = history.ThreadRoot
 	if fresh {
+		p.newest = 0
+		for _, m := range history.Messages {
+			if !m.Local() {
+				p.newest = max(p.newest, m.Key.MessageID)
+			}
+		}
 		history.Messages = p.filterMessages(model.GroupAlbums(history.Messages), c.ID)
 		p.revision = history.Revision
 	} else {
@@ -861,6 +870,11 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	if g, ok := p.source.(model.GhostStore); ok && (p.threadRoot == 0 || p.topic) {
 		// What the history shows is read, if Ghost allows telling that.
 		if id := p.bottomMessage(); id > 0 {
+			if !p.list.Position.BeforeEnd && !history.HasNewer {
+				// Scrolled to the end: the messages a filter hides after the
+				// last one shown are read too.
+				id = max(id, p.newest)
+			}
 			g.MarkRead(c.ID, id, false)
 		}
 	}

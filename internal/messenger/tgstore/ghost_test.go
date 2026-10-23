@@ -103,6 +103,53 @@ func TestGhost(t *testing.T) {
 	}
 }
 
+// Reading a chat counts what is left unread from the history, is told once
+// its peer is known, and a message counted after it was read stays read.
+func TestMarkReadUnread(t *testing.T) {
+	s := testStore(t)
+	chat := int64(5)
+	api := &ghostAPI{}
+	s.history.api = api.client()
+	s.SetGhost(model.Ghost{SendRead: true})
+	s.chats = []model.Chat{{ID: chat, Unread: 3}}
+	s.history.top[chat] = 12
+	in := func(id model.MessageID) model.Message {
+		return model.Message{Key: model.MessageKey{ChatID: chat, MessageID: id}}
+	}
+	s.history.histories[chat] = &model.History{Messages: []model.Message{in(10), in(11), in(12)}}
+	unread := func() int {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.chats[0].Unread
+	}
+
+	// The peer is not known yet: nothing is told, and nothing is forgotten.
+	s.MarkRead(chat, 11, false)
+	if n := unread(); n != 3 {
+		t.Fatalf("unread %d before the peer is known", n)
+	}
+	s.history.peers[chat] = peerRecord{Kind: "user", ID: 5, Hash: 55}
+	s.MarkRead(chat, 11, false)
+	if told := api.wait(t, 1); told[0] != "read 11" {
+		t.Fatalf("told %q", told)
+	}
+	if n := unread(); n != 1 {
+		t.Fatalf("unread %d, want the one after 11", n)
+	}
+
+	// The history marked 13 read before the store counted it.
+	s.history.top[chat] = 13
+	s.MarkRead(chat, 13, false)
+	s.mergeUpdate(in(13))
+	if n := unread(); n != 0 {
+		t.Fatalf("unread %d after the newest was read", n)
+	}
+	s.mergeUpdate(in(14))
+	if n := unread(); n != 1 {
+		t.Fatalf("unread %d after a message not read", n)
+	}
+}
+
 // Without read receipts, sending to a chat reads it up to the message sent.
 func TestReadOnInteract(t *testing.T) {
 	s := testStore(t)

@@ -1333,7 +1333,10 @@ func (s *Store) mergeUpdate(m model.Message) (chat model.Chat, isNew bool) {
 	for i := range chats {
 		if chats[i].ID == m.Key.ChatID {
 			chats[i] = p.withMetadata(chats[i])
-			if isNew && !m.Outgoing {
+			// A message the history showed and marked read in the meantime,
+			// between the newest message and its count here, is read: it is
+			// looked up under s.mu, which MarkRead takes after it marks.
+			if isNew && !m.Outgoing && m.Key.MessageID > s.readUpTo(m.Key.ChatID) {
 				chats[i].Unread++
 			}
 			if !m.Date.Before(chats[i].LastTime) {
@@ -1626,6 +1629,29 @@ func (s *Store) setUnread(id int64, n int) {
 		}
 	}
 	s.chats = chats
+}
+
+// lowerUnread lowers the chat's unread count to n, and reports whether it
+// did.
+func (s *Store) lowerUnread(id int64, n int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.chats {
+		if s.chats[i].ID == id && s.chats[i].Unread > n {
+			chats := append([]model.Chat(nil), s.chats...)
+			chats[i].Unread = max(n, 0)
+			s.chats = chats
+			return true
+		}
+	}
+	return false
+}
+
+// readUpTo is the message the chat was marked read up to here.
+func (s *Store) readUpTo(chat int64) model.MessageID {
+	s.ghost.mu.Lock()
+	defer s.ghost.mu.Unlock()
+	return s.ghost.read[chat]
 }
 
 func (s *Store) reconcile(ctx context.Context, chat int64, raw []tg.MessageClass, start uint64, dir, anchor, limit int) error {

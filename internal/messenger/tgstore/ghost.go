@@ -73,6 +73,27 @@ func (s *Store) MarkRead(chat int64, id model.MessageID, asked bool) {
 		s.markTopicRead(chat, id, asked)
 		return
 	}
+	c := s.history
+	c.mu.Lock()
+	peer, top := c.peers[chat], c.top[chat]
+	// What is left unread is counted from the history when it runs to the
+	// chat's newest message; read up to the newest, nothing is.
+	left := -1
+	if int(id) >= top {
+		left = 0
+	} else if h := c.histories[chat]; h != nil && !h.HasNewer && len(h.Messages) > 0 && int(h.Messages[len(h.Messages)-1].Key.MessageID) >= top {
+		left = 0
+		for _, m := range h.Messages {
+			if m.Key.MessageID > id && !m.Outgoing && !m.Local() {
+				left++
+			}
+		}
+	}
+	c.mu.Unlock()
+	if peer.ID == 0 {
+		// Not marked as read: it is told once the peer is known.
+		return
+	}
 	gs := &s.ghost
 	gs.mu.Lock()
 	if !asked && !gs.ghost.SendRead || gs.read[chat] >= id {
@@ -84,15 +105,7 @@ func (s *Store) MarkRead(chat int64, id model.MessageID, asked bool) {
 	}
 	gs.read[chat] = id
 	gs.mu.Unlock()
-	c := s.history
-	c.mu.Lock()
-	peer, top := c.peers[chat], c.top[chat]
-	c.mu.Unlock()
-	if peer.ID == 0 {
-		return
-	}
-	if int(id) >= top {
-		s.setUnread(chat, 0)
+	if left >= 0 && s.lowerUnread(chat, left) {
 		s.changed()
 	}
 	s.goSend("read", func(ctx context.Context, api *tg.Client) error {

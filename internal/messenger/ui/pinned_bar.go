@@ -97,7 +97,14 @@ func (p *chatPage) bottomMessage() model.MessageID {
 	for last > 0 && p.messages[last].Local() {
 		last--
 	}
-	return p.messages[last].Key.MessageID
+	// An album is drawn as its first message: its newest is its last.
+	id := p.messages[last].Key.MessageID
+	for _, a := range p.messages[last].Attachments {
+		if !a.Local() {
+			id = max(id, a.Key.MessageID)
+		}
+	}
+	return id
 }
 
 // layoutPinned draws the pinned bar across the top of gtx.
