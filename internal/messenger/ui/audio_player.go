@@ -887,7 +887,7 @@ func (p *chatPage) voiceLayout(gtx layout.Context, r *messageRow, m model.Messag
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(22))
-					drawWaveform(gtx, vr.waveformBars(p.audio.waveform(m)), size, progress, sc.Primary.Color, sc.OutlineVariant)
+					drawWaveform(gtx, vr.waveformBars(p.audio.waveform(m)), size, progress, sc.Primary.Color, audioRest(sc))
 					vr.seekArea(gtx, size)
 					return layout.Dimensions{Size: size}
 				}),
@@ -947,7 +947,7 @@ func (p *chatPage) musicLayout(gtx layout.Context, r *messageRow, m model.Messag
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					// The bar is thin; the area that moves it is taller.
 					size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(16))
-					drawBar(gtx, size, progress, state.active, sc.Primary.Color, sc.OutlineVariant)
+					drawBar(gtx, size, progress, state.active, sc.Primary.Color, audioRest(sc))
 					vr.seekArea(gtx, size)
 					return layout.Dimensions{Size: size}
 				}),
@@ -957,6 +957,14 @@ func (p *chatPage) musicLayout(gtx layout.Context, r *messageRow, m model.Messag
 			)
 		}),
 	)
+}
+
+// audioRest is the color of what was not heard yet of a waveform or a bar:
+// the bubble's own text, faded, as in Telegram Desktop. The theme's outline
+// it used to be was lost on bubbles of a color of their own, as a red one
+// in a dark theme.
+func audioRest(sc *token.Scheme) token.MatColor {
+	return sc.SurfaceVariant.OnColor.SetOpacity(0.4)
 }
 
 // drawBar draws how much of music was heard: a thin track across size, the

@@ -48,7 +48,9 @@ func tonalButton(gtx layout.Context, s *surface, txt string, count int) layout.D
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Left: 6}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, strconv.Itoa(count), token.TypestyleLabelLarge, col.SetOpacity(0.7), 1)
+					// The count is in the label's color: faded, it read at 2.7:1 on
+					// the light container.
+					return label(gtx, strconv.Itoa(count), token.TypestyleLabelLargeEmphasized, col, 1)
 				})
 			}),
 		)
