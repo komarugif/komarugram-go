@@ -708,7 +708,14 @@ func (s *Store) Send(ctx context.Context, chat int64, msg model.OutgoingMessage)
 		case "channel":
 			destination = &tg.PeerChannel{ChannelID: peer.ID}
 		}
-		accepted := &tg.Message{ID: short.ID, Out: true, PeerID: destination, FromID: &tg.PeerUser{UserID: s.Me().ID}, Message: msg.Text, Date: short.Date, Media: short.Media, Entities: short.Entities}
+		// Out as Telegram tells it: in Saved Messages the user's messages
+		// are not outgoing, and a message marked so would change sides once
+		// the history has it from Telegram. Nor do they tell who sent them,
+		// which would show a name over the message.
+		accepted := &tg.Message{ID: short.ID, Out: short.Out, PeerID: destination, Message: msg.Text, Date: short.Date, Media: short.Media, Entities: short.Entities}
+		if me := s.Me().ID; peer.Kind != "user" || peer.ID != me && !peer.Rights.Self {
+			accepted.FromID = &tg.PeerUser{UserID: me}
+		}
 		if msg.ReplyTo != 0 {
 			// The acknowledgement leaves out what the message replies to.
 			accepted.ReplyTo = &tg.MessageReplyHeader{ReplyToMsgID: int(msg.ReplyTo)}
