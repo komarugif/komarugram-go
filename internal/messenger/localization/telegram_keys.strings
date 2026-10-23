@@ -565,11 +565,22 @@
 "shared.voice" = "lng_media_type_audios";
 
 "status.bot" = "lng_status_bot";
+"status.last_month" = "lng_status_last_month";
+"status.last_week" = "lng_status_last_week";
+"status.lastseen_date" = "lng_status_lastseen_date";
+"status.lastseen_date_time" = "lng_status_lastseen_date_time";
+"status.lastseen_hours" = "lng_status_lastseen_hours";
+"status.lastseen_minutes" = "lng_status_lastseen_minutes";
+"status.lastseen_now" = "lng_status_lastseen_now";
+"status.lastseen_today" = "lng_status_lastseen_today";
+"status.lastseen_yesterday" = "lng_status_lastseen_yesterday";
+"status.long_ago" = "lng_status_offline";
 "status.members" = "lng_chat_status_members";
 "status.members_online" = "lng_chat_status_members_online";
 "status.online" = "lng_chat_status_online";
 "status.recently" = "lng_status_recently";
 "status.subscribers" = "lng_chat_status_subscribers";
+"status.user_online" = "lng_status_online";
 
 "stickers.add" = "lng_stickers_add_pack";
 "stickers.count" = "lng_stickers_count";

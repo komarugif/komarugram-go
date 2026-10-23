@@ -175,6 +175,17 @@ type Message struct {
 	// see StreamedDrafts. Stoppable is set when the account may stop it.
 	Streaming bool `json:"-"`
 	Stoppable bool `json:"-"`
+	// Sending marks a message the account sent that Telegram has not taken
+	// yet, which only the history shows: it has an id of its own, below
+	// zero, until Telegram's comes.
+	Sending bool `json:"-"`
+}
+
+// Local reports whether m is not a message of Telegram's yet, but one the
+// client shows on its own: a draft a bot streams, or a message on its way.
+// It is not one to reply to, select or keep the layout of.
+func (m Message) Local() bool {
+	return m.Streaming || m.Sending
 }
 
 // GeneralTopic is the id of the topic every forum has, whose messages have

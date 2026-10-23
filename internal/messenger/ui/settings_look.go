@@ -160,7 +160,7 @@ func (s *lookSettings) preview(gtx layout.Context, l localization.Catalog) layou
 							vspace(4),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								gtx.Constraints.Min = image.Point{}
-								return messageFooter(gtx, m, l, false)
+								return messageFooter(gtx, m, l, false, previewSendState(gtx, m))
 							}),
 						)
 					})

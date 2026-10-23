@@ -122,7 +122,7 @@ func (p *chatPage) openMenu(gtx layout.Context, pos f32.Point, pressed time.Dura
 	m := &p.messageMenu
 	m.open = false
 	i := p.rowAt(pos.Y)
-	if i < 0 || i >= len(p.messages) || p.messages[i].Kind == model.MessageService || p.messages[i].Streaming {
+	if i < 0 || i >= len(p.messages) || p.messages[i].Kind == model.MessageService || p.messages[i].Local() {
 		return
 	}
 	msg := p.messages[i]

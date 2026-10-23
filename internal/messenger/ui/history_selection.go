@@ -135,7 +135,7 @@ func (p *chatPage) selectionEvents(gtx layout.Context) {
 				continue
 			}
 			i := p.rowAt(e.Position.Y)
-			if i < 0 || p.messages[i].Kind == model.MessageService || p.messages[i].Streaming {
+			if i < 0 || p.messages[i].Kind == model.MessageService || p.messages[i].Local() {
 				continue
 			}
 			p.activeText = nil

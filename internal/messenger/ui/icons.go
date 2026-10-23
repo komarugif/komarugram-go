@@ -44,6 +44,7 @@ var (
 	iconChevron       = wdk.RequireIconWidget(icons.NavigationChevronRight)
 	iconExpandMore    = wdk.RequireIconWidget(icons.NavigationExpandMore)
 	iconPeek          = wdk.RequireIconWidget(icons.ImageRemoveRedEye)
+	iconVisibility    = wdk.RequireIconWidget(icons.ImageRemoveRedEye)
 	iconAutoTheme     = wdk.RequireIconWidget(icons.DeviceBrightnessAuto)
 	iconProxy         = wdk.RequireIconWidget(icons.HardwareRouter)
 	iconInvertColors  = wdk.RequireIconWidget(icons.ActionInvertColors)

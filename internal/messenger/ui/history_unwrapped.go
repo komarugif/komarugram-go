@@ -127,7 +127,7 @@ func (p *chatPage) unwrappedBody(gtx layout.Context, r *messageRow, m model.Mess
 		}
 		return p.largeEmoji(gtx, *msg, animate)
 	}
-	info := func(gtx layout.Context) layout.Dimensions { return infoPlate(gtx, *msg, l) }
+	info := func(gtx layout.Context) layout.Dimensions { return infoPlate(gtx, *msg, l, p.sendState(gtx, *msg)) }
 	side := p.unwrappedSide(msg, join, l, r)
 
 	// The picture, with its time over the corner for the account's own.
@@ -294,12 +294,13 @@ func (p *chatPage) largeEmoji(gtx layout.Context, m model.Message, animate bool)
 }
 
 // infoPlate is the time of a message without a bubble, on a plate that
-// keeps it readable over any background, with its views and edit mark.
-func infoPlate(gtx layout.Context, m model.Message, l localization.Catalog) layout.Dimensions {
+// keeps it readable over any background, with its views, edit mark and the
+// mark of state.
+func infoPlate(gtx layout.Context, m model.Message, l localization.Catalog, state model.SendState) layout.Dimensions {
 	sc := scheme(gtx)
 	macro := op.Record(gtx.Ops)
 	dims := layout.Inset{Top: 2, Bottom: 2, Left: 7, Right: 7}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return messageFooterIn(gtx, m, l, true, sc.InverseSurface.OnColor)
+		return messageFooterIn(gtx, m, l, true, state, sc.InverseSurface.OnColor)
 	})
 	call := macro.Stop()
 	fillRounded(gtx, sc.InverseSurface.Color.SetOpacity(0.55), dims.Size, dims.Size.Y/2)

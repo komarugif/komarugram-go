@@ -75,6 +75,10 @@ const (
 	settingsAbout
 	settingsMenuOrder
 	settingsShortcuts
+	// settingsVisibility is what others see of the account and what the
+	// client shows of them: ghost mode, the message filters, what the cache
+	// keeps, and the hiding of what distracts.
+	settingsVisibility
 )
 
 func settingsTitles(l localization.Catalog) map[settingsSection]string {
@@ -84,9 +88,10 @@ func settingsTitles(l localization.Catalog) map[settingsSection]string {
 		settingsPremium: l.T("premium.title"), settingsIntegrations: l.T("settings.integrations"),
 		settingsDevices: l.T("settings.devices"), settingsChats: l.T("settings.chats"),
 		settingsNotify: l.T("settings.notify"), settingsAbout: l.T("settings.about"),
-		settingsProxy:     l.T("settings.proxy"),
-		settingsMenuOrder: l.T("menus.title"),
-		settingsShortcuts: l.T("keys.title"),
+		settingsProxy:      l.T("settings.proxy"),
+		settingsMenuOrder:  l.T("menus.title"),
+		settingsShortcuts:  l.T("keys.title"),
+		settingsVisibility: l.T("settings.visibility"),
 	}
 }
 
@@ -104,6 +109,7 @@ var settingsIcons = map[settingsSection]wdk.IconWidget{
 	settingsAbout:        iconInfo,
 	settingsMenuOrder:    iconReorder,
 	settingsShortcuts:    iconKeyboard,
+	settingsVisibility:   iconVisibility,
 }
 
 func storageShort(l localization.Catalog) map[miniapp.Storage]string {
@@ -248,13 +254,25 @@ type settingsPage struct {
 	setLocalPremium    func(bool)
 	localPremiumToggle *toggle.Toggle[string]
 	// hidePeerBadges and setHidePeerBadges read and switch the hiding of the
-	// marks of exteraGram, AyuGram and KomaruGram beside names.
+	// marks of exteraGram, AyuGram and KomaruGram beside names; keepPeerBadges
+	// and setKeepPeerBadges, whether the arrows and the faces stay, which
+	// peerBadgeBoxes show.
 	// premiumMark draws the Premium star beside a name; without it the star
 	// is drawn by the client.
 	premiumMark          func(gtx layout.Context, size unit.Dp) layout.Dimensions
 	hidePeerBadges       func() bool
 	setHidePeerBadges    func(bool)
 	hidePeerBadgesToggle *toggle.Toggle[string]
+	keepPeerBadges       func() (arrows, faces bool)
+	setKeepPeerBadges    func(arrows, faces bool)
+	peerBadgeBoxes       *checkbox.Checkboxes[string]
+	// calm and setCalm read and change the hiding of what distracts: who
+	// is online, and whether messages were read; without them the switch is
+	// hidden. calmBoxes choose which of the two it hides.
+	calm       func() preferences.Calm
+	setCalm    func(preferences.Calm)
+	calmToggle *toggle.Toggle[string]
+	calmBoxes  *checkbox.Checkboxes[string]
 	// premiumMedia and setPremiumMedia read and switch the Premium address for
 	// files over WebSocket, which the Premium page offers to who has Premium.
 	premiumMedia       func() bool
@@ -295,6 +313,7 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			settingsProxy:        new(settingsItem),
 			settingsMenuOrder:    new(settingsItem),
 			settingsShortcuts:    new(settingsItem),
+			settingsVisibility:   new(settingsItem),
 		},
 		back:          button.Text(),
 		motion:        m,
@@ -334,6 +353,25 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 	p.hidePeerBadgesToggle = toggle.NewToggle([]string{"hide"}, nil, func(values []string) {
 		if p.setHidePeerBadges != nil {
 			p.setHidePeerBadges(len(values) == 1)
+		}
+	})
+	p.peerBadgeBoxes = checkbox.NewCheckboxes([]string{"arrows", "faces"}, nil, func(values []string) {
+		if p.setKeepPeerBadges != nil {
+			p.setKeepPeerBadges(!slices.Contains(values, "arrows"), !slices.Contains(values, "faces"))
+		}
+	})
+	p.calmToggle = toggle.NewToggle([]string{"calm"}, nil, func(values []string) {
+		if p.setCalm != nil {
+			c := p.calm()
+			c.On = len(values) == 1
+			p.setCalm(c)
+		}
+	})
+	p.calmBoxes = checkbox.NewCheckboxes([]string{"online", "read"}, nil, func(values []string) {
+		if p.setCalm != nil {
+			c := p.calm()
+			c.KeepOnline, c.KeepRead = !slices.Contains(values, "online"), !slices.Contains(values, "read")
+			p.setCalm(c)
 		}
 	})
 	p.premiumMediaToggle = toggle.NewToggle([]string{"media"}, nil, func(values []string) {
@@ -605,7 +643,15 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 	}
 	if p.section == settingsPrivacy {
 		p.security.UpdateSettings(gtx)
+	}
+	if p.section == settingsVisibility {
 		p.filtersView.Update(gtx)
+		if p.calm != nil {
+			p.calmBoxes.Update(gtx)
+		}
+		if p.keepPeerBadges != nil {
+			p.peerBadgeBoxes.Update(gtx)
+		}
 	}
 	if p.shortcuts != nil {
 		if p.section == settingsShortcuts {
@@ -696,6 +742,30 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 					}),
 					vspace(12),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return p.cardHeight("Layout-7").Card(gtx, p.privacy.Layout, defaultCardPadding)
+					}),
+				)
+			}
+		case settingsVisibility:
+			content = func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						if p.calm == nil {
+							return layout.Dimensions{}
+						}
+						return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return p.cardHeight("visibility-calm").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutCalm(gtx, l) }, defaultCardPadding)
+						})
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						if p.hidePeerBadges == nil {
+							return layout.Dimensions{}
+						}
+						return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return p.cardHeight("visibility-badges").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutPeerBadges(gtx, l) }, defaultCardPadding)
+						})
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						if p.ghost == nil {
 							return layout.Dimensions{}
 						}
@@ -718,9 +788,6 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 						return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return p.cardHeight("Layout-6").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutKeep(gtx, l) }, defaultCardPadding)
 						})
-					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return p.cardHeight("Layout-7").Card(gtx, p.privacy.Layout, defaultCardPadding)
 					}),
 				)
 			}
@@ -858,6 +925,7 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 		settingsNotify:       p.notifyView.subtitle(l),
 		settingsMenuOrder:    l.T("menus.subtitle"),
 		settingsShortcuts:    l.T("keys.subtitle"),
+		settingsVisibility:   l.T("settings.visibility_hint"),
 	}
 	if p.proxy != nil {
 		subtitles[settingsProxy] = p.proxy.Summary(l)
@@ -938,6 +1006,9 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 				}
 				if p.chats.available() || p.composerStyle != nil || p.lookView.look != nil {
 					sections = append(sections, settingsChats)
+				}
+				if p.hasVisibility() {
+					sections = append(sections, settingsVisibility)
 				}
 				if p.notifyView.get != nil {
 					sections = append(sections, settingsNotify)
@@ -1477,15 +1548,6 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 			}
 		}
 	}
-	if p.hidePeerBadges != nil {
-		if want := p.hidePeerBadges(); want != (len(p.hidePeerBadgesToggle.GetValues()) == 1) {
-			if want {
-				p.hidePeerBadgesToggle.SetValues([]string{"hide"})
-			} else {
-				p.hidePeerBadgesToggle.SetValues(nil)
-			}
-		}
-	}
 	if p.premiumMediaToggle != nil && p.premiumMedia != nil {
 		if want := p.premiumMedia(); want != (len(p.premiumMediaToggle.GetValues()) == 1) {
 			if want {
@@ -1606,24 +1668,6 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 						vspace(4),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							return label(gtx, l.T("premium.local_body"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
-						}),
-					)
-				}, defaultCardPadding)
-			})
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			if p.hidePeerBadges == nil {
-				return layout.Dimensions{}
-			}
-			return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return p.cardHeight("layoutPremium-badges").Card(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return p.hidePeerBadgesToggle.Layout(gtx, map[string]string{"hide": l.T("badges.hide")})
-						}),
-						vspace(4),
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return label(gtx, l.T("badges.hide_body"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
 						}),
 					)
 				}, defaultCardPadding)

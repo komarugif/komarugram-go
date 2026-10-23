@@ -42,6 +42,30 @@ func TestPeerMarksFollowTheLists(t *testing.T) {
 	if has(model.Badges{User: 1}) {
 		t.Fatal("a mark is drawn though the settings hide them")
 	}
+	// The arrows and the faces are hidden apart.
+	registry.Apply("komaru_badges.txt", []byte("1,#ff0000\n"))
+	count := func() int { return len(a.peerMarks(model.Badges{User: 1}, "Name", 16)) }
+	if err := prefs.SetKeepPeerBadges(true, false); err != nil {
+		t.Fatal(err)
+	}
+	if count() != 1 {
+		t.Fatalf("with the arrows kept: %d marks", count())
+	}
+	if err := prefs.SetKeepPeerBadges(true, true); err != nil {
+		t.Fatal(err)
+	}
+	if count() != 2 {
+		t.Fatalf("with both kept: %d marks", count())
+	}
+	if err := prefs.SetKeepPeerBadges(false, true); err != nil {
+		t.Fatal(err)
+	}
+	if count() != 1 {
+		t.Fatalf("with the faces kept: %d marks", count())
+	}
+	if err := prefs.SetKeepPeerBadges(false, false); err != nil {
+		t.Fatal(err)
+	}
 	if _, after := (&App{preferences: preferences.Memory()}).badges(model.Badges{User: 1}, "", 16, false); after != nil {
 		t.Fatal("a window without lists draws a mark")
 	}

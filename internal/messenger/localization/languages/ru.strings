@@ -64,7 +64,9 @@
 "badge.komaru_supporter" = "{name} поддержал KomaruGram и получил уникальный значок.";
 
 "badges.hide" = "Скрыть значки exteraGram, AyuGram и KomaruGram";
+"badges.hide_arrows" = "Стрелки exteraGram и AyuGram";
 "badges.hide_body" = "Стрелка и кошачья морда у имён разработчиков и сторонников этих клиентов. Они берутся из списков, которые клиенты ведут сами: приложение читает их с их серверов, пока значки не скрыты.";
+"badges.hide_faces" = "Морды Komaru от KomaruGram";
 
 "bot.failed" = "Не удалось нажать кнопку";
 "bot.hide_keyboard" = "Скрыть клавиатуру";
@@ -1629,6 +1631,8 @@
 "settings.theme_light" = "Светлая";
 "settings.title" = "Настройки";
 "settings.toasts_blur" = "Размытие под уведомлениями";
+"settings.visibility" = "Видимость";
+"settings.visibility_hint" = "Призрак, фильтры и удалённые сообщения";
 "settings.window_blur" = "Размытие под основным окном";
 "settings.window_transparency" = "Прозрачность основного окна";
 "settings.window_transparency_hint" = "Фон бокового меню, списка чатов и заголовка чата. Текст и аватарки остаются непрозрачными. Работает на Wayland, Windows и macOS. Размытие на Wayland зависит от композитора, а на Windows 10 и 11 окно с ним рисует свою рамку вместо системной.";
@@ -1684,6 +1688,22 @@
 "size.megabytes" = "МБ";
 
 "status.bot" = "бот";
+"status.last_month" = "был(а) в этом месяце";
+"status.last_week" = "был(а) на этой неделе";
+"status.lastseen_date" = "был(а) {date}";
+"status.lastseen_date_time" = "был(а) {date} в {time}";
+"status.lastseen_hours" = "был(а) {count} часа назад";
+"status.lastseen_hours#few" = "был(а) {count} часа назад";
+"status.lastseen_hours#many" = "был(а) {count} часов назад";
+"status.lastseen_hours#one" = "был(а) {count} час назад";
+"status.lastseen_minutes" = "был(а) {count} минуты назад";
+"status.lastseen_minutes#few" = "был(а) {count} минуты назад";
+"status.lastseen_minutes#many" = "был(а) {count} минут назад";
+"status.lastseen_minutes#one" = "был(а) {count} минуту назад";
+"status.lastseen_now" = "был(а) только что";
+"status.lastseen_today" = "был(а) сегодня в {time}";
+"status.lastseen_yesterday" = "был(а) вчера в {time}";
+"status.long_ago" = "был(а) давно";
 "status.member_few" = "участника";
 "status.member_many" = "участников";
 "status.member_one" = "участник";
@@ -1702,6 +1722,7 @@
 "status.subscribers#few" = "{count} подписчика";
 "status.subscribers#many" = "{count} подписчиков";
 "status.subscribers#one" = "{count} подписчик";
+"status.user_online" = "в сети";
 
 "sticker_player.audio_hint" = "WASM-песочница умеет играть Opus, MP3, FLAC, WAV и M4A без внешних программ; остальное открывается во внешнем плеере.";
 "sticker_player.audio_title" = "Плеер голосовых сообщений и музыки";
@@ -1788,6 +1809,11 @@
 "viewer.saved" = "Фото сохранено: {path}";
 "viewer.video" = "Видео";
 "viewer.window" = "Фото";
+
+"visibility.calm" = "Скрывать события, которые отвлекают внимание";
+"visibility.calm_body" = "Скрывает то, что отмечено ниже. Часы у ещё не доставленного сообщения видны всегда.";
+"visibility.calm_online" = "Статус «в сети» и время последнего входа";
+"visibility.calm_read" = "Галочки доставки и прочтения сообщений";
 
 "weekday.0" = "вс";
 "weekday.1" = "пн";

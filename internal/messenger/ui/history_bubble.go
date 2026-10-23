@@ -462,20 +462,21 @@ func (p *chatPage) bubbleFooter(gtx layout.Context, r *messageRow, l localizatio
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.writing.sized(gtx, l, 12) }),
 			layout.Rigid(layout.Spacer{Width: 6}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return messageFooter(gtx, *msg, l, false) }))
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return messageFooter(gtx, *msg, l, false, model.SendNone) }))
 	}
-	return messageFooter(gtx, *msg, l, !p.showsComments(*msg))
+	return messageFooter(gtx, *msg, l, !p.showsComments(*msg), p.sendState(gtx, *msg))
 }
 
 // messageFooter is the line at the bottom of a bubble: comments and views
-// of a post, its author, whether it was edited, and its time. The comments
-// are left to the comments bar when it is not counted here.
-func messageFooter(gtx layout.Context, m model.Message, l localization.Catalog, countComments bool) layout.Dimensions {
-	return messageFooterIn(gtx, m, l, countComments, scheme(gtx).SurfaceVariant.OnColor)
+// of a post, its author, whether it was edited, its time, and the mark of
+// state, of a message the account sent. The comments are left to the
+// comments bar when it is not counted here.
+func messageFooter(gtx layout.Context, m model.Message, l localization.Catalog, countComments bool, state model.SendState) layout.Dimensions {
+	return messageFooterIn(gtx, m, l, countComments, state, scheme(gtx).SurfaceVariant.OnColor)
 }
 
 // messageFooterIn is messageFooter in col.
-func messageFooterIn(gtx layout.Context, m model.Message, l localization.Catalog, countComments bool, col token.MatColor) layout.Dimensions {
+func messageFooterIn(gtx layout.Context, m model.Message, l localization.Catalog, countComments bool, state model.SendState, col token.MatColor) layout.Dimensions {
 	var items []layout.FlexChild
 	text := func(s string) {
 		items = append(items, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -496,6 +497,11 @@ func messageFooterIn(gtx layout.Context, m model.Message, l localization.Catalog
 		counter(iconViews, m.Views)
 	}
 	text(footerText(gtx, m, l))
+	if state != model.SendNone {
+		items = append(items, layout.Rigid(layout.Spacer{Width: 3}.Layout), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return sendStateMark(gtx, state, sendStateMarkSize, col)
+		}))
+	}
 	return layout.Flex{Alignment: layout.Middle}.Layout(gtx, items...)
 }
 

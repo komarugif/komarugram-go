@@ -140,6 +140,8 @@ type conversation struct {
 	firsts map[int64]int
 	// drafts are the messages bots stream: see drafts.go.
 	drafts streamedDrafts
+	// pending are the account's messages on their way.
+	pending pendingMessages
 }
 type viewSave struct {
 	view    model.Viewport
@@ -355,6 +357,9 @@ func (s *Store) rememberPeers(users []tg.UserClass, chats []tg.ChatClass) {
 				}
 				c.peers[key] = old
 			}
+			if u.Status != nil {
+				s.setPresence(u.ID, u.Status)
+			}
 			p := c.peers[key]
 			if photo, ok := u.Photo.(*tg.UserProfilePhoto); ok {
 				p.Photo = &avatarRecord{photo.PhotoID, photo.DCID, photo.HasVideo, photo.StrippedThumb}
@@ -534,7 +539,7 @@ func (s *Store) History(chat int64) model.History {
 	defer c.mu.Unlock()
 	if h := c.histories[chat]; h != nil {
 		out := *h
-		out.Messages = append([]model.Message(nil), h.Messages...)
+		out.Messages = append(append([]model.Message(nil), h.Messages...), c.pendingMessagesOf(chat, h.Messages)...)
 		return out
 	}
 	return model.History{LoadingOlder: true}
@@ -1199,6 +1204,12 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			s.setUnread(peerID(u.Peer), u.StillUnreadCount)
 		case *tg.UpdateReadChannelInbox:
 			s.setUnread(peerID(&tg.PeerChannel{ChannelID: u.ChannelID}), u.StillUnreadCount)
+		case *tg.UpdateReadHistoryOutbox:
+			s.setReadOutbox(peerID(u.Peer), u.MaxID)
+		case *tg.UpdateReadChannelOutbox:
+			s.setReadOutbox(peerID(&tg.PeerChannel{ChannelID: u.ChannelID}), u.MaxID)
+		case *tg.UpdateUserStatus:
+			s.setPresence(u.UserID, u.Status)
 		case *tg.UpdateNewMessage:
 			msg, fresh = u.Message, true
 		case *tg.UpdateNewChannelMessage:
@@ -1546,7 +1557,7 @@ func messagePreview(m model.Message, group bool) model.Preview {
 		}
 		return model.Preview{Service: &m}
 	}
-	p := model.Preview{Text: strings.Join(strings.Fields(m.Text), " "), Media: messageKindKey(m)}
+	p := model.Preview{Text: strings.Join(strings.Fields(m.Text), " "), Media: messageKindKey(m), ID: m.Key.MessageID, Sent: m.Outgoing}
 	if group {
 		p.Sender, p.Outgoing = m.SenderName, m.Outgoing
 		if m.Outgoing {
@@ -1589,6 +1600,20 @@ func richFallbackKey(p model.RichPage) string {
 		return "preview.location"
 	}
 	return ""
+}
+
+// setReadOutbox notes that the other side of chat id read the account's
+// messages up to upTo.
+func (s *Store) setReadOutbox(id int64, upTo int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	chats := append([]model.Chat(nil), s.chats...)
+	for i := range chats {
+		if chats[i].ID == id && model.MessageID(upTo) > chats[i].ReadOutbox {
+			chats[i].ReadOutbox = model.MessageID(upTo)
+		}
+	}
+	s.chats = chats
 }
 
 func (s *Store) setUnread(id int64, n int) {
@@ -1706,7 +1731,7 @@ func (s *Store) HistorySince(chat int64, revision uint64) (model.History, bool) 
 	out := *h
 	changed := revision == 0 || revision != h.Revision
 	if changed {
-		out.Messages = append(append([]model.Message(nil), h.Messages...), c.draftMessages(chat)...)
+		out.Messages = append(append(append([]model.Message(nil), h.Messages...), c.pendingMessagesOf(chat, h.Messages)...), c.draftMessages(chat)...)
 	} else {
 		out.Messages = nil
 	}

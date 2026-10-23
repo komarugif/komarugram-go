@@ -52,6 +52,8 @@ type Store struct {
 	// told when one goes further.
 	streams map[int64]*demoStream
 	changed func()
+	// presence is when the demo's users were online.
+	presence map[int64]model.Presence
 }
 
 // New returns a store with demo chats whose times are relative to now, and
@@ -61,25 +63,25 @@ func New(now time.Time, extra int) *Store {
 	day := 24 * time.Hour
 	chats := []model.Chat{
 		{ID: 1, Kind: model.KindSaved, Last: model.Preview{Text: "Список покупок на выходные"}, LastTime: ago(2 * time.Hour), Pinned: true},
-		{ID: 2, Kind: model.KindUser, Title: "Анна Смирнова", Last: model.Preview{Text: "До встречи в субботу!"}, LastTime: ago(5 * time.Minute), Unread: 2, Badges: model.Badges{Premium: true}},
+		{ID: 2, Kind: model.KindUser, Title: "Анна Смирнова", Last: model.Preview{Text: "До встречи в субботу!"}, LastTime: ago(5 * time.Minute), Unread: 2, ReadOutbox: demoReadOutbox, Badges: model.Badges{Premium: true}},
 		{ID: 3, Kind: model.KindGroup, Title: "Команда разработки", Last: model.Preview{Sender: "Игорь", Text: "Сборка прошла, можно выкатывать"}, LastTime: ago(20 * time.Minute), Unread: 14, Members: 12},
 		{ID: 4, Kind: model.KindChannel, Title: "Новости Go", Last: model.Preview{Text: "Вышел Go 1.27: что нового в стандартной библиотеке"}, LastTime: ago(3 * time.Hour), Unread: 5, Muted: true, Members: 48210, Badges: model.Badges{Verified: true}},
-		{ID: 5, Kind: model.KindUser, Title: "Мама", Last: model.Preview{Text: "Позвони, как освободишься"}, LastTime: ago(26 * time.Hour)},
+		{ID: 5, Kind: model.KindUser, Title: "Мама", Last: model.Preview{Text: "Позвони, как освободишься"}, LastTime: ago(26 * time.Hour), ReadOutbox: 1 << 20},
 		{ID: 6, Kind: model.KindBot, Title: "Погодный бот", Last: model.Preview{Text: "Завтра +18°, без осадков"}, LastTime: ago(9 * time.Hour), Unread: 1},
 		{ID: 7, Kind: model.KindGroup, Title: "Соседи по дому", Last: model.Preview{Sender: "Ольга", Text: "Кто-нибудь видел рыжего кота?"}, LastTime: ago(2 * day), Unread: 37, Muted: true, Members: 86},
 		{ID: 8, Kind: model.KindChannel, Title: "Material Design", Last: model.Preview{Text: "Expressive motion: новые токены пружинных анимаций"}, LastTime: ago(3 * day), Members: 15320, Badges: model.Badges{Verified: true}},
 		{ID: 9, Kind: model.KindUser, Title: "Дмитрий Козлов", Last: model.Preview{Text: "Скинул ссылку на репозиторий"}, LastTime: ago(4 * day), Badges: model.Badges{Premium: true}},
-		{ID: 10, Kind: model.KindGroup, Title: "Книжный клуб", Last: model.Preview{Outgoing: true, Text: "Предлагаю в этот раз фантастику"}, LastTime: ago(6 * day), Members: 9},
+		{ID: 10, Kind: model.KindGroup, Title: "Книжный клуб", Last: model.Preview{Outgoing: true, Sent: true, ID: 1, Text: "Предлагаю в этот раз фантастику"}, LastTime: ago(6 * day), Members: 9, ReadOutbox: 1},
 		{ID: 11, Kind: model.KindBot, Title: "Бот заметок", Last: model.Preview{Text: "Напоминание: оплатить интернет"}, LastTime: ago(8 * day), Badges: model.Badges{Scam: true}},
 		{ID: 12, Kind: model.KindUser, Title: "Екатерина", Last: model.Preview{Text: "Спасибо за помощь!"}, LastTime: ago(12 * day)},
 		{ID: 13, Kind: model.KindChannel, Title: "Фото природы", Last: model.Preview{Text: "Рассвет над Байкалом"}, LastTime: ago(15 * day), Muted: true, Members: 3021},
 		{ID: 14, Kind: model.KindGroup, Title: "Одногруппники", Last: model.Preview{Sender: "Павел", Text: "Встреча выпускников 20 сентября"}, LastTime: ago(20 * day), Members: 27},
-		{ID: 15, Kind: model.KindUser, Title: "Сергей Иванов", Last: model.Preview{Text: "Ок"}, LastTime: ago(40 * day), Badges: model.Badges{Fake: true}},
+		{ID: 15, Kind: model.KindUser, Title: "Сергей Иванов", Last: model.Preview{Sent: true, ID: 1, Text: "Ок"}, LastTime: ago(40 * day), Badges: model.Badges{Fake: true}},
 		{ID: DemoForum, Kind: model.KindGroup, Forum: true, Title: "Клуб Go: обсуждения", Last: model.Preview{Sender: "Игорь", Text: "Релиз в пятницу, кто берёт заметки?"}, LastTime: ago(35 * time.Minute), Unread: 9, Members: 240},
 	}
 	chats = append(chats, generate(now, extra, int64(len(chats)+1))...)
 	model.Renumbered(chats)
-	return &Store{chats: chats, created: now,
+	return &Store{chats: chats, created: now, presence: demoPresence(now),
 		// A chat of the demo has a theme set for all in it, as from Telegram.
 		chatThemes: map[int64]string{2: "🌷"}, me: model.Profile{
 			ID:        5000000001,

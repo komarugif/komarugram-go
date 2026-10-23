@@ -207,21 +207,23 @@ type chatPage struct {
 	forwarding forwardPicker
 	// toast tells, over the end of the history, what was done in the chat
 	// and what failed there.
-	toast     toast
-	images    *imageOps
-	revision  uint64
-	dates     []string
-	dayStart  []bool
-	joins     []bubbleJoin
-	nextDay   []int
-	avatar    avatarLayout
-	kind      model.ChatKind
-	direct    bool // the chat of a channel's direct messages
-	linkModal modal
-	source    model.ConversationStore
-	media     *chatmedia.Manager
-	animate   bool
-	chat      int64
+	toast    toast
+	images   *imageOps
+	revision uint64
+	dates    []string
+	dayStart []bool
+	joins    []bubbleJoin
+	nextDay  []int
+	avatar   avatarLayout
+	kind     model.ChatKind
+	// readOutbox is the newest of the account's messages the chat read.
+	readOutbox model.MessageID
+	direct     bool // the chat of a channel's direct messages
+	linkModal  modal
+	source     model.ConversationStore
+	media      *chatmedia.Manager
+	animate    bool
+	chat       int64
 	// forgot is the chat forget dropped, to be loaded again, not left.
 	forgot   int64
 	list     scroll.List
@@ -483,7 +485,7 @@ func (p *chatPage) save(force bool) {
 		return
 	}
 	pos := p.list.Position
-	if pos.First >= len(p.messages) || p.messages[pos.First].Streaming {
+	if pos.First >= len(p.messages) || p.messages[pos.First].Local() {
 		return
 	}
 	v := model.Viewport{ChatID: p.chat, AnchorMessageID: p.messages[pos.First].Key.MessageID, AnchorOffsetPx: pos.Offset, AtEnd: !pos.BeforeEnd, Environment: p.env, UpdatedAt: time.Now()}
@@ -613,7 +615,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.linkModal.Hide()
 	}
 	p.keyboardEvents(gtx, l)
-	p.kind, p.title, p.direct = c.Kind, c.Title, c.DirectMessages
+	p.kind, p.title, p.direct, p.readOutbox = c.Kind, c.Title, c.DirectMessages, c.ReadOutbox
 	p.menuUpdate(gtx, l)
 	p.updateForward(l)
 	p.source.OpenChat(c.ID)
@@ -662,7 +664,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	}
 	p.historyWidth = size.X
 	theme := uint32(sc.Surface.Color.AsNRGBA().R)<<16 | uint32(sc.Surface.Color.AsNRGBA().G)<<8 | uint32(sc.Surface.Color.AsNRGBA().B)
-	env := model.RenderEnvironment{WidthPx: size.X, ScaleMilli: int(gtx.Metric.PxPerDp * 1000), TextScaleMilli: int(gtx.Metric.PxPerSp * 1000), Locale: string(l.Language()), FontRevision: fonts.Revision(), ThemeRevision: theme, RendererRevision: 17}
+	env := model.RenderEnvironment{WidthPx: size.X, ScaleMilli: int(gtx.Metric.PxPerDp * 1000), TextScaleMilli: int(gtx.Metric.PxPerSp * 1000), Locale: string(l.Language()), FontRevision: fonts.Revision(), ThemeRevision: theme, RendererRevision: rendererRevision(gtx)}
 	if p.trace != nil {
 		p.trace.History.Environment = fmt.Sprintf("width:%d dp:%d sp:%d locale:%s font:%d theme:%x renderer:%d", env.WidthPx, env.ScaleMilli, env.TextScaleMilli, env.Locale, env.FontRevision, env.ThemeRevision, env.RendererRevision)
 	}
@@ -681,12 +683,12 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		}
 		// A message the composer sent, at the end of a history that shows its
 		// end, flies to its place.
-		var prevLast model.MessageID
-		if n := len(p.messages); n > 0 && p.restored && !p.list.Position.BeforeEnd {
-			prevLast = p.messages[n-1].Key.MessageID
+		var prev []model.Message
+		if p.restored && !p.list.Position.BeforeEnd {
+			prev = p.messages
 		}
 		p.rebuild(history.Messages, env)
-		p.startFlights(gtx, prevLast, animate)
+		p.startFlights(gtx, prev, animate)
 	}
 	p.updateBot(c, history)
 	v, anchored := p.source.Viewport(c.ID)
@@ -798,8 +800,9 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 				}
 				measurement := model.MessageLayout{Key: msg.Key, Environment: env, ContentRevision: msg.ContentRevision, HeightPx: dims.Size.Y, MeasuredAt: time.Now()}
 				p.measures[msg.Key.MessageID] = measurement
-				if !msg.Streaming {
-					// The cache keeps no layout of a draft a bot streams.
+				if !msg.Local() {
+					// The cache keeps no layout of a draft a bot streams, or
+					// of a message on its way.
 					p.dirty[msg.Key.MessageID] = measurement
 				}
 				p.heights.Set(i, dims.Size.Y)

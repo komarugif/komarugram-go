@@ -59,7 +59,9 @@
 "badge.komaru_supporter" = "{name} supported KomaruGram and received a unique badge.";
 
 "badges.hide" = "Hide badges of exteraGram, AyuGram and KomaruGram";
+"badges.hide_arrows" = "Arrows of exteraGram and AyuGram";
 "badges.hide_body" = "The arrow and the cat's face beside the names of the developers and supporters of those clients. They come from lists the clients keep: this app reads them from their servers unless you hide the badges.";
+"badges.hide_faces" = "Komaru faces of KomaruGram";
 
 "bot.failed" = "Could not press the button";
 "bot.hide_keyboard" = "Hide keyboard";
@@ -1571,6 +1573,8 @@
 "settings.theme_light" = "Light";
 "settings.title" = "Settings";
 "settings.toasts_blur" = "Blur behind the toasts";
+"settings.visibility" = "Visibility";
+"settings.visibility_hint" = "Ghost mode, filters and deleted messages";
 "settings.window_blur" = "Blur behind the main window";
 "settings.window_transparency" = "Main window transparency";
 "settings.window_transparency_hint" = "The backgrounds of the sidebar, chat list and chat header. Text and avatars stay opaque. Works on Wayland, Windows and macOS. On Wayland blur depends on the compositor; on Windows 10 and 11 a window with it draws its own frame in place of the system one.";
@@ -1626,6 +1630,18 @@
 "size.megabytes" = "MB";
 
 "status.bot" = "bot";
+"status.last_month" = "last seen within a month";
+"status.last_week" = "last seen within a week";
+"status.lastseen_date" = "last seen {date}";
+"status.lastseen_date_time" = "last seen {date} at {time}";
+"status.lastseen_hours" = "last seen {count} hours ago";
+"status.lastseen_hours#one" = "last seen {count} hour ago";
+"status.lastseen_minutes" = "last seen {count} minutes ago";
+"status.lastseen_minutes#one" = "last seen {count} minute ago";
+"status.lastseen_now" = "last seen just now";
+"status.lastseen_today" = "last seen today at {time}";
+"status.lastseen_yesterday" = "last seen yesterday at {time}";
+"status.long_ago" = "last seen a long time ago";
 "status.member_few" = "members";
 "status.member_many" = "members";
 "status.member_one" = "member";
@@ -1640,6 +1656,7 @@
 "status.subscriber_one" = "subscriber";
 "status.subscribers" = "{count} subscribers";
 "status.subscribers#one" = "{count} subscriber";
+"status.user_online" = "online";
 
 "sticker_player.audio_hint" = "The WASM sandbox can play Opus, MP3, FLAC, WAV and M4A without other programs; anything else opens in the external player.";
 "sticker_player.audio_title" = "Player of voice messages and music";
@@ -1725,6 +1742,11 @@
 "viewer.saved" = "Photo saved: {path}";
 "viewer.video" = "Video";
 "viewer.window" = "Photo";
+
+"visibility.calm" = "Hide events that distract attention";
+"visibility.calm_body" = "Hides what you choose below. The clock of a message not delivered yet always shows.";
+"visibility.calm_online" = "Online status and last seen time";
+"visibility.calm_read" = "Delivery and read checks of messages";
 
 "weekday.0" = "Sun";
 "weekday.1" = "Mon";

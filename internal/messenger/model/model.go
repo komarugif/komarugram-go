@@ -40,6 +40,10 @@ type Preview struct {
 	Emoji string `json:",omitempty"`
 	// Service is the message when it is a service one.
 	Service *Message `json:",omitempty"`
+	// ID is the message's; Sent is set when the account sent it, in any
+	// chat, for the list to mark whether it was read.
+	ID   MessageID `json:",omitempty"`
+	Sent bool      `json:",omitempty"`
 }
 
 type Chat struct {
@@ -52,7 +56,10 @@ type Chat struct {
 	Last     Preview
 	LastTime time.Time
 	Unread   int
-	Muted    bool
+	// ReadOutbox is the newest of the account's messages the other side
+	// read; those before it are read too.
+	ReadOutbox MessageID `json:",omitempty"`
+	Muted      bool
 	// Pinned chats stay at the top of the list, in the order PinRank gives:
 	// 1 for the first, 0 for a chat that is not pinned.
 	Pinned  bool

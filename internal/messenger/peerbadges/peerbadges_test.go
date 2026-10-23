@@ -3,7 +3,10 @@
 package peerbadges
 
 import (
+	"context"
+	"errors"
 	"image/color"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -120,3 +123,37 @@ func TestSubscribersAreTold(t *testing.T) {
 		t.Fatalf("called %d times, want once", n)
 	}
 }
+
+// A round reads only the lists of the marks shown: none of the arrows'
+// while they are hidden, none of the faces' while those are.
+func TestRefreshReadsOnlyTheListsShown(t *testing.T) {
+	var asked []string
+	r := New("")
+	r.client = &http.Client{Transport: roundTrip(func(req *http.Request) (*http.Response, error) {
+		asked = append(asked, req.URL.Host)
+		return nil, errors.New("offline")
+	})}
+	r.Refresh(context.Background(), false, true)
+	for _, host := range asked {
+		if host != "gist.githubusercontent.com" {
+			t.Fatalf("the faces alone asked %s", host)
+		}
+	}
+	if len(asked) == 0 {
+		t.Fatal("the faces' lists were not asked for")
+	}
+	asked = nil
+	r.Refresh(context.Background(), true, false)
+	for _, host := range asked {
+		if host == "gist.githubusercontent.com" {
+			t.Fatal("the arrows alone asked for the faces' lists")
+		}
+	}
+	if len(asked) == 0 {
+		t.Fatal("the arrows' list was not asked for")
+	}
+}
+
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }

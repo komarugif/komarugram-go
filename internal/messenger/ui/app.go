@@ -413,6 +413,26 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		}
 		w.Invalidate()
 	}
+	a.settings.calm = func() preferences.Calm { return a.preferences.Global().Calm }
+	a.settings.setCalm = func(c preferences.Calm) {
+		if err := services.Preferences.SetCalm(c); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+		w.Invalidate()
+	}
+	a.settings.keepPeerBadges = func() (bool, bool) {
+		g := a.preferences.Global()
+		return g.KeepPeerArrows, g.KeepPeerFaces
+	}
+	a.settings.setKeepPeerBadges = func(arrows, faces bool) {
+		if err := services.Preferences.SetKeepPeerBadges(arrows, faces); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+		if a.peerBadges != nil {
+			a.peerBadges.Wake()
+		}
+		w.Invalidate()
+	}
 	a.settings.localPremium = func() bool { return a.preferences.Global().LocalPremium }
 	a.settings.setLocalPremium = func(on bool) {
 		if err := services.Preferences.SetLocalPremium(on); err != nil {
@@ -583,6 +603,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.info.drawAvatar = a.layoutAvatar
 		a.avatars = newAvatarImages(source, w.Invalidate)
 		a.chats.avatar = a.layoutAvatar
+		a.chats.presence, _ = source.(model.PresenceSource)
 		a.viewer = newMediaViewer(source, &a.images, w.Invalidate)
 		a.viewer.shortcuts = a.shortcutPrefs
 		a.history = a.newChatPage(source, store, w)
@@ -1144,6 +1165,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	}
 	withWindowSurfaceOpacity(gtx, a.preferences.Global().WindowTransparency, transparent)
 	withLook(gtx, a.preferences.Global().Look)
+	withCalm(gtx, a.preferences.Global().Calm)
 	withShadowIntensity(gtx, a.preferences.Global().Overlays.Shadow)
 	if trace := diagnostics.From(gtx.Values); trace != nil && trace.Recorder.Due(trace.Window, "cache-gauges", time.Second) {
 		defer func() {

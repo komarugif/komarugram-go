@@ -50,7 +50,7 @@ func (staticAccounts) Subscribe(func()) func()    { return func() {} }
 
 // TestRenderSettingsAccounts draws the main settings page with a list of
 // saved accounts and saves a screenshot, for looking at it. SETTINGS_SECTION=appearance,
-// chats, notify, privacy, integrations, power or about draws that section instead; wallpapers,
+// chats, notify, privacy, visibility, integrations, power or about draws that section instead; wallpapers,
 // the chats' section under the gallery of wallpapers:
 //
 //	SETTINGS_PNG=/tmp/settings.png go test ./internal/messenger/ui -run RenderSettingsAccounts
@@ -232,9 +232,21 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		p.shownAccounts = p.accounts.All()
 		size.Y = 1100
 	}
-	if os.Getenv("SETTINGS_SECTION") == "privacy" {
+	if section := os.Getenv("SETTINGS_SECTION"); section == "privacy" || section == "visibility" {
 		p.section = settingsPrivacy
-		size.Y = 2300
+		size.Y = 1300
+		if section == "visibility" {
+			p.section = settingsVisibility
+			size.Y = 2500
+		}
+		calm := preferences.Calm{On: true, KeepOnline: true}
+		p.calm = func() preferences.Calm { return calm }
+		p.setCalm = func(c preferences.Calm) { calm = c }
+		hideBadges, keepArrows, keepFaces := true, false, true
+		p.hidePeerBadges = func() bool { return hideBadges }
+		p.setHidePeerBadges = func(on bool) { hideBadges = on }
+		p.keepPeerBadges = func() (bool, bool) { return keepArrows, keepFaces }
+		p.setKeepPeerBadges = func(arrows, faces bool) { keepArrows, keepFaces = arrows, faces }
 		ghost := preferences.Ghost{ReadOnInteract: true}
 		p.ghost = func() preferences.Ghost { return ghost }
 		p.setGhost = func(g preferences.Ghost) { ghost = g }
@@ -245,6 +257,12 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		p.filtersView.filters = func() preferences.Filters { return filters }
 		p.filtersView.setFilters = func(f preferences.Filters) { filters = f }
 		p.filtersView.remove = make([]surface, 2)
+	}
+	if os.Getenv("SETTINGS_SECTION") == "main" {
+		// The main page lists the Visibility section, between the chats'
+		// and the notifications'.
+		calm := preferences.Calm{}
+		p.calm = func() preferences.Calm { return calm }
 	}
 	if os.Getenv("SETTINGS_SECTION") == "premium" {
 		// An account without Premium that has Local Premium on.

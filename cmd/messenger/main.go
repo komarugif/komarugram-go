@@ -600,7 +600,13 @@ func openPeerBadges(prefs *preferences.Store) *peerbadges.Registry {
 		dir = filepath.Join(config, "komarugram-go", "peer_badges")
 	}
 	reg := peerbadges.New(dir)
-	reg.Start(context.Background(), func() bool { return prefs == nil || !prefs.Global().HidePeerBadges })
+	reg.Start(context.Background(), func() (arrows, faces bool) {
+		if prefs == nil {
+			return true, true
+		}
+		g := prefs.Global()
+		return !g.HidesPeerArrows(), !g.HidesPeerFaces()
+	})
 	return reg
 }
 

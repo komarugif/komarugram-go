@@ -77,6 +77,12 @@ type Global struct {
 	// beside names (package peerbadges), and keeps the client from reading
 	// their lists.
 	HidePeerBadges bool `json:"hide_peer_badges,omitempty"`
+	// KeepPeerArrows keeps the arrows of exteraGram and AyuGram, and
+	// KeepPeerFaces the Komaru faces, while HidePeerBadges hides the rest.
+	KeepPeerArrows bool `json:"keep_peer_arrows,omitempty"`
+	KeepPeerFaces  bool `json:"keep_peer_faces,omitempty"`
+	// Calm hides what others do that draws the eye.
+	Calm Calm `json:"calm"`
 	// PremiumMedia has the WebSocket connections for files go to the address
 	// Telegram's web clients take them to for Premium accounts, which no other
 	// account is known to need: a lever for those who have Premium to try.
@@ -624,6 +630,43 @@ func (s *Store) SetLocalPremium(on bool) error {
 // beside names, or shows them.
 func (s *Store) SetHidePeerBadges(on bool) error {
 	return s.change(func(g *Global) { g.HidePeerBadges = on })
+}
+
+// SetKeepPeerBadges keeps the arrows of exteraGram and AyuGram, and the
+// Komaru faces, while the marks are hidden, or hides them too.
+func (s *Store) SetKeepPeerBadges(arrows, faces bool) error {
+	return s.change(func(g *Global) { g.KeepPeerArrows, g.KeepPeerFaces = arrows, faces })
+}
+
+// HidesPeerArrows reports whether the arrows of exteraGram and AyuGram are
+// hidden, and their list not read.
+func (g Global) HidesPeerArrows() bool { return g.HidePeerBadges && !g.KeepPeerArrows }
+
+// HidesPeerFaces reports whether the Komaru faces are hidden, and their
+// lists not read.
+func (g Global) HidesPeerFaces() bool { return g.HidePeerBadges && !g.KeepPeerFaces }
+
+// Calm is the hiding of what others do that draws the eye: who is online
+// and when they were last, and whether messages sent were delivered and
+// read. The clock of a message not delivered yet always shows.
+type Calm struct {
+	// On hides what the Keep switches leave.
+	On bool `json:"on,omitempty"`
+	// KeepOnline keeps showing who is online; KeepRead, the checks of
+	// messages delivered and read.
+	KeepOnline bool `json:"keep_online,omitempty"`
+	KeepRead   bool `json:"keep_read,omitempty"`
+}
+
+// HidesOnline reports whether who is online is hidden.
+func (c Calm) HidesOnline() bool { return c.On && !c.KeepOnline }
+
+// HidesRead reports whether the checks of messages are hidden.
+func (c Calm) HidesRead() bool { return c.On && !c.KeepRead }
+
+// SetCalm changes what of others is hidden.
+func (s *Store) SetCalm(c Calm) error {
+	return s.change(func(g *Global) { g.Calm = c })
 }
 
 // SetPremiumMedia switches the Premium address for files over WebSocket.

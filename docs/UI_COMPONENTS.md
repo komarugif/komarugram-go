@@ -412,8 +412,12 @@ size-stability fixes remain in place.
   composer to its place while it fades in (300 ms); the rest of the history
   moves at once. The composer notes each send (`noteSent`) and the page takes
   a note for each message of the user that comes (an outgoing one, or any in
-  Saved Messages, where Telegram does not mark them outgoing), so one from
-  another device does not fly. With the animations off, by the setting or the window, or
+  Saved Messages, where Telegram does not mark them outgoing). A text message
+  shows on its way, with a clock (`Message.Sending`), and flies; the message
+  Telegram makes of it goes on with the same flight. Any other message that
+  comes at the end (of other users, from another device) rises 24 dp to its
+  place as it fades in, when it is less than two minutes old: older ones come
+  with pages. With the animations off, by the setting or the window, or
   when the history is not at its end, the message is in its place at once.
 - **Composer picker** (`composer_picker.go`): installed sticker/emoji packs and
   a Trending section for server-featured packs. A featured sticker is sent

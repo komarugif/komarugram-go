@@ -42,8 +42,11 @@ type chatList struct {
 	avatar avatarLayout
 	// badges draw the marks around a chat's name: see App.badges.
 	badges badgesLayout
-	list   scroll.List
-	rows   map[int64]*chatRow
+	// presence tells when the users of private chats were online, for the
+	// dot on their avatars; nil for none.
+	presence model.PresenceSource
+	list     scroll.List
+	rows     map[int64]*chatRow
 	// shown are the chats laid out in the last frame; only they can have
 	// been clicked.
 	shown  []int64
@@ -379,6 +382,13 @@ func (l *chatList) layoutRowWith(gtx layout.Context, r *surface, c model.Chat, s
 			}
 			return avatar(gtx, c.ID, c.Kind, catalog.ChatTitle(c), chatAvatarSize)
 		})
+		if l.online(gtx, c) {
+			ring := sc.Surface.Color
+			if selected {
+				ring = sc.Primary.Color
+			}
+			drawOnlineDot(gtx, image.Pt(avatarX, avatarY), avatarPx, ring)
+		}
 
 		badgeBackground, badgeText := sc.Primary.Color, sc.Primary.OnColor
 		if c.Muted {
@@ -412,12 +422,29 @@ func (l *chatList) layoutRowText(gtx layout.Context, c model.Chat, area image.Re
 	width := area.Dx()
 	gtx.Constraints = layout.Constraints{Max: image.Pt(width, area.Dy())}
 
-	// Top line: title and time.
+	// Top line: title, and the time with the mark of whether the last
+	// message, the account's, was read.
 	timeDims, timeCall := measure(func(gtx layout.Context) layout.Dimensions {
 		if c.LastTime.IsZero() {
 			return layout.Dimensions{} // A chat found by a search.
 		}
-		return label(gtx, chatTime(c.LastTime, now, catalog), token.TypestyleLabelSmall, textColor, 1)
+		state := c.LastSendState()
+		if calmOf(gtx)&calmRead != 0 && state != model.SendSending {
+			state = model.SendNone
+		}
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if state == model.SendNone {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Right: 3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return sendStateMark(gtx, state, sendStateMarkSize, accent)
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, chatTime(c.LastTime, now, catalog), token.TypestyleLabelSmall, textColor, 1)
+			}),
+		)
 	})
 	titleGtx := gtx
 	titleGtx.Constraints.Max.X = max(width-timeDims.Size.X-gtx.Dp(8), 0)
@@ -483,6 +510,20 @@ func (l *chatList) layoutRowText(gtx layout.Context, c model.Chat, area image.Re
 	offset(messageGtx, image.Pt(x, lineY), func(gtx layout.Context) layout.Dimensions {
 		return label(gtx, message, token.TypestyleBodyMedium, textColor, 1)
 	})
+}
+
+// online reports whether the row of c marks its user online, and has the
+// window drawn again when that changes.
+func (l *chatList) online(gtx layout.Context, c model.Chat) bool {
+	if l.presence == nil || c.Kind != model.KindUser || calmOf(gtx)&calmOnline != 0 {
+		return false
+	}
+	p, ok := l.presence.Presence(c.ID)
+	if !ok || !p.Online(gtx.Now) {
+		return false
+	}
+	gtx.Execute(op.InvalidateCmd{At: p.At})
+	return true
 }
 
 // chatKindIcon is the mark of a chat's kind, nil for private chats.

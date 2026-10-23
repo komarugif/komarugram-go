@@ -287,6 +287,7 @@ func (s *Store) Send(ctx context.Context, chat int64, msg model.OutgoingMessage)
 	if err := msg.Validate(); err != nil {
 		return err
 	}
+	shown := chat
 	s.history.mu.Lock()
 	// A comment goes to the discussion group, as a reply in the thread.
 	general := s.history.isTopic(chat) && s.history.threads[chat].top == model.GeneralTopic
@@ -386,6 +387,11 @@ func (s *Store) Send(ctx context.Context, chat int64, msg model.OutgoingMessage)
 	}
 	var res tg.UpdatesClass
 	var err error
+	var pending *pendingMessage
+	if pendingText(msg) {
+		pending = s.addPending(shown, msg)
+		defer s.dropPending(pending)
+	}
 	if media != nil {
 		caption := msg.Text
 		if len(msg.Tasks) > 0 {
@@ -403,6 +409,13 @@ func (s *Store) Send(ctx context.Context, chat int64, msg model.OutgoingMessage)
 	}
 	if err != nil {
 		return fmt.Errorf("send: %w", err)
+	}
+	if id := sentID(res, msg.RandomID); pending != nil && id != 0 {
+		// It stands in for the message only until that is in the history:
+		// never both at once.
+		s.history.mu.Lock()
+		s.history.sentPending(pending, id)
+		s.history.mu.Unlock()
 	}
 	// Once the message is in the history, the chat may be read up to it.
 	defer s.readOnInteract(chat)

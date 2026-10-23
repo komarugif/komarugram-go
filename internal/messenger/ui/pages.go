@@ -66,8 +66,13 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 	pad := gtx.Dp(16)
 	imagePx := gtx.Dp(chatHeaderImage)
 	title, status := c.Title, chatStatus(c, l)
+	statusColor := sc.SurfaceVariant.OnColor
 	if selection != nil {
-		status = selection.chatStatusOnline(c, gtx.Now, l)
+		var active bool
+		status, active = selection.chatStatusLine(gtx, c, false, l)
+		if active {
+			statusColor = sc.Primary.Color
+		}
 	}
 	infoPx := 0
 	if head != nil {
@@ -95,6 +100,7 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 		}
 	} else {
 		title, status = head.title, head.subtitle
+		statusColor = sc.SurfaceVariant.OnColor
 		// The back button takes the avatar's place; it is laid out last,
 		// over the header's own click.
 		pad = gtx.Dp(8)
@@ -118,7 +124,7 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 		}, after)
 	})
 	offset(textGtx, image.Pt(textX, gtx.Dp(30)), func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, status, token.TypestyleBodySmall, sc.SurfaceVariant.OnColor, 1)
+		return label(gtx, status, token.TypestyleBodySmall, statusColor, 1)
 	})
 	offset(gtx, image.Pt(0, header.Y), func(gtx layout.Context) layout.Dimensions {
 		fillRect(gtx, sc.OutlineVariant, image.Pt(size.X, gtx.Dp(1)))

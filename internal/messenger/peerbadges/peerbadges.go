@@ -174,16 +174,17 @@ func (r *Registry) Lookup(id int64) Mark {
 	return m
 }
 
-// Start reads the lists now and again every hour, until ctx is done, while
-// enabled says so; Wake asks for a round at once, such as when it turns true.
-func (r *Registry) Start(ctx context.Context, enabled func() bool) {
+// Start reads the lists now and again every hour, until ctx is done: those
+// of the arrows and of the faces while enabled says so of them; Wake asks
+// for a round at once, such as when it turns true.
+func (r *Registry) Start(ctx context.Context, enabled func() (arrows, faces bool)) {
 	go func() {
 		for {
-			if enabled() {
+			if arrows, faces := enabled(); arrows || faces {
 				func() {
 					// A round that panics is tried again at the next.
 					defer crash.Recover("peer badges", nil)
-					r.Refresh(ctx)
+					r.Refresh(ctx, arrows, faces)
 				}()
 			}
 			select {
@@ -204,21 +205,25 @@ func (r *Registry) Wake() {
 	}
 }
 
-// Refresh reads the lists once. A list that cannot be read stays as it was,
-// rather than dropping every mark of it.
-func (r *Registry) Refresh(ctx context.Context) {
+// Refresh reads the lists once: that of the arrows, and those of the
+// faces. A list that cannot be read stays as it was, rather than dropping
+// every mark of it.
+func (r *Registry) Refresh(ctx context.Context, arrows, faces bool) {
 	changed := false
-	body, err := r.get(ctx, ayuURL)
-	if err != nil {
-		body, err = r.get(ctx, exteraURL)
-	}
-	if err == nil {
-		if r.applyAyu(body) {
+	if arrows {
+		body, err := r.get(ctx, ayuURL)
+		if err != nil {
+			body, err = r.get(ctx, exteraURL)
+		}
+		if err == nil && r.applyAyu(body) {
 			r.save("ayu_rc.json", body)
 			changed = true
 		}
 	}
 	for _, name := range komaruNames {
+		if !faces {
+			break
+		}
 		body, err := r.get(ctx, komaruBase+name)
 		if err != nil {
 			continue

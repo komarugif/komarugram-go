@@ -248,7 +248,8 @@ func (p *chatInfo) layoutCover(gtx layout.Context, l localization.Catalog, anima
 	}, after)
 	name := macro.Stop()
 	macro = op.Record(gtx.Ops)
-	statusDims := centeredStatus(textGtx, p.renderer.chatStatusOnline(p.chat, gtx.Now, l), textColor.SetOpacity(.75))
+	statusLine, _ := p.renderer.chatStatusLine(gtx, p.chat, true, l)
+	statusDims := centeredStatus(textGtx, statusLine, textColor.SetOpacity(.75))
 	status := macro.Stop()
 
 	avatar := gtx.Dp(pageAvatarSize)

@@ -64,6 +64,7 @@ type Store struct {
 	reactions     reactionState
 	recent        recentChats
 	ghost         ghostState
+	presence      presences
 	blocked       blockedState
 	bots          botState
 	// dialogsLoading: loadDialogs runs.
@@ -360,9 +361,10 @@ func messagePeer(m tg.MessageClass) (tg.PeerClass, bool) {
 func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 	id := peerID(d.Peer)
 	chat := model.Chat{
-		ID:     id,
-		Unread: d.UnreadCount,
-		Pinned: d.Pinned,
+		ID:         id,
+		Unread:     d.UnreadCount,
+		Pinned:     d.Pinned,
+		ReadOutbox: model.MessageID(d.ReadOutboxMaxID),
 	}
 	chat.Muted = mutedNow(d.NotifySettings)
 	if d.Pinned {
@@ -411,6 +413,10 @@ func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 		chat.Last, chat.LastTime = preview(m)
 		if service, ok := m.(*tg.MessageService); ok {
 			chat.Last = model.Preview{Service: l.serviceMessage(service)}
+		}
+		chat.Last.ID = model.MessageID(d.TopMessage)
+		if msg, ok := m.(*tg.Message); ok {
+			chat.Last.Sent = msg.Out
 		}
 		if chat.Kind == model.KindGroup {
 			chat.Last.Sender, chat.Last.Outgoing = l.sender(m)

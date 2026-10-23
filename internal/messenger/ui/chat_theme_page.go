@@ -459,7 +459,7 @@ func themeScene(gtx layout.Context, images *imageOps, im image.Image, style *mod
 						}),
 						vspace(2),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return messageFooter(gtx, m, l, false)
+							return messageFooter(gtx, m, l, false, previewSendState(gtx, m))
 						}),
 					)
 				})

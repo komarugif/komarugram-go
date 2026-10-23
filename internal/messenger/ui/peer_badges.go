@@ -51,7 +51,12 @@ func (a *App) badgeClickable(key badgeKey) *widget.Clickable {
 // of exteraGram and AyuGram, or the custom emoji it gives. A click on one
 // tells what it means in a toast.
 func (a *App) peerMarks(b model.Badges, name string, size unit.Dp) []layout.Widget {
-	if a.peerBadges == nil || a.preferences.Global().HidePeerBadges {
+	if a.peerBadges == nil {
+		return nil
+	}
+	g := a.preferences.Global()
+	hideArrows, hideFaces := g.HidesPeerArrows(), g.HidesPeerFaces()
+	if hideArrows && hideFaces {
 		return nil
 	}
 	id := b.User
@@ -64,6 +69,12 @@ func (a *App) peerMarks(b model.Badges, name string, size unit.Dp) []layout.Widg
 	}
 	channel := b.Channel != 0
 	var marks []layout.Widget
+	if hideFaces {
+		mark.Developer, mark.Supporter = nil, nil
+	}
+	if hideArrows {
+		mark.Arrow, mark.Emoji = peerbadges.NoArrow, 0
+	}
 	if face := mark.Developer; face != nil {
 		text := "badge.komaru_developer"
 		if channel {
