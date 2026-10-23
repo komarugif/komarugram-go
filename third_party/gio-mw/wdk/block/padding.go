@@ -122,11 +122,3 @@ func (p Padding) layoutWidget(gtx layout.Context, widget layout.Widget) (layout.
 		Size:     widgetDimensions.Size.Add(extraSpace),
 	}, offsetPoint
 }
-
-func (p Padding) getClipBaseline(gtx layout.Context, originalBaseline int, clipMaxY int) int {
-	topOffset := gtx.Constraints.Max.Y - originalBaseline
-	if topOffset <= clipMaxY {
-		return clipMaxY - topOffset
-	}
-	return 0
-}

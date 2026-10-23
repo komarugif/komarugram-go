@@ -10,6 +10,8 @@
 "audio.volume" = "lng_ringtones_box_volume";
 "audio.yesterday" = "lng_player_message_yesterday";
 
+"bot.hide_keyboard" = "lng_bot_keyboard_hide";
+"bot.show_keyboard" = "lng_bot_keyboard_show";
 "bot.start" = "lng_bot_start";
 
 "call.cancelled" = "lng_call_cancelled";
@@ -71,7 +73,13 @@
 "comments.none" = "lng_comments_open_none";
 "comments.open" = "lng_comments_open_count";
 
+"composer.direct_messages" = "lng_profile_direct_messages";
 "composer.discussion" = "lng_profile_view_discussion";
+"composer.edit_cancel" = "lng_cancel";
+"composer.edit_deleted" = "lng_edit_deleted";
+"composer.edit_error" = "lng_edit_error";
+"composer.edit_limit" = "lng_edit_limit_reached";
+"composer.edit_title" = "lng_edit_message";
 "composer.emoji_category1" = "lng_emoji_category1";
 "composer.emoji_category2" = "lng_emoji_category2";
 "composer.emoji_category3" = "lng_emoji_category3";
@@ -80,10 +88,10 @@
 "composer.emoji_category6" = "lng_emoji_category6";
 "composer.emoji_category7" = "lng_emoji_category7";
 "composer.featured" = "lng_stickers_featured_tab";
-"composer.mute" = "lng_mute_menu_mute";
+"composer.gift" = "lng_gift_channel_title";
 "composer.reply_remove" = "lng_reply_remove";
 "composer.reply_to" = "lng_preview_reply_to";
-"composer.unmute" = "lng_mute_menu_unmute";
+"composer.save" = "lng_settings_save";
 
 "date.calendar" = "lng_context_add_to_calendar";
 "date.copied" = "lng_date_copied";
@@ -140,6 +148,13 @@
 "delete.self_hint" = "lng_delete_for_me_chat_hint";
 "delete.sure" = "lng_selected_delete_sure";
 
+"downloads.delete" = "lng_context_delete_from_disk";
+"downloads.delete_in_cloud" = "lng_downloads_delete_in_cloud";
+"downloads.delete_in_cloud_one" = "lng_downloads_delete_in_cloud_one";
+"downloads.delete_sure" = "lng_downloads_delete_sure";
+"downloads.delete_sure_one" = "lng_downloads_delete_sure_one";
+"downloads.show_in_folder" = "lng_context_show_in_folder";
+"downloads.view_in_chat" = "lng_downloads_view_in_chat";
 "drop.as_files" = "lng_drag_to_send_files";
 "drop.as_media" = "lng_drag_to_send_media";
 "drop.files_here" = "lng_drag_files_here";
@@ -174,6 +189,22 @@
 "files.invalid" = "lng_send_media_invalid_files";
 "files.quality" = "lng_send_high_quality";
 "files.video" = "lng_send_video";
+
+"format.bold" = "lng_menu_formatting_bold";
+"format.clear" = "lng_menu_formatting_clear";
+"format.italic" = "lng_menu_formatting_italic";
+"format.link" = "lng_menu_formatting_link_create";
+"format.link_create" = "lng_formatting_link_create";
+"format.link_edit" = "lng_menu_formatting_link_edit";
+"format.link_edit_title" = "lng_formatting_link_edit_title";
+"format.link_text" = "lng_formatting_link_text";
+"format.link_title" = "lng_formatting_link_create_title";
+"format.link_url" = "lng_formatting_link_url";
+"format.monospace" = "lng_menu_formatting_monospace";
+"format.quote" = "lng_menu_formatting_blockquote";
+"format.spoiler" = "lng_menu_formatting_spoiler";
+"format.strike" = "lng_menu_formatting_strike_out";
+"format.underline" = "lng_menu_formatting_underline";
 
 "forum.loading" = "lng_contacts_loading";
 "forum.messages" = "lng_forum_messages";
@@ -227,6 +258,13 @@
 "history.video" = "lng_in_dlg_video";
 "history.voice" = "lng_in_dlg_audio";
 
+"info.collectible_copy" = "lng_collectible_username_copy";
+"info.collectible_info" = "lng_collectible_username_info";
+"info.collectible_more" = "lng_collectible_learn_more";
+"info.collectible_title" = "lng_collectible_username_title";
+
+"links.channel_not_accessible" = "lng_channel_not_accessible";
+"links.group_not_accessible" = "lng_group_not_accessible";
 "links.invite_bad" = "lng_group_invite_bad_link";
 "links.join_channel" = "lng_profile_join_channel";
 "links.join_group" = "lng_profile_join_group";
@@ -241,12 +279,23 @@
 "login.next" = "lng_intro_next";
 "login.password_invalid" = "lng_signin_bad_password";
 "login.phone_invalid" = "lng_bad_phone";
+"login.qr_step1" = "lng_intro_qr_step1";
+"login.qr_step2" = "lng_intro_qr_step2";
+"login.qr_step3" = "lng_intro_qr_step3";
 "login.title_password" = "lng_signin_title";
+"login.title_qr" = "lng_intro_qr_title";
+"login.use_phone" = "lng_intro_qr_phone";
+"login.use_qr" = "lng_phone_to_qr";
 
+"membership.apply" = "lng_profile_apply_to_join_group";
+"membership.full" = "lng_group_full";
 "membership.join" = "lng_profile_join_channel";
+"membership.join_group" = "lng_profile_join_group";
 "membership.leave" = "lng_box_leave";
 "membership.leave_channel" = "lng_profile_leave_channel";
 "membership.leave_group" = "lng_profile_leave_group";
+"membership.request_sent" = "lng_group_request_sent";
+"membership.request_sent_channel" = "lng_group_request_sent_channel";
 "membership.sure_channel" = "lng_sure_leave_channel";
 "membership.sure_group" = "lng_sure_leave_group";
 
@@ -257,6 +306,7 @@
 "menu.copy_text" = "lng_context_copy_text";
 "menu.delete" = "lng_context_delete_msg";
 "menu.delete_selected" = "lng_context_delete_selected";
+"menu.edit" = "lng_context_edit_msg";
 "menu.emoji_pack" = "lng_context_animated_emoji";
 "menu.emoji_packs" = "lng_context_animated_emoji_many";
 "menu.forward" = "lng_context_forward_msg";
@@ -265,10 +315,12 @@
 "menu.private_link" = "lng_context_about_private_link";
 "menu.reacted" = "lng_context_seen_reacted";
 "menu.reply" = "lng_context_reply_msg";
+"menu.save_as" = "lng_context_save_file";
 "menu.select" = "lng_context_select_msg";
 "menu.translate" = "lng_context_translate";
 "menu.translate_selected" = "lng_context_translate_selected";
 
+"nav.downloads" = "lng_downloads_section";
 "nav.saved" = "lng_saved_messages";
 
 "notify.all_accounts" = "lng_settings_notify_all";
@@ -444,6 +496,7 @@
 "service.pinned_media_file" = "lng_action_pinned_media_file";
 "service.pinned_media_gif" = "lng_action_pinned_media_gif";
 "service.pinned_media_photo" = "lng_action_pinned_media_photo";
+"service.pinned_media_round" = "lng_action_pinned_media_video_message";
 "service.pinned_media_sticker" = "lng_action_pinned_media_sticker";
 "service.pinned_media_video" = "lng_action_pinned_media_video";
 "service.pinned_media_voice" = "lng_action_pinned_media_voice";
@@ -537,11 +590,22 @@
 "shared.voice" = "lng_media_type_audios";
 
 "status.bot" = "lng_status_bot";
+"status.last_month" = "lng_status_last_month";
+"status.last_week" = "lng_status_last_week";
+"status.lastseen_date" = "lng_status_lastseen_date";
+"status.lastseen_date_time" = "lng_status_lastseen_date_time";
+"status.lastseen_hours" = "lng_status_lastseen_hours";
+"status.lastseen_minutes" = "lng_status_lastseen_minutes";
+"status.lastseen_now" = "lng_status_lastseen_now";
+"status.lastseen_today" = "lng_status_lastseen_today";
+"status.lastseen_yesterday" = "lng_status_lastseen_yesterday";
+"status.long_ago" = "lng_status_offline";
 "status.members" = "lng_chat_status_members";
 "status.members_online" = "lng_chat_status_members_online";
 "status.online" = "lng_chat_status_online";
 "status.recently" = "lng_status_recently";
 "status.subscribers" = "lng_chat_status_subscribers";
+"status.user_online" = "lng_status_online";
 
 "stickers.add" = "lng_stickers_add_pack";
 "stickers.count" = "lng_stickers_count";

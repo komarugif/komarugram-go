@@ -11,6 +11,10 @@ import (
 )
 
 var (
+	iconReset         = wdk.RequireIconWidget(icons.ActionRestore)
+	iconKeyboard      = wdk.RequireIconWidget(icons.HardwareKeyboard)
+	iconKeyboardHide  = wdk.RequireIconWidget(icons.HardwareKeyboardHide)
+	iconReorder       = wdk.RequireIconWidget(icons.ActionReorder)
 	iconAttach        = wdk.RequireIconWidget(icons.EditorAttachFile)
 	iconSkipPrevious  = wdk.RequireIconWidget(icons.AVSkipPrevious)
 	iconSkipNext      = wdk.RequireIconWidget(icons.AVSkipNext)
@@ -18,6 +22,7 @@ var (
 	iconVolumeDown    = wdk.RequireIconWidget(icons.AVVolumeDown)
 	iconVolumeOff     = wdk.RequireIconWidget(icons.AVVolumeOff)
 	iconEmoji         = wdk.RequireIconWidget(icons.EditorInsertEmoticon)
+	iconSend          = wdk.RequireIconWidget(icons.ContentSend)
 	iconAttachPhoto   = wdk.RequireIconWidget(icons.ImagePhoto)
 	iconAttachFile    = wdk.RequireIconWidget(icons.EditorInsertDriveFile)
 	iconAttachTasks   = wdk.RequireIconWidget(icons.ActionCheckCircle)
@@ -39,6 +44,11 @@ var (
 	iconClear         = wdk.RequireIconWidget(icons.ContentClear)
 	iconChevron       = wdk.RequireIconWidget(icons.NavigationChevronRight)
 	iconExpandMore    = wdk.RequireIconWidget(icons.NavigationExpandMore)
+	iconPeek          = wdk.RequireIconWidget(icons.ImageRemoveRedEye)
+	iconVisibility    = wdk.RequireIconWidget(icons.ImageRemoveRedEye)
+	iconAutoTheme     = wdk.RequireIconWidget(icons.DeviceBrightnessAuto)
+	iconProxy         = wdk.RequireIconWidget(icons.HardwareRouter)
+	iconInvertColors  = wdk.RequireIconWidget(icons.ActionInvertColors)
 	iconExpandLess    = wdk.RequireIconWidget(icons.NavigationExpandLess)
 	iconToTop         = wdk.RequireIconWidget(icons.NavigationArrowUpward)
 	iconToBottom      = wdk.RequireIconWidget(icons.NavigationArrowDownward)
@@ -82,6 +92,13 @@ var (
 	iconReacted       = wdk.RequireIconWidget(icons.ActionFavoriteBorder)
 	iconMore          = wdk.RequireIconWidget(icons.NavigationMoreVert)
 	iconDownload      = wdk.RequireIconWidget(icons.FileFileDownload)
+
+	// The actions of a channel's bottom bar.
+	iconDirectMessages   = wdk.RequireIconWidget(icons.ContentCreate)
+	iconDiscussion       = wdk.RequireIconWidget(icons.CommunicationChatBubbleOutline)
+	iconNotificationsOn  = wdk.RequireIconWidget(icons.SocialNotificationsNone)
+	iconNotificationsOff = wdk.RequireIconWidget(icons.SocialNotificationsOff)
+	iconGift             = wdk.RequireIconWidget(icons.ActionCardGiftcard)
 )
 
 // folderIcon picks an icon for a folder by the kinds of chats it holds.
@@ -102,3 +119,6 @@ func folderIcon(f model.Folder) wdk.IconWidget {
 		return iconFolder
 	}
 }
+
+// iconExternalPlayer opens a video in the external player.
+var iconExternalPlayer = wdk.RequireIconWidget(icons.ActionLaunch)

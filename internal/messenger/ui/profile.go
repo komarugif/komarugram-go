@@ -18,6 +18,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/widget"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -139,6 +140,7 @@ func (p *profilePage) Update(gtx layout.Context, me model.Profile, invalidate fu
 	}
 	p.saving, p.problem = true, nil
 	go func() {
+		defer crash.Recover("edit profile", func(e *crash.Panic) { p.result <- e; invalidate() })
 		ctx, cancel := context.WithTimeout(context.Background(), profileSaveTimeout)
 		defer cancel()
 		p.result <- p.editor.EditProfile(ctx, e)
@@ -163,7 +165,7 @@ func (p *profilePage) Layout(gtx layout.Context, me model.Profile, l localizatio
 				var before, after layout.Widget
 				if p.badges != nil {
 					// The profile shows the check mark and the status both.
-					before, after = p.badges(me.Badges, 24, true)
+					before, after = p.badges(me.Badges, me.Name(), 24, true)
 				}
 				if before == nil && after == nil {
 					return centeredLabel(gtx, me.Name(), token.TypestyleHeadlineSmall, sc.Surface.OnColor, 2)

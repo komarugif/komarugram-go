@@ -290,3 +290,136 @@ func TestPhotosPageAroundAnchorWithIndex(t *testing.T) {
 		t.Fatalf("gallery query does not use the photo index:\n%s", plan)
 	}
 }
+
+// The GIFs of a chat are a gallery of their own, which the photos' leaves
+// out, with an index of its own built over the rows of a cache opened.
+func TestGIFsPageAroundAnchorWithIndex(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "h")
+	c, e := Open(path, "a", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	ctx := context.Background()
+	var msgs []model.Message
+	for i := 1; i <= 20; i++ {
+		m := model.Message{Key: model.MessageKey{AccountID: "a", ChatID: 9, MessageID: model.MessageID(i)}, Text: "text"}
+		switch {
+		case i%3 == 0:
+			m.Kind, m.Media = model.MessageGIF, &model.MessageMedia{ID: fmt.Sprint("g", i)}
+		case i%4 == 0:
+			m.Kind, m.Media = model.MessagePhoto, &model.MessageMedia{ID: fmt.Sprint("p", i)}
+		}
+		msgs = append(msgs, m)
+	}
+	msgs = append(msgs, model.Message{Key: model.MessageKey{AccountID: "a", ChatID: 10, MessageID: 6}, Kind: model.MessageGIF})
+	if e = c.SaveMessages(ctx, msgs); e != nil {
+		t.Fatal(e)
+	}
+	if e = c.Delete(ctx, 9, []int{9}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = c.db.Exec(`DROP INDEX gifs`); e != nil {
+		t.Fatal(e)
+	}
+	c.Close()
+	if c, e = Open(path, "a", nil); e != nil {
+		t.Fatal(e)
+	}
+	defer c.Close()
+	ids := func(ms []model.Message) (out []int) {
+		for _, m := range ms {
+			out = append(out, int(m.Key.MessageID))
+		}
+		return
+	}
+	// 9 is deleted, chat 10 is another chat, and 4, 8, 16 and 20 are photos.
+	if all, _ := c.GIFs(ctx, 9, 0, 1, 100); fmt.Sprint(ids(all)) != "[3 6 12 15 18]" {
+		t.Fatalf("GIFs: %v", ids(all))
+	}
+	if older, e := c.GIFs(ctx, 9, 15, -1, 2); e != nil || fmt.Sprint(ids(older)) != "[6 12]" {
+		t.Fatalf("older: %v %v", ids(older), e)
+	}
+	if photos, _ := c.Photos(ctx, 9, 0, 1, 100); fmt.Sprint(ids(photos)) != "[4 8 16 20]" {
+		t.Fatalf("photos: %v", ids(photos))
+	}
+	var plan string
+	rows, e := c.db.Query(`EXPLAIN QUERY PLAN SELECT id FROM messages WHERE chat=? AND `+gifWhere+` AND deleted=0 AND id>? ORDER BY id LIMIT 5`, 9, 0)
+	if e != nil {
+		t.Fatal(e)
+	}
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		rows.Scan(&id, &parent, &unused, &detail)
+		plan += detail + "\n"
+	}
+	rows.Close()
+	if !strings.Contains(plan, "gifs") {
+		t.Fatalf("GIF query does not use the GIF index:\n%s", plan)
+	}
+}
+
+// Media stay within the budget, the newest kept; an eviction frees an eighth
+// of it, so that the writes after it do not each evict again. The size kept
+// follows replaced entries.
+func TestMediaBudget(t *testing.T) {
+	ctx := context.Background()
+	c, e := Open(filepath.Join(t.TempDir(), "history"), "a", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer c.Close()
+	c.mediaBudget = 1 << 20
+	size := func() int64 {
+		var n int64
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if e := c.db.QueryRow(`SELECT coalesce(sum(length(data)),0) FROM media`).Scan(&n); e != nil {
+			t.Fatal(e)
+		}
+		return n
+	}
+	// Small media: the larger are files.
+	blob := make([]byte, smallMedia-1)
+	evicted := false
+	for i := range 30 {
+		before := size()
+		if e := c.SaveMedia(ctx, fmt.Sprintf("m/%d", i), blob); e != nil {
+			t.Fatal(e)
+		}
+		after := size()
+		if after > c.mediaBudget {
+			t.Fatalf("save %d: %d bytes over a budget of %d", i, after, c.mediaBudget)
+		}
+		if after < before+int64(len(blob)) && !evicted {
+			evicted = true
+			if after > c.mediaBudget-c.mediaBudget/8 {
+				t.Fatalf("an eviction left %d bytes of %d: no room for the next writes", after, c.mediaBudget)
+			}
+		}
+		c.mu.Lock()
+		kept := c.mediaBytes
+		c.mu.Unlock()
+		if kept != after {
+			t.Fatalf("save %d: kept size %d, table %d", i, kept, after)
+		}
+	}
+	if !evicted {
+		t.Fatal("nothing evicted")
+	}
+	if b, _ := c.Media(ctx, "m/29"); len(b) != len(blob) {
+		t.Fatal("the newest evicted")
+	}
+	if b, _ := c.Media(ctx, "m/0"); b != nil {
+		t.Fatal("the oldest kept")
+	}
+	if e := c.SaveMedia(ctx, "m/29", make([]byte, 10)); e != nil {
+		t.Fatal(e)
+	}
+	c.mu.Lock()
+	kept := c.mediaBytes
+	c.mu.Unlock()
+	if kept != size() {
+		t.Fatalf("after a replacement: kept size %d, table %d", kept, size())
+	}
+}

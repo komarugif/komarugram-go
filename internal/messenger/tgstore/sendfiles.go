@@ -36,12 +36,7 @@ func (s *Store) sendFiles(ctx context.Context, api *tg.Client, chat int64, peer 
 	groups := sendfiles.Divide(files, way)
 	captioned, captionedFile := sendfiles.CaptionTarget(groups)
 	caption := strings.TrimSpace(msg.Text)
-	var entities []tg.MessageEntityClass
-	for _, e := range msg.Entities {
-		if e.Kind == "emoji" {
-			entities = append(entities, &tg.MessageEntityCustomEmoji{Offset: e.Offset, Length: e.Length, DocumentID: e.DocumentID})
-		}
-	}
+	entities := inputEntities(msg.Entities)
 	// captionOf is the caption of file i of group g, and its entities.
 	captionOf := func(g, i int) (string, []tg.MessageEntityClass) {
 		if g == captioned && i == captionedFile {

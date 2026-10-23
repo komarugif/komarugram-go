@@ -17,7 +17,6 @@ import (
 )
 
 var (
-	spacing              = unit.Dp(4)
 	diameter             = unit.Dp(48)
 	magicDiffAngle       = float32(15)
 	magicStartAngle      = float32(90) - magicDiffAngle/2
@@ -35,7 +34,11 @@ func (s *widgetStyle) layout(gtx layout.Context) layout.Dimensions {
 	s.iTheme = BuildTheme(gtx)
 	switch s.iType {
 	case linearKind:
-		return block.Padding{Start: s.iTheme.EnabledSpacing, End: s.iTheme.EnabledSpacing}.Layout(gtx, s.linearWidget)
+		// Across the whole width, as Material 3's: EnabledSpacing is the
+		// gap between the active indicator and the track, which upstream
+		// also put at both ends, and the bar fell short of what was laid
+		// out beside it.
+		return s.linearWidget(gtx)
 	case circularKind:
 		return block.Container{
 			Gravity: block.GravityMiddleCenter,
@@ -123,7 +126,7 @@ func (s *widgetStyle) linearWidget(gtx layout.Context) layout.Dimensions {
 		activeClipStack := clip.Outline{Path: activeIndicatorBox.Path(gtx)}.Op().Push(gtx.Ops)
 		paint.Fill(gtx.Ops, s.iTheme.EnabledActiveIndicatorColor.AsNRGBA())
 		activeClipStack.Pop()
-		trackStartX = progressWidth + float32(gtx.Dp(spacing))
+		trackStartX = progressWidth + float32(gtx.Dp(s.iTheme.EnabledSpacing))
 	}
 
 	{
@@ -143,8 +146,8 @@ func (s *widgetStyle) linearWidget(gtx layout.Context) layout.Dimensions {
 		trackClipStack.Pop()
 	}
 
-	if s.iProgress < 1 {
-		stopIndicatorThickness := gtx.Dp(s.iTheme.EnabledStopIndicatorThickness)
+	// No stop indicator at zero thickness, the default here.
+	if stopIndicatorThickness := gtx.Dp(s.iTheme.EnabledStopIndicatorThickness); s.iProgress < 1 && stopIndicatorThickness > 0 {
 		stopIndicatorStartX := gtx.Constraints.Max.X - stopIndicatorThickness
 		if gtx.Locale.Direction == system.RTL {
 			stopIndicatorStartX = 0

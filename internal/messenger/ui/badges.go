@@ -25,9 +25,10 @@ import (
 // with, whatever the theme around them.
 var telegramBlue = color.NRGBA{R: 0x40, G: 0xa7, B: 0xe3, A: 0xff}
 
-// badgesLayout returns what goes before and after a name with badges b, nil
+// badgesLayout returns what goes before and after the name of a peer, called
+// name, with badges b, nil
 // where there is nothing; see App.badges.
-type badgesLayout func(b model.Badges, size unit.Dp, both bool) (before, after layout.Widget)
+type badgesLayout func(b model.Badges, name string, size unit.Dp, both bool) (before, after layout.Widget)
 
 // localPremium reports whether user is one of the accounts signed in here
 // while Local Premium is on: they show the Premium star to themselves, as
@@ -58,63 +59,92 @@ func (a *App) refreshOwnUsers(accounts model.Accounts) {
 // custom emoji before the name. After the name, SCAM or FAKE replaces every
 // other mark; otherwise the check mark of a verified name, and, where both
 // is set (the profile) or there is no check mark, the emoji status — or the
-// Premium star while there is no status or it has not loaded. size is the
-// height of the name's line.
-func (a *App) badges(b model.Badges, size unit.Dp, both bool) (before, after layout.Widget) {
+// Premium star while there is no status or it has not loaded. The marks of
+// the forks of Telegram clients (peerMarks) come first, and stay beside
+// SCAM or FAKE. name is what the popup of such a mark calls the owner; size
+// is the height of the name's line.
+func (a *App) badges(b model.Badges, name string, size unit.Dp, both bool) (before, after layout.Widget) {
 	b.Premium = b.Premium || a.localPremium(b.User)
 	if b.BotVerification != 0 {
 		before = func(gtx layout.Context) layout.Dimensions {
 			return a.layoutCustomEmoji(gtx, b.BotVerification, size)
 		}
 	}
+	marks := a.peerMarks(b, name, size)
 	switch {
 	case b.Scam:
-		return before, func(gtx layout.Context) layout.Dimensions { return layoutTextBadge(gtx, "SCAM") }
+		return before, joinMarks(append(marks, func(gtx layout.Context) layout.Dimensions { return layoutTextBadge(gtx, "SCAM") }))
 	case b.Fake:
-		return before, func(gtx layout.Context) layout.Dimensions { return layoutTextBadge(gtx, "FAKE") }
+		return before, joinMarks(append(marks, func(gtx layout.Context) layout.Dimensions { return layoutTextBadge(gtx, "FAKE") }))
 	}
-	var marks []layout.Widget
 	if b.Verified {
 		marks = append(marks, func(gtx layout.Context) layout.Dimensions { return layoutVerified(gtx, size) })
 	}
 	if b.EmojiStatus != 0 && (both || !b.Verified) {
 		premium := b.Premium && !b.Verified
-		marks = append(marks, func(gtx layout.Context) layout.Dimensions {
+		status := func(gtx layout.Context) layout.Dimensions {
 			if dims := a.layoutCustomEmoji(gtx, b.EmojiStatus, size); dims.Size.X > 0 || !premium {
 				return dims
 			}
-			return layoutPremiumStar(gtx, size)
-		})
+			return a.layoutPremiumMark(gtx, size)
+		}
+		if both && a.statusClicked != nil {
+			// In the profile a click on the status shows its emoji set.
+			emoji := b.EmojiStatus
+			status = a.badgeClick(badgeKey{emoji, badgeStatus}, status, func() { a.statusClicked(emoji) })
+		}
+		marks = append(marks, status)
 	} else if b.Premium && !b.Verified {
-		marks = append(marks, func(gtx layout.Context) layout.Dimensions { return layoutPremiumStar(gtx, size) })
+		marks = append(marks, func(gtx layout.Context) layout.Dimensions { return a.layoutPremiumMark(gtx, size) })
 	}
+	return before, joinMarks(marks)
+}
+
+// joinMarks puts marks in a row, nil for none.
+func joinMarks(marks []layout.Widget) layout.Widget {
 	switch len(marks) {
 	case 0:
-		return before, nil
+		return nil
 	case 1:
-		return before, marks[0]
+		return marks[0]
 	}
-	return before, func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-			layout.Rigid(marks[0]),
-			layout.Rigid(layout.Spacer{Width: 2}.Layout),
-			layout.Rigid(marks[1]),
-		)
+	return func(gtx layout.Context) layout.Dimensions {
+		children := make([]layout.FlexChild, 0, 2*len(marks))
+		for i, mark := range marks {
+			if i > 0 {
+				children = append(children, layout.Rigid(layout.Spacer{Width: 2}.Layout))
+			}
+			children = append(children, layout.Rigid(mark))
+		}
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx, children...)
 	}
 }
 
 // layoutCustomEmoji draws custom emoji id in a square of size, or nothing
 // until it has loaded.
 func (a *App) layoutCustomEmoji(gtx layout.Context, id int64, size unit.Dp) layout.Dimensions {
+	return a.layoutTintedEmoji(gtx, id, size, telegramBlue)
+}
+
+// layoutTintedEmoji is layoutCustomEmoji for an emoji of the color of the
+// text, which is drawn in tint, as Premium's star is in Telegram's blue.
+func (a *App) layoutTintedEmoji(gtx layout.Context, id int64, size unit.Dp, tint color.NRGBA) layout.Dimensions {
 	if a.avatars == nil {
 		return layout.Dimensions{}
 	}
-	emoji := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d", id), MIMEType: "application/x-custom-emoji"}}
-	// Drawn in the pixels it takes on screen: its loop is kept decoded.
+	// Drawn in the pixels it takes on screen, which the one picture the
+	// manager keeps of a media is decoded in: the same emoji is drawn in
+	// several sizes, in the list, the header and the profile, so each size
+	// is a media of its own, "emoji/id@pixels", resampled by no one.
 	px := gtx.Dp(size)
+	emoji := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d@%d", id, px), MIMEType: "application/x-custom-emoji"}}
 	frame := a.avatars.media.StatusFit(emoji, a.window.Motion.AnimationsEnabled(), image.Pt(px, px), false).Frame
 	if frame == nil {
 		return layout.Dimensions{}
+	}
+	// One of the text's color is in the tint, as a status is.
+	if a.avatars.media.TextColored(emoji) {
+		frame = a.images.Colored(frame, tint)
 	}
 	return drawImage(gtx, &a.images, frame, image.Pt(px, px))
 }
@@ -175,14 +205,11 @@ func withBadges(gtx layout.Context, before, name, after layout.Widget) layout.Di
 }
 
 // The shapes below are drawn after Telegram Desktop's 18×16 dp badge icons:
-// a five-pointed star with rounded points for Premium, and a rosette of
-// eight lobes with a check mark for a verified name, each about 12 dp
-// across and centered in a box as high as the line.
-
-// layoutPremiumStar draws the Premium star in a square of size.
-func layoutPremiumStar(gtx layout.Context, size unit.Dp) layout.Dimensions {
-	return premiumStarIcon(gtx, token.MatColor(telegramBlue), size)
-}
+// a rosette of eight lobes with a check mark for a verified name, about 12 dp
+// across and centered in a box as high as the line, and a five-pointed star
+// with rounded points, which the Premium icon of the settings is drawn with;
+// the Premium star beside a name is not drawn, but taken from an emoji set
+// (peer_badges.go).
 
 // premiumStarIcon draws the Premium star in col: a five-pointed star with
 // rounded points, rounder than a geometric one, whose lower left point is
@@ -311,23 +338,7 @@ func drawVerified(gtx layout.Context, px int) {
 	scale := float32(px) / 18
 	center := f32.Pt(float32(px)/2, float32(px)/2)
 	radius := 6.6 * scale
-	var rosette clip.Path
-	rosette.Begin(gtx.Ops)
-	const steps = 160
-	for i := 0; i <= steps; i++ {
-		angle := float64(i) / steps * 2 * math.Pi
-		// Eight round lobes with sharp notches between them, from 6.2 dp at a
-		// notch to 7 dp at a lobe, turned so that a notch is at the top.
-		r := 6.2 * scale * float32(1+0.13*math.Abs(math.Cos(4*(angle-math.Pi/8))))
-		p := center.Add(f32.Pt(r*float32(math.Sin(angle)), -r*float32(math.Cos(angle))))
-		if i == 0 {
-			rosette.MoveTo(p)
-		} else {
-			rosette.LineTo(p)
-		}
-	}
-	rosette.Close()
-	paint.FillShape(gtx.Ops, telegramBlue, clip.Outline{Path: rosette.End()}.Op())
+	fillRosette(gtx, px, telegramBlue)
 
 	at := func(x, y float32) f32.Point { return center.Add(f32.Pt(x*radius, y*radius)) }
 	var check clip.Path
@@ -395,4 +406,27 @@ func drawBadgeRight(gtx layout.Context, right image.Point, count int, background
 		return layout.Dimensions{Size: size}
 	})
 	return size.X
+}
+
+// fillRosette fills the rosette of a verified name, of eight lobes, in col.
+func fillRosette(gtx layout.Context, px int, col color.NRGBA) {
+	scale := float32(px) / 18
+	center := f32.Pt(float32(px)/2, float32(px)/2)
+	var rosette clip.Path
+	rosette.Begin(gtx.Ops)
+	const steps = 160
+	for i := 0; i <= steps; i++ {
+		angle := float64(i) / steps * 2 * math.Pi
+		// Eight round lobes with sharp notches between them, from 6.2 dp at a
+		// notch to 7 dp at a lobe, turned so that a notch is at the top.
+		r := 6.2 * scale * float32(1+0.13*math.Abs(math.Cos(4*(angle-math.Pi/8))))
+		p := center.Add(f32.Pt(r*float32(math.Sin(angle)), -r*float32(math.Cos(angle))))
+		if i == 0 {
+			rosette.MoveTo(p)
+		} else {
+			rosette.LineTo(p)
+		}
+	}
+	rosette.Close()
+	paint.FillShape(gtx.Ops, col, clip.Outline{Path: rosette.End()}.Op())
 }

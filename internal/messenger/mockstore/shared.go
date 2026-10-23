@@ -33,7 +33,7 @@ func (s *Store) SharedMedia(ctx context.Context, chat int64, kind model.SharedKi
 		case model.SharedMusic:
 			match = m.Kind == model.MessageMusic
 		case model.SharedVoice:
-			match = m.Kind == model.MessageVoice
+			match = m.Kind == model.MessageVoice || m.Kind == model.MessageRound
 		case model.SharedGIFs:
 			match = m.Kind == model.MessageGIF
 		case model.SharedPolls:
@@ -74,29 +74,34 @@ func (s *Store) SharedCollection(ctx context.Context, chat int64, kind model.Sha
 	start, _ := strconv.Atoi(cursor)
 	end := min(p.Total, start+limit)
 	for i := start; i < end; i++ {
-		g := &model.Gift{ID: strconv.Itoa(i), Title: "Demo Gift", Stars: 100, SenderID: 2, SenderName: "Анна Смирнова"}
-		if i%2 == 1 {
-			g.Unique = true
-			g.Number = 1000 + i
-			g.Model = "Aurora"
-			g.Symbol = "Flower"
-			g.Backdrop = "Lavender"
-			g.ModelRarity = 35
-			g.SymbolRarity = 20
-			g.BackdropRarity = 12
-			g.Issued = 950
-			g.Total = 1000
-			g.CenterColor = 0xbba2e0
-			g.EdgeColor = 0x765caa
-			g.PatternColor = 0xe5cfff
-			g.TextColor = 0xffffff
-			g.HasBackdrop = true
-			g.Pattern = &model.MessageMedia{ID: "demo/tgs", MIMEType: "application/x-tgsticker", Width: 512, Height: 512}
-		}
-		p.Messages = append(p.Messages, model.Message{Key: model.MessageKey{AccountID: "demo", ChatID: chat, MessageID: model.MessageID(-i - 1)}, Date: time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC), Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "demo/tgs", MIMEType: "application/x-tgsticker", Width: 512, Height: 512}, Gift: g, ContentRevision: 1})
+		p.Messages = append(p.Messages, demoGift(chat, i))
 	}
 	if end < p.Total {
 		p.Next = strconv.Itoa(end)
 	}
 	return p, nil
+}
+
+// demoGift is the demo's saved gift i of chat: every second one is unique.
+func demoGift(chat int64, i int) model.Message {
+	g := &model.Gift{ID: strconv.Itoa(i), Title: "Demo Gift", Stars: 100, SenderID: 2, SenderName: "Анна Смирнова"}
+	if i%2 == 1 {
+		g.Unique = true
+		g.Number = 1000 + i
+		g.Model = "Aurora"
+		g.Symbol = "Flower"
+		g.Backdrop = "Lavender"
+		g.ModelRarity = 35
+		g.SymbolRarity = 20
+		g.BackdropRarity = 12
+		g.Issued = 950
+		g.Total = 1000
+		g.CenterColor = 0xbba2e0
+		g.EdgeColor = 0x765caa
+		g.PatternColor = 0xe5cfff
+		g.TextColor = 0xffffff
+		g.HasBackdrop = true
+		g.Pattern = &model.MessageMedia{ID: "demo/tgs", MIMEType: "application/x-tgsticker", Width: 512, Height: 512}
+	}
+	return model.Message{Key: model.MessageKey{AccountID: "demo", ChatID: chat, MessageID: model.MessageID(-i - 1)}, Date: time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC), Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "demo/tgs", MIMEType: "application/x-tgsticker", Width: 512, Height: 512}, Gift: g, ContentRevision: 1}
 }

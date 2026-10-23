@@ -53,11 +53,21 @@ newer Go: that one would not run on Windows 7.
 
 ```bat
 cd %USERPROFILE%
+go install gioui.org/cmd/gogio@latest
 git clone https://github.com/komarugif/komarugram-go
 cd komarugram-go
-go install gioui.org/cmd/gogio@latest
+powershell -Command "(Get-Content go.mod) -replace '^go .*', 'go 1.27.2' | Set-Content $env:TEMP\komarugram.mod"
+copy /y go.sum %TEMP%\komarugram.sum
+set GOFLAGS=-modfile=%TEMP%\komarugram.mod
 gogio -ldflags="-s -w" -icon=assets\logo_round.png -target=windows -arch=amd64 -o KomaruGram.exe ./cmd/messenger
 ```
+
+`go.mod` asks for Go 1.27.3, and go-legacy-win7 follows Go's releases
+behind them: its Go refuses `go.mod`, and builds with a copy that names
+its version, 1.27.2 above (the one `go version` says). Go 1.27.3 fixes
+the checking of certificates in `crypto/x509`, which a messenger built
+with an older Go lacks: update go-legacy-win7 once it has a release of
+1.27.3 or later. `GOFLAGS` holds for that Command Prompt only.
 
 `gogio` builds the program with its icon and its manifest. The first build
 downloads the modules and takes a few minutes; later ones take under a
@@ -84,6 +94,9 @@ a Chromium that runs on Windows 7.
 ```bat
 cd %USERPROFILE%\komarugram-go
 git pull
+powershell -Command "(Get-Content go.mod) -replace '^go .*', 'go 1.27.2' | Set-Content $env:TEMP\komarugram.mod"
+copy /y go.sum %TEMP%\komarugram.sum
+set GOFLAGS=-modfile=%TEMP%\komarugram.mod
 gogio -ldflags="-s -w" -icon=assets\logo_round.png -target=windows -arch=amd64 -o KomaruGram.exe ./cmd/messenger
 ```
 
@@ -98,6 +111,9 @@ new `KomaruGram.exe` and installing it into the same folder.
   (step 2) with `where go`.
 - `go: downloading go1.2x...` then a crash: Go fetched the official
   toolchain; run `go env -w GOTOOLCHAIN=local` and build again.
+- `go.mod requires go >= 1.27.3 (running go 1.27.2; GOTOOLCHAIN=local)`:
+  the build ran without the copy of `go.mod` (step 3); set `GOFLAGS` in
+  that Command Prompt again.
 - The window stays black or blank: in a virtual machine without 3D, the
   messenger draws with WARP, Direct3D's software renderer, on its own
   when the driver fails; `GIO_D3D11_WARP=1` forces it.

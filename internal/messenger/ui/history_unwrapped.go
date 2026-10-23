@@ -24,11 +24,11 @@ import (
 	"komarugram/internal/messenger/model"
 )
 
-// Stickers and a message of a single emoji are drawn without a bubble, over
-// the chat's background, as the official clients draw them (Telegram
-// Desktop's UnwrappedMedia and LargeEmoji). The time sits on a plate of its
-// own beside the picture, or over its corner for the account's own; a reply
-// or a forward goes in a small card at the side.
+// Stickers, video messages and a message of a single emoji are drawn
+// without a bubble, over the chat's background, as the official clients
+// draw them (Telegram Desktop's UnwrappedMedia and LargeEmoji). The time
+// sits on a plate of its own beside the picture, or over its corner for the
+// account's own; a reply or a forward goes in a small card at the side.
 const (
 	// stickerMax is the most a sticker takes on either side; a lone emoji
 	// takes half of it.
@@ -44,7 +44,7 @@ func (p *chatPage) unwrapped(m model.Message) bool {
 	if len(m.Buttons) > 0 || m.Poll != nil || m.WebPage != nil || len(m.Attachments) > 1 || p.showsComments(m) {
 		return false
 	}
-	if m.Kind == model.MessageSticker {
+	if m.Kind == model.MessageSticker || m.Kind == model.MessageRound {
 		return m.Media != nil && m.Text == ""
 	}
 	_, _, ok := loneEmoji(m)
@@ -122,12 +122,12 @@ func (p *chatPage) unwrappedBody(gtx layout.Context, r *messageRow, m model.Mess
 	r.shown = m
 	msg := &r.shown
 	picture := func(gtx layout.Context) layout.Dimensions {
-		if msg.Kind == model.MessageSticker {
+		if msg.Kind == model.MessageSticker || msg.Kind == model.MessageRound {
 			return p.mediaLayout(gtx, r, *msg, l, animate)
 		}
 		return p.largeEmoji(gtx, *msg, animate)
 	}
-	info := func(gtx layout.Context) layout.Dimensions { return infoPlate(gtx, *msg, l) }
+	info := func(gtx layout.Context) layout.Dimensions { return infoPlate(gtx, *msg, l, p.sendState(gtx, *msg)) }
 	side := p.unwrappedSide(msg, join, l, r)
 
 	// The picture, with its time over the corner for the account's own.
@@ -266,7 +266,7 @@ func (p *chatPage) largeEmoji(gtx layout.Context, m model.Message, animate bool)
 	if doc != 0 {
 		if p.media != nil && p.images != nil {
 			msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d", doc), MIMEType: "application/x-custom-emoji"}}
-			if frame, _ := p.media.Frame(msg, animate); frame != nil {
+			if frame := emojiFrame(p.media, p.images, msg, animate, scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
 				return exact(gtx, size, func(gtx layout.Context) layout.Dimensions {
 					return widget.Image{Src: p.images.Op(frame), Fit: widget.Contain}.Layout(gtx)
 				})
@@ -294,12 +294,13 @@ func (p *chatPage) largeEmoji(gtx layout.Context, m model.Message, animate bool)
 }
 
 // infoPlate is the time of a message without a bubble, on a plate that
-// keeps it readable over any background, with its views and edit mark.
-func infoPlate(gtx layout.Context, m model.Message, l localization.Catalog) layout.Dimensions {
+// keeps it readable over any background, with its views, edit mark and the
+// mark of state.
+func infoPlate(gtx layout.Context, m model.Message, l localization.Catalog, state model.SendState) layout.Dimensions {
 	sc := scheme(gtx)
 	macro := op.Record(gtx.Ops)
 	dims := layout.Inset{Top: 2, Bottom: 2, Left: 7, Right: 7}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return messageFooterIn(gtx, m, l, true, sc.InverseSurface.OnColor)
+		return messageFooterIn(gtx, m, l, true, state, sc.InverseSurface.OnColor)
 	})
 	call := macro.Stop()
 	fillRounded(gtx, sc.InverseSurface.Color.SetOpacity(0.55), dims.Size, dims.Size.Y/2)

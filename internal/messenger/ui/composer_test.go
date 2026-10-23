@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"image"
+	"image/color"
 	"image/png"
 	"math"
 	"os"
@@ -29,6 +30,8 @@ import (
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
 	"gioui.org/unit"
 )
 
@@ -45,6 +48,12 @@ type composerHarness struct {
 	still bool
 	// drop, when set, is a drag of files over the page, drawn over it.
 	drop *fileDrop
+	// over, when set, is drawn over the page, as a window's other parts.
+	over func(gtx layout.Context)
+	// transparency is the window's, in percent; under, when set, is drawn
+	// under the page, as the desktop behind a translucent window.
+	transparency int
+	under        func(gtx layout.Context)
 }
 
 func newComposerHarness(t *testing.T) *composerHarness {
@@ -61,6 +70,12 @@ func (h *composerHarness) frame() *op.Ops {
 	gtx := layout.Context{Ops: ops, Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(h.size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
 	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineDark()))
 	wdk.SetAnimationsEnabled(gtx, !h.still)
+	if h.transparency > 0 {
+		withWindowSurfaceOpacity(gtx, h.transparency, true)
+	}
+	if h.under != nil {
+		h.under(gtx)
+	}
 	h.p.images.BeginFrame()
 	h.p.media.BeginFrame()
 	h.p.Layout(gtx, model.Chat{ID: h.chat, Kind: h.kind}, localization.For("ru"), h.animate)
@@ -68,6 +83,9 @@ func (h *composerHarness) frame() *op.Ops {
 	if h.drop != nil {
 		h.drop.area, h.drop.metric = image.Rectangle{Max: h.size}, gtx.Metric
 		h.drop.layout(gtx, localization.For("ru"))
+	}
+	if h.over != nil {
+		h.over(gtx)
 	}
 	h.p.media.EndFrame()
 	h.p.images.EndFrame()
@@ -100,7 +118,8 @@ func TestComposerInputAndDrafts(t *testing.T) {
 	if h.p.composer.draft(1).editor.Text() != "Привет 👋" {
 		t.Fatal("lost draft")
 	}
-	h.click(640, 680)
+	// Left of Send, which has the capsule's end with text written.
+	h.click(580, 680)
 	if !h.p.composer.pickerOpen {
 		t.Fatal("smile did not open picker")
 	}
@@ -188,11 +207,11 @@ func TestComposerSendEnterAndShiftEnter(t *testing.T) {
 }
 func TestCustomEmojiEditOffsets(t *testing.T) {
 	e := []model.Entity{{Kind: "emoji", Offset: 2, Length: 2, DocumentID: 42}}
-	shifted := shiftEmojiEntities("a 🙂 z", "🦆a 🙂 z", e)
+	shifted := shiftEntities("a 🙂 z", "🦆a 🙂 z", e, -1)
 	if len(shifted) != 1 || shifted[0].Offset != 4 {
 		t.Fatalf("UTF16 offset: %+v", shifted)
 	}
-	if got := shiftEmojiEntities("a 🙂 z", "a x z", e); len(got) != 0 {
+	if got := shiftEntities("a 🙂 z", "a x z", e, -1); len(got) != 0 {
 		t.Fatalf("deleted emoji kept entity: %+v", got)
 	}
 }
@@ -257,8 +276,9 @@ func TestRenderComposer(t *testing.T) {
 	h := newComposerHarness(t)
 	h.p.composer.pickerOpen = true
 	switch os.Getenv("COMPOSER_VIEW") {
-	case "channel-readonly":
-		restrictComposer(h, model.SendPermissions{Unavailable: true, Broadcast: true, DiscussionID: 9})
+	case "channel-readonly", "channel-readonly-hover":
+		restrictComposer(h, model.SendPermissions{Unavailable: true, Broadcast: true, DiscussionID: 9, DirectMessagesID: 40})
+		h.p.composer.pickerOpen = false
 	case "restricted-text":
 		restrictComposer(h, model.SendPermissions{Personal: model.SendText, Until: 1800000000})
 	case "restricted-media":
@@ -280,6 +300,24 @@ func TestRenderComposer(t *testing.T) {
 	case "emoji-search":
 		// The emoji of the picker found for a word, before Telegram answers.
 		h.p.composer.search.SetText("кот")
+	case "text", "text-classic":
+		// A message written: Send has the microphone's place.
+		h.p.composer.pickerOpen = false
+		classic := os.Getenv("COMPOSER_VIEW") == "text-classic"
+		h.p.classic = func() bool { return classic }
+		h.chat = 2
+		h.frame()
+		h.p.composer.draft(2).editor.SetText("Встречаемся в субботу у фонтана")
+	case "classic-translucent", "floating-translucent":
+		// The window half transparent over stripes, as over a desktop: the
+		// classic bar shows them, as the sidebar does; the history and the
+		// floating capsule, with its shadow, do not.
+		h.p.composer.pickerOpen = false
+		classic := strings.HasPrefix(os.Getenv("COMPOSER_VIEW"), "classic")
+		h.p.classic = func() bool { return classic }
+		h.chat = 2
+		h.transparency = 50
+		h.under = desktopStripes
 	case "classic", "floating", "toast", "toast-classic":
 		h.p.composer.pickerOpen = false
 		classic := strings.HasSuffix(os.Getenv("COMPOSER_VIEW"), "classic")
@@ -287,6 +325,52 @@ func TestRenderComposer(t *testing.T) {
 		h.chat = 2
 		if strings.HasPrefix(os.Getenv("COMPOSER_VIEW"), "toast") {
 			h.p.toast.Show("Не удалось отправить сообщение: нет соединения с Telegram")
+		}
+	case "edit", "edit-classic", "edit-menu":
+		// A message of the account's own edited: the strip over the field
+		// tells it, the check saves it, and the field shows the formatting
+		// of the text; edit-menu has the field's menu of formatting open.
+		h.p.composer.pickerOpen = false
+		classic := os.Getenv("COMPOSER_VIEW") == "edit-classic"
+		h.p.classic = func() bool { return classic }
+		h.chat = 2
+		h.frame()
+		m, ok := h.p.lastEditable()
+		if !ok {
+			t.Fatal("no message of the account's own to edit")
+		}
+		text := "Жирный, курсив, подчёркнутый, зачёркнутый, ссылка, код и спойлер"
+		u := func(word string) (int, int) {
+			at := strings.Index(text, word)
+			return u16Len(text[:at]), u16Len(word)
+		}
+		var entities []model.Entity
+		for word, kind := range map[string]string{"Жирный": model.EntityBold, "курсив": model.EntityItalic, "подчёркнутый": model.EntityUnderline, "зачёркнутый": model.EntityStrike, "ссылка": model.EntityURL, "код": model.EntityCode, "спойлер": model.EntitySpoiler} {
+			o, n := u(word)
+			entities = append(entities, model.Entity{Kind: kind, Offset: o, Length: n, URL: map[bool]string{true: "https://telegram.org"}[kind == model.EntityURL]})
+		}
+		m.Text, m.Entities = text, entities
+		d := h.p.composer.draft(2)
+		d.before = &draftBefore{}
+		d.editing, d.editKind = &m, model.KindUser
+		d.editor.SetText(text)
+		d.text, d.entities = text, model.SortEntities(model.EditableEntities(m))
+		if os.Getenv("COMPOSER_VIEW") == "edit-menu" {
+			d.editor.SetCaret(0, 6)
+			h.p.composer.fieldMenu = fieldMenu{open: true, at: image.Pt(120, 560)}
+		}
+	case "bot-keyboard", "bot-keyboard-hidden":
+		// A bot's keyboard over the composer, whose button hides it; hidden,
+		// the button shows it again.
+		h.p.composer.pickerOpen = false
+		h.chat, h.kind = mockstore.DemoNotesBot, model.KindBot
+		h.frame()
+		waitBotPage(t, h, "the empty chat of a bot", func() bool { return h.p.bot.empty })
+		h.click(340, 680)
+		waitBotPage(t, h, "the keyboard the bot sets", func() bool { return h.p.bot.keyboard != nil })
+		if os.Getenv("COMPOSER_VIEW") == "bot-keyboard-hidden" {
+			h.click(530, 680)
+			waitBotPage(t, h, "the keyboard hidden", func() bool { return h.p.bot.keyboard == nil })
 		}
 	case "blur":
 		// The history scrolled so that messages pass behind the blurred capsule.
@@ -366,27 +450,59 @@ func TestRenderComposer(t *testing.T) {
 		h.frame()
 		time.Sleep(15 * time.Millisecond)
 	}
+	if os.Getenv("COMPOSER_VIEW") == "channel-readonly-hover" {
+		// The pointer rests on Mute, whose text shows beside its icon.
+		hoverLabel(t, &h.router, "Выключить уведомления")
+		for range 30 {
+			h.frame()
+		}
+	}
 
-	win, err := headless.NewWindow(h.size.X, h.size.Y)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer win.Release()
-	ops := h.frame()
-	if err = win.Frame(ops); err != nil {
-		t.Fatal(err)
-	}
-	im := image.NewRGBA(image.Rectangle{Max: h.size})
-	if err = win.Screenshot(im); err != nil {
-		t.Fatal(err)
-	}
+	im := h.screenshot(t)
 	f, err := os.Create(os.Getenv("COMPOSER_PNG"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	if err = png.Encode(f, im); err != nil {
+	if err = png.Encode(f, windowSurfacePNG(im)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// screenshot draws a frame of the harness on the GPU and returns its
+// pixels, premultiplied, over a transparent window; without a GPU the
+// test is skipped.
+func (h *composerHarness) screenshot(t *testing.T) *image.RGBA {
+	t.Helper()
+	win, err := headless.NewWindow(h.size.X, h.size.Y)
+	if err != nil {
+		t.Skip("no GPU for headless rendering:", err)
+	}
+	defer win.Release()
+	if err := win.Frame(h.frame()); err != nil {
+		t.Fatal(err)
+	}
+	im := image.NewRGBA(image.Rectangle{Max: h.size})
+	if err := win.Screenshot(im); err != nil {
+		t.Fatal(err)
+	}
+	return im
+}
+
+// desktopStripes draws diagonal stripes over the whole frame, as a desktop
+// behind the window.
+func desktopStripes(gtx layout.Context) {
+	size := gtx.Constraints.Max
+	paint.FillShape(gtx.Ops, color.NRGBA{R: 0x20, G: 0x70, B: 0xd0, A: 0xff}, clip.Rect{Max: size}.Op())
+	for x := -size.Y; x < size.X; x += 48 {
+		var p clip.Path
+		p.Begin(gtx.Ops)
+		p.MoveTo(f32.Pt(float32(x), float32(size.Y)))
+		p.LineTo(f32.Pt(float32(x+size.Y), 0))
+		p.LineTo(f32.Pt(float32(x+size.Y+24), 0))
+		p.LineTo(f32.Pt(float32(x+24), float32(size.Y)))
+		p.Close()
+		paint.FillShape(gtx.Ops, color.NRGBA{R: 0xf0, G: 0xb0, B: 0x30, A: 0xff}, clip.Outline{Path: p.End()}.Op())
 	}
 }
 func TestComposerSmallWindows(t *testing.T) {
@@ -458,16 +574,26 @@ func TestRenderComposerMotion(t *testing.T) {
 		frames(h, 30)
 		save(h, menu+"-open")
 	}
-	// Press the emoji button, at the capsule's end, and catch its ripple.
+	// Press the emoji button, left of the microphone at the capsule's end,
+	// and catch its ripple.
 	h := newComposerHarness(t)
 	h.chat = 2
 	frames(h, 2)
-	smile := f32.Pt(float32(h.size.X-16-24), float32(h.size.Y-12-28))
+	smile := f32.Pt(float32(h.size.X-16-56-28), float32(h.size.Y-12-28))
 	h.router.Queue(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: smile})
 	frames(h, 2)
 	h.router.Queue(pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: smile})
 	frames(h, 6)
 	save(h, "ripple")
+
+	// The first letter typed: the microphone shrinks and fades as Send
+	// grows in its place, part way.
+	h = newComposerHarness(t)
+	h.chat = 2
+	frames(h, 2)
+	h.router.Queue(key.EditEvent{Text: "П"})
+	frames(h, 3)
+	save(h, "send-switching")
 
 	h = newComposerHarness(t)
 	h.chat = 2

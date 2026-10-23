@@ -40,13 +40,18 @@ func (h *heightTransition) Value(gtx layout.Context, target int, animate bool) i
 // Card measures its content once and paints the shared card at its animated
 // height. Its clip applies to event handlers as well as drawing operations.
 func (h *heightTransition) Card(gtx layout.Context, content layout.Widget, padding unit.Dp) layout.Dimensions {
+	return h.card(gtx, content, padding, scheme(gtx).Surface.Color)
+}
+
+// card is Card in a color of its own.
+func (h *heightTransition) card(gtx layout.Context, content layout.Widget, padding unit.Dp, color token.MatColor) layout.Dimensions {
 	macro := op.Record(gtx.Ops)
 	inner := gtx
 	inner.Constraints.Min = image.Pt(gtx.Constraints.Max.X, 0)
 	dims := layout.UniformInset(padding).Layout(inner, content)
 	call := macro.Stop()
 	dims.Size.Y = h.Value(gtx, dims.Size.Y, true)
-	fillRounded(gtx, scheme(gtx).Surface.Color, dims.Size, gtx.Dp(16))
+	fillRounded(gtx, color, dims.Size, gtx.Dp(16))
 	area := clip.UniformRRect(image.Rectangle{Max: dims.Size}, gtx.Dp(16)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	area.Pop()

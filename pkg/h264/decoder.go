@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Unlicense OR MIT
 
-// Package h264 decodes the H.264 video Telegram uses for GIFs and animated
-// avatars, without cgo and without an FFmpeg of the user's.
+// Package h264 decodes the H.264 video Telegram uses for GIFs, animated
+// avatars and video messages, without cgo and without an FFmpeg of the
+// user's; and MPEG-4 Part 2, which some GIFs are in (Telegram's video
+// codec "mpeg4"), with a module built with its decoder too.
 //
 // The decoder is FFmpeg's, alone, compiled to WebAssembly and executed by
 // wazero, as the vp9 package does with libvpx: frames arrive from strangers,
@@ -25,6 +27,7 @@ import (
 	"image"
 	"time"
 
+	"komarugram/pkg/mp4"
 	"komarugram/pkg/sandbox"
 
 	"github.com/tetratelabs/wazero"
@@ -116,15 +119,31 @@ type Decoder struct {
 // NewDecoder starts a decoder for samples described by config, an avcC
 // record.
 func (r *Runtime) NewDecoder(ctx context.Context, config []byte) (*Decoder, error) {
+	return r.NewDecoderOf(ctx, mp4.H264, config)
+}
+
+// NewDecoderOf starts a decoder of codec for samples described by config
+// (see mp4.File.Config). A module built without MPEG-4 Part 2, as those
+// before 2026-10, gives mp4.ErrUnsupported for it, as a file of a codec
+// read nowhere here does.
+func (r *Runtime) NewDecoderOf(ctx context.Context, codec mp4.Codec, config []byte) (*Decoder, error) {
 	module, err := r.sandbox.Instantiate(ctx, r.compiled, wazero.NewModuleConfig().WithName(""))
 	if err != nil {
 		return nil, fmt.Errorf("instantiate h264: %w", err)
 	}
 	started := time.Now()
 	d := &Decoder{runtime: r, module: module}
+	open := "h264w_new"
+	if codec == mp4.MPEG4 {
+		open = "h264w_new_mpeg4"
+		if module.ExportedFunction(open) == nil {
+			_ = module.Close(ctx)
+			return nil, mp4.ErrUnsupported
+		}
+	}
 	ptr, err := d.write(ctx, config)
 	if err == nil {
-		d.handle, err = d.call(ctx, "h264w_new", ptr, uint64(len(config)))
+		d.handle, err = d.call(ctx, open, ptr, uint64(len(config)))
 		d.call(ctx, "h264w_dealloc", ptr) //nolint:errcheck // freeing cannot fail usefully
 	}
 	if err == nil && d.handle == 0 {

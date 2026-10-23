@@ -73,6 +73,8 @@ From the repository root, so that the kitchen finds its media:
 ```sh
 go run ./cmd/messenger                     # sign in by phone number; the session is kept
 go run ./cmd/messenger -demo               # demo data, no account
+go run ./cmd/messenger -demo-signin        # demo data, after the sign-in that comes before an account (code 12345, cloud password demo)
+go run ./cmd/messenger -demo -demo-open album -demo-quiet   # demo data, opened at the album, without the demo's offers
 go run ./cmd/messenger -demo-chats 50000   # try the UI with a huge chat list
 go run ./cmd/messenger -tdata pkg/tdata/assets/tdata.zip          # import and open a real account
 go run ./cmd/messenger -tdata assets                              # import every tdata zip and open one window per account
@@ -288,10 +290,19 @@ messenger again, brings the windows back, and its menu quits. Without a tray,
 closing the last window quits as before. `-demo` (or
 `-demo-chats`) runs on demo data with no account; its settings are kept in
 memory only, and it never reads or changes the saved settings, accounts or
-local-data protection.
+local-data protection. `-demo-signin` first goes through what comes before an
+account is added, on the sign-in's own screens: the offers to install and to
+protect local data, the phone number, the code (`12345`) and the cloud
+password (`demo`, with its hint). It answers as Telegram does, refusing a
+number that is too short and a wrong code or password. Nothing is installed or
+sent anywhere, and the protection it turns on is kept by the password alone,
+in a directory of its own that is removed when the demo ends
+(`cmd/messenger/demo_signin.go`).
 
 `internal/messenger/account` keeps the registry, does the sign-in on top of
-gotd (`Add`, asking through the `Prompter` interface), imports tdata
+gotd (`Add`, asking through the `Prompter` interface; it asks for the phone
+number while the connection to Telegram is still being made, which takes a
+couple of seconds, and a number sent sooner waits for the connection), imports tdata
 (`ReadTData`, `ImportTData`), logs out (`LogOut`, `Remove`) and uses `Run` for
 a connection. `-check` cannot ask for the master password, so it refuses
 protected data. `internal/messenger/login` holds sign-in state for the UI, and
@@ -706,10 +717,11 @@ Mini App — a page from a stranger — runs inside, and whether the flatpak or 
 distribution's package is ahead cannot be told from how it was installed, so
 the version decides; Brave reveals only its Chromium major, so it ties with
 every Chromium of that major, and ties go to native programs first.
-`KITCHEN_MINIAPP_BROWSER` names one directly, by program or by application id,
-which is how the same suite is run against each of them; in the messenger, the
-user can pick one in the settings, which is kept only when it answers
-`--version` as a Chromium-based browser. A snap sees a `/tmp` of its own and no hidden directory of the home, the
+`KOMARUGRAM_MINIAPP_BROWSER` names one directly, by program or by application id,
+which is how the same suite is run against each of them. It is for the
+messenger as well as the kitchen, and it wins over the browser picked in the
+settings, which is kept only when it answers `--version` as a Chromium-based
+browser; the video player, which plays in the same browser, follows both. A snap sees a `/tmp` of its own and no hidden directory of the home, the
 cache and the configuration among them: for a browser run by snap (a command
 in `/snap/bin`, or a script that runs one, as Ubuntu's `/usr/bin/firefox`),
 profiles go under `~/snap/<name>/common/komarugram-go/miniapp`, one directory
@@ -910,7 +922,7 @@ bug, a failed test or a wrong first guess at least once.
   a drag, so the button underneath gets `Cancel` instead of a click.
 - *`layout.List` scrolls by dragging only for touch.* Mouse drags and a
   vertical wheel over a horizontal list need a handler of their own
-  (`photoViewer.dragStrip`).
+  (`mediaViewer.dragStrip`).
 - *Wheel units:* one notch is 10 on X11 and Wayland; touchpads and Wayland's
   kinetic scrolling send streams of small deltas. Accumulate to a threshold
   and keep a quiet period after acting on it.

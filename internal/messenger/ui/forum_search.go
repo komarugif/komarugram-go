@@ -15,6 +15,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/widget"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -110,6 +111,7 @@ func (s *forumSearch) fetch(searcher model.ForumSearcher, invalidate func()) {
 	gen, chat, query, next, res := s.gen, s.chat, s.query, s.next, s.res
 	go func() {
 		defer cancel()
+		defer crash.Recover("forum search", func(e *crash.Panic) { res <- forumSearchResult{gen: gen, err: e}; invalidate() })
 		page, err := searcher.SearchForum(ctx, chat, query, next, forumSearchPage)
 		res <- forumSearchResult{gen, page, err}
 		invalidate()

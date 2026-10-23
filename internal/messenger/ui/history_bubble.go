@@ -159,10 +159,14 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 		p.rows[m.Key.MessageID] = r
 	}
 	r.refreshDates(gtx, m, l)
+	p.refreshStamps(gtx, r, m, l)
 	// Where the article is in the history, as the last frame put it.
 	r.viewKnown = p.rowTopKnown
 	if r.viewKnown {
 		r.viewTop = p.rowTop + r.bodyTop + gtx.Dp(bubblePadTop) + r.articleAbove
+	}
+	if r.avatar.Clicked(gtx) && p.senderOpens(m) {
+		p.openSender(m)
 	}
 	if m.ReplyToMessageID != 0 && r.reply.Clicked(gtx) {
 		p.jumpPending = m.ReplyToMessageID
@@ -252,6 +256,12 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 	if m.Outgoing {
 		x = max(x, gtx.Constraints.Max.X-gtx.Dp(20)-r.bodySize.X)
 	}
+	r.bodyLeft = x
+	// The avatar is at the start of an incoming message, at the end of a
+	// sent one.
+	if m.Outgoing {
+		x += max(0, r.bodySize.X-gtx.Dp(34))
+	}
 	r.avatarPoint = image.Pt(x, r.bodyTop+r.bodySize.Y-gtx.Dp(34))
 	return dims
 }
@@ -283,7 +293,7 @@ func (p *chatPage) bubble(gtx layout.Context, r *messageRow, m model.Message, jo
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			content := func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Top: bubblePadTop, Bottom: 7, Left: 12, Right: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layout.Flex{Axis: layout.Vertical}.Layout(gtx, p.bubbleContent(gtx, r, m, join, l, animate)...)
+					return p.bubbleBody(gtx, r, m, join, l, animate)
 				})
 			}
 			if !p.showsComments(m) {
@@ -364,12 +374,16 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 				seen[member.Text] = true
 				member := member
 				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return p.richText(gtx, albumRow(gtx, r, member, l), l, animate)
+					child := albumRow(gtx, r, member, l)
+					p.refreshStamps(gtx, child, member, l)
+					return p.richText(gtx, child, l, animate)
 				}), vspace(4))
 			}
 		}
 	} else if msg.Text != "" {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.richText(gtx, r, l, animate) }))
+		// The time may go on its last line; not while a bot streams it.
+		r.textLast = !msg.Streaming
 	} else if msg.Media == nil && msg.Poll == nil {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			if msg.Kind == model.MessageService {
@@ -385,38 +399,84 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 		}))
 	}
 	if msg.WebPage != nil && msg.Rich == nil {
+		r.textLast = false
 		children = append(children, vspace(6), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.webPreview(gtx, r, *msg, l, animate) }))
 	}
 	if len(msg.Reactions) > 0 {
+		r.textLast = false
 		children = append(children, vspace(8), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return p.reactions(gtx, r, *msg, animate)
 		}))
 	}
-	children = append(children, vspace(4), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-		return layout.E.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			if msg.Streaming {
-				// A draft a bot streams turns a ring before its time while
-				// the bot writes it.
-				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.writing.sized(gtx, l, 12) }),
-					layout.Rigid(layout.Spacer{Width: 6}.Layout),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return messageFooter(gtx, *msg, l, false) }))
-			}
-			return messageFooter(gtx, *msg, l, !p.showsComments(*msg))
-		})
-	}))
 	return children
 }
 
+// footerGap is the least space between the end of a text's last line and
+// the time beside it, Telegram Desktop's msgDateSpace less msgDateDelta.x.
+const footerGap unit.Dp = 10
+
+// bubbleBody lays out what a bubble holds, and its time at the bottom
+// right: on the text's last line when it fits there with footerGap before
+// it, the bubble widening for it as far as it may, as Telegram Desktop and
+// Telegram for Android place it (lib_ui's skip block); on a line of its
+// own otherwise. What the time says, the seconds and the edited mark
+// included, sets its width.
+func (p *chatPage) bubbleBody(gtx layout.Context, r *messageRow, m model.Message, join bubbleJoin, l localization.Catalog, animate bool) layout.Dimensions {
+	r.textLast = false
+	children := p.bubbleContent(gtx, r, m, join, l, animate)
+	macro := op.Record(gtx.Ops)
+	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
+	body := macro.Stop()
+	footerGtx := gtx
+	footerGtx.Constraints.Min = image.Point{}
+	macro = op.Record(gtx.Ops)
+	footer := p.bubbleFooter(footerGtx, r, l)
+	foot := macro.Stop()
+	width := max(dims.Size.X, footer.Size.X)
+	at := image.Pt(0, dims.Size.Y+gtx.Dp(4))
+	height := at.Y + footer.Size.Y
+	if right, bottom, ok := r.lastLine(); ok && r.textLast {
+		if inline := right + gtx.Dp(footerGap) + footer.Size.X; inline <= gtx.Constraints.Max.X {
+			// The text is the last of what the bubble holds.
+			top := dims.Size.Y - r.text.size.Y
+			width = max(dims.Size.X, inline)
+			at.Y = top + bottom - footer.Size.Y
+			height = dims.Size.Y
+		}
+	}
+	at.X = width - footer.Size.X
+	body.Add(gtx.Ops)
+	stack := op.Offset(at).Push(gtx.Ops)
+	foot.Add(gtx.Ops)
+	stack.Pop()
+	return layout.Dimensions{Size: image.Pt(width, height)}
+}
+
+// bubbleFooter is the line of the time of the message r shows, which it
+// reads from the row, as bubbleContent does.
+func (p *chatPage) bubbleFooter(gtx layout.Context, r *messageRow, l localization.Catalog) layout.Dimensions {
+	msg := &r.shown
+	if msg.Streaming {
+		// A draft a bot streams turns a ring before its time while the
+		// bot writes it.
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.writing.sized(gtx, l, 12) }),
+			layout.Rigid(layout.Spacer{Width: 6}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return messageFooter(gtx, *msg, l, false, model.SendNone) }))
+	}
+	return messageFooter(gtx, *msg, l, !p.showsComments(*msg), p.sendState(gtx, *msg))
+}
+
 // messageFooter is the line at the bottom of a bubble: comments and views
-// of a post, its author, whether it was edited, and its time. The comments
-// are left to the comments bar when it is not counted here.
-func messageFooter(gtx layout.Context, m model.Message, l localization.Catalog, countComments bool) layout.Dimensions {
-	return messageFooterIn(gtx, m, l, countComments, scheme(gtx).SurfaceVariant.OnColor)
+// of a post, its author, whether it was edited, its time, and the mark of
+// state, of a message the account sent. The comments are left to the
+// comments bar when it is not counted here.
+func messageFooter(gtx layout.Context, m model.Message, l localization.Catalog, countComments bool, state model.SendState) layout.Dimensions {
+	return messageFooterIn(gtx, m, l, countComments, state, scheme(gtx).SurfaceVariant.OnColor)
 }
 
 // messageFooterIn is messageFooter in col.
-func messageFooterIn(gtx layout.Context, m model.Message, l localization.Catalog, countComments bool, col token.MatColor) layout.Dimensions {
+func messageFooterIn(gtx layout.Context, m model.Message, l localization.Catalog, countComments bool, state model.SendState, col token.MatColor) layout.Dimensions {
 	var items []layout.FlexChild
 	text := func(s string) {
 		items = append(items, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -437,6 +497,11 @@ func messageFooterIn(gtx layout.Context, m model.Message, l localization.Catalog
 		counter(iconViews, m.Views)
 	}
 	text(footerText(gtx, m, l))
+	if state != model.SendNone {
+		items = append(items, layout.Rigid(layout.Spacer{Width: 3}.Layout), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return sendStateMark(gtx, state, sendStateMarkSize, col)
+		}))
+	}
 	return layout.Flex{Alignment: layout.Middle}.Layout(gtx, items...)
 }
 
@@ -546,15 +611,19 @@ func (p *chatPage) reactions(gtx layout.Context, r *messageRow, m model.Message,
 		if chip.Clicked(gtx) && canReact && !reaction.Paid {
 			reactor.ToggleReaction(m, reaction, p.reportMedia)
 		}
-		background, content := sc.SecondaryContainer.Color, sc.SecondaryContainer.OnColor
-		if reaction.Chosen {
-			background, content = sc.Primary.Color, sc.Primary.OnColor
-		}
+		background, content := reactionChipColors(sc, reaction.Chosen, m.Outgoing)
 		macro := op.Record(gtx.Ops)
 		cgtx := gtx
 		cgtx.Constraints = layout.Constraints{Max: image.Pt(maxWidth, gtx.Dp(40))}
 		dims := layout.Inset{Top: 4, Bottom: 4, Left: 8, Right: 10}.Layout(cgtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+			// An emoji of the fonts sits on the count's baseline, which puts
+			// its middle at the digits', as in Telegram Desktop; a picture
+			// is centered on them.
+			align := layout.Baseline
+			if reaction.DocumentID != 0 {
+				align = layout.Middle
+			}
+			return layout.Flex{Alignment: align}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return p.reactionIcon(gtx, reaction, animate)
 				}),
@@ -588,13 +657,33 @@ func (p *chatPage) reactions(gtx layout.Context, r *messageRow, m model.Message,
 	return layout.Dimensions{Size: image.Pt(width, y+lineHeight)}
 }
 
+// reactionChipColors are the background and the content of a reaction's
+// chip in a bubble of sc, as Telegram Desktop's: the bubble's accent,
+// faint, under the accent's text (kInNonChosenOpacity,
+// kOutNonChosenOpacity), and solid for the account's own. The bubble's
+// colors are a chat theme's where it has one, which the app's containers
+// are not: chips of those were darker than a dark theme's bubble.
+func reactionChipColors(sc *token.Scheme, chosen, outgoing bool) (background, content token.MatColor) {
+	if chosen {
+		return sc.Primary.Color, sc.Primary.OnColor
+	}
+	faint := token.OpacityLevel(.12)
+	if outgoing {
+		faint = .18
+	}
+	return sc.Primary.Color.SetOpacity(faint), sc.Primary.Color
+}
+
 // reactionIcon draws a reaction's emoji, custom emoji or the star of paid
 // reactions.
 func (p *chatPage) reactionIcon(gtx layout.Context, reaction model.Reaction, animate bool) layout.Dimensions {
 	size := gtx.Dp(18)
 	if reaction.DocumentID != 0 && p.media != nil {
 		msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d", reaction.DocumentID), MIMEType: "application/x-custom-emoji"}}
-		if frame, _ := p.media.Frame(msg, animate); frame != nil && p.images != nil {
+		if p.images == nil {
+			return layout.Dimensions{Size: image.Pt(size, size)}
+		}
+		if frame := emojiFrame(p.media, p.images, msg, animate, scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
 			return exact(gtx, image.Pt(size, size), func(gtx layout.Context) layout.Dimensions {
 				return widget.Image{Src: p.images.Op(frame), Fit: widget.Contain}.Layout(gtx)
 			})
@@ -613,6 +702,7 @@ func (p *chatPage) reactionIcon(gtx layout.Context, reaction model.Reaction, ani
 func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog) layout.Dimensions {
 	replied, state, known := p.referenced(m.Key.ChatID, m.ReplyToMessageID)
 	name, text := l.T("history.reply_missing"), ""
+	var runs []model.TextRun
 	switch {
 	case known && state == model.LookupLoading:
 		text = l.T("service.loading")
@@ -632,10 +722,7 @@ func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message
 		if !replied.Outgoing {
 			color = senderColor(gtx, replied.SenderID)
 		}
-		text = foundText(replied, l)
-		if replied.SenderName != "" {
-			text = strings.TrimPrefix(text, replied.SenderName+": ")
-		}
+		runs = quoteRuns(replied, l)
 	}
 	macro := op.Record(gtx.Ops)
 	dims := layout.Inset{Top: 5, Bottom: 5, Left: 11, Right: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -644,6 +731,9 @@ func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message
 				return label(gtx, name, token.TypestyleLabelLargeEmphasized, color, 1)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if runs != nil {
+					return p.quoteLine(gtx, runs, scheme(gtx).Surface.OnColor)
+				}
 				if text == "" {
 					return layout.Dimensions{}
 				}
@@ -661,6 +751,44 @@ func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message
 		call.Add(gtx.Ops)
 		return layout.Dimensions{Size: size}
 	})
+}
+
+// quoteRuns are the line a quote of m shows: what media it has and its
+// text, on one line, with its custom emoji, which Telegram Desktop's
+// quotes draw as they are: as plain text they would be their fallback
+// emoji.
+func quoteRuns(m model.Message, l localization.Catalog) []model.TextRun {
+	var emoji []model.Entity
+	for _, e := range m.Entities {
+		if e.Kind == model.EntityEmoji {
+			emoji = append(emoji, e)
+		}
+	}
+	var runs []model.TextRun
+	for _, r := range model.TextRuns(m.Text, emoji) {
+		runs = append(runs, model.TextRun{Text: strings.ReplaceAll(r.Text, "\n", " "), Emoji: r.Emoji})
+	}
+	if len(runs) > 0 {
+		runs[0].Text = strings.TrimLeft(runs[0].Text, " ")
+	}
+	if media := foundText(model.Message{Kind: m.Kind, Media: m.Media}, l); media != "" {
+		if len(runs) > 0 {
+			media += ", "
+		}
+		runs = append([]model.TextRun{{Text: media}}, runs...)
+	}
+	if len(runs) == 0 {
+		return []model.TextRun{}
+	}
+	return runs
+}
+
+// quoteLine draws runs, a quote's line, in color.
+func (p *chatPage) quoteLine(gtx layout.Context, runs []model.TextRun, color token.MatColor) layout.Dimensions {
+	if len(runs) == 0 {
+		return layout.Dimensions{}
+	}
+	return richLabel{runs: runs, style: token.TypestyleBodySmall, color: color, maxLines: 1, media: p.media, images: p.images, animate: p.animate}.Layout(gtx)
 }
 
 // referenced is a message another one names, as the one it replies to:

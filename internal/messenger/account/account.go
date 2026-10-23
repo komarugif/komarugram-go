@@ -26,7 +26,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -38,10 +37,15 @@ import (
 	"github.com/gotd/td/telegram/dcs"
 	"github.com/gotd/td/tg"
 
+	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/messenger/security"
 	"komarugram/pkg/dcpool"
 	"komarugram/pkg/tdata"
 )
+
+// ErrProxyChanged is what Add returns when the proxy was changed while it was
+// still connecting: the sign-in is to be started again, through the new one.
+var ErrProxyChanged = errors.New("account: the proxy was changed")
 
 // ErrInUse is returned when an account is already connected, in this process
 // or in another one.
@@ -64,6 +68,7 @@ type Account struct {
 
 	keyID   string
 	dir     string
+	media   string
 	storage *fileStorage
 	busy    atomic.Bool
 }
@@ -82,12 +87,19 @@ func (a *Account) HistoryPath() string {
 	return filepath.Join(a.dir, "history.db")
 }
 
+// MediaPath is the directory of the account's large media, in the user's
+// cache directory: a cache, which the configuration directory (roaming on
+// Windows) must not carry.
+func (a *Account) MediaPath() string { return a.media }
+
 // Manager holds the accounts of the client.
 type Manager struct {
 	identity Identity
 	security *security.Manager
 	// lockDir holds one lock file per auth key.
 	lockDir string
+	// mediaDir holds the accounts' large media, a directory each.
+	mediaDir string
 	// accountsDir holds one private directory per account.
 	accountsDir string
 	registry    *registry
@@ -95,23 +107,63 @@ type Manager struct {
 	mu       sync.Mutex
 	loaded   bool
 	accounts []*Account
-	// resolver, if set, connects through a proxy instead of directly.
-	resolver dcs.Resolver
+	// resolver, if set, connects through a proxy instead of directly; it and
+	// proxyChanged, which is closed when the proxy is changed, are under proxyMu.
+	proxyMu      sync.RWMutex
+	resolver     dcs.Resolver
+	proxyChanged chan struct{}
+	// premiumMedia tells whether files over WebSocket go to the address of
+	// Premium accounts; nil for no.
+	premiumMedia func() bool
 }
 
-// SetProxy makes every connection of the manager go through the MTProxy in
-// link (see ParseProxy); an empty link means connecting directly.
-func (m *Manager) SetProxy(link string) error {
-	if strings.TrimSpace(link) == "" {
-		m.resolver = nil
-		return nil
+// UseProxy makes the connections made from now on go through p; nil is
+// connecting directly. The ones made already stay as they are: ProxyChanged
+// tells whoever is to make them again.
+func (m *Manager) UseProxy(p *proxy.Proxy) error {
+	var resolver dcs.Resolver
+	if p != nil {
+		var err error
+		if resolver, err = p.ResolverWith(proxy.Options{PremiumMedia: m.premiumMediaNow}); err != nil {
+			return err
+		}
 	}
-	resolver, err := ParseProxy(link)
-	if err != nil {
-		return err
-	}
+	m.proxyMu.Lock()
 	m.resolver = resolver
+	close(m.proxyChanged)
+	m.proxyChanged = make(chan struct{})
+	m.proxyMu.Unlock()
 	return nil
+}
+
+// SetPremiumMedia sets what tells, at each connection over WebSocket, whether
+// files are asked for at the address of Premium accounts.
+func (m *Manager) SetPremiumMedia(f func() bool) {
+	m.proxyMu.Lock()
+	m.premiumMedia = f
+	m.proxyMu.Unlock()
+}
+
+func (m *Manager) premiumMediaNow() bool {
+	m.proxyMu.RLock()
+	f := m.premiumMedia
+	m.proxyMu.RUnlock()
+	return f != nil && f()
+}
+
+// ProxyChanged returns a channel that is closed when UseProxy is called
+// next.
+func (m *Manager) ProxyChanged() <-chan struct{} {
+	_, changed := m.proxyState()
+	return changed
+}
+
+// proxyState is the resolver in use, and the channel that is closed when it
+// is replaced.
+func (m *Manager) proxyState() (dcs.Resolver, <-chan struct{}) {
+	m.proxyMu.RLock()
+	defer m.proxyMu.RUnlock()
+	return m.resolver, m.proxyChanged
 }
 
 // NewManager returns a manager of the accounts in the user's config
@@ -140,7 +192,9 @@ func newManager(identity Identity, protection *security.Manager, dir, lockDir st
 	}
 	m := &Manager{
 		identity: identity, security: protection, lockDir: lockDir, accountsDir: accountsDir,
-		registry: &registry{path: filepath.Join(dir, "accounts.db"), protection: protection},
+		mediaDir:     filepath.Join(filepath.Dir(lockDir), "media"),
+		registry:     &registry{path: filepath.Join(dir, "accounts.db"), protection: protection},
+		proxyChanged: make(chan struct{}),
 	}
 	if protection != nil {
 		protection.SetMigration(m.protectSessions)
@@ -182,7 +236,7 @@ func (m *Manager) loadLocked() error {
 
 func (m *Manager) account(rec record, dir string) *Account {
 	return &Account{
-		ID: rec.ID, UserID: rec.UserID, DC: rec.DC, keyID: rec.KeyID, dir: dir,
+		ID: rec.ID, UserID: rec.UserID, DC: rec.DC, keyID: rec.KeyID, dir: dir, media: filepath.Join(m.mediaDir, rec.ID),
 		storage: m.fileStorage(filepath.Join(dir, "session.json")),
 	}
 }
@@ -421,11 +475,12 @@ func (m *Manager) RunClient(ctx context.Context, a *Account, handler telegram.Up
 	defer unlock()
 
 	identity := m.identity.withTimeZone(time.Now())
+	resolver, _ := m.proxyState()
 	client := telegram.NewClient(identity.APIID, identity.APIHash, telegram.Options{
 		DC:             a.DC,
 		SessionStorage: a.storage,
 		Device:         identity.Device,
-		Resolver:       m.resolver,
+		Resolver:       resolver,
 		UpdateHandler:  handler,
 		Middlewares:    append(diagnostics.Middleware(a.ID, a.DC), middlewares...),
 		OnTransfer:     dcpool.OnTransfer,
@@ -451,24 +506,53 @@ func (m *Manager) Add(ctx context.Context, p Prompter) (*Account, error) {
 	storage := m.fileStorage(filepath.Join(pending, "session.json"))
 
 	identity := m.identity.withTimeZone(time.Now())
+	resolver, proxyChanged := m.proxyState()
+	updates, tokenAccepted := onLoginToken()
 	client := telegram.NewClient(identity.APIID, identity.APIHash, telegram.Options{
 		SessionStorage: storage,
 		Middlewares:    diagnostics.Middleware("sign-in", 0),
 		Device:         identity.Device,
-		Resolver:       m.resolver,
+		Resolver:       resolver,
+		UpdateHandler:  updates,
 	})
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var timedOut atomic.Bool
+	var codeAsked, proxyWasChanged atomic.Bool
 	timer := time.AfterFunc(connectTimeout, func() {
 		timedOut.Store(true)
 		cancel()
 	})
 	defer timer.Stop()
+	// A proxy chosen before the code was asked for is what the sign-in is to be
+	// through: it starts again, as nothing was done that it would lose, a QR
+	// code being replaced by a new one. The code is the server's answer to the
+	// connection it was asked on, and so is a QR code accepted.
+	go func() {
+		select {
+		case <-proxyChanged:
+			if !codeAsked.Load() {
+				proxyWasChanged.Store(true)
+				cancel()
+			}
+		case <-runCtx.Done():
+		}
+	}()
+	// The QR code, and the phone number if the user chooses it, are asked
+	// for while the connection is made.
+	early := askEarly(runCtx, p)
 	var self *tg.User
 	err = client.Run(runCtx, func(ctx context.Context) error {
 		timer.Stop()
-		if err := signIn(ctx, gotdAuth{client.Auth(), client.API()}, p); err != nil {
+		api := gotdAuth{
+			Client:   client.Auth(),
+			api:      client.API(),
+			appID:    identity.APIID,
+			appHash:  identity.APIHash,
+			migrate:  client.MigrateTo,
+			accepted: tokenAccepted,
+		}
+		if err := signIn(ctx, askingCode{api, func() { codeAsked.Store(true) }}, early); err != nil {
 			return err
 		}
 		var err error
@@ -486,6 +570,9 @@ func (m *Manager) Add(ctx context.Context, p Prompter) (*Account, error) {
 		}
 		return nil
 	})
+	if proxyWasChanged.Load() && ctx.Err() == nil {
+		return nil, ErrProxyChanged
+	}
 	if timedOut.Load() && ctx.Err() == nil {
 		return nil, ErrNoConnection
 	}
@@ -539,6 +626,9 @@ func (m *Manager) Remove(a *Account) error {
 	os.Remove(filepath.Join(m.lockDir, a.keyID+".lock"))
 	if err := os.RemoveAll(a.dir); err != nil {
 		return fmt.Errorf("account %s: remove local data: %w", a.ID, err)
+	}
+	if err := os.RemoveAll(a.media); err != nil {
+		return fmt.Errorf("account %s: remove media: %w", a.ID, err)
 	}
 	return nil
 }

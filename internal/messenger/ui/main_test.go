@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
@@ -23,7 +24,17 @@ func TestMain(m *testing.M) {
 		return nil
 	}
 	fetchSmall = func(context.Context, string) ([]byte, error) { return nil, errors.New("tests reach no server") }
-	os.Exit(m.Run())
+	// Nothing a test saves lands in the downloads or the pictures of the
+	// one who runs it.
+	saved, err := os.MkdirTemp("", "komarugram-ui-saved-")
+	if err != nil {
+		panic(err)
+	}
+	downloadsDir = func() string { return filepath.Join(saved, "Downloads") }
+	picturesDir = func() string { return filepath.Join(saved, "Pictures") }
+	code := m.Run()
+	os.RemoveAll(saved)
+	os.Exit(code)
 }
 
 // browserOpened is the last link a test would have opened in the browser.

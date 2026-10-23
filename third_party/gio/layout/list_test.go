@@ -5,6 +5,7 @@ package layout
 import (
 	"image"
 	"testing"
+	"time"
 
 	"gioui.org/f32"
 	"gioui.org/io/event"
@@ -286,5 +287,31 @@ func TestExtraChildren(t *testing.T) {
 	})
 	if count != all {
 		t.Errorf("laid out %d of %d children", count, all)
+	}
+}
+
+// A child that panics leaves the list unfinished. The frame is dropped, and
+// the list lays out again in the next one; within the frame, a nested Layout
+// still panics.
+func TestListAfterPanickedChild(t *testing.T) {
+	var l List
+	gtx := Context{Ops: new(op.Ops), Constraints: Exact(image.Pt(20, 10)), Now: time.Unix(1, 0)}
+	item := func(gtx Context, _ int) Dimensions { return Dimensions{Size: image.Pt(20, 5)} }
+	func() {
+		defer func() { _ = recover() }()
+		l.Layout(gtx, 3, func(Context, int) Dimensions { panic("child") })
+	}()
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("a nested Layout in the same frame did not panic")
+			}
+		}()
+		l.Layout(gtx, 3, item)
+	}()
+	gtx.Ops.Reset()
+	gtx.Now = gtx.Now.Add(time.Second / 60)
+	if dims := l.Layout(gtx, 3, item); dims.Size != image.Pt(20, 10) {
+		t.Errorf("the next frame laid out %v", dims.Size)
 	}
 }

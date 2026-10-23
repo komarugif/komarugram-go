@@ -32,7 +32,11 @@ func (p *fakeCDNPool) CDN(context.Context, int, int64) (downloader.CDN, io.Close
 	p.opens.Add(1)
 	return p.cdn, io.NopCloser(bytes.NewReader(nil)), nil
 }
-func newFakeCDN(t *testing.T, tamper bool) (*fakeCDNPool, []byte, *atomic.Int32) {
+
+// newFakeCDN serves a file through a CDN; with nominal, the hash of its
+// last part gives the whole size of a part, as a CDN may, whose bytes end
+// earlier.
+func newFakeCDN(t *testing.T, tamper, nominal bool) (*fakeCDNPool, []byte, *atomic.Int32) {
 	t.Helper()
 	plain := make([]byte, streamPartSize*2+123)
 	for i := range plain {
@@ -44,7 +48,11 @@ func newFakeCDN(t *testing.T, tamper bool) (*fakeCDNPool, []byte, *atomic.Int32)
 	for off := 0; off < len(plain); off += streamPartSize {
 		end := min(len(plain), off+streamPartSize)
 		hash := sha256.Sum256(plain[off:end])
-		hashes = append(hashes, tg.FileHash{Offset: int64(off), Limit: end - off, Hash: hash[:]})
+		limit := end - off
+		if nominal {
+			limit = streamPartSize
+		}
+		hashes = append(hashes, tg.FileHash{Offset: int64(off), Limit: limit, Hash: hash[:]})
 	}
 	reuploads := new(atomic.Int32)
 	requested := new(atomic.Bool)
@@ -105,11 +113,15 @@ func newFakeCDN(t *testing.T, tamper bool) (*fakeCDNPool, []byte, *atomic.Int32)
 	return pool, plain, reuploads
 }
 func TestCDNMediaAndStreamingVerifyBeforeCaching(t *testing.T) {
-	for _, stream := range []bool{false, true} {
-		for _, tamper := range []bool{false, true} {
-			t.Run(fmt.Sprintf("stream=%v/tamper=%v", stream, tamper), func(t *testing.T) {
+	for _, c := range []struct{ stream, tamper, nominal bool }{
+		{false, false, false}, {false, true, false}, {true, false, false}, {true, true, false},
+		{false, false, true}, {true, false, true}, {true, true, true},
+	} {
+		stream, tamper := c.stream, c.tamper
+		{
+			t.Run(fmt.Sprintf("stream=%v/tamper=%v/nominal=%v", stream, tamper, c.nominal), func(t *testing.T) {
 				s := testStore(t)
-				pool, plain, reuploads := newFakeCDN(t, tamper)
+				pool, plain, reuploads := newFakeCDN(t, tamper, c.nominal)
 				s.history.pool = pool
 				s.history.refs["cdn"] = fileLocation{ID: 1, DC: 2}
 				msg := model.Message{Media: &model.MessageMedia{ID: "cdn", Size: int64(len(plain))}}

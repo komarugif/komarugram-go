@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/diagnostics"
 	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/codehighlight"
@@ -46,17 +47,30 @@ type messageRow struct {
 	children []layout.FlexChild
 	// mediaTold is the failure to load the row's media told in the toast
 	// last, so that a failure is told once, not on every frame.
-	mediaTold   error
+	mediaTold error
+	// avatarPoint is where the sender's avatar is drawn; bodyLeft, where
+	// the message with it starts.
 	avatarPoint image.Point
+	bodyLeft    int
 	bodySize    image.Point
 	bodyTop     int
 	album       map[model.MessageID]*messageRow
-	revision    uint64
-	runs        []model.TextRun
-	textBlocks  []messageTextBlock
-	noCopy      bool
-	text        textInteraction
-	buttons     [][]surface
+	// partPress takes right presses on a part of an album, which tell the
+	// menu the part.
+	partPress byte
+	// textLast is set while the text is the last of what the bubble
+	// holds, whose last line its time may go on.
+	textLast   bool
+	revision   uint64
+	runs       []model.TextRun
+	textBlocks []messageTextBlock
+	noCopy     bool
+	text       textInteraction
+	buttons    [][]surface
+	// stampable is set when the text may have timestamps, and stamp is
+	// what they name times of (refreshStamps).
+	stampable bool
+	stamp     stampTarget
 	// reactions are the message's reaction chips, which choose or take
 	// back a reaction.
 	reactions []surface
@@ -73,9 +87,18 @@ type messageRow struct {
 	// previewVideo is the row of the preview's video, which plays as a
 	// video message's does.
 	previewVideo *messageRow
+	// gif are the controls of the row's GIF, while it plays in the chat.
+	gif gifControls
 	// quick takes double clicks on the bubble, which react to it.
-	quick    gesture.Click
-	media    widget.Clickable
+	quick gesture.Click
+	media widget.Clickable
+	// ring shows how far the row's media or file downloaded; plate is
+	// how much the plate over its video shows, which hovering hides.
+	ring  downloadRing
+	plate wdk.FloatTween
+	// avatar is the sender's avatar the row draws for its group of
+	// messages, which opens the chat with them.
+	avatar   widget.Clickable
 	sticker  surface
 	audio    audioRow
 	revealed bool
@@ -110,6 +133,8 @@ type messageRow struct {
 	alone bool
 }
 type chatPage struct {
+	shortcuts  shortcutPreferences
+	menus      menuPreferences
 	membership membershipControl
 	// membershipNotice reports outcomes in the chat list after the dialog is removed.
 	membershipNotice func(string)
@@ -182,23 +207,28 @@ type chatPage struct {
 	forwarding forwardPicker
 	// toast tells, over the end of the history, what was done in the chat
 	// and what failed there.
-	toast     toast
-	images    *imageOps
-	revision  uint64
-	dates     []string
-	dayStart  []bool
-	joins     []bubbleJoin
-	nextDay   []int
-	avatar    avatarLayout
-	kind      model.ChatKind
-	linkModal modal
-	source    model.ConversationStore
-	media     *chatmedia.Manager
-	animate   bool
-	chat      int64
-	list      scroll.List
-	messages  []model.Message
-	rows      map[model.MessageID]*messageRow
+	toast    toast
+	images   *imageOps
+	revision uint64
+	dates    []string
+	dayStart []bool
+	joins    []bubbleJoin
+	nextDay  []int
+	avatar   avatarLayout
+	kind     model.ChatKind
+	// readOutbox is the newest of the account's messages the chat read.
+	readOutbox model.MessageID
+	direct     bool // the chat of a channel's direct messages
+	linkModal  modal
+	source     model.ConversationStore
+	media      *chatmedia.Manager
+	animate    bool
+	chat       int64
+	// forgot is the chat forget dropped, to be loaded again, not left.
+	forgot   int64
+	list     scroll.List
+	messages []model.Message
+	rows     map[model.MessageID]*messageRow
 	// textRunes are the rune counts of the messages' texts, which the
 	// estimates of unmeasured heights need on every change of width.
 	textRunes map[model.MessageID]textRunes
@@ -236,6 +266,8 @@ type chatPage struct {
 	// reported from its goroutine and told in the toast.
 	errorMu    sync.Mutex
 	mediaError error
+	// notice is the outcome of such a task, told likewise.
+	notice     string
 	invalidate func()
 	// online counts the open group's members online.
 	online groupOnline
@@ -244,9 +276,15 @@ type chatPage struct {
 	// what it plays over the history.
 	audio    *audioPlayer
 	audioBar audioBar
+	// audioList, when set, is the list of messages that plays on from one
+	// of this page's, in place of the chat's history: the section of the
+	// info that is open.
+	audioList func() []model.Message
 	// openPhoto shows a photo in the viewer; nil leaves photos inline.
 	openPhoto func(model.Message)
 	openAlone func(model.Message)
+	// openGIF opens a GIF in the viewer, among the chat's GIFs.
+	openGIF func(model.Message)
 	// openArticle shows the whole of rich message m, at its anchor
 	// fragment unless it is empty; nil when it cannot.
 	openArticle func(m model.Message, fragment string)
@@ -258,6 +296,12 @@ type chatPage struct {
 	// comments bar. thread is set for the page that shows comments.
 	openComments func(model.Message)
 	thread       bool
+	// openSender opens the chat with the sender of a group message, whose
+	// avatar was clicked; nil leaves the avatars without a click.
+	// openReturning opens a chat with a way back to this one, as a
+	// channel's discussion; nil opens it by openChat.
+	openSender    func(model.Message)
+	openReturning func(model.Chat)
 	// bot is what the page shows of bots: reply keyboards and the Start
 	// button. openWebApp opens the Mini App of a bot's button; nil leaves
 	// those buttons off.
@@ -295,6 +339,12 @@ type chatPage struct {
 	snapshotting bool
 	shot         shotDialog
 	historyWidth int
+	// stickerVideo saves a Lottie sticker as a video.
+	stickerVideo stickerVideoDialog
+	// albumSave asks what of an album to save.
+	albumSave albumSaveDialog
+	// gifFallback asks where to play a GIF the sandbox cannot.
+	gifFallback gifFallback
 	// player and setPlayer read and save the external player the user
 	// chose; playerChoice asks for it.
 	player      func() player.Kind
@@ -304,7 +354,13 @@ type chatPage struct {
 	// external player, as chosen in the settings, rather than in the
 	// client.
 	audioExternal func() bool
-	playerChoice  playerChoice
+	// videoEngine is where a video plays (videoEngineOf), and openVideo
+	// shows one in the viewer and plays it there from a time, below 0 from
+	// the start; nil for the external player.
+	videoEngine func(model.Message) string
+	openVideo   func(model.Message, time.Duration)
+
+	playerChoice playerChoice
 }
 
 // classicComposer reports whether the composer is a bar below the history.
@@ -383,7 +439,7 @@ func (p *chatPage) forgetDialogStickers() {
 // next Layout opens it again from where the store says: see
 // model.MessageRevealer.
 func (p *chatPage) forget() {
-	p.chat = 0
+	p.forgot, p.chat = p.chat, 0
 }
 
 func (p *chatPage) Close() {
@@ -400,13 +456,13 @@ func (p *chatPage) Close() {
 	p.save(true)
 	p.audio.stop()
 	p.media.Close()
-	if p.files != nil {
+	if p.files != nil && !p.files.shared {
 		p.files.Close()
 	}
 }
 
 // photos returns the photos of the loaded history, album members included.
-func (p *chatPage) photos() []model.Message {
+func (p *chatPage) viewerItems() []model.Message {
 	var out []model.Message
 	for _, m := range p.messages {
 		if len(m.Attachments) > 1 {
@@ -417,12 +473,19 @@ func (p *chatPage) photos() []model.Message {
 	}
 	return out
 }
+
+// abandon forgets the chat whose layout panicked, with what is open over
+// it: laid out again, the chat opens anew, as another one would.
+func (p *chatPage) abandon() {
+	p.chat, p.forgot = 0, 0
+}
+
 func (p *chatPage) save(force bool) {
 	if len(p.messages) == 0 || p.chat == 0 {
 		return
 	}
 	pos := p.list.Position
-	if pos.First >= len(p.messages) || p.messages[pos.First].Streaming {
+	if pos.First >= len(p.messages) || p.messages[pos.First].Local() {
 		return
 	}
 	v := model.Viewport{ChatID: p.chat, AnchorMessageID: p.messages[pos.First].Key.MessageID, AnchorOffsetPx: pos.Offset, AtEnd: !pos.BeforeEnd, Environment: p.env, UpdatedAt: time.Now()}
@@ -451,6 +514,10 @@ func (p *chatPage) save(force bool) {
 // Layout draws the bar of what plays, if anything does, the chat's pinned
 // bar, if it has pinned messages, and its history under them.
 func (p *chatPage) Layout(gtx layout.Context, c model.Chat, l localization.Catalog, animate bool) layout.Dimensions {
+	if p.composer != nil {
+		free := gtx.Focused(nil) || gtx.Focused(&p.keyboard) && !p.holdsKeyboard()
+		p.composer.takeKeyboard(gtx, c.ID, free)
+	}
 	p.sourceEvents(l)
 	p.htmlEvents(l)
 	playing := p.audioBarSize(gtx)
@@ -511,18 +578,28 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		}()
 	}
 	if p.chat != c.ID {
-		p.forgetDialogStickers()
-		p.stickers.stop()
-		p.emojiPacks.stop()
-		p.reacted.stop()
-		p.edits.stop()
-		p.shot.stop()
-		p.translation.stop()
-		p.closeChatSearch()
-		p.chatMenu.open = false
+		// The same chat forgotten is loaded again where a jump asked
+		// (forget): what is open over it stays, as the search that
+		// jumped to a message not loaded, which closed.
+		reload := p.chat == 0 && p.forgot == c.ID
+		p.forgot = 0
+		if !reload {
+			p.forgetDialogStickers()
+			p.stickers.stop()
+			p.emojiPacks.stop()
+			p.reacted.stop()
+			p.edits.stop()
+			p.shot.stop()
+			p.stickerVideo.close()
+			p.albumSave = albumSaveDialog{}
+			p.gifFallback.modal.Hide()
+			p.translation.stop()
+			p.closeChatSearch()
+			p.chatMenu.open = false
+			p.clearSelection()
+		}
 		p.closeMenu()
 		p.save(true)
-		p.clearSelection()
 		p.activeText = nil
 		p.chat = c.ID
 		p.revision = 0
@@ -537,8 +614,8 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.link = ""
 		p.linkModal.Hide()
 	}
-	p.keyboardEvents(gtx)
-	p.kind, p.title = c.Kind, c.Title
+	p.keyboardEvents(gtx, l)
+	p.kind, p.title, p.direct, p.readOutbox = c.Kind, c.Title, c.DirectMessages, c.ReadOutbox
 	p.menuUpdate(gtx, l)
 	p.updateForward(l)
 	p.source.OpenChat(c.ID)
@@ -582,14 +659,12 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	if recording {
 		record = op.Record(gtx.Ops)
 	}
-	fillRect(gtx, sc.SurfaceContainerLow, size)
 	if p.appearance != nil {
 		p.appearance.Update(c.ID, token.IsDarkColorSet(sc.Surface))
-		p.appearance.Background(gtx)
 	}
 	p.historyWidth = size.X
 	theme := uint32(sc.Surface.Color.AsNRGBA().R)<<16 | uint32(sc.Surface.Color.AsNRGBA().G)<<8 | uint32(sc.Surface.Color.AsNRGBA().B)
-	env := model.RenderEnvironment{WidthPx: size.X, ScaleMilli: int(gtx.Metric.PxPerDp * 1000), TextScaleMilli: int(gtx.Metric.PxPerSp * 1000), Locale: string(l.Language()), FontRevision: fonts.Revision(), ThemeRevision: theme, RendererRevision: 17}
+	env := model.RenderEnvironment{WidthPx: size.X, ScaleMilli: int(gtx.Metric.PxPerDp * 1000), TextScaleMilli: int(gtx.Metric.PxPerSp * 1000), Locale: string(l.Language()), FontRevision: fonts.Revision(), ThemeRevision: theme, RendererRevision: rendererRevision(gtx)}
 	if p.trace != nil {
 		p.trace.History.Environment = fmt.Sprintf("width:%d dp:%d sp:%d locale:%s font:%d theme:%x renderer:%d", env.WidthPx, env.ScaleMilli, env.TextScaleMilli, env.Locale, env.FontRevision, env.ThemeRevision, env.RendererRevision)
 	}
@@ -608,12 +683,12 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		}
 		// A message the composer sent, at the end of a history that shows its
 		// end, flies to its place.
-		var prevLast model.MessageID
-		if n := len(p.messages); n > 0 && p.restored && !p.list.Position.BeforeEnd {
-			prevLast = p.messages[n-1].Key.MessageID
+		var prev []model.Message
+		if p.restored && !p.list.Position.BeforeEnd {
+			prev = p.messages
 		}
 		p.rebuild(history.Messages, env)
-		p.startFlights(gtx, prevLast, animate)
+		p.startFlights(gtx, prev, animate)
 	}
 	p.updateBot(c, history)
 	v, anchored := p.source.Viewport(c.ID)
@@ -662,6 +737,19 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	flightFrom := tail / 2
 	if classic {
 		flightFrom = tail + bottom/2
+	}
+	{
+		// The history's background ends where the classic composer's bar
+		// begins: the bar is a surface of the window, which shows what is
+		// behind a translucent window, not the wallpaper. The wallpaper is
+		// cut, not drawn smaller, so that a reply strip does not render it
+		// again.
+		area := clip.Rect{Max: image.Pt(size.X, max(0, size.Y-bottom))}.Push(gtx.Ops)
+		fillRect(gtx, sc.SurfaceContainerLow, size)
+		if p.appearance != nil {
+			p.appearance.Background(gtx)
+		}
+		area.Pop()
 	}
 	body := gtx
 	body.Constraints = layout.Exact(image.Pt(size.X, max(0, size.Y-top-bottom)))
@@ -712,8 +800,9 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 				}
 				measurement := model.MessageLayout{Key: msg.Key, Environment: env, ContentRevision: msg.ContentRevision, HeightPx: dims.Size.Y, MeasuredAt: time.Now()}
 				p.measures[msg.Key.MessageID] = measurement
-				if !msg.Streaming {
-					// The cache keeps no layout of a draft a bot streams.
+				if !msg.Local() {
+					// The cache keeps no layout of a draft a bot streams, or
+					// of a message on its way.
 					p.dirty[msg.Key.MessageID] = measurement
 				}
 				p.heights.Set(i, dims.Size.Y)
@@ -741,18 +830,24 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		end = p.composer.top
 	}
 	p.jumpButtons(gtx, size, end, max(0, size.Y-top-bottom), history, l)
+	// Taken under the lock and told after it: a panic while it is held
+	// would hang every frame after.
 	p.errorMu.Lock()
-	if err := p.mediaError; err != nil {
-		p.mediaError = nil
-		p.toast.Show(mediaErrorText(err))
-	}
+	mediaErr, notice := p.mediaError, p.notice
+	p.mediaError, p.notice = nil, ""
 	p.errorMu.Unlock()
+	if mediaErr != nil {
+		p.toast.Show(mediaErrorText(mediaErr))
+	}
+	if notice != "" {
+		p.toast.Show(notice)
+	}
 	p.botUpdate(l)
 	p.toast.bd = p.toastBackdrop()
 	p.toast.Layout(gtx, image.Rect(0, top, size.X, end))
 	// Audio of a format no decoder here takes goes to the external player.
-	if m := p.audio.takeExternal(); m != nil {
-		p.play(gtx, *m, p.reportMedia, l)
+	if m, at := p.audio.takeExternal(); m != nil {
+		p.playFrom(gtx, *m, at, p.reportMedia, l)
 	}
 	p.menuLayout(gtx, l)
 	p.entityMenuLayout(gtx, l)
@@ -794,9 +889,13 @@ func (p *chatPage) layoutDialogs(gtx layout.Context, l localization.Catalog) {
 	p.reacted.layout(gtx, p, l)
 	p.edits.layout(gtx, p, l)
 	p.shot.layout(gtx, p, l)
+	p.stickerVideo.layout(gtx, p, l)
+	p.albumSave.layout(gtx, p, l)
+	p.gifFallbackDialog(gtx, l)
 	p.translation.layout(gtx, p, l)
 	if p.composer != nil {
 		p.composer.layoutConfirm(gtx, p, l)
+		p.composer.layoutLinkDialog(gtx, l)
 		p.composer.layoutFilesBox(gtx, p, l)
 	}
 }
@@ -1015,8 +1114,7 @@ func (p *chatPage) textFlow(gtx layout.Context, r *messageRow, block *messageTex
 		}
 		if run.Emoji != 0 && (!run.Spoiler || r.revealed || !r.text.reveal.started.IsZero()) {
 			msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d", run.Emoji), MIMEType: "application/x-custom-emoji"}}
-			frames[i], _ = p.media.Frame(msg, animate)
-			if frames[i] != nil {
+			if frames[i] = emojiFrame(p.media, p.images, msg, animate, st.Color); frames[i] != nil {
 				st.Color.A = 0
 			}
 		}
@@ -1177,6 +1275,12 @@ func (p *chatPage) linkDialog(gtx layout.Context, l localization.Catalog) {
 		target := p.link
 		p.linkModal.Close()
 		go func() {
+			defer crash.Recover("open link", func(e *crash.Panic) {
+				p.errorMu.Lock()
+				p.mediaError = e
+				p.errorMu.Unlock()
+				p.invalidate()
+			})
 			if err := openBrowser(target); err != nil {
 				p.errorMu.Lock()
 				p.mediaError = err

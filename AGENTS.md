@@ -17,12 +17,14 @@ Russian; code, comments and docs are in English.
 | `cmd/messenger` | Entry point; `account_host.go` runs accounts, windows and their stores |
 | `cmd/render-all` | Renders every screen of the render tests into one directory |
 | `cmd/haiku-build` | Builds the messenger on Haiku itself, patching the modules that need it (`docs/BUILD_HAIKU.md`) |
+| `cmd/registration-table` | Smooths user ids with the days their accounts were registered into the table the info estimates a registration by; the points are kept out of the repository |
 | `cmd/emoji-pack` | Makes the catalog of emoji packs built into the client (`official`: Telegram Desktop's emoji sets, pinned to commits), and catalogs of a directory |
 | `internal/messenger/ui` | All messenger UI. Components: `docs/UI_COMPONENTS.md` |
 | `internal/messenger/tgstore` | `model.Store` backed by Telegram (gotd): chats, history, search, updates |
 | `internal/messenger/historycache` | Per-account SQLite cache: messages (JSON), media, layouts, FTS5 search index |
 | `internal/messenger/{fonts,emojipacks}` | Font files of the user's own; emoji packs of a catalog, installed beside the settings |
 | `internal/messenger/account` | Registry, sign-in, tdata import, one client per auth key |
+| `internal/messenger/proxy` | The proxies the user keeps (MTProto, SOCKS5, Telegram over WebSocket): links, the resolvers that connect through them, ping, the saved list |
 | `internal/messenger/model` | Data types and the interfaces the UI reads |
 | `internal/messenger/{security,securedb}` | TPM-sealed key, encrypted SQLite (Adiantum VFS) |
 | `internal/messenger/mockstore` | Demo store for `-demo` |
@@ -76,12 +78,12 @@ GOOS=windows GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/messenger
 Render tests save PNGs when their variable is set, and are skipped
 otherwise, so `go test` never runs them: `COMPOSER_PNG` (with
 `COMPOSER_VIEW`), `COMPOSER_MOTION_PNG`, `SETTINGS_PNG` (with
-`SETTINGS_SECTION`), `ACCOUNTS_PNG_DIR`, `SESSION_PNG_DIR`, `SESSIONS_PNG`, `FORUM_PNG`,
+`SETTINGS_SECTION`), `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`,
 `STICKER_SET_PNG_DIR`, `MENU_PNG`, `REACTED_PNG`, `VIEWER_PNG` (with
-`VIEWER_ZOOM`), `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`,
+`VIEWER_ZOOM`, `VIEWER_PROFILE`, `VIEWER_GIFS`), `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`,
 `SERVICE_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`,
-`SAVED_EMPTY_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`,
-`FRAME_PNG_DIR` (the window's own frame, in `internal/appwindow`) (see
+`SAVED_EMPTY_PNG`, `SHARED_PNG`, `REGISTRATION_OFFER_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`,
+`FRAME_PNG_DIR` (the window's own frame, in `internal/appwindow`), `PANIC_PNG_DIR` (the window of a panic, there too) (see
 `docs/UI_COMPONENTS.md`). Run the one of the screen you changed, and look
 at the PNG. `KOMARUGRAM_FONT`, `KOMARUGRAM_FONT_EXTRA`,
 `KOMARUGRAM_FONT_MONO` and `KOMARUGRAM_FONT_EMOJI` name a font file for the
@@ -177,10 +179,46 @@ the tests as they are).
 The full list, with the story behind each item, is README_FULL.md "Pitfalls met while
 working on this code".
 
+## Panics
+
+A panic in a frame is caught (`crash.Guard` in `internal/appwindow`): the
+frame is dropped, the panic reported, and the window draws again. What
+keeps it from coming back:
+
+- **A goroutine starts with `defer crash.Recover(where, handle)`**, and
+  `handle` tells whoever waits that the work failed: it sends the
+  `*crash.Panic` (an `error`) where the result would go. Unrecovered, a
+  panic in a goroutine ends the process; recovered without a word, it
+  leaves the UI waiting for ever.
+- **No lock held across a call that may panic.** Take what the lock guards,
+  unlock, then act (show a toast, call the playback); or unlock in a
+  `defer`, in a closure when the function goes on. A lock left held hangs
+  every frame after the panic.
+- **What a frame leaves half done must be safe to meet in the next one.**
+  A flag set for the length of a layout (`layingOut`) is cleared after it,
+  not in a `defer`, so that `App.RecoverFrame` (`recovery.go`) knows where
+  the panic was.
+- **An overlay that can fail on what it shows closes itself on a panic**,
+  from `App.RecoverFrame`, as the media viewer and a settings subsection
+  do. Elsewhere the window tries the frame once more, then closes all
+  over its list of chats.
+- **Calls on the content from the window's loop outside a frame** (focus,
+  suspension, drops of files) go through its `tell`, which guards them.
+- **Data from Telegram and from files can lack anything**: a video without
+  a thumbnail, media without a size. Check before dereferencing it.
+- **Test a recovery with a fault injected in the real layout**
+  (`recovery_test.go`), and draw the frames after it: a test that only
+  calls `RecoverFrame` misses state the panic left behind.
+
 ## Testing the app live
 
 - `-demo` runs on made-up data, without an account; nothing it does
-  reaches Telegram.
+  reaches Telegram. `-demo-open` opens a chat at a message, by
+  `CHAT/MESSAGE` or by the name of one of the demo's (`album`, `sticker`,
+  `voice`… : `mockstore.Landmarks`), at the top of the history; `-demo-quiet`
+  keeps the demo's offers (an emoji pack, the registration points, 20 s
+  after the start) from coming over what is tried:
+  `messenger -demo -demo-quiet -demo-open sticker`.
 - `-no-integrations` makes the client find no FFmpeg, player or browser on
   the system, only the paths set in the settings: the way to see it as on a
   machine without them.
@@ -200,7 +238,13 @@ On Linux under X11 (XFCE here):
 - Drive a window with `xdotool mousemove --window <id> x y click 1` (client
   coordinates) and `xdotool type`; find it by its title with `wmctrl -l`
   (Gio's windows carry no PID there, `wmctrl -lp` shows 0); screenshot the
-  active window with `xfce4-screenshooter -w -s file.png`.
+  active window with `xfce4-screenshooter -w -s file.png`. The screenshot
+  has the window's title bar, about 24 px, above the client area: take it
+  off a point read from it before clicking there.
+- What the client saves goes into the user's downloads and pictures, which
+  `user-dirs.dirs` names: run it with `XDG_CONFIG_HOME` at a directory
+  whose `user-dirs.dirs` names scratch ones (`XDG_DOWNLOAD_DIR`,
+  `XDG_PICTURES_DIR`).
 - Close windows with `wmctrl -i -c <id>`, not `xdotool windowclose`: Gio never
   sees a `DestroyEvent` then.
 - The tray (SNI) can be called over D-Bus: `busctl --user call

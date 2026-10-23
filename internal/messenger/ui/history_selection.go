@@ -29,6 +29,28 @@ type messageSelection struct {
 	selecting bool
 	position  f32.Point
 	scrollAt  time.Time
+	// pending is a press beside a message with nothing selected: it
+	// starts selecting only once the mouse moves away, from origin.
+	pending bool
+	origin  f32.Point
+	// clicked and clickedAt are the message and the time of the last
+	// press beside one, to tell a double click, which replies to it.
+	clicked   model.MessageID
+	clickedAt time.Duration
+}
+
+// gutterDoubleClick is the longest time between the presses of a double
+// click beside a message, the same as gesture.Click's on the bubble.
+const gutterDoubleClick = 200 * time.Millisecond
+
+// holdsKeyboard reports whether the history keeps the keyboard: for
+// messages or text selected, or text being selected, to copy or extend.
+func (p *chatPage) holdsKeyboard() bool {
+	if len(p.selection.selected) > 0 || p.selection.dragging {
+		return true
+	}
+	t := p.activeText
+	return t != nil && (t.text.pressed || t.text.anchor != t.text.caret)
 }
 
 func (p *chatPage) clearSelection() {
@@ -113,21 +135,45 @@ func (p *chatPage) selectionEvents(gtx layout.Context) {
 				continue
 			}
 			i := p.rowAt(e.Position.Y)
-			if i < 0 || p.messages[i].Kind == model.MessageService || p.messages[i].Streaming {
+			if i < 0 || p.messages[i].Kind == model.MessageService || p.messages[i].Local() {
 				continue
 			}
-			s.before = make(map[model.MessageID]bool, len(s.selected))
-			for id, v := range s.selected {
-				s.before[id] = v
-			}
-			s.anchor = p.messages[i].Key.MessageID
-			s.selecting = !s.selected[s.anchor]
-			s.dragging, s.pointer, s.position, s.scrollAt = true, e.PointerID, e.Position, gtx.Now
 			p.activeText = nil
-			p.rangeSelection(s.anchor)
-			gtx.Execute(pointer.GrabCmd{Tag: s, ID: e.PointerID})
-			gtx.Execute(key.FocusCmd{Tag: &p.keyboard})
+			id := p.messages[i].Key.MessageID
+			if len(s.selected) == 0 {
+				// As in Telegram Desktop: with nothing selected, a click
+				// beside a message does nothing, a double click replies to
+				// it, and a drag of the mouse selects.
+				if s.clicked == id && e.Time-s.clickedAt < gutterDoubleClick {
+					s.clicked, s.pending = 0, false
+					if m := p.messages[i]; p.canReply(m) {
+						p.composer.replyTo(gtx, p.chat, m)
+					}
+					continue
+				}
+				s.clicked, s.clickedAt = id, e.Time
+				// A touch drags the history instead.
+				s.pending = e.Source == pointer.Mouse
+				s.anchor, s.pointer, s.origin = id, e.PointerID, e.Position
+				continue
+			}
+			s.anchor = id
+			p.startSelection(gtx, e)
 		case pointer.Drag, pointer.Release:
+			if s.pending && e.PointerID == s.pointer {
+				if e.Kind == pointer.Release {
+					s.pending = false
+					continue
+				}
+				i := p.rowAt(e.Position.Y)
+				d := e.Position.Sub(s.origin)
+				moved := max(d.X, -d.X)+max(d.Y, -d.Y) >= float32(gtx.Dp(10))
+				if !moved && (i < 0 || p.messages[i].Key.MessageID == s.anchor) {
+					continue
+				}
+				s.pending, s.clicked = false, 0
+				p.startSelection(gtx, e)
+			}
 			if !s.dragging || e.PointerID != s.pointer {
 				continue
 			}
@@ -139,6 +185,7 @@ func (p *chatPage) selectionEvents(gtx layout.Context) {
 				s.dragging = false
 			}
 		case pointer.Cancel:
+			s.pending = false
 			if s.dragging {
 				s.selected = s.before
 				s.dragging = false
@@ -169,8 +216,27 @@ func (p *chatPage) selectionEvents(gtx layout.Context) {
 	}
 }
 
-// Register only the free gutters alongside bubbles. Text, media, dates and
-// the scrollbar keep their own input handling.
+// startSelection selects or unselects the message s.anchor, as it is not
+// or is selected, and goes on doing so to the messages the pointer of e
+// drags over.
+func (p *chatPage) startSelection(gtx layout.Context, e pointer.Event) {
+	s := &p.selection
+	s.before = make(map[model.MessageID]bool, len(s.selected))
+	for id, v := range s.selected {
+		s.before[id] = v
+	}
+	s.selecting = !s.selected[s.anchor]
+	s.dragging, s.pointer, s.position, s.scrollAt = true, e.PointerID, e.Position, gtx.Now
+	p.activeText = nil
+	p.rangeSelection(s.anchor)
+	gtx.Execute(pointer.GrabCmd{Tag: s, ID: e.PointerID})
+	gtx.Execute(key.FocusCmd{Tag: &p.keyboard})
+}
+
+// Register only the free gutters alongside bubbles. They select by a drag,
+// or by a click once a message is selected, and reply by a double click,
+// but keep the ordinary cursor, as in Telegram Desktop. Text, media, dates
+// and the scrollbar keep their own input handling.
 func (p *chatPage) selectionAreas(gtx layout.Context) {
 	first := p.list.Position.First
 	if first < 0 || first >= len(p.messages) || p.heights == nil {
@@ -182,7 +248,7 @@ func (p *chatPage) selectionAreas(gtx layout.Context) {
 		m := p.messages[i]
 		height := int(p.heights.Prefix(i+1) - p.heights.Prefix(i))
 		if r := p.rows[m.Key.MessageID]; r != nil && m.Kind != model.MessageService {
-			left := r.avatarPoint.X
+			left := r.bodyLeft
 			right := left + r.bodySize.X
 			for _, rect := range []image.Rectangle{
 				image.Rect(0, top+r.bodyTop, left, top+height),
@@ -193,7 +259,6 @@ func (p *chatPage) selectionAreas(gtx layout.Context) {
 				}
 				pass := pointer.PassOp{}.Push(gtx.Ops)
 				area := clip.Rect(rect).Push(gtx.Ops)
-				pointer.CursorPointer.Add(gtx.Ops)
 				event.Op(gtx.Ops, &p.selection)
 				area.Pop()
 				pass.Pop()

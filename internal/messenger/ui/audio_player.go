@@ -19,6 +19,7 @@ import (
 	"komarugram/pkg/aac"
 	"komarugram/pkg/audio"
 	"komarugram/pkg/drdec"
+	"komarugram/pkg/mp4"
 	"komarugram/pkg/opus"
 	"komarugram/pkg/voice"
 
@@ -33,10 +34,13 @@ import (
 	"gioui.org/widget"
 )
 
-// audioPlayer plays the voice messages and the music of a window's chats in
-// the client, one at a time, whatever chat is shown meanwhile, each decoder in a WebAssembly sandbox of its own:
-// libopus (pkg/opus) for Opus, dr_libs (pkg/drdec) for MP3, FLAC and WAV,
-// fdk-aac (pkg/aac, fetched) for M4A; pkg/audio puts them out. A file that
+// audioPlayer plays the voice messages, the video messages and the music of
+// a window's chats in the client, one at a time, whatever chat is shown
+// meanwhile, each decoder in a WebAssembly sandbox of its own: libopus
+// (pkg/opus) for Opus, dr_libs (pkg/drdec) for MP3, FLAC and WAV, fdk-aac
+// (pkg/aac, fetched) for M4A and the sound of video messages, whose
+// pictures FFmpeg's H.264 decoder (pkg/h264, fetched) makes as the sound
+// comes to them (roundVideo); pkg/audio puts the sound out. A file that
 // downloads plays as it does: the decoders read it a range at a time, and
 // the rest downloads ahead. A format none of them takes opens in the
 // external player.
@@ -72,6 +76,8 @@ type audioPlayer struct {
 	playback audioPlayback
 	source   *audioSource
 	release  func()
+	// video makes the pictures of a video message that plays.
+	video *roundVideo
 	// work counts what else uses the decoder or the file: they are freed
 	// once it is done.
 	work    *sync.WaitGroup
@@ -84,8 +90,10 @@ type audioPlayer struct {
 	shown     map[string]bool
 	busy      bool
 	// external is a message whose format no decoder here takes, for the
-	// page to open in the external player on its next frame.
-	external *model.Message
+	// page to open in the external player on its next frame, from
+	// externalAt (below 0, from the start).
+	external   *model.Message
+	externalAt time.Duration
 	// play puts a source out: audio.Play, which tests replace.
 	play func(audio.Source) (audioPlayback, error)
 }
@@ -110,9 +118,13 @@ type audioState struct {
 	elapsed  time.Duration
 }
 
-// audioFormat is how voice message or music m is decoded in the client:
-// "opus", "dr" for pkg/drdec, "aac", or "" when it is not.
+// audioFormat is how voice message, video message or music m is decoded in
+// the client: "opus", "dr" for pkg/drdec, "aac", "round" for an MP4 video
+// message, or "" when it is not.
 func audioFormat(m model.Message) string {
+	if m.Kind == model.MessageRound && m.Media != nil && (m.Media.MIMEType == "video/mp4" || m.Media.MIMEType == "") {
+		return "round"
+	}
 	if m.Kind != model.MessageVoice && m.Kind != model.MessageMusic || m.Media == nil {
 		return ""
 	}
@@ -208,7 +220,7 @@ func openAudio(ctx context.Context, m model.Message, f *audioFile) (audio.Source
 		return src, src.Samples(), release, nil
 	}
 	switch audioFormat(m) {
-	case "aac":
+	case "aac", "round":
 		module, err := wasmmodule.AACDec.Load(ctx)
 		if err != nil {
 			// No decoder to fetch, offline say: the external player may
@@ -296,16 +308,49 @@ func (v *audioPlayer) waveform(m model.Message) []byte {
 	return v.waveforms[m.Media.ID]
 }
 
-// takeExternal is the message to open in the external player, once.
-func (v *audioPlayer) takeExternal() *model.Message {
-	if v == nil {
+// roundPicture is the picture of video message m to draw, side pixels
+// across, while m plays; nil otherwise, and before its first picture.
+func (v *audioPlayer) roundPicture(m model.Message, now time.Time, side int) image.Image {
+	v.mu.Lock()
+	video := v.video
+	playing := v.key == m.Key && v.key != (model.MessageKey{})
+	v.mu.Unlock()
+	if video == nil || !playing {
 		return nil
+	}
+	return video.take(now, side)
+}
+
+// takeExternal is the message to open in the external player, once, and
+// the time to open it at (below 0, the start).
+func (v *audioPlayer) takeExternal() (*model.Message, time.Duration) {
+	if v == nil {
+		return nil, -1
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	m := v.external
 	v.external = nil
-	return m
+	return m, v.externalAt
+}
+
+// audioSeek is where to move what plays, of samples in all: the sample
+// to play from.
+type audioSeek func(samples int64) int64
+
+// fractionSeek moves to at, from 0 to 1, of what plays; nil below 0.
+func fractionSeek(at float32) audioSeek {
+	if at < 0 {
+		return nil
+	}
+	return func(samples int64) int64 { return int64(at * float32(samples)) }
+}
+
+// timeSeek moves to at from the start, or to the end of what is shorter.
+func timeSeek(at time.Duration) audioSeek {
+	return func(samples int64) int64 {
+		return min(samples, int64(at*audio.Rate/time.Second))
+	}
 }
 
 // toggle plays m, or pauses it, or goes on with it. at, from 0 to 1, moves
@@ -314,17 +359,29 @@ func (v *audioPlayer) toggle(p *chatPage, m model.Message, at float32) {
 	v.toggleIn(p, p.chat, m, at)
 }
 
+// playFrom plays m from at, a time from its start, as a timestamp names
+// one: m goes on from there when it plays already.
+func (v *audioPlayer) playFrom(p *chatPage, m model.Message, at time.Duration) {
+	v.start(p, p.chat, m, timeSeek(at), at)
+}
+
 // toggleIn is toggle for a message shown in list, a chat or a thread of
 // p's store, whatever p shows now.
 func (v *audioPlayer) toggleIn(p *chatPage, list int64, m model.Message, at float32) {
+	v.start(p, list, m, fractionSeek(at), -1)
+}
+
+// start is toggleIn moving to seek, unless it is nil; externalAt is the
+// time the external player is to start at when no decoder here takes m.
+func (v *audioPlayer) start(p *chatPage, list int64, m model.Message, seek audioSeek, externalAt time.Duration) {
 	v.mu.Lock()
 	if v.key == m.Key && v.key != (model.MessageKey{}) {
 		defer v.mu.Unlock()
 		if v.loading || v.playback == nil {
 			return
 		}
-		if at >= 0 {
-			_ = v.playback.SeekSample(int64(at * float32(v.samples)))
+		if seek != nil {
+			_ = v.playback.SeekSample(seek(v.samples))
 			v.playback.Resume()
 			return
 		}
@@ -338,11 +395,11 @@ func (v *audioPlayer) toggleIn(p *chatPage, list int64, m model.Message, at floa
 	v.stopLocked()
 	ctx, cancel := context.WithCancel(context.Background())
 	v.key, v.loading, v.cancel, v.work = m.Key, true, cancel, new(sync.WaitGroup)
-	v.msg, v.page, v.list = m, p, list
+	v.msg, v.page, v.list, v.externalAt = m, p, list, externalAt
 	work := v.work
 	work.Add(1)
 	v.mu.Unlock()
-	if m.Kind == model.MessageVoice && m.MediaUnread && !m.Outgoing {
+	if listenable(m) && m.MediaUnread && !m.Outgoing {
 		// Played, it is listened to, as in Telegram Desktop.
 		if r, ok := p.source.(model.ContentReader); ok {
 			r.ReadContents(m)
@@ -351,7 +408,7 @@ func (v *audioPlayer) toggleIn(p *chatPage, list int64, m model.Message, at floa
 	go func() {
 		defer work.Done()
 		defer crash.Recover("audio", func(e *crash.Panic) { v.fail(m, p, e) })
-		err := v.load(ctx, p, m, at, work)
+		err := v.load(ctx, p, m, seek, work)
 		if err != nil && ctx.Err() == nil {
 			v.fail(m, p, err)
 		}
@@ -365,22 +422,54 @@ const streamPart = 128 << 10
 
 // load opens m's file, and starts playing it; the rest of a file that
 // downloads as it plays is downloaded ahead, counted in work.
-func (v *audioPlayer) load(ctx context.Context, p *chatPage, m model.Message, at float32, work *sync.WaitGroup) error {
+func (v *audioPlayer) load(ctx context.Context, p *chatPage, m model.Message, seek audioSeek, work *sync.WaitGroup) error {
 	f, err := openFile(ctx, p.source, m)
 	if err != nil {
 		return err
 	}
+	var video *roundVideo
+	if m.Kind == model.MessageRound {
+		// A video message is small, and its pictures are demuxed from the
+		// whole file: it plays once it is all there. One that is not, a
+		// video sent as one, goes to the external player.
+		if f.size > model.MaxMediaBytes {
+			f.close()
+			return fmt.Errorf("%w: a video message of %d bytes", errFormat, f.size)
+		}
+		data, err := f.all()
+		f.close()
+		if err != nil {
+			return err
+		}
+		f = fileOf(data)
+		if video, err = openRound(ctx, data); err != nil {
+			return err
+		}
+	}
 	reader, samples, releaseDecoder, err := openAudio(ctx, m, f)
+	if video != nil && errors.Is(err, mp4.ErrNoAudio) {
+		// Silent, it plays on a clock of its own length.
+		silent := silenceOf(video.duration())
+		reader, samples, releaseDecoder, err = silent, silent.samples, func() {}, nil
+	}
 	if err != nil {
 		f.close()
+		if video != nil {
+			video.close()
+		}
 		return err
 	}
 	release := func() {
 		releaseDecoder()
 		f.close()
+		if video != nil {
+			video.close()
+		}
 	}
-	if at > 0 {
-		err = reader.SeekSample(int64(at * float32(samples)))
+	if seek != nil {
+		if pos := seek(samples); pos > 0 {
+			err = reader.SeekSample(pos)
+		}
 	}
 	stretch := audio.Stretch(reader)
 	source := &audioSource{reader: stretch}
@@ -412,7 +501,7 @@ func (v *audioPlayer) load(ctx context.Context, p *chatPage, m model.Message, at
 		return err
 	}
 	v.loading, v.playback, v.source, v.release, v.samples = false, playback, source, release, samples
-	v.stretch = stretch
+	v.stretch, v.video = stretch, video
 	playback.SetVolume(v.volume)
 	if speedChanges(m) && v.speed > 0 {
 		stretch.SetTempo(v.speed)
@@ -421,14 +510,34 @@ func (v *audioPlayer) load(ctx context.Context, p *chatPage, m model.Message, at
 	work.Add(1)
 	go func() {
 		defer work.Done()
+		defer crash.Recover("audio playback", func(e *crash.Panic) { v.fail(m, p, e) })
 		v.watch(ctx, m, playback)
 	}()
+	if video != nil {
+		// release, which closes the decoder, waits for it.
+		work.Add(1)
+		go func() {
+			defer work.Done()
+			defer crash.Recover("video message", nil)
+			clock := func() time.Duration {
+				if playback.Ended() {
+					return video.duration()
+				}
+				return time.Duration(playback.Position()) * time.Second / audio.Rate
+			}
+			if err := video.run(ctx, clock, p.invalidate); err != nil && ctx.Err() == nil {
+				// The sound goes on without the pictures.
+				p.reportMedia(err)
+			}
+		}()
+	}
 	if f.data == nil {
 		// The rest downloads while it plays, a part at a time, so that
 		// what plays next is there, and a move ahead finds it.
 		work.Add(1)
 		go func() {
 			defer work.Done()
+			defer crash.Recover("audio stream", nil)
 			buf := make([]byte, streamPart)
 			for off := int64(0); off < f.size && ctx.Err() == nil; off += streamPart {
 				if _, err := f.r.ReadAt(buf[:min(int64(streamPart), f.size-off)], off); err != nil && !errors.Is(err, io.EOF) {
@@ -558,6 +667,18 @@ func (v *audioPlayer) fail(m model.Message, p *chatPage, err error) {
 	p.invalidate()
 }
 
+// pause pauses what plays, as a video that starts in the viewer does.
+func (v *audioPlayer) pause() {
+	if v == nil {
+		return
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.playback != nil && v.playback.Playing() {
+		v.playback.Pause()
+	}
+}
+
 // stop ends what plays and gives back its memory.
 func (v *audioPlayer) stop() {
 	if v == nil {
@@ -579,6 +700,7 @@ func (v *audioPlayer) stopLocked() {
 		// The output may be reading the source: its decoder is freed once
 		// it is done, and the UI does not wait for that.
 		go func() {
+			defer crash.Recover("audio release", nil)
 			source.close()
 			if work != nil {
 				work.Wait()
@@ -587,7 +709,7 @@ func (v *audioPlayer) stopLocked() {
 		}()
 	}
 	v.key, v.loading, v.playback, v.release, v.source, v.work, v.samples, v.cancel = model.MessageKey{}, false, nil, nil, nil, nil, 0, nil
-	v.msg, v.list, v.stretch = model.Message{}, 0, nil
+	v.msg, v.list, v.stretch, v.video = model.Message{}, 0, nil, nil
 }
 
 // audioSource is the reader of a voice message, as the output reads it
@@ -643,6 +765,8 @@ type audioRow struct {
 	// in every frame.
 	waveform []byte
 	bars     []int
+	// round is a video message's: where a press on it is.
+	round roundSeek
 }
 
 // waveformBars returns the bars of waveform, kept from the last frame while
@@ -763,7 +887,7 @@ func (p *chatPage) voiceLayout(gtx layout.Context, r *messageRow, m model.Messag
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(22))
-					drawWaveform(gtx, vr.waveformBars(p.audio.waveform(m)), size, progress, sc.Primary.Color, sc.OutlineVariant)
+					drawWaveform(gtx, vr.waveformBars(p.audio.waveform(m)), size, progress, sc.Primary.Color, audioRest(sc))
 					vr.seekArea(gtx, size)
 					return layout.Dimensions{Size: size}
 				}),
@@ -823,7 +947,7 @@ func (p *chatPage) musicLayout(gtx layout.Context, r *messageRow, m model.Messag
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					// The bar is thin; the area that moves it is taller.
 					size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(16))
-					drawBar(gtx, size, progress, state.active, sc.Primary.Color, sc.OutlineVariant)
+					drawBar(gtx, size, progress, state.active, sc.Primary.Color, audioRest(sc))
 					vr.seekArea(gtx, size)
 					return layout.Dimensions{Size: size}
 				}),
@@ -833,6 +957,14 @@ func (p *chatPage) musicLayout(gtx layout.Context, r *messageRow, m model.Messag
 			)
 		}),
 	)
+}
+
+// audioRest is the color of what was not heard yet of a waveform or a bar:
+// the bubble's own text, faded, as in Telegram Desktop. The theme's outline
+// it used to be was lost on bubbles of a color of their own, as a red one
+// in a dark theme.
+func audioRest(sc *token.Scheme) token.MatColor {
+	return sc.SurfaceVariant.OnColor.SetOpacity(0.4)
 }
 
 // drawBar draws how much of music was heard: a thin track across size, the

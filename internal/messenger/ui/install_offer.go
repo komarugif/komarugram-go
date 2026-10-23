@@ -17,6 +17,7 @@ import (
 
 	"gioui.org/layout"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/install"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/login"
@@ -139,6 +140,7 @@ func (v *installView) Update(gtx layout.Context, l *login.Login, catalog localiz
 	if v.browse.Clicked(gtx) {
 		start := v.folder.Text()
 		go func() {
+			defer crash.Recover("choose install folder", func(e *crash.Panic) { v.chosen <- folderChoice{err: e}; v.invalidate() })
 			dir, err := v.chooseFn(context.Background(), start)
 			v.chosen <- folderChoice{dir, err}
 			v.invalidate()
@@ -150,6 +152,7 @@ func (v *installView) Update(gtx layout.Context, l *login.Login, catalog localiz
 		o := install.Options{Dir: v.folder.Text(), Desktop: slices.Contains(values, "desktop"), Menu: slices.Contains(values, "menu")}
 		v.running, v.problem = true, ""
 		go func() {
+			defer crash.Recover("install", func(e *crash.Panic) { v.result <- installResult{err: e}; v.invalidate() })
 			exe, err := v.installFn(context.Background(), o)
 			v.result <- installResult{exe, err}
 			v.invalidate()

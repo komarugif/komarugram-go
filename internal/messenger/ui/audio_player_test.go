@@ -185,6 +185,16 @@ func TestAudioFormats(t *testing.T) {
 	if audioFormat(model.Message{Kind: model.MessageFile, Media: &model.MessageMedia{MIMEType: "audio/mpeg"}}) != "" {
 		t.Error("a file plays as audio")
 	}
+	// A video message plays in the client when it is an MP4, as Telegram's
+	// are.
+	for mime, want := range map[string]string{"video/mp4": "round", "": "round", "video/webm": ""} {
+		if got := audioFormat(model.Message{Kind: model.MessageRound, Media: &model.MessageMedia{MIMEType: mime}}); got != want {
+			t.Errorf("video message %q: %q, want %q", mime, got, want)
+		}
+	}
+	if audioFormat(model.Message{Kind: model.MessageVideo, Media: &model.MessageMedia{MIMEType: "video/mp4"}}) != "" {
+		t.Error("a video plays in the client")
+	}
 }
 
 // An MP3 voice message, as some bots send, plays in the client and moves.
@@ -334,7 +344,7 @@ func TestUnknownFormatGoesExternal(t *testing.T) {
 	p.audio.toggle(p, m, -1)
 	var external *model.Message
 	waitAudio(t, "it did not go to the external player", func() bool {
-		external = p.audio.takeExternal()
+		external, _ = p.audio.takeExternal()
 		return external != nil
 	})
 	if external.Key != m.Key || p.audio.state(m).active {
@@ -344,5 +354,36 @@ func TestUnknownFormatGoesExternal(t *testing.T) {
 	defer p.errorMu.Unlock()
 	if p.mediaError != nil {
 		t.Fatalf("an error was told: %v", p.mediaError)
+	}
+}
+
+// panickyPlayback panics where the system's audio would.
+type panickyPlayback struct{ silentPlayback }
+
+func (*panickyPlayback) SetVolume(float64) { panic("the system's audio") }
+
+// A panic of the playback while the volume is set leaves the player's lock
+// free: held, it would hang every frame after the panic.
+func TestVolumePanicLeavesLockFree(t *testing.T) {
+	type player struct {
+		name string
+		mu   *sync.Mutex
+		set  func()
+	}
+	a := newAudioPlayer()
+	a.playback = &panickyPlayback{}
+	v := &viewerVideo{playback: &panickyPlayback{}}
+	for _, p := range []player{
+		{"audio", &a.mu, func() { a.setVolume(.5, false) }},
+		{"viewer's video", &v.mu, func() { v.setVolume(.5, false) }},
+	} {
+		func() {
+			defer func() { _ = recover() }()
+			p.set()
+		}()
+		if !p.mu.TryLock() {
+			t.Fatalf("the %s player's lock stayed held", p.name)
+		}
+		p.mu.Unlock()
 	}
 }

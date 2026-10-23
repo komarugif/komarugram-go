@@ -16,6 +16,15 @@ type RecentChats interface {
 	ClearRecentChats()
 }
 
+// PeerBadgesSource is a store that knows the marks beside the name of a peer
+// as of the last it heard of them, which a chat kept apart from the chat list,
+// such as one picked from the search, is not told of.
+type PeerBadgesSource interface {
+	// PeerBadges are the badges of the user or channel id, false when it is
+	// not known or has none to tell.
+	PeerBadges(id int64) (Badges, bool)
+}
+
 // RecentChatsLimit is how many chats the history keeps, as Telegram
 // Desktop's does.
 const RecentChatsLimit = 48

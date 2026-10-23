@@ -118,15 +118,26 @@ func clampByte(v float64) uint8 { return uint8(max(0, min(255, v))) }
 
 var (
 	_ model.PhotoGallery       = (*Store)(nil)
+	_ model.GIFGallery         = (*Store)(nil)
 	_ model.ProfilePhotoSource = (*Store)(nil)
 )
 
 // ChatPhotos implements model.PhotoGallery over the demo history.
-func (s *Store) ChatPhotos(ctx context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.PhotoPage, error) {
+func (s *Store) ChatPhotos(ctx context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.GalleryPage, error) {
+	return s.gallery(ctx, chat, anchor, dir, limit, func(k model.MessageKind) bool { return k == model.MessagePhoto || k == model.MessageVideo })
+}
+
+// ChatGIFs implements model.GIFGallery over the demo history.
+func (s *Store) ChatGIFs(ctx context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.GalleryPage, error) {
+	return s.gallery(ctx, chat, anchor, dir, limit, func(k model.MessageKind) bool { return k == model.MessageGIF })
+}
+
+// gallery pages the media of the demo history of the kinds in tells.
+func (s *Store) gallery(ctx context.Context, chat int64, anchor model.MessageID, dir, limit int, in func(model.MessageKind) bool) (model.GalleryPage, error) {
 	var photos []model.Message
 	total := 0
 	for _, m := range s.History(chat).Messages {
-		if m.Kind != model.MessagePhoto && m.Kind != model.MessageVideo || m.Media == nil {
+		if !in(m.Kind) || m.Media == nil {
 			continue
 		}
 		total++
@@ -134,7 +145,7 @@ func (s *Store) ChatPhotos(ctx context.Context, chat int64, anchor model.Message
 			photos = append(photos, m)
 		}
 	}
-	page := model.PhotoPage{Total: total, More: len(photos) > limit}
+	page := model.GalleryPage{Total: total, More: len(photos) > limit}
 	if dir < 0 {
 		page.Messages = photos[max(0, len(photos)-limit):]
 	} else {
@@ -161,15 +172,15 @@ func (s *Store) ProfilePhoto(chat int64) (model.Message, bool) {
 
 // ProfilePhotos implements model.ProfilePhotoSource; offset is the place of
 // the page's first photo.
-func (s *Store) ProfilePhotos(ctx context.Context, chat int64, offset string, limit int) (model.PhotoPage, error) {
+func (s *Store) ProfilePhotos(ctx context.Context, chat int64, offset string, limit int) (model.GalleryPage, error) {
 	from := 0
 	if offset != "" {
 		if _, err := fmt.Sscan(offset, &from); err != nil {
-			return model.PhotoPage{}, err
+			return model.GalleryPage{}, err
 		}
 	}
 	total := demoProfilePhotos(chat)
-	page := model.PhotoPage{Total: total}
+	page := model.GalleryPage{Total: total}
 	for i := from; i < min(total, from+limit); i++ {
 		page.Messages = append(page.Messages, s.profilePhoto(chat, i))
 	}

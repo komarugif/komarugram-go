@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"komarugram/internal/crash"
 	"komarugram/internal/diagnostics"
 	"log"
 	"math"
@@ -26,6 +27,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
+	"gioui.org/widget"
 
 	"gio-mw/exp/appearance"
 
@@ -36,7 +38,9 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/login"
 	"komarugram/internal/messenger/model"
+	"komarugram/internal/messenger/peerbadges"
 	"komarugram/internal/messenger/preferences"
+	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/messenger/security"
 	"komarugram/internal/miniappprefs"
 	"komarugram/pkg/miniapp"
@@ -46,8 +50,12 @@ import (
 // App is the messenger window content.
 type App struct {
 	images imageOps
-	window *appwindow.Window
-	store  model.Store
+	// sprites are avatars as pictures, for motion blur.
+	sprites avatarSprites
+	window  *appwindow.Window
+	// currentAccount is the ID of the account the window shows.
+	currentAccount func() string
+	store          model.Store
 
 	windowEffectsSet, windowBlurWanted, windowTransparentWanted bool
 
@@ -58,16 +66,40 @@ type App struct {
 	// ownUsers are the users of the accounts signed in here, which Local
 	// Premium marks.
 	ownUsers atomic.Pointer[map[int64]bool]
+	// peerBadges knows the marks of the forks of Telegram clients; nil shows
+	// none. badgeClicks are the clicks on them, and stopBadges stops the
+	// window following the lists.
+	peerBadges     *peerbadges.Registry
+	overlayUpdated bool
+	// statusClicked is what a click on an emoji status in the profile does:
+	// it shows the emoji's set.
+	statusClicked func(emoji int64)
+	badgeClicks   map[badgeKey]*widget.Clickable
+	stopBadges    func()
+	// premiumSet, komaruSet and arrowSet are the emoji sets the Premium star,
+	// the Komaru faces and the arrow beside names are taken from
+	// (peer_badges.go).
+	premiumSet, komaruSet, arrowSet emojiSet
 	// focused is set while the window has the focus.
 	focused bool
 	// shownChat and shownFocus tell other goroutines the open chat and the
-	// focus (see Showing); openChat is a chat to open (see OpenChat).
+	// focus (see Showing); openChat is a chat to open (see OpenChat and
+	// OpenMessage).
 	shownChat  atomic.Int64
 	shownFocus atomic.Bool
-	openChat   atomic.Int64
+	openChat   atomic.Pointer[chatPick]
 	// usernames are the chats the settings asked for by their usernames,
 	// as Telegram resolved them.
 	usernames chan usernameResult
+	// senders are the chats with the senders whose avatars were clicked in
+	// a group, as Telegram found them; senderBusy is set while one is
+	// asked for.
+	senders    chan senderResult
+	senderBusy bool
+	// returns is the way back through the chats opened from others, and
+	// returnBack the header's button that goes it (see openReturning).
+	returns    []chatReturn
+	returnBack *button.Button
 	// filter hides messages as the settings ask.
 	filter     *messageFilter
 	lightTheme *token.Theme
@@ -108,7 +140,13 @@ type App struct {
 	// comments is the page of the comments to a channel post, which thread
 	// shows over its channel while it is set.
 	comments *chatPage
-	thread   *commentsView
+	// attachments are the window's downloads, which its pages share.
+	attachments *attachmentFiles
+	// downloads is the Downloads section; downloadMessages, the messages
+	// of its files found to go to.
+	downloads        *downloadsPage
+	downloadMessages chan downloadMessage
+	thread           *commentsView
 	// drop is a drag of files over the window.
 	drop fileDrop
 	// mini runs the Mini Apps of bots; nil when the store cannot ask for
@@ -117,12 +155,12 @@ type App struct {
 	// forum is the list of topics that shows in place of the history of a
 	// forum; a topic opens as thread, like comments.
 	forum  *forumPage
-	viewer *photoViewer
+	viewer *mediaViewer
 	// openWindow is the host of the windows the viewer and articles open
-	// in; photoWindows and articleWindows, their lists, which close with
+	// in; viewerWindows and articleWindows, their lists, which close with
 	// this window and when it locks.
 	openWindow     func(appwindow.Spec)
-	photoWindows   photoWindows
+	viewerWindows  viewerWindows
 	articleWindows articleWindows
 	settings       *settingsPage
 	// sessionEnded asks what to do once Telegram ended the session.
@@ -131,17 +169,23 @@ type App struct {
 	connectionFailed *connectionFailedDialog
 	// emojiOffer offers an emoji pack where the system has no emoji.
 	emojiOffer *emojiOffer
+	// registrationOffer asks to send the registration points of the chats.
+	registrationOffer *registrationOffer
 	// frozen tells that Telegram froze the account.
 	frozen *frozenView
 
 	// signIn is the sign-in window shown instead of everything else until
 	// the account is signed in; nil when no sign-in is needed.
-	signIn       *loginPage
+	signIn *loginPage
+	// proxies are the proxies of the window, for its settings and its sign-in.
+	proxies      *proxyView
 	security     *securityView
 	windowLocked *atomic.Bool
 	visualLock   *visualLockView
 	lastInput    time.Time
-	unsubscribe  []func()
+	// panics counts the frames in a row that panicked, for RecoverFrame.
+	panics      int
+	unsubscribe []func()
 }
 
 // Services are process-wide dependencies shared by every account window.
@@ -161,11 +205,25 @@ type Services struct {
 	// OfferEmoji lets the window offer an emoji pack where no font of the
 	// system has emoji (emoji_offer.go); tests and renders leave it off.
 	OfferEmoji bool
+	// OfferRegistrationPoints lets the window ask the user to send the
+	// registration points the account's chats tell (registration_offer.go),
+	// where the store collects them; tests and renders leave it off.
+	OfferRegistrationPoints bool
+	// PeerBadges knows who wears the marks of exteraGram, AyuGram and
+	// KomaruGram beside a name; nil shows none, as in tests and the demo,
+	// which reach no one.
+	PeerBadges *peerbadges.Registry
 	// Uninstall opens the window that uninstalls the program and quits
 	// it; the settings offer it beside leaving the account. It is set
 	// where the program installs itself (Windows and Linux), whether or
 	// not this copy was installed.
 	Uninstall func()
+	// Proxies are the proxies the user keeps, and the one in use; without them
+	// the window keeps a list of its own, in memory, that nothing connects through.
+	Proxies *proxy.Store
+	// PingProxy measures how long a proxy takes to answer; nil measures it
+	// for real, which a demo, that reaches nothing, does not.
+	PingProxy func(ctx context.Context, p *proxy.Proxy) (time.Duration, error)
 }
 
 // New creates the messenger UI.
@@ -180,6 +238,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		window:       w,
 		store:        store,
 		preferences:  services.Preferences,
+		peerBadges:   services.PeerBadges,
 		sidebar:      newSidebar(),
 		chats:        newChatList(),
 		menu:         button.Text(),
@@ -242,6 +301,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		id := services.AccountID
 		currentAccount = func() string { return id }
 	}
+	a.currentAccount = currentAccount
 	a.initMiniApps(store, services.MiniApps.Storage, currentAccount)
 	var leave func()
 	if services.Accounts != nil {
@@ -256,6 +316,9 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	if services.OfferEmoji {
 		a.emojiOffer = newEmojiOffer()
 	}
+	if source, ok := store.(model.RegistrationPointSource); ok && services.OfferRegistrationPoints {
+		a.registrationOffer = newRegistrationOffer(source)
+	}
 	a.frozen = newFrozenView(store)
 	a.profile.frozen = a.frozen
 	a.profile.openAvatar = func(chat int64) {
@@ -264,7 +327,10 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		}
 	}
 	a.settings = newSettingsPage(w.Motion, services.MiniApps, services.Security, w.Invalidate, services.Accounts, currentAccount, themeMode(global.Theme), global.Language, a.setThemeMode, a.setLanguage)
+	a.proxies = newProxyView(services.Proxies, services.PingProxy, w.Invalidate)
+	a.settings.proxy = a.proxies
 	a.settings.uninstall = services.Uninstall
+	a.settings.shortcuts = newShortcutSettings(a.shortcutPrefs, a.preferences.SetShortcuts, a.shortcutCatalog, w.Invalidate, &a.settings.toast)
 	a.settings.security.SetPreferences(services.Preferences)
 	a.settings.images = &a.images
 	a.settings.private = a.private
@@ -333,9 +399,49 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			log.Printf("save settings: %v", err)
 		}
 	}
+	if a.peerBadges != nil {
+		a.stopBadges = a.peerBadges.Subscribe(w.Invalidate)
+	}
+	a.settings.premiumMark = a.layoutPremiumMark
+	a.settings.hidePeerBadges = func() bool { return a.preferences.Global().HidePeerBadges }
+	a.settings.setHidePeerBadges = func(on bool) {
+		if err := services.Preferences.SetHidePeerBadges(on); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+		if a.peerBadges != nil {
+			a.peerBadges.Wake()
+		}
+		w.Invalidate()
+	}
+	a.settings.calm = func() preferences.Calm { return a.preferences.Global().Calm }
+	a.settings.setCalm = func(c preferences.Calm) {
+		if err := services.Preferences.SetCalm(c); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+		w.Invalidate()
+	}
+	a.settings.keepPeerBadges = func() (bool, bool) {
+		g := a.preferences.Global()
+		return g.KeepPeerArrows, g.KeepPeerFaces
+	}
+	a.settings.setKeepPeerBadges = func(arrows, faces bool) {
+		if err := services.Preferences.SetKeepPeerBadges(arrows, faces); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+		if a.peerBadges != nil {
+			a.peerBadges.Wake()
+		}
+		w.Invalidate()
+	}
 	a.settings.localPremium = func() bool { return a.preferences.Global().LocalPremium }
 	a.settings.setLocalPremium = func(on bool) {
 		if err := services.Preferences.SetLocalPremium(on); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.premiumMedia = func() bool { return a.preferences.Global().PremiumMedia }
+	a.settings.setPremiumMedia = func(on bool) {
+		if err := services.Preferences.SetPremiumMedia(on); err != nil {
 			log.Printf("save settings: %v", err)
 		}
 	}
@@ -345,6 +451,15 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	}
 	a.settings.setConfirmations = func(sticker, gif bool) {
 		if err := services.Preferences.SetConfirmations(sticker, gif); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.input = func() (bool, bool) {
+		g := a.preferences.Global()
+		return g.ManualFocus, g.PickerOnClick
+	}
+	a.settings.setInput = func(manualFocus, pickerOnClick bool) {
+		if err := services.Preferences.SetComposerInput(manualFocus, pickerOnClick); err != nil {
 			log.Printf("save settings: %v", err)
 		}
 	}
@@ -400,6 +515,12 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			log.Printf("save settings: %v", err)
 		}
 	}
+	a.settings.decoders.video.chosen = func() string { return a.preferences.Global().VideoPlayer }
+	a.settings.decoders.video.choose = func(value string) {
+		if err := services.Preferences.SetVideoPlayer(value); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
 	a.settings.decoders.animations.chosen = func() string { return a.preferences.Global().AnimationPlayer }
 	a.settings.decoders.animations.choose = func(value string) {
 		if err := services.Preferences.SetAnimationPlayer(value); err != nil {
@@ -444,6 +565,15 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.settings.sessions.toast = &a.settings.toast
 		a.settings.sessions.private = a.private
 	}
+	a.sidebar.menus = a.menuPrefs
+	a.sidebar.account = a.currentAccount
+	a.chats.menu.menus = a.menuPrefs
+	if a.chats.panel != nil {
+		a.chats.panel.recent.menus = a.menuPrefs
+	}
+	a.settings.menus = newMenuSettings(a.menuPrefs, a.preferences.SetMenus, func(l localization.Catalog) []menuCatalog {
+		return menuCatalogs(a.store.Folders(), a.currentAccount(), l)
+	}, &a.settings.toast)
 	a.security = a.settings.security
 	if services.Security != nil {
 		a.unsubscribe = append(a.unsubscribe, services.Security.Subscribe(w.Invalidate))
@@ -473,11 +603,20 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.info.drawAvatar = a.layoutAvatar
 		a.avatars = newAvatarImages(source, w.Invalidate)
 		a.chats.avatar = a.layoutAvatar
-		a.viewer = newPhotoViewer(source, &a.images, w.Invalidate)
+		a.chats.presence, _ = source.(model.PresenceSource)
+		a.viewer = newMediaViewer(source, &a.images, w.Invalidate)
+		a.viewer.shortcuts = a.shortcutPrefs
 		a.history = a.newChatPage(source, store, w)
-		a.viewer.play = func(gtx layout.Context, m model.Message, l localization.Catalog) {
-			a.history.play(gtx, m, a.viewer.reportPlay, l)
+		downloader, _ := source.(model.Downloader)
+		a.downloads = newDownloadsPage(downloader, w.Invalidate)
+		a.downloads.files = func() *attachmentFiles { return a.attachments }
+		a.downloads.media, a.downloads.images = chatmedia.New(source, w.Invalidate), &a.images
+		a.downloadMessages = make(chan downloadMessage, 1)
+		a.downloads.openMessage = a.openDownloaded
+		a.viewer.play = func(gtx layout.Context, m model.Message, start time.Duration, l localization.Catalog) {
+			a.history.playFrom(gtx, m, start, a.viewer.reportPlay, l)
 		}
+		a.configureViewer(a.viewer)
 		if links, ok := source.(model.TelegramLinkSource); ok {
 			a.usernames = make(chan usernameResult, 1)
 			a.settings.about.openCommunity = func() { a.openUsername(links, community) }
@@ -485,6 +624,22 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 				a.openUsername(links, bot)
 			}
 		}
+		if senders, ok := source.(model.SenderChatSource); ok {
+			a.senders = make(chan senderResult, 1)
+			a.history.openSender = func(m model.Message) { a.openSender(senders, m, nil) }
+		}
+		a.history.openReturning = func(chat model.Chat) {
+			if from, ok := a.selectedChat(); ok {
+				a.openReturning(chat, from, nil)
+			}
+		}
+		// A user's channel in their info opens with a way back, as a
+		// channel's discussion does.
+		a.info.openChannel = a.history.openReturning
+		a.info.badges = a.badges
+		a.statusClicked = a.info.openEmojiSet
+		a.info.renderer.stickers.menus = a.menuPrefs
+		a.info.avatarSprite = a.avatarSprite
 		if _, ok := store.(model.CommentsStore); ok {
 			a.history.openComments = a.openComments
 			a.comments = a.newChatPage(source, store, w)
@@ -516,12 +671,21 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		}
 		if a.comments != nil {
 			a.comments.audio = a.history.audio
+			// The avatars in the comments and in a forum's topics open
+			// their senders' chats too, which go back to them.
+			if senders, ok := source.(model.SenderChatSource); ok {
+				a.comments.openSender = func(m model.Message) { a.openSender(senders, m, a.thread) }
+			}
 		}
+		// The audio of the info's sections plays in the same player, under
+		// the same bar, as the chat's.
+		a.info.renderer.audio = a.history.audio
 		a.info.renderer.openPhoto = func(m model.Message) { a.viewer.Open(m.Key.ChatID, m, a.info.messages) }
+		a.info.renderer.openGIF = func(m model.Message) { a.viewer.OpenGIF(m.Key.ChatID, m, a.info.messages) }
 		a.info.openAvatar = func(chat int64) { a.viewer.OpenProfile(chat) }
 		if services.OpenWindow != nil {
 			a.openWindow = services.OpenWindow
-			a.viewer.popout = a.openPhotoWindow
+			a.viewer.popout = a.openViewerWindow
 			a.history.openArticle = a.openArticleWindow
 			a.history.openSourceWindow = a.openSourceWindow
 			if a.comments != nil {
@@ -537,6 +701,15 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 // window is.
 func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *appwindow.Window) *chatPage {
 	p := newChatPage(source, w.Invalidate)
+	if a.attachments == nil {
+		a.attachments = newAttachmentFiles()
+	}
+	p.files = a.attachments
+	p.menus = a.menuPrefs
+	p.shortcuts = a.shortcutPrefs
+	p.composer.shortcuts = a.shortcutPrefs
+	p.composer.menus = a.menuPrefs
+	p.stickers.menus = a.menuPrefs
 	p.membershipNotice = a.chats.toast.Show
 	p.frozen = a.frozen
 	p.chats = store.Chats
@@ -559,8 +732,11 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 		a.open(chatPick{ID: m.Key.ChatID, Message: m.Key.MessageID})
 		a.window.Invalidate()
 	}
-	p.openPhoto = func(m model.Message) { a.viewer.Open(p.chat, m, p.photos()) }
+	p.openPhoto = func(m model.Message) { a.viewer.Open(p.chat, m, p.viewerItems()) }
+	p.openVideo = func(m model.Message, at time.Duration) { a.viewer.OpenVideo(p.chat, m, p.viewerItems(), at) }
+	p.videoEngine = a.videoEngine
 	p.openAlone = func(m model.Message) { a.viewer.OpenAlone(p.chat, m) }
+	p.openGIF = func(m model.Message) { a.viewer.OpenGIF(p.chat, m, p.viewerItems()) }
 	p.releaseMemory, p.keepMemory = w.ReleaseMemoryLater, w.KeepMemory
 	formula.SetRelease(w.MemoryReleaser())
 	p.openWebApp = a.launchWebApp
@@ -568,6 +744,10 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 		p.composer.confirmations = func() (bool, bool) {
 			g := a.preferences.Global()
 			return g.ConfirmSticker, g.ConfirmGIF
+		}
+		p.composer.input = func() (bool, bool) {
+			g := a.preferences.Global()
+			return g.ManualFocus, g.PickerOnClick
 		}
 		p.composer.ffmpeg = func() string { return a.preferences.Global().FFmpegPath }
 	}
@@ -594,8 +774,14 @@ func (a *App) messageFilter() *messageFilter {
 
 // Close releases process-wide subscriptions when this window closes.
 func (a *App) Close() {
+	if a.stopBadges != nil {
+		a.stopBadges()
+	}
+	if a.settings != nil && a.settings.shortcuts != nil {
+		a.settings.shortcuts.Close()
+	}
 	a.closeMiniApps()
-	a.photoWindows.closeAll()
+	a.viewerWindows.closeAll()
 	a.articleWindows.closeAll()
 	if a.avatars != nil {
 		a.avatars.media.Close()
@@ -618,6 +804,12 @@ func (a *App) Close() {
 	if a.comments != nil {
 		a.comments.Close()
 	}
+	if a.attachments != nil {
+		a.attachments.Close()
+	}
+	if a.downloads != nil && a.downloads.media != nil {
+		a.downloads.media.Close()
+	}
 	for _, unsubscribe := range a.unsubscribe {
 		unsubscribe()
 	}
@@ -627,6 +819,13 @@ func (a *App) Close() {
 // the messenger after that.
 func (a *App) RequireLogin(l *login.Login) {
 	a.signIn = newLoginPage(l, a.security, a.window.Invalidate)
+	a.signIn.corner = &loginCorner{
+		mode:        func() themeMode { return themeMode(a.preferences.Global().Theme) },
+		setMode:     a.setThemeMode,
+		language:    func() string { return a.preferences.Global().Language },
+		setLanguage: a.setLanguage,
+		proxy:       newProxyDialog(a.proxies),
+	}
 }
 
 // signingIn reports whether the sign-in window is what to show.
@@ -712,7 +911,19 @@ func (a *App) Theme(gtx layout.Context) *token.Theme {
 	}
 	a.window.SetFrameDark(a.dark())
 	a.window.SetFrameColor(theme.Scheme.Surface.Color.AsNRGBA())
+	a.window.SetTheme(hostTheme(a.themeMode()))
 	return theme
+}
+
+// hostTheme is the theme the host draws its own windows in, the panic's.
+func hostTheme(mode themeMode) appwindow.Theme {
+	switch mode {
+	case themeLight:
+		return appwindow.ThemeLight
+	case themeDark:
+		return appwindow.ThemeDark
+	}
+	return appwindow.ThemeAuto
 }
 
 // Update implements appwindow.Content.
@@ -746,18 +957,34 @@ func (a *App) Update(gtx layout.Context) {
 	if a.emojiOffer != nil {
 		a.emojiOffer.Update(gtx, a.settings.emojiView, a.chats.toast.Show, a.catalog(), a.window.Invalidate)
 	}
+	if a.registrationOffer != nil {
+		a.registrationOffer.Update(gtx, a.chats.toast.Show, a.catalog(), a.window.Invalidate)
+	}
 	a.frozen.Update(gtx)
-	if id := a.openChat.Swap(0); id != 0 {
-		a.open(chatPick{ID: id})
+	if pick := a.openChat.Swap(nil); pick != nil {
+		a.open(*pick)
 	}
 	select {
 	case r := <-a.usernames:
 		a.takeUsername(r)
 	default:
 	}
+	select {
+	case r := <-a.senders:
+		a.takeSender(r)
+	default:
+	}
+	select {
+	case r := <-a.downloadMessages:
+		a.takeDownloadMessage(r)
+	default:
+	}
+	a.updateReturn(gtx)
 	a.shownChat.Store(a.selected)
+	a.shortcutEvents(gtx)
 	folders := a.store.Folders()
 	a.overlay.Update(gtx)
+	a.overlayUpdated = true
 	if a.compact {
 		if a.menu.Clicked(gtx) {
 			a.drawer.open(a.overlay, a.layoutDrawer)
@@ -791,6 +1018,9 @@ func (a *App) Update(gtx layout.Context) {
 		global := a.preferences.Global()
 		a.settings.Update(gtx, themeMode(global.Theme), global.Language)
 	}
+	if a.section.kind == sectionDownloads && a.downloads != nil {
+		a.downloads.Update(gtx, a.catalog())
+	}
 }
 
 // chatMode is the look the settings give every chat in the theme of dark.
@@ -813,7 +1043,7 @@ func (a *App) toggleTheme() {
 
 // layoutDrawer is the content of the drawer overlay item.
 func (a *App) layoutDrawer(gtx layout.Context) layout.Dimensions {
-	entries := drawerEntries(a.store.Folders(), a.store.Chats(), a.dark(), a.catalog())
+	entries := arrangeMenu(a.menuPrefs, menuDrawer, drawerEntries(a.store.Folders(), a.store.Chats(), a.dark(), a.catalog()), func(e drawerEntry) string { return navigationID(e.key, a.currentAccount()) })
 	if key, ok := a.drawer.Update(gtx, entries); ok {
 		if key.theme {
 			a.toggleTheme()
@@ -826,6 +1056,10 @@ func (a *App) layoutDrawer(gtx layout.Context) layout.Dimensions {
 }
 
 func (a *App) openSection(gtx layout.Context, sec section) {
+	if a.settings != nil && a.settings.shortcuts != nil {
+		a.settings.shortcuts.Close()
+		a.settings.shortcuts.signature = ""
+	}
 	if sec.kind == sectionSearch {
 		if a.section.kind == sectionSearch {
 			a.closeSearch()
@@ -843,6 +1077,10 @@ func (a *App) openSection(gtx layout.Context, sec section) {
 		a.settings.open()
 	case sectionProfile:
 		a.profile.open()
+	case sectionDownloads:
+		if a.downloads != nil {
+			a.downloads.open()
+		}
 	}
 }
 
@@ -874,6 +1112,13 @@ func (a *App) selectedChat() (model.Chat, bool) {
 		return model.Chat{ID: me.ID, Kind: model.KindSaved, Title: a.catalog().T("nav.saved")}, true
 	}
 	if a.selected != 0 && a.found.ID == a.selected {
+		// A chat picked from the search is kept as it was found; what the
+		// store has heard of its marks since is newer.
+		if source, ok := a.store.(model.PeerBadgesSource); ok {
+			if badges, ok := source.PeerBadges(a.found.ID); ok {
+				a.found.Badges = badges
+			}
+		}
 		return a.found, true
 	}
 	return model.Chat{}, false
@@ -904,6 +1149,7 @@ func (a *App) open(pick chatPick) {
 func (a *App) Layout(gtx layout.Context) {
 	transparent, _ := a.window.Translucency()
 	a.layoutWindow(gtx, transparent)
+	a.panics = 0
 }
 
 // layoutWindow paints the main window using the transparency granted by the backend.
@@ -913,9 +1159,14 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 		if err := a.preferences.DefaultMotionOff(); err != nil {
 			log.Printf("save settings: %v", err)
 		}
+		if err := a.preferences.DefaultVideoExternal(); err != nil {
+			log.Printf("save settings: %v", err)
+		}
 	}
 	withWindowSurfaceOpacity(gtx, a.preferences.Global().WindowTransparency, transparent)
 	withLook(gtx, a.preferences.Global().Look)
+	withCalm(gtx, a.preferences.Global().Calm)
+	withShadowIntensity(gtx, a.preferences.Global().Overlays.Shadow)
 	if trace := diagnostics.From(gtx.Values); trace != nil && trace.Recorder.Due(trace.Window, "cache-gauges", time.Second) {
 		defer func() {
 			r := trace.Recorder
@@ -1108,7 +1359,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 			if a.history.takesFiles() {
 				a.drop.page = a.history
 			}
-			return layoutChatPage(gtx, c, l, a.layoutAvatar, a.badges, func(gtx layout.Context) layout.Dimensions {
+			return layoutChatPage(gtx, c, l, a.layoutAvatar, a.badges, a.returnButton(), func(gtx layout.Context) layout.Dimensions {
 				if a.history != nil {
 					return a.history.Layout(gtx, c, l, a.window.Motion.AnimationsEnabled())
 				}
@@ -1121,6 +1372,8 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 				return a.profile.Layout(gtx, a.store.Me(), l, a.layoutAvatar, a.private(), a.window.Motion.AnimationsEnabled())
 			case a.section.kind == sectionSettings:
 				return a.settings.Layout(gtx, a.themeMode(), a.window.Appearance.Scheme(), a.dark(), l)
+			case a.section.kind == sectionDownloads && a.downloads != nil:
+				return a.downloads.Layout(gtx, l, a.window.Motion.AnimationsEnabled())
 			case chat:
 				return a.layoutForum(gtx, c, l)
 			}
@@ -1133,6 +1386,12 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 		a.splitter.Layout(gtx, x, size.Y)
 	}
 	a.drop.layout(gtx, a.catalog())
+	if !a.overlayUpdated {
+		// A window locked or signing in returns from Update before the
+		// overlay's: it has to be updated once before it is drawn.
+		a.overlay.Update(gtx)
+		a.overlayUpdated = true
+	}
 	a.overlay.Layout(gtx)
 	if a.info != nil {
 		a.info.Layout(overlayGtx, a.catalog(), a.window.Motion.AnimationsEnabled())
@@ -1150,6 +1409,9 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	a.connectionFailed.Layout(overlayGtx, a.catalog())
 	if a.emojiOffer != nil {
 		a.emojiOffer.Layout(overlayGtx, a.settings.emojiView, a.catalog())
+	}
+	if a.registrationOffer != nil {
+		a.registrationOffer.Layout(overlayGtx, a.catalog())
 	}
 }
 
@@ -1243,6 +1505,9 @@ func (a *App) SetSuspended(hidden bool) {
 	if a.avatars != nil {
 		a.avatars.media.Release()
 	}
+	if a.downloads != nil && a.downloads.media != nil {
+		a.downloads.media.Release()
+	}
 	a.images.Release()
 }
 
@@ -1262,7 +1527,14 @@ func mediaFrame(gtx layout.Context, m *chatmedia.Manager) func() {
 // OpenChat opens chat in the window, as a click in the chat list would; it
 // may be called from any goroutine.
 func (a *App) OpenChat(chat int64) {
-	a.openChat.Store(chat)
+	a.openChat.Store(&chatPick{ID: chat})
+	a.window.Invalidate()
+}
+
+// OpenMessage opens chat at message, as a click on a quote of it would;
+// it may be called from any goroutine.
+func (a *App) OpenMessage(chat int64, message model.MessageID) {
+	a.openChat.Store(&chatPick{ID: chat, Message: message})
 	a.window.Invalidate()
 }
 
@@ -1307,7 +1579,7 @@ func (a *App) SetMinimized(minimized bool) {
 		a.preferences.Global().LockOnMinimize {
 		a.windowLocked.Store(true)
 		a.window.SetTitle(a.catalog().T("app.title"))
-		a.photoWindows.closeAll()
+		a.viewerWindows.closeAll()
 		a.articleWindows.closeAll()
 	}
 }
@@ -1351,7 +1623,7 @@ func (a *App) checkWindowLock(gtx layout.Context) bool {
 		if !gtx.Now.Before(deadline) {
 			a.windowLocked.Store(true)
 			a.window.SetTitle(a.catalog().T("app.title"))
-			a.photoWindows.closeAll()
+			a.viewerWindows.closeAll()
 			a.articleWindows.closeAll()
 			return true
 		}
@@ -1390,6 +1662,7 @@ type usernameResult struct {
 func (a *App) openUsername(links model.TelegramLinkSource, name string) {
 	results, invalidate := a.usernames, a.window.Invalidate
 	go func() {
+		defer crash.Recover("username", func(e *crash.Panic) { results <- usernameResult{name: name, err: e}; invalidate() })
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		chat, err := links.ResolveUsername(ctx, name)
@@ -1411,3 +1684,5 @@ func (a *App) takeUsername(r usernameResult) {
 		a.open(chatPick{ID: r.chat.ID, Chat: &r.chat})
 	}
 }
+
+func (a *App) menuPrefs() preferences.Menus { return a.preferences.Global().Menus }

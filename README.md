@@ -30,13 +30,13 @@ WIP: message formatting and scheduled posting tools, chat and channel administra
 
 FFmpeg, mpv, VLC and Chromium/Firefox are available as external integrations that you must provide yourself. However, the application will work even without them, if the user is satisfied with that.
 
-Without FFmpeg, or when chosen in the settings, GIFs and animated avatars play with FFmpeg's H.264 decoder compiled to WebAssembly. It is not built into the application: it is downloaded the first time it is needed from [libavcodec-wasm](https://github.com/komarugif/libavcodec-wasm), which holds its sources and build script. To use your own build, point the `KOMARUGRAM_AVCDEC` environment variable at an `avcdec.wasm` file or its URL.
+Without FFmpeg, or when chosen in the settings, GIFs and animated avatars play with FFmpeg's H.264 and MPEG-4 Part 2 decoders compiled to WebAssembly. They are not built into the application: they are downloaded the first time they are needed from [libavcodec-wasm](https://github.com/komarugif/libavcodec-wasm), which holds their sources and build script. You can use your own build instead: see [Environment variables](#environment-variables).
 
-Voice messages and music play in the application itself, with no FFmpeg or external player, as they download: Opus with libopus, MP3, FLAC and WAV with dr_libs, all compiled to WebAssembly and built in. AAC (M4A) plays with the Fraunhofer FDK AAC decoder, which is downloaded the first time it is needed from [fdk-aac-wasm](https://github.com/komarugif/fdk-aac-wasm), where its sources are; `KOMARUGRAM_AACDEC` points at your own build.
+Voice messages and music play in the application itself, with no FFmpeg or external player, as they download: Opus with libopus, MP3, FLAC and WAV with dr_libs, all compiled to WebAssembly and built in. AAC (M4A) plays with the Fraunhofer FDK AAC decoder, which is downloaded the first time it is needed from [fdk-aac-wasm](https://github.com/komarugif/fdk-aac-wasm), where its sources are; for your own build, see [Environment variables](#environment-variables).
 
 ## How to get started
 
-Make a copy of this repository. Ensure that **[Go 1.27.1](https://go.dev/dl/)** is installed on your machine — it is the minimum required version. [Windows 7](./docs/BUILD_WINDOWS7.md) and [Haiku](./docs/BUILD_HAIKU.md) require their own patched versions of Go.
+Make a copy of this repository. Ensure that **[Go 1.27.3](https://go.dev/dl/)** is installed on your machine — it is the minimum required version: it fixes the checking of certificates in `crypto/x509`, which a man-in-the-middle attack exploits. [Windows 7](./docs/BUILD_WINDOWS7.md) and [Haiku](./docs/BUILD_HAIKU.md) require their own patched versions of Go. The one for Windows 7 follows Go's releases behind them: its instructions build with a copy of `go.mod` that names the version it has.
 
 On Linux, Wayland and X11 development libraries may be required: `vulkan-headers mesa-egl mesa-dev libxkbcommon-dev wayland-dev`. Depending on your graphics environment, you can disable specific dependencies using build tags: `-tags nox11`, `-tags nowayland`, or `-tags novulkan`.
 
@@ -70,6 +70,31 @@ go run ./cmd/windows-build -arch arm64 -o komarugram.exe
 ```
 go run ./cmd/haiku-build -o ~/apps/KomaruGram
 ```
+
+## Environment variables
+
+These variables replace a setting for one run, or name a file the application would otherwise download or look for itself.
+
+| Variable | What it does |
+|---|---|
+| `KOMARUGRAM_PROXY` | A proxy link, used over the ones kept in the settings: `tg://proxy?server=…&port=…&secret=…` (MTProto), `socks5://user:pass@host:port` or `socks5://host:port` (SOCKS5), `wss://web.telegram.org` (Telegram over WebSocket): the default of the `-proxy` flag. |
+| `KOMARUGRAM_FONT`, `KOMARUGRAM_FONT_EXTRA`, `KOMARUGRAM_FONT_MONO`, `KOMARUGRAM_FONT_EMOJI` | A font file for the text, for the characters it lacks, for code and for emoji, over the fonts of the settings. |
+| `KOMARUGRAM_EMOJI_SET` | The directory of an emoji pack to draw emoji with, over the one chosen in the settings. |
+| `KOMARUGRAM_EMOJI_PACKS` | A catalog of emoji packs, a directory or an http(s) URL, for the settings to offer in place of the one built in. |
+| `KOMARUGRAM_MASCOT` | A folder or a URL with `index.json` that the mascot's scenes in the About section are taken from, in place of [clawd-animations](https://github.com/komarugif/clawd-animations). |
+| `KOMARUGRAM_AVCDEC` | Your own build of the H.264 and MPEG-4 Part 2 decoders, in place of the one downloaded from [libavcodec-wasm](https://github.com/komarugif/libavcodec-wasm): the path to an `avcdec.wasm` file, or its URL. |
+| `KOMARUGRAM_AACDEC` | Your own build of the AAC decoder, in place of the one downloaded from [fdk-aac-wasm](https://github.com/komarugif/fdk-aac-wasm): the path to an `aacdec.wasm` file, or its URL. Without an AAC decoder only M4A sound does not play. |
+| `KOMARUGRAM_MINIAPP_BROWSER` | The browser Mini Apps, and the video player where it plays in a browser, run in: a program on `PATH`, the path to one, or the application id of a flatpak. It wins over the browser picked in the settings. |
+| `KOMARUGRAM_TRAY_LIB`, `KOMARUGRAM_VOICE_LIB` | Haiku only: the path to `libtrayhaiku` and to `libvoicehaiku`, which are otherwise looked for beside the program and in `lib` beside it. |
+
+The tests that need a real account or the machine's TPM are off unless asked for:
+
+| Variable | What it does |
+|---|---|
+| `KOMARUGRAM_TEST_LIVE_HISTORY=1` | Checks the history of the account on this machine, only reading it. |
+| `KOMARUGRAM_TEST_MEDIA_CHANNEL` | The title of the chat that check takes its media from. |
+| `KOMARUGRAM_TEST_LIVE_EMOJI_SETS` | A directory the emoji packs of the catalog are installed into from Telegram, the way the settings do it, reading only. |
+| `KOMARUGRAM_TEST_TPM=1` | Uses the machine's TPM. |
 
 ## Portability
 
@@ -106,7 +131,7 @@ When working with this project, you have no licensing obligations regarding the 
 
 There are two exceptions, both kept out of this repository and out of the binary, loaded at run time, and easy to replace or leave out:
 
-- The H.264 decoder is FFmpeg's, licensed under the LGPL 2.1 or later. It is in [libavcodec-wasm](https://github.com/komarugif/libavcodec-wasm); `KOMARUGRAM_AVCDEC` replaces it.
-- The AAC decoder is the Fraunhofer FDK AAC Codec Library, under Fraunhofer's own license: free to copy and distribute, with its source, but granting no patent rights. AAC is covered by patents licensed through [Via LA](https://www.via-la.com): using the decoder may need such a license, in particular for commercial use. Debian counts it as non-free for this reason. It is in [fdk-aac-wasm](https://github.com/komarugif/fdk-aac-wasm); `KOMARUGRAM_AACDEC` replaces it, and without it only M4A sound does not play.
+- The H.264 and MPEG-4 Part 2 decoders are FFmpeg's, licensed under the LGPL 2.1 or later. They are in [libavcodec-wasm](https://github.com/komarugif/libavcodec-wasm).
+- The AAC decoder is the Fraunhofer FDK AAC Codec Library, under Fraunhofer's own license: free to copy and distribute, with its source, but granting no patent rights. AAC is covered by patents licensed through [Via LA](https://www.via-la.com): using the decoder may need such a license, in particular for commercial use. Debian counts it as non-free for this reason. It is in [fdk-aac-wasm](https://github.com/komarugif/fdk-aac-wasm).
 
 The licenses of the third-party code and files the client contains or downloads are listed in [docs/THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md).

@@ -22,7 +22,7 @@ func TestLocalPremiumMarksOwnAccounts(t *testing.T) {
 	other := map[int64]bool{7: true}
 	a.ownUsers.Store(&other)
 	star := func(user int64) bool {
-		_, after := a.badges(model.Badges{User: user}, 16, false)
+		_, after := a.badges(model.Badges{User: user}, "", 16, false)
 		return after != nil
 	}
 	for _, user := range []int64{me, 7, 8, 0} {
@@ -40,7 +40,7 @@ func TestLocalPremiumMarksOwnAccounts(t *testing.T) {
 		t.Fatal("a stranger has a star")
 	}
 	// A verified name keeps its check mark alone, as with the real star.
-	if _, after := a.badges(model.Badges{User: me, Verified: true}, 16, false); after == nil {
+	if _, after := a.badges(model.Badges{User: me, Verified: true}, "", 16, false); after == nil {
 		t.Fatal("a verified own account lost its mark")
 	}
 }

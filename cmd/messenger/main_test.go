@@ -40,7 +40,7 @@ func TestInitialAccountRestoresOnlyLastKnownAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	windows := newAccountWindows(nil, appwindow.Options{}, nil, nil, settings, nil, nil)
+	windows := newAccountWindows(nil, appwindow.Options{}, nil, nil, nil, settings, nil, nil)
 	windows.addAccounts(&account.Account{ID: "first"}, &account.Account{ID: "last"})
 	if got := windows.InitialAccountID(); got != "first" {
 		t.Fatalf("initial account = %q, want first", got)
@@ -119,7 +119,7 @@ func TestStartupOffersProtectionForNewAccounts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		windows := newAccountWindows(nil, appwindow.Options{}, manager, protection, settings, nil, []*account.TData{testArchive(t)})
+		windows := newAccountWindows(nil, appwindow.Options{}, manager, nil, protection, settings, nil, []*account.TData{testArchive(t)})
 		offers := 0
 		added, err := windows.start(context.Background(), func(context.Context) error {
 			offers++
@@ -171,7 +171,7 @@ func TestAccountListWithoutWindows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	windows := newAccountWindows(nil, appwindow.Options{}, restarted, nil, settings, nil, nil)
+	windows := newAccountWindows(nil, appwindow.Options{}, restarted, nil, nil, settings, nil, nil)
 	if _, err := windows.start(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}

@@ -1683,6 +1683,16 @@ func (e ErrorCode) Error() string {
 	return fmt.Sprintf("%s: %#x", e.Name, e.Code)
 }
 
+// DeviceLost reports whether the code says the device was removed or
+// reset, and has to be made again.
+func (e ErrorCode) DeviceLost() bool {
+	switch e.Code {
+	case DXGI_ERROR_DEVICE_RESET, DXGI_ERROR_DEVICE_REMOVED, D3DDDIERR_DEVICEREMOVED:
+		return true
+	}
+	return false
+}
+
 func CreateSwapChain(dev *Device, hwnd windows.Handle) (*IDXGISwapChain, error) {
 	dxgiDev, err := IUnknownQueryInterface(unsafe.Pointer(dev), dev.Vtbl.QueryInterface, &IID_IDXGIDevice)
 	if err != nil {

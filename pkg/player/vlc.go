@@ -229,6 +229,12 @@ func (p *vlc) Seek(delta time.Duration) error {
 	return p.command("seek " + strconv.Itoa(int(target/time.Second)))
 }
 
+// SeekTo moves to at from the start, to the second: as far as VLC's remote
+// control seeks.
+func (p *vlc) SeekTo(at time.Duration) error {
+	return p.command("seek " + strconv.Itoa(int(max(0, at)/time.Second)))
+}
+
 // Status reports the latest state VLC sent.
 func (p *vlc) Status() Status {
 	p.mu.Lock()

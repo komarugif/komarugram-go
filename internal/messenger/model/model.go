@@ -40,6 +40,10 @@ type Preview struct {
 	Emoji string `json:",omitempty"`
 	// Service is the message when it is a service one.
 	Service *Message `json:",omitempty"`
+	// ID is the message's; Sent is set when the account sent it, in any
+	// chat, for the list to mark whether it was read.
+	ID   MessageID `json:",omitempty"`
+	Sent bool      `json:",omitempty"`
 }
 
 type Chat struct {
@@ -52,7 +56,10 @@ type Chat struct {
 	Last     Preview
 	LastTime time.Time
 	Unread   int
-	Muted    bool
+	// ReadOutbox is the newest of the account's messages the other side
+	// read; those before it are read too.
+	ReadOutbox MessageID `json:",omitempty"`
+	Muted      bool
 	// Pinned chats stay at the top of the list, in the order PinRank gives:
 	// 1 for the first, 0 for a chat that is not pinned.
 	Pinned  bool
@@ -62,6 +69,10 @@ type Chat struct {
 	// Forum is set for a group divided in topics, which open as a list of
 	// them: see ForumSource.
 	Forum bool
+	// DirectMessages is set for the chat of a channel's direct messages
+	// (DirectMessagesSource), a group of Telegram's that the account reads
+	// as a private chat with the channel: without avatars.
+	DirectMessages bool `json:",omitempty"`
 	// Badges are the marks beside the chat's name.
 	Badges
 }
@@ -85,6 +96,9 @@ type Badges struct {
 	// It lets the client tell an account of its own, which Local Premium
 	// marks, from any other.
 	User int64
+	// Channel is the channel the badges belong to, 0 for a chat that is not
+	// one: the bare id its official mark is looked up by.
+	Channel int64
 }
 
 // Folder is a chat folder. It holds the chats Match accepts or, without

@@ -36,43 +36,37 @@ const (
 	RegisteredAfter
 )
 
-// registrations are user ids with the dates their accounts were
-// registered. Telegram gives ids in order, so an id between two of them
-// was registered between their dates.
-var registrations = []struct {
-	id   int64
-	date int64
-}{
-	{1000000, 1380326400},
-	{2768409, 1383264000},
-	{7679610, 1388448000},
-	{11538514, 1391212000},
-	{6386727079, 1691696880},
-	{6429580803, 1692082680},
-	{6813121418, 1698489600},
-	{6865576492, 1699052400},
-	{6925870357, 1701192327},
-	{7000000000, 1711889200},
+// registration is a point of the table of registrations: a user id, the
+// Unix second its account was registered at, smoothed, and how many days the
+// accounts around it lie from that, as a median.
+type registration struct {
+	id, date, spread int64
 }
 
-// RegisteredAround estimates when the account of user was registered, as
-// materialgram does: between the dates of the known ids around it.
-func RegisteredAround(user int64) (time.Time, Registration) {
+// RegisteredAround estimates when the account of user was registered, between
+// the dates of the known ids around it (cmd/registration-table), and how far
+// from it the account's date may be: the median distance of the known
+// accounts around it, or more between known ids far apart in time.
+func RegisteredAround(user int64) (time.Time, Registration, time.Duration) {
 	first, last := registrations[0], registrations[len(registrations)-1]
 	switch {
 	case user < first.id:
-		return time.Unix(first.date, 0), RegisteredBefore
+		return time.Unix(first.date, 0), RegisteredBefore, 0
 	case user > last.id:
-		return time.Unix(last.date, 0), RegisteredAfter
+		return time.Unix(last.date, 0), RegisteredAfter, 0
 	}
 	for i := 1; i < len(registrations); i++ {
 		a, b := registrations[i-1], registrations[i]
 		if user <= b.id {
 			t := float64(user-a.id) / float64(b.id-a.id)
-			return time.Unix(a.date+int64(t*float64(b.date-a.date)), 0), RegisteredAbout
+			spread := float64(a.spread) + t*float64(b.spread-a.spread)
+			// Between points far apart the line is a guess: a third of the
+			// time between them is as near as it is likely to be.
+			spread = max(spread, float64(b.date-a.date)/(3*24*60*60))
+			return time.Unix(a.date+int64(t*float64(b.date-a.date)), 0), RegisteredAbout, time.Duration(spread * float64(24*time.Hour))
 		}
 	}
-	return time.Unix(last.date, 0), RegisteredAfter
+	return time.Unix(last.date, 0), RegisteredAfter, 0
 }
 
 // DataCenterName is where Telegram's data center dc is.

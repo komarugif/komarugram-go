@@ -101,6 +101,7 @@ func drawerEntries(folders []model.Folder, chats []model.Chat, dark bool, l loca
 		drawerEntry{key: drawerKey{section: section{kind: sectionSearch}}, icon: iconSearch, title: l.T("nav.search")},
 		drawerEntry{key: drawerKey{section: section{kind: sectionProfile}}, icon: iconProfile, title: l.T("nav.profile")},
 		drawerEntry{key: drawerKey{section: section{kind: sectionSaved}}, icon: iconSaved, title: l.T("nav.saved")},
+		drawerEntry{key: drawerKey{section: section{kind: sectionDownloads}}, icon: iconDownloads, title: l.T("nav.downloads")},
 		drawerEntry{key: drawerKey{section: section{kind: sectionSettings}}, icon: iconSettings, title: l.T("nav.settings")},
 	)
 	theme := drawerEntry{key: drawerKey{theme: true}, icon: iconDark, title: l.T("nav.theme_dark_full")}
@@ -145,7 +146,7 @@ func (d *drawer) Layout(gtx layout.Context, entries []drawerEntry, current secti
 	offset(textGtx, image.Pt(pad, pad+gtx.Dp(64)), func(gtx layout.Context) layout.Dimensions {
 		var before, after layout.Widget
 		if d.badges != nil {
-			before, after = d.badges(me.Badges, 18, false)
+			before, after = d.badges(me.Badges, me.Name(), 18, false)
 		}
 		return withBadges(gtx, before, func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, me.Name(), token.TypestyleTitleMediumEmphasized, sc.Surface.OnColor, 1)

@@ -16,12 +16,12 @@ import (
 	"gio-mw/widget/checkbox"
 	"gio-mw/widget/scroll"
 
-	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/widget"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/sendfiles"
@@ -36,10 +36,8 @@ type filesBox struct {
 	files []*boxFile
 	way   sendfiles.Way
 	// caption is the text of the message the files go with.
-	caption widget.Editor
-	list    scroll.List
-	// focusCaption gives the caption the keyboard on the next frame.
-	focusCaption              bool
+	caption                   widget.Editor
+	list                      scroll.List
 	add, cancel, send         surface
 	group, documents, quality *checkbox.Checkboxes[string]
 	// results bring what the reading of files found out; generation tells
@@ -101,14 +99,18 @@ func (b *filesBox) addPaths(c *messageComposer, paths []string, documents bool) 
 		b.files = nil
 		b.way = sendfiles.Way{Group: true, Documents: documents}
 		b.caption.SetText(c.draft(c.chat).editor.Text())
+		// What is typed goes on after it.
+		end := b.caption.Len()
+		b.caption.SetCaret(end, end)
 		b.group.SetValues([]string{"group"})
 		b.documents.SetValues(nil)
 		if documents {
 			b.documents.SetValues([]string{"documents"})
 		}
 		b.quality.SetValues(nil)
+		// The caption takes the keyboard from the message field.
+		b.modal.field = &b.caption
 		b.modal.Open()
-		b.focusCaption = true
 	}
 	var added []*boxFile
 	for _, path := range paths {
@@ -123,10 +125,15 @@ func (b *filesBox) addPaths(c *messageComposer, paths []string, documents bool) 
 	go func() {
 		for _, f := range added {
 			res := boxResult{generation: generation, file: f}
-			res.info, res.err = sendfiles.Inspect(f.Path)
-			if res.err == nil {
-				res.thumb = boxThumbnail(ctx, ffmpeg, res.info)
-			}
+			func() {
+				// A file is anything the user picked: one that panics is
+				// told as one that failed, and the others go on.
+				defer crash.Recover("inspect file", func(e *crash.Panic) { res.err = e })
+				res.info, res.err = sendfiles.Inspect(f.Path)
+				if res.err == nil {
+					res.thumb = boxThumbnail(ctx, ffmpeg, res.info)
+				}
+			}()
 			select {
 			case results <- res:
 				invalidate()
@@ -315,10 +322,6 @@ func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l loca
 			}
 		}
 	}
-	if b.focusCaption {
-		b.focusCaption = false
-		gtx.Execute(key.FocusCmd{Tag: &b.caption})
-	}
 	shown := b.modal.Layout(gtx, false, func(gtx layout.Context) layout.Dimensions {
 		width := min(gtx.Constraints.Max.X-2*gtx.Dp(16), gtx.Dp(filesBoxWidth))
 		gtx.Constraints.Min.X, gtx.Constraints.Max.X = width, width
@@ -338,6 +341,13 @@ func (c *messageComposer) chooseAttachments(form int) {
 	c.choosing = true
 	ctx, chat, choose := c.ctx, c.chat, c.chooser
 	go func() {
+		defer crash.Recover("choose files", func(e *crash.Panic) {
+			select {
+			case c.fileResults <- fileChoice{chat: chat, form: form, menu: true, err: e}:
+				c.invalidate()
+			case <-ctx.Done():
+			}
+		})
 		var filter *fileFilter
 		if form == 1 {
 			filter = &mediaFilter
@@ -360,6 +370,13 @@ func (c *messageComposer) chooseMore() {
 	c.choosing = true
 	ctx, chat, choose := c.ctx, c.chat, c.chooser
 	go func() {
+		defer crash.Recover("choose files", func(e *crash.Panic) {
+			select {
+			case c.fileResults <- fileChoice{chat: chat, menu: true, err: e}:
+				c.invalidate()
+			case <-ctx.Done():
+			}
+		})
 		f := choose(ctx, nil, true)
 		f.chat, f.menu = chat, true
 		select {

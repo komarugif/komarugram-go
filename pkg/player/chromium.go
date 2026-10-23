@@ -26,7 +26,8 @@ var ErrCannotPlay = errors.New("the browser cannot play this file")
 
 // chromiumPage is the player: a video that fills the window, with the
 // browser's own controls. Its URL and the window's title come in the
-// fragment, which the page reads and never sends anywhere. Space and k
+// fragment, which the page reads and never sends anywhere, with the time
+// to start at, t, in seconds. Space and k
 // pause, the arrows seek by five seconds, f toggles full screen and m the
 // sound, as in the players people know.
 const chromiumPage = `<!doctype html>
@@ -44,6 +45,29 @@ video { display: block; width: 100%; height: 100%; object-fit: contain; outline:
 var params = new URLSearchParams(location.hash.slice(1));
 var v = document.getElementById('player');
 document.title = params.get('title') || '';
+var start = parseFloat(params.get('t'));
+if (start > 0) {
+  // It plays once it is at start, not from the start until then. A file
+  // of no index, as a WebM may be, seeks only as far as it has: the seek
+  // is made again as more comes, and after a while it plays from where
+  // it got.
+  v.autoplay = false;
+  var started = false;
+  var begin = function () {
+    if (started) return;
+    started = true;
+    ['loadedmetadata', 'progress', 'canplaythrough'].forEach(function (e) { v.removeEventListener(e, seek); });
+    v.play();
+  };
+  var seek = function () {
+    if (v.readyState >= 1 && !v.seeking && Math.abs(v.currentTime - start) > 0.5) v.currentTime = start;
+  };
+  ['loadedmetadata', 'progress', 'canplaythrough'].forEach(function (e) { v.addEventListener(e, seek); });
+  v.addEventListener('seeked', function () {
+    if (Math.abs(v.currentTime - start) <= 0.5) begin();
+  });
+  setTimeout(begin, 5000);
+}
 v.src = params.get('src');
 v.focus();
 addEventListener('keydown', function (e) {
@@ -135,12 +159,26 @@ type chromium struct {
 	closed bool
 }
 
+// chromiumStart is the argument of StartArgs for the browser: the time to
+// start at, which goes to the page.
+const chromiumStart = "--komarugram-start="
+
 func openChromium(ctx context.Context, source string, extra []string) (*chromium, error) {
 	server, address, err := servePage()
 	if err != nil {
 		return nil, err
 	}
-	fragment := url.Values{"src": {source}, "title": {path.Base(source)}}.Encode()
+	values := url.Values{"src": {source}, "title": {path.Base(source)}}
+	var rest []string
+	for _, arg := range extra {
+		if start, ok := strings.CutPrefix(arg, chromiumStart); ok {
+			values.Set("t", start)
+			continue
+		}
+		rest = append(rest, arg)
+	}
+	extra = rest
+	fragment := values.Encode()
 	page := miniapp.Page{
 		Width: 960, Height: 600,
 		// The window opens because the user asked for the video: it plays
@@ -296,6 +334,11 @@ func (p *chromium) TogglePause() error {
 // Seek moves by delta, forward or backward.
 func (p *chromium) Seek(delta time.Duration) error {
 	return p.eval(fmt.Sprintf(`(function () { var v = document.getElementById('player'); v.currentTime = Math.max(0, v.currentTime + %f); })()`, delta.Seconds()))
+}
+
+// SeekTo moves to at from the start.
+func (p *chromium) SeekTo(at time.Duration) error {
+	return p.eval(fmt.Sprintf(`(function () { document.getElementById('player').currentTime = %f; })()`, max(0, at.Seconds())))
 }
 
 // Status reports the state read last.

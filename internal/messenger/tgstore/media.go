@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"komarugram/internal/diagnostics"
+	"komarugram/internal/messenger/historycache"
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/dcpool"
 	"sort"
@@ -18,14 +19,16 @@ import (
 	"github.com/gotd/td/tgerr"
 )
 
-const MaxMediaBytes = 64 << 20
+// MaxMediaBytes is model.MaxMediaBytes, which downloads read whole stay
+// within.
+const MaxMediaBytes = model.MaxMediaBytes
 
 // cappedBuffer enforces the limit against server data, not just metadata.
 type cappedBuffer struct{ bytes.Buffer }
 
 func (b *cappedBuffer) Write(p []byte) (int, error) {
 	if b.Len()+len(p) > MaxMediaBytes {
-		return 0, errors.New("media exceeds 64 MiB limit")
+		return 0, model.ErrMediaTooLarge
 	}
 	return b.Buffer.Write(p)
 }
@@ -37,7 +40,7 @@ func (s *Store) MediaProgress(ctx context.Context, m model.Message, progress fun
 		return nil, errors.New("no media")
 	}
 	if m.Media.Size > MaxMediaBytes {
-		return nil, errors.New("media exceeds 64 MiB limit")
+		return nil, model.ErrMediaTooLarge
 	}
 	c := s.history
 	c.mu.Lock()
@@ -58,6 +61,10 @@ func (s *Store) MediaProgress(ctx context.Context, m model.Message, progress fun
 	}
 	if e != nil || len(b) > 0 {
 		return b, e
+	}
+	if b := mediaFromDownload(ctx, cache, m); b != nil {
+		// The user's download of it, every chunk as it was tagged.
+		return b, cache.SaveMedia(ctx, m.Media.ID, b)
 	}
 	if pool == nil {
 		return nil, errors.New("media unavailable offline")
@@ -187,7 +194,8 @@ func (s *Store) CustomEmoji(ctx context.Context, id int64) (model.Message, error
 	if cache == nil {
 		return m, errors.New("emoji: connection not ready")
 	}
-	key := fmt.Sprintf("emoji/%d", id)
+	// The second version of the key: the first kept no TextColor.
+	key := fmt.Sprintf("emoji/v2/%d", id)
 	if ok, e := cache.Get(ctx, key, &m); e != nil || ok {
 		return m, e
 	}
@@ -227,7 +235,7 @@ func (b *cappedFile) WriteAt(p []byte, off int64) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if off < 0 || off > MaxMediaBytes || int64(len(p)) > MaxMediaBytes-off {
-		return 0, errors.New("media exceeds 64 MiB limit")
+		return 0, model.ErrMediaTooLarge
 	}
 	end := int(off) + len(p)
 	if end > len(b.data) {
@@ -243,15 +251,26 @@ func (b *cappedFile) WriteAt(p []byte, off int64) (int, error) {
 
 // ChatPhotos pages the chat's photos and videos; the local cache remains available offline.
 // A page of the cache tells no total, and has more photos when it is full.
-func (s *Store) ChatPhotos(ctx context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.PhotoPage, error) {
-	page, err := s.searchMedia(ctx, chat, model.SharedPhotoVideos, anchor, dir, limit)
+func (s *Store) ChatPhotos(ctx context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.GalleryPage, error) {
+	return s.gallery(ctx, model.SharedPhotoVideos, (*historycache.Cache).Photos, chat, anchor, dir, limit)
+}
+
+// ChatGIFs pages the chat's GIFs, as ChatPhotos its photos and videos.
+func (s *Store) ChatGIFs(ctx context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.GalleryPage, error) {
+	return s.gallery(ctx, model.SharedGIFs, (*historycache.Cache).GIFs, chat, anchor, dir, limit)
+}
+
+// gallery pages the chat's media of kind from Telegram, and from the cache
+// with cached when Telegram cannot be asked.
+func (s *Store) gallery(ctx context.Context, kind model.SharedKind, cached func(*historycache.Cache, context.Context, int64, int, int, int) ([]model.Message, error), chat int64, anchor model.MessageID, dir, limit int) (model.GalleryPage, error) {
+	page, err := s.searchMedia(ctx, chat, kind, anchor, dir, limit)
 	if err == nil {
 		sort.Slice(page.Messages, func(i, j int) bool { return page.Messages[i].Key.MessageID < page.Messages[j].Key.MessageID })
-		return model.PhotoPage{Messages: page.Messages, Total: page.Total, More: page.More}, nil
+		return model.GalleryPage{Messages: page.Messages, Total: page.Total, More: page.More}, nil
 	}
 	if cache := s.Cache(); cache != nil {
-		photos, err := cache.Photos(ctx, chat, int(anchor), dir, limit)
-		return model.PhotoPage{Messages: photos, More: len(photos) >= limit}, err
+		found, err := cached(cache, ctx, chat, int(anchor), dir, limit)
+		return model.GalleryPage{Messages: found, More: len(found) >= limit}, err
 	}
-	return model.PhotoPage{}, err
+	return model.GalleryPage{}, err
 }

@@ -7,7 +7,9 @@ import (
 	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/model"
 
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/unit"
 	"gioui.org/widget"
@@ -29,17 +31,16 @@ func newAvatarImages(source model.ConversationStore, changed func()) *avatarImag
 	}
 	return &avatarImages{s, chatmedia.NewAvatars(source, changed)}
 }
-func (a *App) layoutAvatar(gtx layout.Context, id int64, kind model.ChatKind, title string, size unit.Dp) layout.Dimensions {
-	dims := layout.Dimensions{Size: image.Pt(gtx.Dp(size), gtx.Dp(size))}
-	if a.avatars == nil || kind == model.KindSaved {
-		return avatar(gtx, id, kind, title, size)
-	}
+
+// avatarPhoto is the picture of id's avatar as it shows now, a frame of
+// its video when it plays; nil without one, or until it has loaded.
+func (a *App) avatarPhoto(id int64) image.Image {
 	if !a.window.Motion.AnimationsEnabled() {
 		a.avatars.media.PauseAnimations()
 	}
 	msg, ok := a.avatars.source.Avatar(id)
 	if !ok {
-		return avatar(gtx, id, kind, title, size)
+		return nil
 	}
 	status := a.avatars.media.Status(msg, false)
 	im := status.Frame
@@ -52,6 +53,15 @@ func (a *App) layoutAvatar(gtx layout.Context, id int64, kind model.ChatKind, ti
 			im = frame
 		}
 	}
+	return im
+}
+
+func (a *App) layoutAvatar(gtx layout.Context, id int64, kind model.ChatKind, title string, size unit.Dp) layout.Dimensions {
+	dims := layout.Dimensions{Size: image.Pt(gtx.Dp(size), gtx.Dp(size))}
+	if a.avatars == nil || kind == model.KindSaved {
+		return avatar(gtx, id, kind, title, size)
+	}
+	im := a.avatarPhoto(id)
 	if im == nil {
 		return avatar(gtx, id, kind, title, size)
 	}
@@ -82,10 +92,15 @@ func senderAvatar(kind model.ChatKind, m model.Message) int64 {
 	return 0
 }
 
-// senderAvatar is senderAvatar for the open chat. A snapshot shows the
+// senderAvatar is senderAvatar for the open chat, none in a channel's
+// direct messages. A snapshot shows the
 // avatar of the other side of a private chat too, as Telegram Desktop's
 // does, although the history leaves it out.
 func (p *chatPage) senderAvatar(m model.Message) int64 {
+	if p.direct {
+		// A channel's direct messages read as a private chat with it.
+		return 0
+	}
 	if id := senderAvatar(p.kind, m); id != 0 {
 		return id
 	}
@@ -93,6 +108,15 @@ func (p *chatPage) senderAvatar(m model.Message) int64 {
 		return m.Key.ChatID
 	}
 	return 0
+}
+
+// senderOpens tells whether a click on the avatar of m's sender opens
+// their chat: a member's in a group or a channel's that posted there, not
+// the account's own or an anonymous admin's, which is the group itself.
+func (p *chatPage) senderOpens(m model.Message) bool {
+	sender := m.SenderID > 0 || model.IsChannelID(m.SenderID) && m.SenderID != m.Key.ChatID
+	return p.openSender != nil && !p.snapshotting && p.kind == model.KindGroup &&
+		!m.Outgoing && sender && m.Kind != model.MessageService
 }
 
 // avatarName is the name whose initials stand for the sender of m.
@@ -113,6 +137,25 @@ func (p *chatPage) withSenderAvatar(gtx layout.Context, m model.Message, bubble 
 	})
 	gap := layout.Rigid(func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{Size: image.Pt(gtx.Dp(8), 0)} })
 	body := layout.Rigid(bubble)
+	if m.Outgoing {
+		// On the side the message is on, as a sent one is on the right.
+		// The avatar's place is kept first: a flex lays its children out
+		// in order, and a bubble before it took the whole width, which a
+		// long message filled, the avatar then drawn over its end.
+		slot := gtx.Dp(34) + gtx.Dp(8)
+		bodyGtx := gtx
+		bodyGtx.Constraints.Max.X = max(0, gtx.Constraints.Max.X-slot)
+		macro := op.Record(gtx.Ops)
+		bd := bubble(bodyGtx)
+		call := macro.Stop()
+		size := image.Pt(bd.Size.X+slot, max(bd.Size.Y, gtx.Dp(34)))
+		offset(gtx, image.Pt(0, size.Y-bd.Size.Y), func(gtx layout.Context) layout.Dimensions {
+			call.Add(gtx.Ops)
+			return bd
+		})
+		p.rows[m.Key.MessageID].bodySize = size
+		return layout.Dimensions{Size: size}
+	}
 	dims := layout.Flex{Alignment: layout.End}.Layout(gtx, avatar, gap, body)
 	p.rows[m.Key.MessageID].bodySize = dims.Size
 	return dims
@@ -175,7 +218,15 @@ func (p *chatPage) stickyAvatars(gtx layout.Context, cover int) {
 		y := stickyAvatarY(groupTop, groupBottom, visible, size, gtx.Dp(4))
 		if y+size > 0 && y < gtx.Constraints.Max.Y {
 			offset(gtx, image.Pt(r.avatarPoint.X, y), func(gtx layout.Context) layout.Dimensions {
-				return p.avatar(gtx, id, model.KindUser, p.avatarName(msg), 34)
+				dims := p.avatar(gtx, id, model.KindUser, p.avatarName(msg), 34)
+				if p.senderOpens(msg) && p.selectionCount() == 0 {
+					gtx.Constraints = layout.Exact(image.Pt(size, size))
+					r.avatar.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						pointer.CursorPointer.Add(gtx.Ops)
+						return layout.Dimensions{Size: gtx.Constraints.Max}
+					})
+				}
+				return dims
 			})
 		}
 	}

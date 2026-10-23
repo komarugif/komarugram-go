@@ -4,6 +4,7 @@ package ui
 
 import (
 	"errors"
+	"image"
 	"strings"
 	"time"
 
@@ -12,11 +13,14 @@ import (
 
 	"gio-mw/token"
 	"gio-mw/widget/button"
+	"gio-mw/widget/scroll"
 
 	"gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/unit"
 
 	"komarugram/internal/messenger/account"
+	"komarugram/internal/messenger/countries"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/login"
 	"komarugram/internal/messenger/security"
@@ -24,9 +28,13 @@ import (
 
 const loginWidth = unit.Dp(420)
 
-// loginPage is the sign-in window: the phone number, then the code, then the
-// 2FA password if the account has one. It shows what login.Login says and
-// hands the answers back.
+// protectEdge is how far the scrolling part of the offer to protect reaches
+// past the card's content on each side, for the edges of its fields.
+const protectEdge = unit.Dp(4)
+
+// loginPage is the sign-in window: a QR code to scan, or the phone number
+// and then the code; then the 2FA password if the account has one. It shows
+// what login.Login says and hands the answers back.
 type loginPage struct {
 	height heightTransition
 	login  *login.Login
@@ -35,9 +43,20 @@ type loginPage struct {
 	skip     *button.Button
 	// install draws the offer to install the program, at StepInstall.
 	install *installView
+	// qr draws the QR code, at StepQR.
+	qr *qrView
+	// protect scrolls the text of the offer to protect local data.
+	protect scroll.List
+	// corner is the language, the theme and the proxy, in the window's
+	// corner; nil where the window has no preferences to change.
+	corner *loginCorner
 
-	phone, code, password *textField
-	next, back, retry     *button.Button
+	phone             *phoneField
+	code              *codeInput
+	password          *textField
+	next, back, retry *button.Button
+	// useQR leaves the phone number for the QR code.
+	useQR *button.Button
 
 	// seen is the Seq of the state the fields were last prepared for.
 	seen int
@@ -48,13 +67,16 @@ func newLoginPage(l *login.Login, security *securityView, invalidate func()) *lo
 		login:    l,
 		security: security,
 		install:  newInstallView(invalidate),
+		qr:       newQRView(),
 		skip:     button.Text(),
-		phone:    newTextField(0, "0123456789+-() "),
-		code:     newTextField(0, "0123456789 "),
+		protect:  scroll.List{List: layout.List{Axis: layout.Vertical}},
+		phone:    newPhoneField(),
+		code:     newCodeInput(),
 		password: newTextField('•', ""),
 		next:     button.Filled(),
 		back:     button.Text(),
 		retry:    button.Filled(),
+		useQR:    button.Text(),
 	}
 }
 
@@ -64,8 +86,16 @@ func (p *loginPage) done() bool {
 	return p.login.State().Step == login.StepDone
 }
 
+// inputField is what the sign-in asks of the field of a step.
+type inputField interface {
+	Text() string
+	Clear()
+	Focus(gtx layout.Context)
+	Submitted(gtx layout.Context) bool
+}
+
 // field returns the field of the step, nil for a step without one.
-func (p *loginPage) field(step login.Step) *textField {
+func (p *loginPage) field(step login.Step) inputField {
 	switch step {
 	case login.StepPhone:
 		return p.phone
@@ -79,11 +109,19 @@ func (p *loginPage) field(step login.Step) *textField {
 
 // Update handles input for the current state.
 func (p *loginPage) Update(gtx layout.Context, l localization.Catalog) {
+	if p.corner != nil {
+		p.corner.Update(gtx)
+	}
 	st := p.login.State()
 	if st.Step == login.StepInstall {
 		p.install.Update(gtx, p.login, l)
 		return
 	}
+	if st.Step == login.StepQR {
+		p.qr.Update(gtx, p.login)
+		return
+	}
+	p.code.setLength(st.CodeLength)
 	field := p.field(st.Step)
 
 	if st.Seq != p.seen {
@@ -115,8 +153,14 @@ func (p *loginPage) Update(gtx layout.Context, l localization.Catalog) {
 	if p.back.Clicked(gtx) {
 		p.login.Back()
 	}
+	if p.useQR.Clicked(gtx) {
+		p.login.UseQR()
+	}
 	if p.retry.Clicked(gtx) {
 		p.login.Retry()
+	}
+	if st.Step == login.StepPhone {
+		p.phone.Update(gtx)
 	}
 	submitted := field != nil && field.Submitted(gtx)
 	if (p.next.Clicked(gtx) || submitted) && field != nil && canSubmit(st, field.Text()) {
@@ -132,7 +176,24 @@ func canSubmit(st login.State, text string) bool {
 	if st.Step == login.StepPassword {
 		return text != ""
 	}
+	if st.Step == login.StepPhone {
+		// A plus alone is no number.
+		return countries.Digits(text) != ""
+	}
+	if st.Step == login.StepCode && st.CodeLength > 0 && st.CodeLength <= codeMaxLength {
+		// The code has as many digits as it was said to have.
+		return len(countries.Digits(text)) == st.CodeLength
+	}
 	return strings.TrimSpace(text) != ""
+}
+
+// inset is the room around the card: with the controls of the corner, enough
+// above and below it that it never reaches them.
+func (p *loginPage) inset() layout.Inset {
+	if p.corner == nil {
+		return layout.UniformInset(16)
+	}
+	return layout.Inset{Top: cornerMargin, Bottom: cornerMargin, Left: 16, Right: 16}
 }
 
 // Layout draws the sign-in card centered on the window.
@@ -145,7 +206,7 @@ func (p *loginPage) Layout(gtx layout.Context, l localization.Catalog, private b
 	st := p.login.State()
 	layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min = layout.Constraints{}.Min
-		return layout.UniformInset(16).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return p.inset().Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(loginWidth))
 			return p.height.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 				switch st.Step {
@@ -153,6 +214,8 @@ func (p *loginPage) Layout(gtx layout.Context, l localization.Catalog, private b
 					return p.layoutProtect(gtx, l)
 				case login.StepInstall:
 					return p.install.Layout(gtx, l)
+				case login.StepQR:
+					return p.qr.Layout(gtx, st, l)
 				}
 				if private {
 					st.Phone = ""
@@ -161,6 +224,15 @@ func (p *loginPage) Layout(gtx layout.Context, l localization.Catalog, private b
 			}, defaultCardPadding)
 		})
 	})
+	if st.Step == login.StepPhone {
+		p.phone.Dialog(gtx, l)
+	} else {
+		p.phone.picker.modal.Hide()
+	}
+	if p.corner != nil {
+		p.corner.Layout(gtx, l)
+		p.corner.proxy.Layout(gtx, l)
+	}
 	return layout.Dimensions{Size: size}
 }
 
@@ -187,7 +259,14 @@ func (p *loginPage) layoutStep(gtx layout.Context, st login.State, l localizatio
 			login.StepPassword: "login.field_password",
 		}[st.Step])
 		rows = append(rows, vspace(20), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return field.Layout(gtx, title, problem != "")
+			switch f := field.(type) {
+			case *phoneField:
+				return f.Layout(gtx, l, title, problem != "")
+			case *codeInput:
+				f.setLength(st.CodeLength)
+				return f.Layout(gtx, title, problem != "")
+			}
+			return field.(*textField).Layout(gtx, title, problem != "")
 		}))
 	}
 	if problem != "" {
@@ -222,7 +301,7 @@ func (p *loginPage) layoutStep(gtx layout.Context, st login.State, l localizatio
 			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					if st.Step == login.StepPhone {
-						return layout.Dimensions{}
+						return p.useQR.Layout(gtx, l.T("login.use_qr"))
 					}
 					return p.back.Layout(gtx, l.T("login.back"))
 				}),
@@ -247,27 +326,72 @@ func (p *loginPage) layoutStep(gtx layout.Context, st login.State, l localizatio
 }
 
 // layoutProtect offers to protect local data before the account is added.
+// The title and the buttons stay in sight, and what lies between them, the
+// text and the form, scrolls where the window is too low to show all of it.
 func (p *loginPage) layoutProtect(gtx layout.Context, l localization.Catalog) layout.Dimensions {
 	sc := scheme(gtx)
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, l.T("protect.title"), token.TypestyleHeadlineSmall, sc.Surface.OnColor, 0)
-		}),
-		vspace(8),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			body := "protect.body"
-			if p.security != nil && p.security.manager != nil {
-				body = passwordOnly(p.security.manager.State(), body)
-			}
-			return label(gtx, l.T(body), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
-		}),
-		vspace(20),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return p.security.SetupLayout(gtx, l, func(gtx layout.Context) layout.Dimensions {
-				return p.skip.Layout(gtx, l.T("protect.skip"))
-			})
-		}),
-	)
+	form, buttons := p.security.setupParts(gtx, l, func(gtx layout.Context) layout.Dimensions {
+		return p.skip.Layout(gtx, l.T("protect.skip"))
+	})
+	// part lays a widget out as it is, to place it once the room is known.
+	part := func(w layout.Widget) (op.CallOp, image.Point) {
+		gtx := gtx
+		gtx.Constraints.Min = image.Point{}
+		macro := op.Record(gtx.Ops)
+		dims := w(gtx)
+		return macro.Stop(), dims.Size
+	}
+	titleCall, titleSize := part(func(gtx layout.Context) layout.Dimensions {
+		return label(gtx, l.T("protect.title"), token.TypestyleHeadlineSmall, sc.Surface.OnColor, 0)
+	})
+	var buttonsCall op.CallOp
+	var buttonsSize image.Point
+	if buttons != nil {
+		buttonsCall, buttonsSize = part(buttons)
+	}
+	gap := gtx.Dp(8)
+	room := max(gtx.Constraints.Max.Y-titleSize.Y-gap-buttonsSize.Y, 0)
+
+	// The list clips what is outside it, and the outline of a field is drawn
+	// on its edge, half of it outside: the list reaches a little past the
+	// card's content, into its padding, and what it holds is kept inside.
+	edge := gtx.Dp(protectEdge)
+	listGtx := gtx
+	listGtx.Constraints.Max.X += 2 * edge
+	listGtx.Constraints.Min = image.Pt(listGtx.Constraints.Max.X, 0)
+	listGtx.Constraints.Max.Y = room
+	macro := op.Record(gtx.Ops)
+	listDims := p.protect.Layout(listGtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
+		rows := []layout.FlexChild{
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				body := "protect.body"
+				if p.security != nil && p.security.manager != nil {
+					body = passwordOnly(p.security.manager.State(), body)
+				}
+				return label(gtx, l.T(body), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
+			}),
+			vspace(20),
+		}
+		return layout.Inset{Left: protectEdge, Right: protectEdge}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, append(rows, form...)...)
+		})
+	})
+	listCall := macro.Stop()
+
+	place := func(x, y int, call op.CallOp, size image.Point) {
+		offset(gtx, image.Pt(x, y), func(gtx layout.Context) layout.Dimensions {
+			call.Add(gtx.Ops)
+			return layout.Dimensions{Size: size}
+		})
+	}
+	place(0, 0, titleCall, titleSize)
+	place(-edge, titleSize.Y+gap, listCall, listDims.Size)
+	bottom := titleSize.Y + gap + listDims.Size.Y
+	if buttons != nil {
+		place(0, bottom, buttonsCall, buttonsSize)
+		bottom += buttonsSize.Y
+	}
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, bottom)}
 }
 
 // loginTexts returns the title and the explanation of a step.

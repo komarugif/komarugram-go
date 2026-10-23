@@ -197,3 +197,25 @@ func TestRevealTopicEnds(t *testing.T) {
 		t.Fatalf("the end is %d..%d, HasOlder %v, HasNewer %v", first, last, h.HasOlder, h.HasNewer)
 	}
 }
+
+// A chat the account has no dialog of, as a channel opened from a search,
+// opened at a message in its past has newer messages to load: its newest
+// message is learnt, which no dialog tells. It had none, and stopped there.
+func TestRevealWithoutDialogHasNewer(t *testing.T) {
+	s := testStore(t)
+	chat := int64(5)
+	s.history.peers[chat] = peerRecord{ID: 5, Hash: 1, Kind: "user"}
+	s.history.api = tg.NewClient(telegram.InvokeFunc(serveHistory(101, 500)))
+	s.Reveal(chat, 200)
+	s.OpenChat(chat)
+	h := waitHistory(t, s, chat)
+	if last := h.Messages[len(h.Messages)-1].Key.MessageID; last >= 500 || !h.HasNewer {
+		t.Fatalf("opened at 200: the last message %d, HasNewer %v", last, h.HasNewer)
+	}
+	s.Reveal(chat, 495)
+	s.OpenChat(chat)
+	h = waitHistory(t, s, chat)
+	if last := h.Messages[len(h.Messages)-1].Key.MessageID; last != 500 || h.HasNewer {
+		t.Fatalf("opened at 495: the last message %d, HasNewer %v", last, h.HasNewer)
+	}
+}

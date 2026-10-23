@@ -13,6 +13,7 @@ import (
 
 	"gioui.org/layout"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -96,6 +97,7 @@ func (d *reactedDialog) fetch(p *chatPage) {
 	l.results = make(chan reactedResult, 1)
 	results, msg, filter, offset, ctx := l.results, d.msg, d.filters[d.active], l.next, d.ctx
 	go func() {
+		defer crash.Recover("reacted", func(e *crash.Panic) { results <- reactedResult{err: e}; p.invalidate() })
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		page, err := lister.Reacted(ctx, msg, model.Reaction{Emoji: filter.Emoji, DocumentID: filter.DocumentID}, offset, reactedPage)

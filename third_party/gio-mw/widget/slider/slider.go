@@ -3,6 +3,7 @@
 package slider
 
 import (
+	"gio-mw/token"
 	"gio-mw/wdk"
 	"slices"
 
@@ -31,6 +32,22 @@ type Slider struct {
 	sEndDrag    wdk.Draggable
 	sStartValue int
 	sStartDrag  wdk.Draggable
+	animation   animation
+}
+
+// positionEpsilon is how close to a stop, in stops, the handle counts as
+// being at it.
+const positionEpsilon = 0.01
+
+// How the handle moves to a stop: quickly, and most of it at the start.
+const positionDuration = token.DurationShort2
+
+var positionEasing = token.EasingEmphasizedDecelerate
+
+// animation holds the animated drawing parameters of one slider.
+type animation struct {
+	position wdk.FloatTween // The index of the stop the handle is at.
+	pressed  wdk.FloatTween // 1 while the handle is held, else 0.
 }
 
 func (s *Slider) GetValue() int {

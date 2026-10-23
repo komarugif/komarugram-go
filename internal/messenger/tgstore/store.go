@@ -39,7 +39,11 @@ type Store struct {
 	themes  themeCatalogue
 	changed func()
 	notices atomic.Pointer[func(model.MessageNotice)]
-	history *conversation
+	// editLimit is Telegram's edit_time_limit in seconds, 0 until read;
+	// editLimitAsked, that it is being read or was.
+	editLimit      atomic.Int64
+	editLimitAsked atomic.Bool
+	history        *conversation
 
 	themeRevisions map[int64]uint64
 	// appearances are the states of the chats' cached appearances.
@@ -53,6 +57,7 @@ type Store struct {
 	connectionErr error
 	reconnect     chan struct{}
 	search        searchState
+	profiles      profileColors
 	freeze        model.Freeze
 	// freezeChecked is when a refused request last read the configuration
 	// again: see Middleware.
@@ -63,6 +68,7 @@ type Store struct {
 	reactions     reactionState
 	recent        recentChats
 	ghost         ghostState
+	presence      presences
 	blocked       blockedState
 	bots          botState
 	// dialogsLoading: loadDialogs runs.
@@ -359,9 +365,10 @@ func messagePeer(m tg.MessageClass) (tg.PeerClass, bool) {
 func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 	id := peerID(d.Peer)
 	chat := model.Chat{
-		ID:     id,
-		Unread: d.UnreadCount,
-		Pinned: d.Pinned,
+		ID:         id,
+		Unread:     d.UnreadCount,
+		Pinned:     d.Pinned,
+		ReadOutbox: model.MessageID(d.ReadOutboxMaxID),
 	}
 	chat.Muted = mutedNow(d.NotifySettings)
 	if d.Pinned {
@@ -395,7 +402,7 @@ func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 		if c := l.channels[p.ChannelID]; c != nil {
 			chat.Title = c.Title
 			chat.Badges = channelBadges(c, time.Now())
-			chat.Forum = c.Forum
+			chat.Forum, chat.DirectMessages = c.Forum, c.Monoforum
 			if c.Broadcast {
 				chat.Kind = model.KindChannel
 			}
@@ -410,6 +417,10 @@ func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 		chat.Last, chat.LastTime = preview(m)
 		if service, ok := m.(*tg.MessageService); ok {
 			chat.Last = model.Preview{Service: l.serviceMessage(service)}
+		}
+		chat.Last.ID = model.MessageID(d.TopMessage)
+		if msg, ok := m.(*tg.Message); ok {
+			chat.Last.Sent = msg.Out
 		}
 		if chat.Kind == model.KindGroup {
 			chat.Last.Sender, chat.Last.Outgoing = l.sender(m)

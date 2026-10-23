@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 	"unsafe"
 
+	"gioui.org/app/internal/physical"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
 )
@@ -163,9 +164,18 @@ func (x *Context) DispatchKey(keyCode uint32, state key.State) (events []event.E
 		x.utf8Buf = make([]byte, 1)
 	}
 	sym := C.xkb_state_key_get_one_sym(x.state, kc)
-	if name, ok := convertKeysym(x.shortcutKeysym(kc, sym)); ok {
+	position := key.Name("")
+	if p := C.xkb_keymap_key_get_name(x.keyMap, kc); p != nil {
+		position = physical.XKB(C.GoString(p))
+	}
+	name, ok := convertKeysym(x.shortcutKeysym(kc, sym))
+	if !ok && position != "" {
+		name, ok = position, true
+	}
+	if ok {
 		cmd := key.Event{
 			Name:      name,
+			Physical:  position,
 			Modifiers: x.Modifiers(),
 			State:     state,
 		}

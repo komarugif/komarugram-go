@@ -27,13 +27,15 @@ import (
 	"github.com/srwiley/rasterx"
 
 	"komarugram/assets"
+	"komarugram/internal/buildinfo"
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/pkg/deviceinfo"
 )
 
 const (
 	// repository is the program's source.
-	repository = "github.com/komarugif/komarugram-go"
+	repository = buildinfo.Repository
 	// community is the username of KomaruGram's chat in Telegram.
 	community = "komarugram"
 	// productName is the program's name, which no language translates.
@@ -117,6 +119,8 @@ func (v *aboutView) open() {
 	fetch, fetched, invalidate := v.fetch, v.fetched, v.invalidate
 	user := maintainer()
 	go func() {
+		// Pictures that panic are not shown, as those that failed.
+		defer crash.Recover("about pictures", func(*crash.Panic) { fetched <- aboutPictures{}; invalidate() })
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		var p aboutPictures
@@ -191,6 +195,7 @@ func (v *aboutView) Update(gtx layout.Context) {
 // openLater opens target in the browser without holding up the frame.
 func openLater(target string) {
 	go func() {
+		defer crash.Recover("open in browser", nil)
 		if err := openBrowser(target); err != nil {
 			log.Printf("open %s: %v", target, err)
 		}

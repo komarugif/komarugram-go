@@ -16,6 +16,7 @@ import (
 	"gioui.org/internal/f32color"
 	"gioui.org/op"
 
+	"gioui.org/app/internal/physical"
 	"gioui.org/f32"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
@@ -586,6 +587,7 @@ func (w *window) keyEvent(e js.Value, ks key.State) {
 
 		cmd := key.Event{
 			Name:      n,
+			Physical:  physical.DOM(e.Get("code").String()),
 			Modifiers: modifiersFor(e),
 			State:     ks,
 		}

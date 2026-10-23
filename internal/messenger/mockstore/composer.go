@@ -103,6 +103,12 @@ func (s *Store) Send(ctx context.Context, chat int64, out model.OutgoingMessage)
 	for _, task := range out.Tasks {
 		m.Text += "\n☐ " + task
 	}
+	if !s.isBot(chat) {
+		// It goes as a message to Telegram would: on its way, then taken,
+		// then read (see deliver).
+		m.Sending = true
+		go s.deliver(chat, id)
+	}
 	h.Messages = append(append([]model.Message(nil), h.Messages...), m)
 	if s.isBot(chat) && m.Text == "/stream" {
 		// The bot streams its answer as it writes it.

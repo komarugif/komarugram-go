@@ -48,7 +48,9 @@ func tonalButton(gtx layout.Context, s *surface, txt string, count int) layout.D
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Left: 6}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, strconv.Itoa(count), token.TypestyleLabelLarge, col.SetOpacity(0.7), 1)
+					// The count is in the label's color: faded, it read at 2.7:1 on
+					// the light container.
+					return label(gtx, strconv.Itoa(count), token.TypestyleLabelLargeEmphasized, col, 1)
 				})
 			}),
 		)
@@ -64,14 +66,19 @@ func tonalButton(gtx layout.Context, s *surface, txt string, count int) layout.D
 
 // Full-size icons and a 48 dp target match the application's navigation controls.
 func navigationButton(gtx layout.Context, s *surface, icon wdk.IconWidget, title string) layout.Dimensions {
+	return navigationButtonColor(gtx, s, icon, title, scheme(gtx).Surface.OnColor)
+}
+
+// navigationButtonColor is navigationButton in content, over a background
+// of another color than the surface's.
+func navigationButtonColor(gtx layout.Context, s *surface, icon wdk.IconWidget, title string, content token.MatColor) layout.Dimensions {
 	size := image.Pt(gtx.Dp(48), gtx.Dp(48))
 	gtx.Constraints = layout.Exact(size)
-	content := scheme(gtx).Surface.OnColor
 	style := surfaceStyle{radius: size.Y / 2, background: content.SetOpacity(0), content: content, button: title}
 	return s.Layout(gtx, size, style, func(gtx layout.Context) layout.Dimensions {
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints = layout.Exact(image.Pt(gtx.Dp(24), gtx.Dp(24)))
-			return icon(gtx, scheme(gtx).Surface.OnColor)
+			return icon(gtx, content)
 		})
 	})
 }

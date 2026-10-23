@@ -118,7 +118,7 @@ func TestRenderForum(t *testing.T) {
 	renderFrames(t, image.Pt(520, 620), path, func(gtx layout.Context) {
 		layoutChatPage(gtx, chat, l, func(gtx layout.Context, _ int64, _ model.ChatKind, _ string, _ unit.Dp) layout.Dimensions {
 			return layout.Dimensions{}
-		}, nil, func(gtx layout.Context) layout.Dimensions {
+		}, nil, nil, func(gtx layout.Context) layout.Dimensions {
 			return page.layout(gtx, chat, store, l)
 		}, nil)
 	})

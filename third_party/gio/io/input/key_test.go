@@ -330,3 +330,34 @@ func assertKeyboard(t *testing.T, router *Router, expected TextInputState) {
 		t.Errorf("expected %v keyboard, got %v", expected, got)
 	}
 }
+
+// A frame that removes the focused handler asks for another, so that a
+// handler waiting for the keyboard to be free sees it free without an event.
+func TestKeyLostFocusWakes(t *testing.T) {
+	h := new(int)
+	r := new(Router)
+	frame := func(present bool) bool {
+		r.Event(key.FocusFilter{Target: h})
+		ops := new(op.Ops)
+		if present {
+			event.Op(ops, h)
+		}
+		r.Frame(ops)
+		_, wake := r.WakeupTime()
+		return wake
+	}
+	frame(true)
+	r.Source().Execute(key.FocusCmd{Tag: h})
+	r.WakeupTime()
+	if frame(true) {
+		t.Error("a frame that keeps the focused handler asks for another")
+	}
+	assertFocus(t, r, h)
+	if !frame(false) {
+		t.Error("a frame that removes the focused handler asks for no other")
+	}
+	assertFocus(t, r, nil)
+	if frame(false) {
+		t.Error("a frame without focus asks for another")
+	}
+}

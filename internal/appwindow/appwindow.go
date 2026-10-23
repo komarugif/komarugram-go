@@ -264,6 +264,8 @@ type Host struct {
 	ignoredPanics   map[string]bool
 	// captureExcluded hides the windows from screen capture.
 	captureExcluded atomic.Bool
+	// theme is the Theme the user picked; see SetTheme.
+	theme atomic.Int32
 }
 
 // Hold keeps the process running without a window, for work that goes on in
@@ -535,6 +537,17 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 	var fallback panicScreen
 	demoPanicked := false
 	focused := false
+	where := "window " + opts.Title
+	if opts.panicDialog {
+		where = panicDialogWhere
+	}
+	// tell passes what happened to the window on to the content. A panic
+	// there is reported, as one in a frame, and the window goes on: these
+	// calls run outside a frame, where a panic would end the window.
+	tell := func(fn func()) { crash.Guard(where, fn) }
+	// theme is the content's theme of the last frame that had one, for
+	// the window's frame around a panic, without asking the content again.
+	var theme *token.Theme
 	for {
 		ev := w.Event()
 		w.applyTitle()
@@ -555,11 +568,11 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 			}
 			hidden := e.Config.Suspended || e.Config.Mode == app.Minimized
 			if observer, ok := content.(interface{ SetMinimized(bool) }); ok {
-				observer.SetMinimized(hidden)
+				tell(func() { observer.SetMinimized(hidden) })
 			}
 			if w.suspended.Swap(hidden) != hidden {
 				if observer, ok := content.(interface{ SetSuspended(bool) }); ok {
-					observer.SetSuspended(hidden)
+					tell(func() { observer.SetSuspended(hidden) })
 				}
 				if hidden {
 					// Reset keeps the buffers of the last frame; a hidden
@@ -579,17 +592,17 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 				}
 			}
 			if e.Config.Focused && !focused && activated != nil {
-				activated()
+				tell(activated)
 			}
 			if observer, ok := content.(interface{ SetFocused(bool) }); ok && e.Config.Focused != focused {
-				observer.SetFocused(e.Config.Focused)
+				tell(func() { observer.SetFocused(e.Config.Focused) })
 			}
 			focused = e.Config.Focused
 		case app.DropEvent:
 			// Files dragged from other programs, where the content is.
 			if target, ok := content.(interface{ Drop(app.DropEvent) }); ok {
 				e.Position.Y -= float32(w.caption)
-				target.Drop(e)
+				tell(func() { target.Drop(e) })
 				w.Invalidate()
 			}
 		case app.FrameEvent:
@@ -617,41 +630,45 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 				frame.Width, frame.Height = gtx.Constraints.Max.X, gtx.Constraints.Max.Y
 				frame.PxPerDp, frame.PxPerSp = gtx.Metric.PxPerDp, gtx.Metric.PxPerSp
 			}
-			gtx.Locale = opts.Locale
-			if provider, ok := content.(interface{ Locale() system.Locale }); ok {
-				gtx.Locale = provider.Locale()
-			}
-			wdk.InitMaterialThemeInContext(gtx, content.Theme(gtx))
-			wdk.SetAnimationsEnabled(gtx, w.Motion.AnimationsEnabled())
-
-			area := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
-			event.Op(gtx.Ops, w.Window)
-			if quit := w.handleKeys(gtx, opts); quit {
-				return nil
-			}
-			// The window's own frame takes the top of it, and the content
-			// the rest.
 			w.titleMu.Lock()
 			title := w.title
 			w.titleMu.Unlock()
-			if actions := w.frame.layout(gtx, title, content); actions != 0 {
-				w.Perform(actions)
-			}
-			caption, window := w.frame.height(gtx), gtx.Constraints.Max
-			w.caption = caption
-			gtx.Constraints.Max.Y = max(gtx.Constraints.Max.Y-caption, 0)
-			gtx.Constraints.Min.Y = min(gtx.Constraints.Min.Y, gtx.Constraints.Max.Y)
-			below := op.Offset(image.Pt(0, caption)).Push(gtx.Ops)
+			window := gtx.Constraints.Max
+			// All of the frame is guarded, the window's own keys and frame
+			// too: they draw with the content's theme and title, and a
+			// panic outside the guard would end the window.
+			quit := false
+			var area clip.Stack
+			var below op.TransformStack
 			var phase time.Time
-			if trace != nil {
-				phase = time.Now()
-				frame.Setup = phase.Sub(frame.At)
-			}
-			where := "window " + opts.Title
-			if opts.panicDialog {
-				where = panicDialogWhere
-			}
 			if p := crash.Guard(where, func() {
+				gtx.Locale = opts.Locale
+				if provider, ok := content.(interface{ Locale() system.Locale }); ok {
+					gtx.Locale = provider.Locale()
+				}
+				theme = content.Theme(gtx)
+				wdk.InitMaterialThemeInContext(gtx, theme)
+				wdk.SetAnimationsEnabled(gtx, w.Motion.AnimationsEnabled())
+
+				area = clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
+				event.Op(gtx.Ops, w.Window)
+				if quit = w.handleKeys(gtx, opts); quit {
+					return
+				}
+				// The window's own frame takes the top of it, and the
+				// content the rest.
+				if actions := w.frame.layout(gtx, title, content); actions != 0 {
+					w.Perform(actions)
+				}
+				caption := w.frame.height(gtx)
+				w.caption = caption
+				gtx.Constraints.Max.Y = max(gtx.Constraints.Max.Y-caption, 0)
+				gtx.Constraints.Min.Y = min(gtx.Constraints.Min.Y, gtx.Constraints.Max.Y)
+				below = op.Offset(image.Pt(0, caption)).Push(gtx.Ops)
+				if trace != nil {
+					phase = time.Now()
+					frame.Setup = phase.Sub(frame.At)
+				}
 				if opts.DemoPanic && !demoPanicked {
 					demoPanicked = true
 					panic("demo panic (-demo-panic)")
@@ -665,24 +682,11 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 			}); p != nil {
 				// A panic leaves clip/transform stacks unbalanced and the frame
 				// half recorded, so it is dropped as a whole.
-				ops.Reset()
-				gtx = app.NewContext(&ops, e)
-				gtx.Values = make(map[string]any)
-				wdk.InitMaterialThemeInContext(gtx, content.Theme(gtx))
-				if actions := w.frame.layout(gtx, title, nil); actions != 0 {
-					w.Perform(actions)
-				}
-				gtx.Constraints.Max.Y = max(gtx.Constraints.Max.Y-caption, 0)
 				recovered := recoverContent(content)
-				below := op.Offset(image.Pt(0, caption)).Push(gtx.Ops)
-				fallback.layout(gtx, p)
-				below.Pop()
-				w.frame.layoutBorder(gtx, window)
-				if recovered {
-					gtx.Execute(op.InvalidateCmd{})
-				}
-				e.Frame(gtx.Ops)
+				w.layoutPanic(&ops, e, theme, title, window, p, &fallback, recovered)
 				continue
+			} else if quit {
+				return nil
 			}
 			if trace != nil {
 				frame.Layout = time.Since(phase)
@@ -699,6 +703,42 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 			}
 		}
 	}
+}
+
+// layoutPanic draws the frame of a panic in place of the one dropped: the
+// window's frame, with the theme of the last frame that had one, around
+// the panic's text. The window's frame is drawn only when it does not
+// panic in turn, and the text alone otherwise. With recovered, the content
+// recovered, and is drawn again at once.
+func (w *Window) layoutPanic(ops *op.Ops, e app.FrameEvent, theme *token.Theme, title string, window image.Point, p *crash.Panic, fallback *panicScreen, recovered bool) {
+	ops.Reset()
+	gtx := app.NewContext(ops, e)
+	gtx.Values = make(map[string]any)
+	caption := 0
+	framed := theme != nil && crash.Guard("window frame", func() {
+		wdk.InitMaterialThemeInContext(gtx, theme)
+		if actions := w.frame.layout(gtx, title, nil); actions != 0 {
+			w.Perform(actions)
+		}
+		caption = w.frame.height(gtx)
+	}) == nil
+	if !framed {
+		ops.Reset()
+		gtx = app.NewContext(ops, e)
+		gtx.Values = make(map[string]any)
+		caption = 0
+	}
+	gtx.Constraints.Max.Y = max(gtx.Constraints.Max.Y-caption, 0)
+	below := op.Offset(image.Pt(0, caption)).Push(gtx.Ops)
+	fallback.layout(gtx, p)
+	below.Pop()
+	if framed {
+		w.frame.layoutBorder(gtx, window)
+	}
+	if recovered {
+		gtx.Execute(op.InvalidateCmd{})
+	}
+	e.Frame(gtx.Ops)
 }
 
 // handleKeys processes the window keys and reports whether to quit. It

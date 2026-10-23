@@ -15,6 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"gioui.org/app/internal/physical"
 	"gioui.org/internal/f32"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
@@ -390,6 +391,8 @@ static void invalidateCharacterCoordinates(CFTypeRef viewRef) {
 	}
 }
 
+static unsigned short gio_physicalKeyCode(CFTypeRef e) { return [(__bridge NSEvent *)e keyCode]; }
+
 static void interpretKeyEvents(CFTypeRef viewRef, CFTypeRef eventRef) {
 	@autoreleasepool {
 		NSView *view = (__bridge NSView *)viewRef;
@@ -448,6 +451,7 @@ type window struct {
 type cmdKeys struct {
 	eventStr  string
 	eventMods key.Modifiers
+	physical  key.Name
 }
 
 // launched is closed when applicationDidFinishLaunching is called.
@@ -684,19 +688,25 @@ func gio_onKeys(h C.uintptr_t, event C.CFTypeRef, cstr C.CFTypeRef, ti C.double,
 	if w.keysDown == nil {
 		w.keysDown = make(map[key.Name]struct{})
 	}
+	position := physical.Mac(uint16(C.gio_physicalKeyCode(event)))
 	str := nsstringToString(cstr)
 	kmods := convertMods(mods)
 	ks := key.Release
 	if keyDown {
 		ks = key.Press
+		w.cmdKeys.physical = position
 		w.cmdKeys.eventStr = str
 		w.cmdKeys.eventMods = kmods
 		C.interpretKeyEvents(w.view, event)
+	}
+	if str == "" && position != "" {
+		w.ProcessEvent(key.Event{Name: position, Physical: position, Modifiers: kmods, State: ks})
 	}
 	for _, k := range str {
 		if n, ok := convertKey(k); ok {
 			ke := key.Event{
 				Name:      n,
+				Physical:  position,
 				Modifiers: kmods,
 				State:     ks,
 			}
@@ -733,6 +743,7 @@ func gio_onCommandBySelector(h C.uintptr_t) C.bool {
 		}
 		ke := key.Event{
 			Name:      n,
+			Physical:  ev.physical,
 			Modifiers: ev.eventMods,
 			State:     key.Press,
 		}

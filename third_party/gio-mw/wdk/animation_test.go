@@ -45,6 +45,29 @@ func TestFloatTween(t *testing.T) {
 	}
 }
 
+// A target that changes every frame, as the progress of work, is followed:
+// the value moves every frame, and keeps near the target. It stood still
+// while the target changed, restarted at each frame's own time.
+func TestFloatTweenFollowsMovingTarget(t *testing.T) {
+	start := time.Unix(1000, 0)
+	var tw FloatTween
+	tw.Duration = token.DurationMedium1
+	tw.Animate(tweenContext(start), 0)
+	last := float32(0)
+	for f := 1; f <= 40; f++ {
+		target := float32(f) / 40
+		got := tw.Animate(tweenContext(start.Add(time.Duration(f)*16*time.Millisecond)), target)
+		// From rest, the first frame shows where the value was.
+		if f > 1 && got <= last {
+			t.Fatalf("frame %d: %v after %v, toward %v", f, got, last, target)
+		}
+		last = got
+	}
+	if last < .8 {
+		t.Errorf("at the end of the work: %v, toward 1", last)
+	}
+}
+
 func TestFloatTweenWithoutClock(t *testing.T) {
 	var tw FloatTween
 	tw.Animate(layout.Context{Ops: new(op.Ops)}, 0)

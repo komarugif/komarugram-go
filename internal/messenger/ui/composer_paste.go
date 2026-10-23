@@ -23,14 +23,11 @@ import (
 // text, as Telegram Desktop.
 func (c *messageComposer) updatePaste(gtx layout.Context, d *messageDraft) {
 	for {
-		ev, ok := gtx.Event(
-			key.Filter{Focus: &d.editor, Name: "V", Required: key.ModShortcut},
-			key.Filter{Focus: &d.editor, Name: "М", Required: key.ModShortcut},
-		)
+		_, e, ok := c.shortcuts.next(gtx, &d.editor, "composer.paste")
 		if !ok {
 			break
 		}
-		if e, ok := ev.(key.Event); ok && e.State == key.Press {
+		if e.State == key.Press {
 			types := []string{clipboard.TypeText}
 			if c.permissions(c.chat).Any(model.SendAttachments) {
 				types = []string{clipboard.TypeURIList, clipboard.TypePNG, clipboard.TypeText}

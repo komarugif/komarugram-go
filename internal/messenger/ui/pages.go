@@ -40,8 +40,10 @@ func layoutEmptyPage(gtx layout.Context, l localization.Catalog) layout.Dimensio
 }
 
 // layoutChatPage composes the chat header, history and message composer.
-func layoutChatPage(gtx layout.Context, c model.Chat, l localization.Catalog, drawAvatar avatarLayout, badges badgesLayout, body layout.Widget, selection *chatPage) layout.Dimensions {
-	return layoutChatPageHead(gtx, c, l, drawAvatar, badges, nil, body, selection)
+// back, when set, is a button before the avatar that goes back to the
+// chat this one was opened from.
+func layoutChatPage(gtx layout.Context, c model.Chat, l localization.Catalog, drawAvatar avatarLayout, badges badgesLayout, back *button.Button, body layout.Widget, selection *chatPage) layout.Dimensions {
+	return layoutChatPageHead(gtx, c, l, drawAvatar, badges, nil, back, body, selection)
 }
 
 // chatHead is the header of a page that is not a chat itself, such as the
@@ -52,8 +54,8 @@ type chatHead struct {
 }
 
 // layoutChatPageHead is layoutChatPage with head, when set, in place of
-// the chat's avatar, name and status.
-func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog, drawAvatar avatarLayout, badges badgesLayout, head *chatHead, body layout.Widget, selection *chatPage) layout.Dimensions {
+// the chat's avatar, name and status, and of back.
+func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog, drawAvatar avatarLayout, badges badgesLayout, head *chatHead, back *button.Button, body layout.Widget, selection *chatPage) layout.Dimensions {
 	sc := scheme(gtx)
 	size := gtx.Constraints.Max
 	header := image.Pt(size.X, gtx.Dp(chatHeaderSize))
@@ -64,12 +66,24 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 	pad := gtx.Dp(16)
 	imagePx := gtx.Dp(chatHeaderImage)
 	title, status := c.Title, chatStatus(c, l)
+	statusColor := sc.SurfaceVariant.OnColor
 	if selection != nil {
-		status = selection.chatStatusOnline(c, gtx.Now, l)
+		var active bool
+		status, active = selection.chatStatusLine(gtx, c, false, l)
+		if active {
+			statusColor = sc.Primary.Color
+		}
 	}
 	infoPx := 0
+	if head != nil {
+		back = nil
+	}
+	avatarX := pad
+	if back != nil {
+		avatarX = gtx.Dp(headBackWidth)
+	}
 	if head == nil {
-		offset(gtx, image.Pt(pad, (header.Y-imagePx)/2), func(gtx layout.Context) layout.Dimensions {
+		offset(gtx, image.Pt(avatarX, (header.Y-imagePx)/2), func(gtx layout.Context) layout.Dimensions {
 			return drawAvatar(gtx, c.ID, c.Kind, c.Title, chatHeaderImage)
 		})
 		if selection != nil {
@@ -86,6 +100,7 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 		}
 	} else {
 		title, status = head.title, head.subtitle
+		statusColor = sc.SurfaceVariant.OnColor
 		// The back button takes the avatar's place; it is laid out last,
 		// over the header's own click.
 		pad = gtx.Dp(8)
@@ -94,19 +109,22 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 		}
 	}
 	textX := pad + imagePx + gtx.Dp(12)
+	if head == nil {
+		textX = avatarX + imagePx + gtx.Dp(12)
+	}
 	textGtx := gtx
 	textGtx.Constraints = layout.Constraints{Max: image.Pt(max(size.X-textX-2*pad-infoPx, 0), header.Y)}
 	offset(textGtx, image.Pt(textX, gtx.Dp(8)), func(gtx layout.Context) layout.Dimensions {
 		var before, after layout.Widget
 		if badges != nil && head == nil {
-			before, after = badges(c.Badges, 18, false)
+			before, after = badges(c.Badges, title, 18, false)
 		}
 		return withBadges(gtx, before, func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, title, token.TypestyleTitleMediumEmphasized, sc.Surface.OnColor, 1)
 		}, after)
 	})
 	offset(textGtx, image.Pt(textX, gtx.Dp(30)), func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, status, token.TypestyleBodySmall, sc.SurfaceVariant.OnColor, 1)
+		return label(gtx, status, token.TypestyleBodySmall, statusColor, 1)
 	})
 	offset(gtx, image.Pt(0, header.Y), func(gtx layout.Context) layout.Dimensions {
 		fillRect(gtx, sc.OutlineVariant, image.Pt(size.X, gtx.Dp(1)))
@@ -121,7 +139,7 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 			return layout.Dimensions{Size: header}
 		})
 		if c.Kind != model.KindSaved {
-			layoutAvatarTarget(gtx, &selection.headAvatar)
+			layoutAvatarTarget(gtx, &selection.headAvatar, avatarX)
 		}
 		selection.layoutHeadActions(gtx, header, size.X-gtx.Dp(8), false, l)
 	}
@@ -130,20 +148,21 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 	}
 	if head != nil {
 		// The button's target is 48 dp, around where the avatar would be.
-		target := gtx.Dp(48)
-		offset(gtx, image.Pt(pad+(imagePx-target)/2, (header.Y-target)/2), func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints = layout.Exact(image.Pt(target, target))
-			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints.Min = image.Point{}
-				return head.back.LayoutIconOnly(gtx, l.T("settings.back"), iconBack)
-			})
-		})
+		layoutHeadBack(gtx, head.back, pad+(imagePx-gtx.Dp(48))/2, header.Y, l)
+	}
+	if back != nil {
+		// Over the header's own click, as the avatar's.
+		layoutHeadBack(gtx, back, gtx.Dp(4), header.Y, l)
 	}
 	headerCall := headerRecording.Stop()
 	bodyGtx := gtx
 	bodyGtx.Constraints = layout.Exact(image.Pt(size.X, max(size.Y-header.Y, 0)))
 	offset(bodyGtx, image.Pt(0, header.Y), func(gtx layout.Context) layout.Dimensions {
-		fillRect(gtx, sc.SurfaceContainerLow, gtx.Constraints.Max)
+		if selection == nil {
+			// A chat's history fills its own background, up to the classic
+			// composer's bar, which is a surface of the window.
+			fillRect(gtx, sc.SurfaceContainerLow, gtx.Constraints.Max)
+		}
 		return body(gtx)
 	})
 	headerGtx := gtx
@@ -194,12 +213,29 @@ func (p *scrollPage) layout(gtx layout.Context, content layout.Widget) layout.Di
 	return layout.Dimensions{Size: size}
 }
 
+// headBackWidth is how much of a chat's header its back button takes
+// before the avatar: its 48 dp target and the space after it.
+const headBackWidth = unit.Dp(52)
+
+// layoutHeadBack lays out the back button of a page's header, its 48 dp
+// target x from the start, in a header height high.
+func layoutHeadBack(gtx layout.Context, back *button.Button, x, height int, l localization.Catalog) {
+	target := gtx.Dp(48)
+	offset(gtx, image.Pt(x, (height-target)/2), func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints = layout.Exact(image.Pt(target, target))
+		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min = image.Point{}
+			return back.LayoutIconOnly(gtx, l.T("settings.back"), iconBack)
+		})
+	})
+}
+
 // layoutAvatarTarget lays out, over the avatar of a chat's header, the click
-// that opens its photo; laid out after the header's own, it takes the
-// clicks on the avatar from it.
-func layoutAvatarTarget(gtx layout.Context, click *widget.Clickable) {
+// that opens its photo, x from the start; laid out after the header's own,
+// it takes the clicks on the avatar from it.
+func layoutAvatarTarget(gtx layout.Context, click *widget.Clickable, x int) {
 	side := gtx.Dp(chatHeaderImage)
-	offset(gtx, image.Pt(gtx.Dp(16), (gtx.Dp(chatHeaderSize)-side)/2), func(gtx layout.Context) layout.Dimensions {
+	offset(gtx, image.Pt(x, (gtx.Dp(chatHeaderSize)-side)/2), func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints = layout.Exact(image.Pt(side, side))
 		return click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			pointer.CursorPointer.Add(gtx.Ops)

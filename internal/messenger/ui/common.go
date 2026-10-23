@@ -254,3 +254,24 @@ func inRect(gtx layout.Context, rect image.Rectangle, w layout.Widget) layout.Di
 	child.Constraints = layout.Exact(rect.Size())
 	return offset(child, rect.Min, w)
 }
+
+// selectionMark is the round mark of a thing that can be picked, d wide: a
+// check on the primary color when it is picked, an outline when not.
+func selectionMark(gtx layout.Context, d int, picked bool) layout.Dimensions {
+	sc := scheme(gtx)
+	size := image.Pt(d, d)
+	if picked {
+		paint.FillShape(gtx.Ops, sc.Primary.Color.AsNRGBA(), clip.Ellipse{Max: size}.Op(gtx.Ops))
+		inset := d / 6
+		offset(gtx, image.Pt(inset, inset), func(gtx layout.Context) layout.Dimensions {
+			return exact(gtx, image.Pt(d-2*inset, d-2*inset), func(gtx layout.Context) layout.Dimensions {
+				return iconDone(gtx, sc.Primary.OnColor)
+			})
+		})
+		return layout.Dimensions{Size: size}
+	}
+	width := max(gtx.Dp(2), 1)
+	ring := clip.Ellipse{Min: image.Pt(width/2, width/2), Max: size.Sub(image.Pt(width/2, width/2))}
+	paint.FillShape(gtx.Ops, sc.SurfaceVariant.OnColor.AsNRGBA(), clip.Stroke{Path: ring.Path(gtx.Ops), Width: float32(width)}.Op())
+	return layout.Dimensions{Size: size}
+}

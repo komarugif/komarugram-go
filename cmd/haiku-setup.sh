@@ -191,4 +191,4 @@ if [ "$write_profile" = yes ]; then
 fi
 say "ready: $(toolchain version)"
 printf '\nFor this Terminal (a child script cannot change its PATH), run:\n%s\n' "$profile_line"
-printf '\nThen, from KomaruGram, run:\ngo run ./cmd/haiku-build -o "$HOME/apps/KomaruGram"\n'
+printf '\nThen, from KomaruGram, run:\ngo run -ldflags=-linkmode=internal ./cmd/haiku-build -o "$HOME/apps/KomaruGram"\n'

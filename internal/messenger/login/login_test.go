@@ -5,6 +5,7 @@ package login
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -176,6 +177,64 @@ func TestFailureAndRetry(t *testing.T) {
 	}
 }
 
+func TestQRCodeAndTheWayBack(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	l := New(nil)
+	more := make(chan string)
+	errs := make(chan error, 2)
+	go func() {
+		errs <- l.QR(ctx, "", more)
+		_, err := l.Phone(ctx, nil)
+		errs <- err
+	}()
+
+	// The QR code waits for its token, then shows each one given.
+	s := waitFor(t, l, "QR code", atStep(StepQR))
+	if s.QRLink != "" {
+		t.Errorf("QR code %q before its token", s.QRLink)
+	}
+	for _, link := range []string{"tg://login?token=a", "tg://login?token=b"} {
+		more <- link
+		waitFor(t, l, link, func(s State) bool { return s.Step == StepQR && s.QRLink == link })
+	}
+	l.Submit("+1") // Nothing to submit at the QR code.
+	l.UseQR()      // Not at the phone number: no effect.
+	l.UsePhone()
+	if err := <-errs; !errors.Is(err, account.ErrUsePhone) {
+		t.Fatalf("QR: %v, want ErrUsePhone", err)
+	}
+	waitFor(t, l, "phone", atStep(StepPhone))
+	l.UsePhone() // Not at the QR code: no effect.
+	l.UseQR()
+	if err := <-errs; !errors.Is(err, account.ErrUseQR) {
+		t.Fatalf("Phone: %v, want ErrUseQR", err)
+	}
+}
+
+// TestAbandonedAnswerIsNotTaken checks that an answer given to a question
+// as it was given up, as the QR code is when it is accepted, does not
+// answer the next question.
+func TestAbandonedAnswerIsNotTaken(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	l := New(nil)
+	// The answer is given, and the question given up before it was taken.
+	l.show(State{Step: StepQR})
+	l.UsePhone()
+	l.abandon()
+	got := make(chan string, 1)
+	go func() {
+		password, _ := l.Password(ctx, "", nil)
+		got <- password
+	}()
+	waitFor(t, l, "password", atStep(StepPassword))
+	l.Submit("secret")
+	if password := <-got; password != "secret" {
+		t.Errorf("password %q, want the one typed", password)
+	}
+}
+
 func TestNormalizePhone(t *testing.T) {
 	for in, want := range map[string]string{
 		"+7 (900) 123-45-67": "+79001234567",
@@ -238,5 +297,33 @@ func TestInstallOffer(t *testing.T) {
 		if r := <-done; r.err != nil || r.exe != exe {
 			t.Fatalf("offer: %+v, want %q", r, exe)
 		}
+	}
+}
+
+// TestProxyChangeConnectsAgainAtOnce checks that a connection that was ended
+// for a proxy chosen is made again without the user asking, and is not shown
+// as a failure.
+func TestProxyChangeConnectsAgainAtOnce(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	l := New(nil)
+	attempts := 0
+	done := make(chan error, 1)
+	go func() {
+		done <- l.Run(ctx, func(ctx context.Context, p account.Prompter) error {
+			attempts++
+			if attempts == 1 {
+				return fmt.Errorf("connecting: %w", account.ErrProxyChanged)
+			}
+			l.Finish()
+			return nil
+		})
+	}()
+	waitFor(t, l, "done", atStep(StepDone))
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 2 {
+		t.Errorf("%d attempts, want 2", attempts)
 	}
 }

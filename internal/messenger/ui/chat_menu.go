@@ -70,7 +70,7 @@ func (p *chatPage) chatMenuActions() []chatMenuAction {
 	if p.canLeaveChat() {
 		out = append(out, chatMenuLeave)
 	}
-	return out
+	return arrangeMenu(p.menus, menuChatHeader, out, chatHeaderActionID)
 }
 
 func (p *chatPage) chatMenuLabel(a chatMenuAction, l localization.Catalog) string {
@@ -254,6 +254,10 @@ func (p *chatPage) layoutChatMenu(gtx layout.Context, l localization.Catalog) {
 		defer pointer.PassOp{}.Push(gtx.Ops).Pop()
 	}
 	actions := p.chatMenuActions()
+	if len(actions) == 0 {
+		m.open = false
+		return
+	}
 	radius := gtx.Dp(12)
 	m.menu.Layout(gtx, m.open, m.rect, menuFromTopRight, radius, func(gtx layout.Context) layout.Dimensions {
 		sc := scheme(gtx)

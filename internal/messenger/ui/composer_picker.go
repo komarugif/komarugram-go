@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
@@ -220,7 +221,7 @@ func (c *messageComposer) chooseIn(gtx layout.Context, tab model.PickerTab, item
 		pos := min(a, b)
 		d.editor.Insert(text)
 		next := d.editor.Text()
-		d.entities = shiftEmojiEntities(old, next, d.entities)
+		d.entities = shiftEntities(old, next, d.entities, -1)
 		if item.Custom {
 			d.entities = append(d.entities, model.Entity{Kind: "emoji", Offset: len(utf16.Encode([]rune(old)[:pos])), Length: len(utf16.Encode([]rune(text))), DocumentID: item.DocumentID})
 		}
@@ -237,6 +238,7 @@ func (c *messageComposer) chooseIn(gtx layout.Context, tab model.PickerTab, item
 	}
 	if source, ok := c.source.(model.PickerRecentStore); ok && tab != model.PickerGIF {
 		go func() {
+			defer crash.Recover("remember picker", nil)
 			ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
 			defer cancel()
 			_ = source.RememberPicker(ctx, tab, item)
@@ -256,6 +258,8 @@ func (c *messageComposer) pickerLayout(gtx layout.Context, l localization.Catalo
 	defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(16)).Push(gtx.Ops).Pop()
 	overlayFill(gtx, p.menuBackdrop(), size, origin, sc.SurfaceContainerHigh, gtx.Dp(16))
 	event.Op(gtx.Ops, &c.list)
+	// Whether the pointer is over the picker, which one it opened stays for.
+	event.Op(gtx.Ops, &c.pickerPointer)
 	c.hover.Update(gtx, &c.list.List, &c.strip)
 	c.hover.Op(gtx)
 	tabHeight := min(gtx.Dp(44), size.Y)
@@ -571,6 +575,10 @@ func (c *messageComposer) drawItem(gtx layout.Context, item model.PickerItem, p 
 			im = status.Preview
 		}
 		if im != nil && p.images != nil {
+			// An emoji of the text's color is drawn in the text's.
+			if item.Media.Media.TextColor {
+				im = p.images.Colored(im, scheme(gtx).Surface.OnColor.AsNRGBA())
+			}
 			defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(6)).Push(gtx.Ops).Pop()
 			fit := widget.Contain
 			if c.tab == model.PickerGIF {

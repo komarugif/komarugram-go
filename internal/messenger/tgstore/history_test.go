@@ -312,3 +312,17 @@ func TestCachedDialogsOfOlderClient(t *testing.T) {
 		t.Errorf("new chat %+v", chats[1])
 	}
 }
+
+// TestConvertMessageHidesEditedAfterReaction: a message whose edit date
+// Telegram asks to hide (edit_hide, as after a reaction) is not edited.
+func TestConvertMessageHidesEditedAfterReaction(t *testing.T) {
+	base := tg.Message{ID: 1, PeerID: &tg.PeerUser{UserID: 5}, EditDate: 1700000000}
+	if m, _ := convertMessage("a", &base, nil); m.EditedAt.IsZero() {
+		t.Fatal("an edit date was dropped")
+	}
+	hidden := base
+	hidden.EditHide = true
+	if m, _ := convertMessage("a", &hidden, nil); !m.EditedAt.IsZero() {
+		t.Errorf("edit_hide message is marked edited at %v", m.EditedAt)
+	}
+}

@@ -10,7 +10,7 @@
 // (docs/haiku/*.patch): they are downloaded, copied out of the module
 // cache, patched, and named in a go.work beside them.
 //
-//	go run ./cmd/haiku-build -o /boot/home/apps/KomaruGram
+//	go run -ldflags=-linkmode=internal ./cmd/haiku-build -o /boot/home/apps/KomaruGram
 //
 // With -test it runs the tests instead, with the same modules and flags,
 // and with the four libraries built into the work directory, where the
@@ -18,8 +18,8 @@
 // test as it is: packages and its flags, after a "--"; with nothing, the
 // tests of ./internal/... ./cmd/... ./pkg/...
 //
-//	go run ./cmd/haiku-build -test
-//	go run ./cmd/haiku-build -test -- -run TestPlayback ./pkg/audio
+//	go run -ldflags=-linkmode=internal ./cmd/haiku-build -test
+//	go run -ldflags=-linkmode=internal ./cmd/haiku-build -test -- -run TestPlayback ./pkg/audio
 package main
 
 import (
@@ -112,7 +112,15 @@ func prepareWork(repo, work string) (string, map[string]string, error) {
 	if err := os.MkdirAll(work, 0o755); err != nil {
 		return "", nil, err
 	}
-	workFile := fmt.Sprintf("go 1.27.1\n\nuse %s\n\n", repo)
+	goMod, err := os.ReadFile(filepath.Join(repo, "go.mod"))
+	if err != nil {
+		return "", nil, err
+	}
+	goLine := modGoLine(string(goMod))
+	if goLine == "" {
+		return "", nil, errors.New("go.mod has no go line")
+	}
+	workFile := fmt.Sprintf("%s\n\nuse %s\n\n", goLine, repo)
 	dirs := map[string]string{}
 	for _, m := range modules {
 		dir, err := prepare(repo, work, m, haikuSys)
@@ -127,6 +135,17 @@ func prepareWork(repo, work string) (string, map[string]string, error) {
 		return "", nil, err
 	}
 	return goWork, dirs, nil
+}
+
+// modGoLine is the go line of goMod, which go.work repeats: Go refuses a
+// go.work that asks for an older Go than a module it uses.
+func modGoLine(goMod string) string {
+	for _, line := range strings.Split(goMod, "\n") {
+		if line = strings.TrimSpace(line); strings.HasPrefix(line, "go ") {
+			return line
+		}
+	}
+	return ""
 }
 
 // goEnv is the environment of the go commands that build the messenger

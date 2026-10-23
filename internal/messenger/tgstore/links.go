@@ -125,14 +125,11 @@ func (s *Store) JoinInvite(ctx context.Context, hash string) (model.Chat, error)
 		return model.Chat{}, errors.New("offline")
 	}
 	res, err := api.MessagesImportChatInvite(ctx, hash)
-	if tgerr.Is(err, "INVITE_REQUEST_SENT") {
-		return model.Chat{}, model.ErrJoinRequested
-	}
 	if tgerr.Is(err, "INVITE_HASH_EXPIRED", "INVITE_HASH_INVALID") {
 		return model.Chat{}, model.ErrLinkNotFound
 	}
 	if err != nil {
-		return model.Chat{}, err
+		return model.Chat{}, joinError(err)
 	}
 	joined, ok := res.(*tg.MessagesChatInviteJoinResultOk)
 	if !ok {
@@ -165,6 +162,121 @@ func (s *Store) UserByID(_ context.Context, id int64) (model.Chat, error) {
 		return model.Chat{}, model.ErrLinkNotFound
 	}
 	return s.chatFor(chat, nil), nil
+}
+
+// SenderChat implements model.SenderChatSource. A member a supergroup
+// brought only as a min user has no access hash: Telegram gives it for
+// the message that names them, as Telegram Desktop asks for it.
+func (s *Store) SenderChat(ctx context.Context, m model.Message) (model.Chat, error) {
+	if model.IsChannelID(m.SenderID) && m.SenderID != m.Key.ChatID {
+		return s.senderChannel(ctx, m)
+	}
+	if m.SenderID <= 0 {
+		return model.Chat{}, model.ErrLinkNotFound
+	}
+	chat, err := s.UserByID(ctx, m.SenderID)
+	if err == nil || !errors.Is(err, model.ErrLinkNotFound) {
+		return chat, err
+	}
+	c := s.history
+	c.mu.Lock()
+	api, group := c.api, c.peers[m.Key.ChatID]
+	c.mu.Unlock()
+	if group.Kind != "chat" && group.Kind != "channel" {
+		return model.Chat{}, model.ErrLinkNotFound
+	}
+	if api == nil {
+		return model.Chat{}, errors.New("offline")
+	}
+	users, err := api.UsersGetUsers(ctx, []tg.InputUserClass{&tg.InputUserFromMessage{
+		Peer: group.input(), MsgID: int(m.Key.MessageID), UserID: m.SenderID,
+	}})
+	if tgerr.Is(err, "USER_ID_INVALID", "PEER_ID_INVALID", "MSG_ID_INVALID", "CHANNEL_PRIVATE") {
+		return model.Chat{}, model.ErrLinkNotFound
+	}
+	if err != nil {
+		return model.Chat{}, err
+	}
+	for _, raw := range users {
+		if u, ok := raw.(*tg.User); ok && u.ID == m.SenderID && !u.Min && (u.AccessHash != 0 || u.Self) {
+			s.rememberPeers([]tg.UserClass{u}, nil)
+			return s.chatFor(peerID(&tg.PeerUser{UserID: u.ID}), nil), nil
+		}
+	}
+	return model.Chat{}, model.ErrLinkNotFound
+}
+
+// senderChannel is the channel that posted m in a group. Its history is
+// open to all, joined or not, unless the account is banned from it:
+// Telegram tells which, and asked by the message, knows a channel the
+// group brought only as a min one. Banned, what the cache has of it is
+// still shown; ErrChatInaccessible only when it has nothing. Without
+// Telegram's answer, a channel known is opened as it is.
+func (s *Store) senderChannel(ctx context.Context, m model.Message) (model.Chat, error) {
+	id := -1000000000000 - m.SenderID
+	c := s.history
+	c.mu.Lock()
+	api, group, peer := c.api, c.peers[m.Key.ChatID], c.peers[m.SenderID]
+	c.mu.Unlock()
+	known := peer.Kind == "channel"
+	var input tg.InputChannelClass = &tg.InputChannelFromMessage{Peer: group.input(), MsgID: int(m.Key.MessageID), ChannelID: id}
+	if known && peer.Rights.Known && peer.Hash != 0 {
+		input = &tg.InputChannel{ChannelID: id, AccessHash: peer.Hash}
+	} else if group.Kind != "chat" && group.Kind != "channel" {
+		input = nil
+	}
+	if api == nil || input == nil {
+		if known {
+			return s.chatFor(m.SenderID, nil), nil
+		}
+		return model.Chat{}, model.ErrLinkNotFound
+	}
+	res, err := api.ChannelsGetChannels(ctx, []tg.InputChannelClass{input})
+	switch {
+	case tgerr.Is(err, "CHANNEL_PRIVATE", "CHANNEL_INVALID", "CHANNEL_PUBLIC_GROUP_NA"):
+	case err != nil && known:
+		return s.chatFor(m.SenderID, nil), nil
+	case err != nil:
+		return model.Chat{}, err
+	default:
+		for _, raw := range res.GetChats() {
+			switch ch := raw.(type) {
+			case *tg.Channel:
+				if ch.ID == id {
+					s.rememberPeers(nil, []tg.ChatClass{ch})
+					return s.chatFor(m.SenderID, nil), nil
+				}
+			case *tg.ChannelForbidden:
+				if ch.ID == id {
+					s.rememberPeers(nil, []tg.ChatClass{ch})
+				}
+			}
+		}
+	}
+	chat := s.chatFor(m.SenderID, nil)
+	if chat.Title == "" {
+		chat.Title, chat.Kind = m.SenderName, model.KindChannel
+	}
+	if s.cachedHistory(ctx, m.SenderID) {
+		return chat, nil
+	}
+	return chat, model.ErrChatInaccessible
+}
+
+// cachedHistory tells whether the cache has any of chat's history.
+func (s *Store) cachedHistory(ctx context.Context, chat int64) bool {
+	c := s.history
+	c.mu.Lock()
+	h, cache := c.histories[chat], c.cache
+	c.mu.Unlock()
+	if h != nil && len(h.Messages) > 0 {
+		return true
+	}
+	if cache == nil {
+		return false
+	}
+	msgs, err := cache.Around(ctx, chat, 0, 1)
+	return err == nil && len(msgs) > 0
 }
 
 func (s *Store) api() *tg.Client {

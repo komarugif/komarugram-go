@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
@@ -38,6 +39,7 @@ type stickerSetResult struct {
 }
 
 type stickerSetDialog struct {
+	menus menuPreferences
 	modal modal
 	hover hoverPlay
 	ref   model.StickerSetRef
@@ -96,6 +98,7 @@ func (d *stickerSetDialog) fetch(p *chatPage) {
 	results, ref := d.results, d.ref
 	cache, _ := p.source.(model.StickerSetCache)
 	go func() {
+		defer crash.Recover("sticker set", func(e *crash.Panic) { results <- stickerSetResult{err: e}; p.invalidate() })
 		// The set as last fetched shows at once, with the first frames of its
 		// stickers still in the media cache; the fetch then brings it up to
 		// date.
@@ -123,6 +126,7 @@ func (d *stickerSetDialog) change(p *chatPage, installed bool) {
 	d.results = make(chan stickerSetResult, 1)
 	results, ref := d.results, d.pack.Ref
 	go func() {
+		defer crash.Recover("install sticker set", func(e *crash.Panic) { results <- stickerSetResult{err: e}; p.invalidate() })
 		err := source.SetStickerSetInstalled(ctx, ref, installed)
 		results <- stickerSetResult{installed: &installed, err: err}
 		p.invalidate()
@@ -146,6 +150,7 @@ func (d *stickerSetDialog) export(p *chatPage) {
 		choose = chooseStickerArchive
 	}
 	go func() {
+		defer crash.Recover("export sticker set", func(e *crash.Panic) { results <- stickerSetResult{exported: true, err: e}; p.invalidate() })
 		path, err := choose(ctx, pack.Title)
 		if err == nil && path != "" {
 			err = writeStickerSetArchive(ctx, source, pack, path)
@@ -279,11 +284,11 @@ func (d *stickerSetDialog) layout(gtx layout.Context, p *chatPage, l localizatio
 		if !d.busy && d.pack != nil && d.more.Clicked(gtx) {
 			d.menuOpen = !d.menuOpen
 		}
-		if d.author.Clicked(gtx) && !d.busy && d.menuOpen && d.pack != nil && d.pack.AuthorID != 0 {
+		if d.menuVisible("author") && d.author.Clicked(gtx) && !d.busy && d.menuOpen && d.pack != nil && d.pack.AuthorID != 0 {
 			d.menuOpen = false
 			d.findAuthor(p)
 		}
-		chosen := d.download.Clicked(gtx)
+		chosen := d.menuVisible("download") && d.download.Clicked(gtx)
 		if !d.busy && d.menuOpen && chosen {
 			d.menuOpen = false
 			d.export(p)
@@ -418,9 +423,15 @@ func (d *stickerSetDialog) menuLayout(gtx layout.Context, l localization.Catalog
 		defer pointer.PassOp{}.Push(gtx.Ops).Pop()
 	}
 	w := min(size.X, gtx.Dp(menuWidth))
-	rows := 1
+	available := []string{"download"}
 	if d.pack.AuthorID != 0 {
-		rows++
+		available = append(available, "author")
+	}
+	order := arrangeMenu(d.menus, menuStickerSet, available, func(s string) string { return s })
+	rows := len(order)
+	if rows == 0 {
+		d.menuOpen = false
+		return
 	}
 	h := 2*gtx.Dp(menuPadding) + rows*gtx.Dp(menuItemHeight)
 	y := min(headerHeight, max(0, size.Y-h))
@@ -453,9 +464,12 @@ func (d *stickerSetDialog) menuLayout(gtx layout.Context, l localization.Catalog
 				})
 			})
 		}
-		row(0, &d.download, l.T("stickers.download_zip"), iconDownload)
-		if d.pack.AuthorID != 0 {
-			row(1, &d.author, l.T("stickers.author"), iconPersonal)
+		for i, id := range order {
+			if id == "download" {
+				row(i, &d.download, l.T("stickers.download_zip"), iconDownload)
+			} else {
+				row(i, &d.author, l.T("stickers.author"), iconPersonal)
+			}
 		}
 		return layout.Dimensions{Size: menuSize}
 	})
@@ -548,6 +562,10 @@ func (d *stickerSetDialog) item(gtx layout.Context, p *chatPage, item model.Pick
 		im = status.Preview
 	}
 	if im != nil {
+		// An emoji of the text's color is drawn in the text's.
+		if item.Media.Media != nil && item.Media.Media.TextColor {
+			im = p.images.Colored(im, scheme(gtx).Surface.OnColor.AsNRGBA())
+		}
 		return widget.Image{Src: p.images.Op(im), Fit: widget.Contain}.Layout(gtx)
 	}
 	style := token.TypestyleTitleLarge
@@ -574,8 +592,13 @@ func (d *stickerSetDialog) findAuthor(p *chatPage) {
 	d.results = make(chan stickerSetResult, 1)
 	results := d.results
 	go func() {
+		defer crash.Recover("sticker set author", func(e *crash.Panic) { results <- stickerSetResult{authorID: id, err: e}; p.invalidate() })
 		chat, err := source.StickerSetAuthor(ctx, id)
 		results <- stickerSetResult{authorID: id, author: &chat, err: err}
 		p.invalidate()
 	}()
+}
+
+func (d *stickerSetDialog) menuVisible(id string) bool {
+	return len(d.menus.layout(menuStickerSet).Arrange([]string{id}, false)) > 0
 }

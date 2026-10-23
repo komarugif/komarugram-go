@@ -39,7 +39,23 @@ var audioSpeeds = []float64{1, 1.5, 2}
 
 // speedChanges reports whether m plays at the speed chosen.
 func speedChanges(m model.Message) bool {
-	return m.Kind == model.MessageVoice || m.Media != nil && m.Media.Duration >= speedMinLength
+	return listenable(m) || m.Media != nil && m.Media.Duration >= speedMinLength
+}
+
+// listenable reports whether m is a voice message or a video message: the
+// messages Telegram marks listened to, which play one after another, as one
+// kind, in the official clients.
+func listenable(m model.Message) bool {
+	return m.Kind == model.MessageVoice || m.Kind == model.MessageRound
+}
+
+// audioKind is the kind the player goes through messages of from one of
+// kind: a video message's is a voice message's.
+func audioKind(kind model.MessageKind) model.MessageKind {
+	if kind == model.MessageRound {
+		return model.MessageVoice
+	}
+	return kind
 }
 
 // current is the message that plays or loads, what the player tells of it,
@@ -126,7 +142,7 @@ func (v *audioPlayer) advance(m model.Message) {
 	}
 	page, list := v.page, v.list
 	v.mu.Unlock()
-	if next, ok := nextAudio(page.source.History(list).Messages, m); ok {
+	if next, ok := nextAudio(page.audioMessages(list), m); ok {
 		v.toggleIn(page, list, next, -1)
 	} else {
 		v.mu.Lock()
@@ -138,15 +154,15 @@ func (v *audioPlayer) advance(m model.Message) {
 	page.invalidate()
 }
 
-// nextAudio is the message after m among messages that is of m's kind, a
-// voice message or music, if it plays in the client.
+// nextAudio is the message after m among messages that is of m's kind,
+// music, or a voice or video message, if it plays in the client.
 func nextAudio(messages []model.Message, m model.Message) (model.Message, bool) {
 	return neighborAudio(messages, m, 1)
 }
 
-// neighborAudio is the message of m's kind, a voice message or music, that
-// follows m among messages, or precedes it when delta is below 0, if it
-// plays in the client.
+// neighborAudio is the message of m's kind, music, or a voice or video
+// message, that follows m among messages, or precedes it when delta is
+// below 0, if it plays in the client.
 func neighborAudio(messages []model.Message, m model.Message, delta int) (model.Message, bool) {
 	var before *model.Message
 	after := false
@@ -160,7 +176,7 @@ func neighborAudio(messages []model.Message, m model.Message, delta int) (model.
 				return *before, internalAudio(*before)
 			}
 			after = true
-		case other.Kind != m.Kind || other.Media == nil || other.Deleted:
+		case audioKind(other.Kind) != audioKind(m.Kind) || other.Media == nil || other.Deleted:
 		case after:
 			return other, internalAudio(other)
 		default:
@@ -179,7 +195,7 @@ func (v *audioPlayer) skip(delta int) {
 	if page == nil {
 		return
 	}
-	if to, ok := neighborAudio(page.source.History(list).Messages, m, delta); ok {
+	if to, ok := neighborAudio(page.audioMessages(list), m, delta); ok {
 		v.toggleIn(page, list, to, -1)
 	}
 }
@@ -196,14 +212,17 @@ func (v *audioPlayer) around() (before, after bool) {
 	var messages []model.Message
 	if source, ok := v.page.source.(interface {
 		HistorySince(int64, uint64) (model.History, bool)
-	}); ok && v.aroundKey == v.key {
+	}); ok && v.aroundKey == v.key && v.page.audioList == nil {
 		history, fresh := source.HistorySince(v.list, v.aroundRev)
 		if !fresh {
 			return v.before, v.after
 		}
 		messages, v.aroundRev = history.Messages, history.Revision
 	} else {
-		history := v.page.source.History(v.list)
+		history := model.History{Messages: v.page.audioMessages(v.list)}
+		if v.page.audioList == nil {
+			history = v.page.source.History(v.list)
+		}
 		messages, v.aroundRev = history.Messages, history.Revision
 	}
 	v.aroundKey = v.key
@@ -229,16 +248,20 @@ func (v *audioPlayer) loudness() float64 {
 // moves, nor when it comes from what was kept.
 func (v *audioPlayer) setVolume(volume float64, keep bool) {
 	volume = min(max(volume, 0), 1)
-	v.mu.Lock()
-	v.volume = volume
-	if volume > 0 {
-		v.unmuted = volume
-	}
-	if v.playback != nil {
-		v.playback.SetVolume(volume)
-	}
-	save := v.saveVolume
-	v.mu.Unlock()
+	save := func() func(float64) {
+		// Deferred: the playback is the system's, and a panic there must
+		// not leave the lock held for every frame after.
+		v.mu.Lock()
+		defer v.mu.Unlock()
+		v.volume = volume
+		if volume > 0 {
+			v.unmuted = volume
+		}
+		if v.playback != nil {
+			v.playback.SetVolume(volume)
+		}
+		return v.saveVolume
+	}()
 	if keep && save != nil {
 		save(volume)
 	}
@@ -328,6 +351,15 @@ func volumeIcon(volume float64) wdk.IconWidget {
 	return iconVolumeUp
 }
 
+// audioMessages are the messages the player goes through from one that plays
+// in list: the open list of an info's section, or the chat's history.
+func (p *chatPage) audioMessages(list int64) []model.Message {
+	if p.audioList != nil {
+		return p.audioList()
+	}
+	return p.source.History(list).Messages
+}
+
 // audioBarSize is how much of the page's top the bar takes: nothing while
 // nothing plays.
 func (p *chatPage) audioBarSize(gtx layout.Context) int {
@@ -403,6 +435,9 @@ func audioTitle(m model.Message, now time.Time, l localization.Catalog) (string,
 	name := m.SenderName
 	if m.Outgoing {
 		name = l.T("history.you")
+	}
+	if name == "" && m.Kind == model.MessageRound {
+		name = l.T("preview.round")
 	}
 	if name == "" {
 		name = l.T("history.voice")

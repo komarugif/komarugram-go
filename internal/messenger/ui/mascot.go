@@ -25,6 +25,7 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/pkg/rectanim"
 )
@@ -96,6 +97,7 @@ func (v *mascotView) open() {
 	v.fetching = true
 	load, fetched, invalidate := v.load, v.fetched, v.invalidate
 	go func() {
+		defer crash.Recover("mascot", func(e *crash.Panic) { fetched <- mascotScenes{err: e}; invalidate() })
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		scenes, err := load(ctx)

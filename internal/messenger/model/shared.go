@@ -16,7 +16,8 @@ const (
 	SharedGIFs   SharedKind = "gifs"
 	SharedPolls  SharedKind = "polls"
 	SharedSaved  SharedKind = "saved"
-	// SharedPhotoVideos is the photo viewer's gallery, not a section.
+	// SharedPhotoVideos is the media viewer's gallery of photos and videos, not
+	// a section.
 	SharedPhotoVideos SharedKind = "photo_videos"
 )
 

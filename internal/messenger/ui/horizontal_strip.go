@@ -15,7 +15,7 @@ import (
 )
 
 // dragHorizontalStrip shares mouse dragging and wheel scrolling between the
-// photo viewer and composer pack strip. Touch scrolling remains in layout.List.
+// media viewer and composer pack strip. Touch scrolling remains in layout.List.
 func dragHorizontalStrip(gtx layout.Context, width int, drag *stripDrag, list *layout.List, invalidate func()) {
 	area := clip.Rect{Max: image.Pt(width, gtx.Constraints.Max.Y)}.Push(gtx.Ops)
 	pass := pointer.PassOp{}.Push(gtx.Ops)

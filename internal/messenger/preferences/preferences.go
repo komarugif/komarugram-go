@@ -18,6 +18,7 @@ import (
 
 	"gio-mw/exp/powersave"
 
+	"komarugram/internal/messenger/shortcuts"
 	"komarugram/pkg/miniapp"
 	"komarugram/pkg/player"
 )
@@ -46,10 +47,12 @@ const (
 // Global contains preferences which currently apply to every account and
 // every window.
 type Global struct {
-	Theme         Theme          `json:"theme"`
-	Language      string         `json:"language"`
-	LastAccountID string         `json:"last_account_id,omitempty"`
-	MotionMode    powersave.Mode `json:"motion_mode"`
+	Shortcuts     shortcuts.Bindings `json:"shortcuts,omitempty"`
+	Menus         Menus              `json:"menus,omitempty"`
+	Theme         Theme              `json:"theme"`
+	Language      string             `json:"language"`
+	LastAccountID string             `json:"last_account_id,omitempty"`
+	MotionMode    powersave.Mode     `json:"motion_mode"`
 	// MotionSet is true once MotionMode was set: by the user, or to off for
 	// windows drawn by a software rasterizer (DefaultMotionOff).
 	MotionSet      bool            `json:"motion_set,omitempty"`
@@ -70,6 +73,20 @@ type Global struct {
 	// and the Premium section of the settings. Telegram does not know of it,
 	// so nothing else changes.
 	LocalPremium bool `json:"local_premium,omitempty"`
+	// HidePeerBadges hides the marks of exteraGram, AyuGram and KomaruGram
+	// beside names (package peerbadges), and keeps the client from reading
+	// their lists.
+	HidePeerBadges bool `json:"hide_peer_badges,omitempty"`
+	// KeepPeerArrows keeps the arrows of exteraGram and AyuGram, and
+	// KeepPeerFaces the Komaru faces, while HidePeerBadges hides the rest.
+	KeepPeerArrows bool `json:"keep_peer_arrows,omitempty"`
+	KeepPeerFaces  bool `json:"keep_peer_faces,omitempty"`
+	// Calm hides what others do that draws the eye.
+	Calm Calm `json:"calm"`
+	// PremiumMedia has the WebSocket connections for files go to the address
+	// Telegram's web clients take them to for Premium accounts, which no other
+	// account is known to need: a lever for those who have Premium to try.
+	PremiumMedia bool `json:"premium_media,omitempty"`
 	// Window locking only covers the UI; account connections stay running.
 	AutoLockMinutes int           `json:"auto_lock_minutes,omitempty"`
 	LockOnMinimize  bool          `json:"lock_on_minimize,omitempty"`
@@ -106,6 +123,10 @@ type Global struct {
 	// AudioPlayer plays voice messages and music: empty or wasm for the
 	// client's own, external for mpv or VLC.
 	AudioPlayer string `json:"audio_player,omitempty"`
+	// VideoPlayer plays videos: empty or internal for the viewer, which
+	// plays them in the sandbox or with FFmpeg as AnimationPlayer chooses,
+	// external for the external player.
+	VideoPlayer string `json:"video_player,omitempty"`
 	// VoiceSpeed is the speed voice messages, and music long enough to be
 	// a podcast, play at: 0 for their own, as 1 is.
 	VoiceSpeed float64 `json:"voice_speed,omitempty"`
@@ -135,6 +156,15 @@ type Global struct {
 	// in the composer is sent, as AyuGram's confirmations.
 	ConfirmSticker bool `json:"confirm_sticker,omitempty"`
 	ConfirmGIF     bool `json:"confirm_gif,omitempty"`
+	// ManualFocus keeps the keyboard from the message field until it is
+	// clicked, against messages sent by accident; by default the field
+	// holds it whenever nothing else wants it, as Telegram Desktop's.
+	ManualFocus bool `json:"manual_focus,omitempty"`
+	// PickerOnClick opens the composer's picker of emoji, stickers and GIFs
+	// only by a click on its button; by default the pointer over the button
+	// opens it, as Telegram Desktop's, whose option is "Show tabbed panel
+	// by click".
+	PickerOnClick bool `json:"picker_on_click,omitempty"`
 	// Chats is how every chat is drawn, unless the chat has a theme of its
 	// own, as Telegram Desktop's chat settings.
 	Chats ChatLook `json:"chats"`
@@ -192,11 +222,21 @@ type Overlays struct {
 	// toasts.
 	MenusBlur  bool `json:"menus_blur"`
 	ToastsBlur bool `json:"toasts_blur"`
+	// Shadow is how dark the shadows under dialogs and menus are, in
+	// percent of the full ones, from 0, none, to ShadowMax.
+	Shadow int `json:"shadow"`
 }
 
 // TransparencyMax is the most transparent an overlay can be made: past it
 // the text on the overlay could not be read.
 const TransparencyMax = 70
+
+// ShadowDefault is the intensity of shadows until the user changes it, and
+// ShadowMax the strongest one, in percent of the full shadow.
+const (
+	ShadowDefault = 75
+	ShadowMax     = 200
+)
 
 // Opacity is how opaque the overlays that blur are, from 0.3 to 1.
 func (o Overlays) Opacity() float32 { return 1 - float32(o.Transparency)/100 }
@@ -344,7 +384,7 @@ func defaults() Global {
 		ComposerBlur:   true,
 		AudioVolume:    100,
 		WindowBlur:     true,
-		Overlays:       Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true},
+		Overlays:       Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true, Shadow: ShadowDefault},
 		Ghost:          Ghost{SendRead: true, SendOnline: true, SendTyping: true, ReadOnInteract: true},
 		Keep:           Keep{Deleted: true, Edits: true},
 		Notify:         Notify{Desktop: true, Sound: true, Name: true, Text: true, Private: true, Groups: true, Channels: true, AllAccounts: true},
@@ -393,7 +433,16 @@ func Memory() *Store {
 	return &Store{global: defaults(), accounts: make(map[string]json.RawMessage), subscribers: make(map[uint64]func())}
 }
 
+var ErrSettingsAccess = errors.New("keep a menu entry or shortcut for settings")
+
 func validate(g Global) error {
+	if err := shortcuts.ValidateBindings(g.Shortcuts); err != nil {
+		return err
+	}
+	command, _ := shortcuts.Find("app.settings")
+	if len(g.Shortcuts.For(command)) == 0 && slices.Contains(g.Menus["sidebar"].Hidden, "settings") && slices.Contains(g.Menus["drawer"].Hidden, "settings") {
+		return ErrSettingsAccess
+	}
 	if g.Theme < ThemeAuto || g.Theme > ThemeDark {
 		return errors.New("invalid theme")
 	}
@@ -433,11 +482,17 @@ func validate(g Global) error {
 	if g.AudioPlayer != "" && g.AudioPlayer != "wasm" && g.AudioPlayer != "external" {
 		return errors.New("invalid audio player")
 	}
+	if g.VideoPlayer != "" && g.VideoPlayer != "internal" && g.VideoPlayer != "external" {
+		return errors.New("invalid video player")
+	}
 	if g.Player != "" && g.Player != player.MPV && g.Player != player.VLC && g.Player != player.Chromium {
 		return errors.New("invalid external player")
 	}
 	if g.Overlays.Transparency < 0 || g.Overlays.Transparency > TransparencyMax {
 		return errors.New("invalid overlay transparency")
+	}
+	if g.Overlays.Shadow < 0 || g.Overlays.Shadow > ShadowMax {
+		return errors.New("invalid overlay shadow")
 	}
 	if g.WindowTransparency < 0 || g.WindowTransparency > TransparencyMax {
 		return errors.New("invalid window transparency")
@@ -465,7 +520,10 @@ func validate(g Global) error {
 func (s *Store) Global() Global {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.global
+	g := s.global
+	g.Menus = g.Menus.Clone()
+	g.Shortcuts = g.Shortcuts.Clone()
+	return g
 }
 
 func (s *Store) SetFFmpegPath(path string) error {
@@ -482,6 +540,10 @@ func (s *Store) SetAnimationPlayer(value string) error {
 
 func (s *Store) SetAudioPlayer(value string) error {
 	return s.change(func(g *Global) { g.AudioPlayer = value })
+}
+
+func (s *Store) SetVideoPlayer(value string) error {
+	return s.change(func(g *Global) { g.VideoPlayer = value })
 }
 
 func (s *Store) SetAudioVolume(percent int) error {
@@ -536,6 +598,18 @@ func (s *Store) DefaultMotionOff() error {
 	})
 }
 
+// DefaultVideoExternal makes videos open in the external player unless
+// their player was chosen: for windows drawn by a software rasterizer, as
+// in a virtual machine, where the client's own player has no GPU to draw
+// with and its pictures cost the CPU the decoders need.
+func (s *Store) DefaultVideoExternal() error {
+	return s.change(func(g *Global) {
+		if g.VideoPlayer == "" {
+			g.VideoPlayer = "external"
+		}
+	})
+}
+
 // SetPauseInactive switches whether media animations stop while the window
 // is not active.
 func (s *Store) SetPauseInactive(on bool) error {
@@ -550,6 +624,54 @@ func (s *Store) SetVisualPrivacy(on bool) error {
 // SetLocalPremium makes the accounts look Premium to themselves, or not.
 func (s *Store) SetLocalPremium(on bool) error {
 	return s.change(func(g *Global) { g.LocalPremium = on })
+}
+
+// SetHidePeerBadges hides the marks of exteraGram, AyuGram and KomaruGram
+// beside names, or shows them.
+func (s *Store) SetHidePeerBadges(on bool) error {
+	return s.change(func(g *Global) { g.HidePeerBadges = on })
+}
+
+// SetKeepPeerBadges keeps the arrows of exteraGram and AyuGram, and the
+// Komaru faces, while the marks are hidden, or hides them too.
+func (s *Store) SetKeepPeerBadges(arrows, faces bool) error {
+	return s.change(func(g *Global) { g.KeepPeerArrows, g.KeepPeerFaces = arrows, faces })
+}
+
+// HidesPeerArrows reports whether the arrows of exteraGram and AyuGram are
+// hidden, and their list not read.
+func (g Global) HidesPeerArrows() bool { return g.HidePeerBadges && !g.KeepPeerArrows }
+
+// HidesPeerFaces reports whether the Komaru faces are hidden, and their
+// lists not read.
+func (g Global) HidesPeerFaces() bool { return g.HidePeerBadges && !g.KeepPeerFaces }
+
+// Calm is the hiding of what others do that draws the eye: who is online
+// and when they were last, and whether messages sent were delivered and
+// read. The clock of a message not delivered yet always shows.
+type Calm struct {
+	// On hides what the Keep switches leave.
+	On bool `json:"on,omitempty"`
+	// KeepOnline keeps showing who is online; KeepRead, the checks of
+	// messages delivered and read.
+	KeepOnline bool `json:"keep_online,omitempty"`
+	KeepRead   bool `json:"keep_read,omitempty"`
+}
+
+// HidesOnline reports whether who is online is hidden.
+func (c Calm) HidesOnline() bool { return c.On && !c.KeepOnline }
+
+// HidesRead reports whether the checks of messages are hidden.
+func (c Calm) HidesRead() bool { return c.On && !c.KeepRead }
+
+// SetCalm changes what of others is hidden.
+func (s *Store) SetCalm(c Calm) error {
+	return s.change(func(g *Global) { g.Calm = c })
+}
+
+// SetPremiumMedia switches the Premium address for files over WebSocket.
+func (s *Store) SetPremiumMedia(on bool) error {
+	return s.change(func(g *Global) { g.PremiumMedia = on })
 }
 
 // SetStreamerMode hides the windows from screen capture, or shows them.
@@ -725,6 +847,12 @@ func (s *Store) SetFonts(f Fonts) error {
 	return s.change(func(g *Global) { g.Fonts = f })
 }
 
+// SetComposerInput chooses whether the message field takes the keyboard
+// only when clicked, and the picker opens only by a click.
+func (s *Store) SetComposerInput(manualFocus, pickerOnClick bool) error {
+	return s.change(func(g *Global) { g.ManualFocus, g.PickerOnClick = manualFocus, pickerOnClick })
+}
+
 // SetConfirmations chooses whether stickers and GIFs are sent only once
 // confirmed.
 func (s *Store) SetConfirmations(sticker, gif bool) error {
@@ -745,6 +873,9 @@ func (s *Store) SetComposerBlur(on bool) error {
 func (s *Store) SetOverlays(o Overlays) error {
 	if o.Transparency < 0 || o.Transparency > TransparencyMax {
 		return errors.New("invalid overlay transparency")
+	}
+	if o.Shadow < 0 || o.Shadow > ShadowMax {
+		return errors.New("invalid overlay shadow")
 	}
 	return s.change(func(g *Global) { g.Overlays = o })
 }
@@ -862,4 +993,8 @@ func (s *Store) Subscribe(callback func()) func() {
 		delete(s.subscribers, id)
 		s.mu.Unlock()
 	}
+}
+
+func (s *Store) SetShortcuts(b shortcuts.Bindings) error {
+	return s.change(func(g *Global) { g.Shortcuts = b.Clone() })
 }

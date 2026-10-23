@@ -93,7 +93,9 @@ func (c *Checkboxes[T]) Update(gtx layout.Context) {
 				c.values = append(c.values, value)
 			}
 		}
-		c.onChange(c.values)
+		if c.onChange != nil {
+			c.onChange(c.values)
+		}
 		gtx.Execute(op.InvalidateCmd{})
 	}
 	for value, clickable := range c.clickable {
@@ -104,7 +106,9 @@ func (c *Checkboxes[T]) Update(gtx layout.Context) {
 			} else {
 				c.values = slices.Delete(c.values, foundIndex, foundIndex+1)
 			}
-			c.onChange(c.values)
+			if c.onChange != nil {
+				c.onChange(c.values)
+			}
 			gtx.Execute(op.InvalidateCmd{})
 		}
 	}

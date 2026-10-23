@@ -27,7 +27,7 @@ func TestRenderCommentsHead(t *testing.T) {
 	head := chatHead{back: button.Text(), title: "9 комментариев", subtitle: "Новости Go"}
 	l := localization.For("ru")
 	renderFrames(t, image.Pt(500, 200), path, func(gtx layout.Context) {
-		layoutChatPageHead(gtx, model.Chat{ID: 1, Title: "x"}, l, nil, nil, &head, func(gtx layout.Context) layout.Dimensions {
+		layoutChatPageHead(gtx, model.Chat{ID: 1, Title: "x"}, l, nil, nil, &head, nil, func(gtx layout.Context) layout.Dimensions {
 			return layout.Dimensions{Size: gtx.Constraints.Max}
 		}, nil)
 	})

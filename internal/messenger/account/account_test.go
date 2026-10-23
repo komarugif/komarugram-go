@@ -12,12 +12,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/gotd/td/session"
 	"github.com/gotd/td/tg"
 
 	"komarugram/internal/messenger/historycache"
+	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/messenger/security"
 	"komarugram/pkg/tdata"
 )
@@ -340,11 +342,21 @@ func TestRemoveAccount(t *testing.T) {
 		t.Fatalf("removed a connected account: %v", err)
 	}
 	gone.busy.Store(false)
+	// Its media, in the cache directory.
+	if err := os.MkdirAll(filepath.Join(gone.MediaPath(), "ab"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(gone.MediaPath(), root) || strings.HasPrefix(gone.MediaPath(), gone.dir) {
+		t.Fatalf("media in %s", gone.MediaPath())
+	}
 	if err := m.Remove(gone); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(gone.dir); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("account directory left behind: %v", err)
+	}
+	if _, err := os.Stat(gone.MediaPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("media left behind: %v", err)
 	}
 	if accounts := m.Accounts(); len(accounts) != 1 || accounts[0] != added[1] {
 		t.Fatalf("accounts after removal: %+v", accounts)
@@ -566,4 +578,72 @@ func TestRegistryUpgradesFromFirstSchema(t *testing.T) {
 // them.
 func notOwnerOnly(info os.FileInfo) bool {
 	return runtime.GOOS != "windows" && info.Mode().Perm() != 0o600
+}
+
+// TestUseProxyTellsOfTheChange checks that a manager has the resolver of the
+// proxy set, direct again for nil, and that whoever waits for a change is
+// told once for each, and is not told of a proxy that cannot be used.
+func TestUseProxyTellsOfTheChange(t *testing.T) {
+	m := testManager(t, t.TempDir(), nil)
+	if r, _ := m.proxyState(); r != nil {
+		t.Fatal("a proxy before any was set")
+	}
+	changed := m.ProxyChanged()
+	select {
+	case <-changed:
+		t.Fatal("told of a change that did not happen")
+	default:
+	}
+	socks := proxy.Proxy{Kind: proxy.SOCKS5, Host: "127.0.0.1", Port: 2080}
+	if err := m.UseProxy(&socks); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-changed:
+	default:
+		t.Fatal("not told of the proxy")
+	}
+	r, next := m.proxyState()
+	if r == nil {
+		t.Fatal("no resolver for the proxy")
+	}
+	select {
+	case <-next:
+		t.Fatal("the next change was told already")
+	default:
+	}
+	if err := m.UseProxy(&proxy.Proxy{Kind: proxy.SOCKS5, Host: "127.0.0.1"}); err == nil {
+		t.Error("a proxy without a port was used")
+	}
+	select {
+	case <-next:
+		t.Error("told of a proxy that was refused")
+	default:
+	}
+	if err := m.UseProxy(nil); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := m.proxyState(); r != nil {
+		t.Error("the proxy stayed after nil")
+	}
+	<-next
+}
+
+// TestPremiumMediaIsAskedAtEachConnection checks that the manager reads what
+// tells the Premium address when it is asked, so that a switch in the settings
+// takes effect without the resolver being made again.
+func TestPremiumMediaIsAskedAtEachConnection(t *testing.T) {
+	m := testManager(t, t.TempDir(), nil)
+	if m.premiumMediaNow() {
+		t.Fatal("on before it was set")
+	}
+	on := false
+	m.SetPremiumMedia(func() bool { return on })
+	if m.premiumMediaNow() {
+		t.Error("on while the setting is off")
+	}
+	on = true
+	if !m.premiumMediaNow() {
+		t.Error("off after the setting was turned on")
+	}
 }

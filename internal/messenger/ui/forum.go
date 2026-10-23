@@ -93,7 +93,8 @@ func (a *App) layoutForum(gtx layout.Context, c model.Chat, l localization.Catal
 		f.search.update(gtx, searcher, invalidate)
 	}
 	searching := canSearch && f.search.open
-	dims := layoutChatPage(gtx, c, l, a.layoutAvatar, a.badges, func(gtx layout.Context) layout.Dimensions {
+	back := a.returnButton()
+	dims := layoutChatPage(gtx, c, l, a.layoutAvatar, a.badges, back, func(gtx layout.Context) layout.Dimensions {
 		if searching {
 			return f.layoutResults(gtx, c, searcher, invalidate, l)
 		}
@@ -107,12 +108,21 @@ func (a *App) layoutForum(gtx layout.Context, c model.Chat, l localization.Catal
 		f.search.layoutHeader(hgtx, header, l)
 		return dims
 	}
-	// The header opens the forum's info: the click is taken over it.
-	f.header.Layout(hgtx, func(gtx layout.Context) layout.Dimensions {
-		pointer.CursorPointer.Add(gtx.Ops)
-		return layout.Dimensions{Size: header}
+	// The header opens the forum's info: the click is taken over it, but
+	// for the back button before the avatar.
+	avatarX := gtx.Dp(16)
+	if back != nil {
+		avatarX = gtx.Dp(headBackWidth)
+	}
+	click := hgtx
+	click.Constraints = layout.Exact(image.Pt(max(0, header.X-avatarX), header.Y))
+	offset(click, image.Pt(avatarX, 0), func(gtx layout.Context) layout.Dimensions {
+		return f.header.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			pointer.CursorPointer.Add(gtx.Ops)
+			return layout.Dimensions{Size: gtx.Constraints.Max}
+		})
 	})
-	layoutAvatarTarget(gtx, &f.avatar)
+	layoutAvatarTarget(gtx, &f.avatar, avatarX)
 	if canSearch {
 		f.search.layoutSearchButton(hgtx, header, c.ID, l)
 	}

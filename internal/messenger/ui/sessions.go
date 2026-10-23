@@ -19,6 +19,7 @@ import (
 	"gioui.org/unit"
 	"golang.org/x/exp/shiny/materialdesign/icons"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -96,6 +97,14 @@ func (v *sessionsView) refresh() {
 	v.loading, v.asked = true, time.Now()
 	v.mu.Unlock()
 	go func() {
+		defer crash.Recover("sessions", func(e *crash.Panic) {
+			v.mu.Lock()
+			v.loading, v.err = false, e
+			v.mu.Unlock()
+			if v.invalidate != nil {
+				v.invalidate()
+			}
+		})
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		list, err := v.source.Sessions(ctx)

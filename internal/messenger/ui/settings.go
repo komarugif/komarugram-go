@@ -69,8 +69,16 @@ const (
 	// settingsNotify is how new messages are told of, as Telegram Desktop's
 	// Notifications and Sounds.
 	settingsNotify
+	// settingsProxy is the proxies Telegram is connected through.
+	settingsProxy
 	// settingsAbout is the program, the system it runs on and its links.
 	settingsAbout
+	settingsMenuOrder
+	settingsShortcuts
+	// settingsVisibility is what others see of the account and what the
+	// client shows of them: ghost mode, the message filters, what the cache
+	// keeps, and the hiding of what distracts.
+	settingsVisibility
 )
 
 func settingsTitles(l localization.Catalog) map[settingsSection]string {
@@ -80,6 +88,10 @@ func settingsTitles(l localization.Catalog) map[settingsSection]string {
 		settingsPremium: l.T("premium.title"), settingsIntegrations: l.T("settings.integrations"),
 		settingsDevices: l.T("settings.devices"), settingsChats: l.T("settings.chats"),
 		settingsNotify: l.T("settings.notify"), settingsAbout: l.T("settings.about"),
+		settingsProxy:      l.T("settings.proxy"),
+		settingsMenuOrder:  l.T("menus.title"),
+		settingsShortcuts:  l.T("keys.title"),
+		settingsVisibility: l.T("settings.visibility"),
 	}
 }
 
@@ -93,7 +105,11 @@ var settingsIcons = map[settingsSection]wdk.IconWidget{
 	settingsDevices:      iconDevices,
 	settingsChats:        iconChats,
 	settingsNotify:       iconNotifications,
+	settingsProxy:        iconProxy,
 	settingsAbout:        iconInfo,
+	settingsMenuOrder:    iconReorder,
+	settingsShortcuts:    iconKeyboard,
+	settingsVisibility:   iconVisibility,
 }
 
 func storageShort(l localization.Catalog) map[miniapp.Storage]string {
@@ -112,6 +128,8 @@ func motionShort(l localization.Catalog) map[powersave.Mode]string {
 
 // settingsPage shows the main settings page or one of its sections.
 type settingsPage struct {
+	shortcuts   *shortcutSettings
+	menus       *menuSettings
 	cardHeights map[string]*heightTransition
 	scrollPage
 	section settingsSection
@@ -125,10 +143,12 @@ type settingsPage struct {
 	theme    *radio.Radios[themeMode]
 	language *radio.Radios[string]
 	// worded is the catalog animations and privacy took their texts from.
-	worded      localization.Catalog
-	animations  *motion.View
-	privacy     *miniappprefs.View
-	security    *securityView
+	worded     localization.Catalog
+	animations *motion.View
+	privacy    *miniappprefs.View
+	security   *securityView
+	// proxy is the proxies; nil hides their section.
+	proxy       *proxyView
 	accounts    model.Accounts
 	accountID   func() string
 	accountRows map[string]*settingsItem
@@ -136,6 +156,12 @@ type settingsPage struct {
 	// logOut asks to leave the window's account; confirmLogOut does it.
 	logOut           settingsItem
 	confirmingLogOut bool
+	// revealLogOut is set while the confirmation opens out of the row,
+	// which the page scrolls with so that its buttons are in view: the row
+	// is at the end of a page scrolled to it, and the card grows below.
+	// belowLogOut is how tall what follows it was laid out last.
+	revealLogOut bool
+	belowLogOut  int
 	// uninstallItem opens the uninstaller through uninstall, which is nil
 	// where the program does not install itself.
 	uninstallItem settingsItem
@@ -193,6 +219,8 @@ type settingsPage struct {
 	setOverlays  func(preferences.Overlays)
 	blur         *checkbox.Checkboxes[string]
 	transparency *slider.Slider
+	// shadow is how dark the shadows of dialogs and menus are.
+	shadow *slider.Slider
 	// pauseInactive and setPauseInactive read and switch whether media
 	// animations stop in an inactive window; without them the checkbox is
 	// hidden.
@@ -212,6 +240,11 @@ type settingsPage struct {
 	confirmations    func() (sticker, gif bool)
 	setConfirmations func(sticker, gif bool)
 	confirmBoxes     *checkbox.Checkboxes[string]
+	// input and setInput read and change whether the message field takes
+	// the keyboard only when clicked, and the picker opens only by a click.
+	input      func() (manualFocus, pickerOnClick bool)
+	setInput   func(manualFocus, pickerOnClick bool)
+	inputBoxes *checkbox.Checkboxes[string]
 	// premium is the account's Premium; nil hides the section.
 	premium model.PremiumSource
 	// localPremium and setLocalPremium read and switch Local Premium; the
@@ -220,6 +253,31 @@ type settingsPage struct {
 	localPremium       func() bool
 	setLocalPremium    func(bool)
 	localPremiumToggle *toggle.Toggle[string]
+	// hidePeerBadges and setHidePeerBadges read and switch the hiding of the
+	// marks of exteraGram, AyuGram and KomaruGram beside names; keepPeerBadges
+	// and setKeepPeerBadges, whether the arrows and the faces stay, which
+	// peerBadgeBoxes show.
+	// premiumMark draws the Premium star beside a name; without it the star
+	// is drawn by the client.
+	premiumMark          func(gtx layout.Context, size unit.Dp) layout.Dimensions
+	hidePeerBadges       func() bool
+	setHidePeerBadges    func(bool)
+	hidePeerBadgesToggle *toggle.Toggle[string]
+	keepPeerBadges       func() (arrows, faces bool)
+	setKeepPeerBadges    func(arrows, faces bool)
+	peerBadgeBoxes       *checkbox.Checkboxes[string]
+	// calm and setCalm read and change the hiding of what distracts: who
+	// is online, and whether messages were read; without them the switch is
+	// hidden. calmBoxes choose which of the two it hides.
+	calm       func() preferences.Calm
+	setCalm    func(preferences.Calm)
+	calmToggle *toggle.Toggle[string]
+	calmBoxes  *checkbox.Checkboxes[string]
+	// premiumMedia and setPremiumMedia read and switch the Premium address for
+	// files over WebSocket, which the Premium page offers to who has Premium.
+	premiumMedia       func() bool
+	setPremiumMedia    func(bool)
+	premiumMediaToggle *toggle.Toggle[string]
 	subscribe          *button.Button
 	// players chooses the external player for videos and audio; browser,
 	// the browser Mini Apps run in.
@@ -252,6 +310,10 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			settingsDevices:      new(settingsItem),
 			settingsChats:        new(settingsItem),
 			settingsNotify:       new(settingsItem),
+			settingsProxy:        new(settingsItem),
+			settingsMenuOrder:    new(settingsItem),
+			settingsShortcuts:    new(settingsItem),
+			settingsVisibility:   new(settingsItem),
 		},
 		back:          button.Text(),
 		motion:        m,
@@ -288,6 +350,35 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			p.setLocalPremium(len(values) == 1)
 		}
 	})
+	p.hidePeerBadgesToggle = toggle.NewToggle([]string{"hide"}, nil, func(values []string) {
+		if p.setHidePeerBadges != nil {
+			p.setHidePeerBadges(len(values) == 1)
+		}
+	})
+	p.peerBadgeBoxes = checkbox.NewCheckboxes([]string{"arrows", "faces"}, nil, func(values []string) {
+		if p.setKeepPeerBadges != nil {
+			p.setKeepPeerBadges(!slices.Contains(values, "arrows"), !slices.Contains(values, "faces"))
+		}
+	})
+	p.calmToggle = toggle.NewToggle([]string{"calm"}, nil, func(values []string) {
+		if p.setCalm != nil {
+			c := p.calm()
+			c.On = len(values) == 1
+			p.setCalm(c)
+		}
+	})
+	p.calmBoxes = checkbox.NewCheckboxes([]string{"online", "read"}, nil, func(values []string) {
+		if p.setCalm != nil {
+			c := p.calm()
+			c.KeepOnline, c.KeepRead = !slices.Contains(values, "online"), !slices.Contains(values, "read")
+			p.setCalm(c)
+		}
+	})
+	p.premiumMediaToggle = toggle.NewToggle([]string{"media"}, nil, func(values []string) {
+		if p.setPremiumMedia != nil {
+			p.setPremiumMedia(len(values) == 1)
+		}
+	})
 	p.ghostOpts = toggle.NewToggle(ghostOptions, nil, func(values []string) {
 		if p.setGhost != nil {
 			p.setGhost(ghostFromOptions(values))
@@ -313,6 +404,11 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 	p.confirmBoxes = checkbox.NewCheckboxes([]string{"sticker", "gif"}, nil, func(values []string) {
 		if p.setConfirmations != nil {
 			p.setConfirmations(slices.Contains(values, "sticker"), slices.Contains(values, "gif"))
+		}
+	})
+	p.inputBoxes = checkbox.NewCheckboxes([]string{"focus", "picker"}, nil, func(values []string) {
+		if p.setInput != nil {
+			p.setInput(slices.Contains(values, "focus"), slices.Contains(values, "picker"))
 		}
 	})
 	p.blur = checkbox.NewCheckboxes([]string{"composer", "menus", "toasts"}, nil, func(values []string) {
@@ -342,6 +438,17 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 	p.windowTransparencySlider = slider.StandardSlider(steps, 0, func(v int) {
 		if p.setWindowTransparency != nil {
 			p.setWindowTransparency(v)
+		}
+	})
+	var shadowSteps []int
+	for v := 0; v <= preferences.ShadowMax; v += shadowStep {
+		shadowSteps = append(shadowSteps, v)
+	}
+	p.shadow = slider.StandardSlider(shadowSteps, preferences.ShadowDefault, func(v int) {
+		if p.overlays != nil && p.setOverlays != nil {
+			o := p.overlays()
+			o.Shadow = v
+			p.setOverlays(o)
 		}
 	})
 	p.transparency = slider.StandardSlider(steps, 30, func(v int) {
@@ -385,7 +492,7 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		p.uninstall()
 	}
 	if p.logOut.click.Clicked(gtx) && !p.loggingOut {
-		p.confirmingLogOut = true
+		p.confirmingLogOut, p.revealLogOut = true, true
 	}
 	if p.cancelLogOut.Clicked(gtx) {
 		p.confirmingLogOut = false
@@ -408,6 +515,9 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 			}
 			if section == settingsAbout {
 				p.about.open()
+			}
+			if section == settingsProxy && p.proxy != nil {
+				p.proxy.Open()
 			}
 		}
 	}
@@ -444,6 +554,9 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 			}
 			if p.transparency.GetValue() != o.Transparency {
 				p.transparency.SetValue(o.Transparency)
+			}
+			if shadow := (o.Shadow + shadowStep/2) / shadowStep * shadowStep; p.shadow.GetValue() != shadow {
+				p.shadow.SetValue(shadow)
 			}
 		}
 		if got := p.blur.GetValues(); !slices.Equal(slices.Sorted(slices.Values(got)), slices.Sorted(slices.Values(want))) {
@@ -492,6 +605,21 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		}
 		p.confirmBoxes.Update(gtx)
 	}
+	if p.input != nil {
+		// Another window may have changed the shared preference.
+		focus, picker := p.input()
+		var want []string
+		if focus {
+			want = append(want, "focus")
+		}
+		if picker {
+			want = append(want, "picker")
+		}
+		if !slices.Equal(want, p.inputBoxes.GetValues()) {
+			p.inputBoxes.SetValues(want)
+		}
+		p.inputBoxes.Update(gtx)
+	}
 	p.animations.Update(gtx)
 	if p.pauseInactive != nil {
 		// Another window may have changed the shared preference.
@@ -515,7 +643,28 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 	}
 	if p.section == settingsPrivacy {
 		p.security.UpdateSettings(gtx)
+	}
+	if p.section == settingsVisibility {
 		p.filtersView.Update(gtx)
+		if p.calm != nil {
+			p.calmBoxes.Update(gtx)
+		}
+		if p.keepPeerBadges != nil {
+			p.peerBadgeBoxes.Update(gtx)
+		}
+	}
+	if p.shortcuts != nil {
+		if p.section == settingsShortcuts {
+			p.shortcuts.Update(gtx, localization.For(language))
+		} else if p.shortcuts.busy || p.shortcuts.dialog.Shown() {
+			p.shortcuts.Close()
+			p.shortcuts.signature = ""
+		}
+	}
+	if p.section == settingsMenuOrder && p.menus != nil {
+		p.menus.Update(gtx, localization.For(language))
+	} else if p.menus != nil {
+		p.menus.CancelDrag()
 	}
 	if p.section == settingsAppearance {
 		p.emojiView.Update(gtx)
@@ -527,6 +676,9 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 	}
 	if p.section == settingsAbout {
 		p.about.Update(gtx)
+	}
+	if p.section == settingsProxy && p.proxy != nil {
+		p.proxy.Update(gtx)
 	}
 }
 
@@ -552,6 +704,20 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 		})
 		var content layout.Widget
 		switch p.section {
+		case settingsShortcuts:
+			content = func(gtx layout.Context) layout.Dimensions {
+				if p.shortcuts == nil {
+					return layout.Dimensions{}
+				}
+				return p.shortcuts.Layout(gtx, p, l)
+			}
+		case settingsMenuOrder:
+			content = func(gtx layout.Context) layout.Dimensions {
+				if p.menus == nil {
+					return layout.Dimensions{}
+				}
+				return p.menus.Layout(gtx, p, l)
+			}
 		case settingsAppearance:
 			content = func(gtx layout.Context) layout.Dimensions {
 				return p.layoutAppearance(gtx, mode, system, dark, l)
@@ -576,6 +742,30 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 					}),
 					vspace(12),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return p.cardHeight("Layout-7").Card(gtx, p.privacy.Layout, defaultCardPadding)
+					}),
+				)
+			}
+		case settingsVisibility:
+			content = func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						if p.calm == nil {
+							return layout.Dimensions{}
+						}
+						return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return p.cardHeight("visibility-calm").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutCalm(gtx, l) }, defaultCardPadding)
+						})
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						if p.hidePeerBadges == nil {
+							return layout.Dimensions{}
+						}
+						return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return p.cardHeight("visibility-badges").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutPeerBadges(gtx, l) }, defaultCardPadding)
+						})
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						if p.ghost == nil {
 							return layout.Dimensions{}
 						}
@@ -598,9 +788,6 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 						return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return p.cardHeight("Layout-6").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutKeep(gtx, l) }, defaultCardPadding)
 						})
-					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return p.cardHeight("Layout-7").Card(gtx, p.privacy.Layout, defaultCardPadding)
 					}),
 				)
 			}
@@ -630,6 +817,10 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 			content = func(gtx layout.Context) layout.Dimensions { return p.layoutChats(gtx, l) }
 		case settingsAbout:
 			content = func(gtx layout.Context) layout.Dimensions { return p.about.Layout(gtx, l) }
+		case settingsProxy:
+			content = func(gtx layout.Context) layout.Dimensions {
+				return p.cardHeight("layoutProxy").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.proxy.Layout(gtx, l) }, defaultCardPadding)
+			}
 		case settingsNotify:
 			// The accounts are as the main page last listed them.
 			content = func(gtx layout.Context) layout.Dimensions { return p.notifyView.Layout(gtx, l, len(p.shownAccounts)) }
@@ -645,6 +836,10 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 		)
 	})
 	p.layingOut = false
+	p.followLogOut(gtx)
+	if p.section == settingsShortcuts && p.shortcuts != nil {
+		p.shortcuts.Overlay(gtx, l)
+	}
 	return dims
 }
 
@@ -728,6 +923,12 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 		settingsDevices:      l.T("settings.devices_hint"),
 		settingsChats:        p.chats.subtitle(l),
 		settingsNotify:       p.notifyView.subtitle(l),
+		settingsMenuOrder:    l.T("menus.subtitle"),
+		settingsShortcuts:    l.T("keys.subtitle"),
+		settingsVisibility:   l.T("settings.visibility_hint"),
+	}
+	if p.proxy != nil {
+		subtitles[settingsProxy] = p.proxy.Summary(l)
 	}
 	if n := p.sessions.count(); n > 0 {
 		subtitles[settingsDevices] = l.Count("sessions.count", n, nil)
@@ -767,7 +968,7 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 							row.badge = func(gtx layout.Context) layout.Dimensions {
 								px := gtx.Dp(18)
 								return exact(gtx, image.Pt(px, px), func(gtx layout.Context) layout.Dimensions {
-									return layoutPremiumStar(gtx, 18)
+									return p.layoutPremiumMark(gtx, 18)
 								})
 							}
 						}
@@ -797,13 +998,25 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 			return p.cardHeight("layoutMain-2").Card(gtx, func(gtx layout.Context) layout.Dimensions {
 				var rows []layout.FlexChild
 				sections := []settingsSection{settingsAppearance}
+				if p.menus != nil {
+					sections = append(sections, settingsMenuOrder)
+				}
+				if p.shortcuts != nil {
+					sections = append(sections, settingsShortcuts)
+				}
 				if p.chats.available() || p.composerStyle != nil || p.lookView.look != nil {
 					sections = append(sections, settingsChats)
+				}
+				if p.hasVisibility() {
+					sections = append(sections, settingsVisibility)
 				}
 				if p.notifyView.get != nil {
 					sections = append(sections, settingsNotify)
 				}
 				sections = append(sections, settingsPrivacy, settingsPower)
+				if p.proxy != nil {
+					sections = append(sections, settingsProxy)
+				}
 				if p.sessions != nil {
 					sections = append(sections, settingsDevices)
 				}
@@ -828,23 +1041,51 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 			})
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			dims := layout.Inset{Top: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return p.cardHeight("about").Card(gtx, func(gtx layout.Context) layout.Dimensions {
 					return p.items[settingsAbout].Layout(gtx, iconInfo, l.T("settings.about"), deviceinfo.Platform())
 				}, 6)
 			})
+			p.belowLogOut = dims.Size.Y
+			return dims
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			if p.uninstall == nil {
 				return layout.Dimensions{}
 			}
-			return layout.Inset{Top: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			dims := layout.Inset{Top: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return p.cardHeight("uninstall").Card(gtx, func(gtx layout.Context) layout.Dimensions {
 					return p.uninstallItem.Layout(gtx, iconUninstall, l.T("uninstall.settings"), l.T("uninstall.settings_hint"))
 				}, 6)
 			})
+			p.belowLogOut += dims.Size.Y
+			return dims
 		}),
 	)
+}
+
+// followLogOut scrolls the main page, while the confirmation of logging
+// out opens, so that its end is in view; done once it has opened, the page
+// is the user's to scroll again. Where the card ends is the page's length
+// less what follows it and the page's inset under it.
+func (p *settingsPage) followLogOut(gtx layout.Context) {
+	if !p.revealLogOut {
+		return
+	}
+	card := p.cardHeight("logout")
+	if p.section != settingsMain || !p.confirmingLogOut {
+		p.revealLogOut = false
+		return
+	}
+	bottom := p.list.Position.Length - p.belowLogOut - gtx.Dp(24)
+	// With the space before the next card under it, its corners in view.
+	if over := bottom + gtx.Dp(12) - (p.list.Position.Offset + gtx.Constraints.Max.Y); over > 0 {
+		p.list.Position.Offset += over
+		gtx.Execute(op.InvalidateCmd{})
+	}
+	if card.initialized && card.value >= card.target {
+		p.revealLogOut = false
+	}
 }
 
 // layoutLogOut draws the row that leaves the window's account and, once it
@@ -921,6 +1162,9 @@ func (p *settingsPage) layoutAppearance(gtx layout.Context, mode themeMode, syst
 	if p.composerBlur != nil {
 		cards = append(cards, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutOverlays(gtx, l) }))
 	}
+	if p.overlays != nil {
+		cards = append(cards, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutShadow(gtx, l) }))
+	}
 	if p.emojiView.available() {
 		cards = append(cards, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return p.cardHeight("layoutAppearance-1").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.emojiView.Layout(gtx, l) }, defaultCardPadding)
@@ -963,6 +1207,26 @@ func (p *settingsPage) layoutChats(gtx layout.Context, l localization.Catalog) l
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return p.confirmBoxes.Layout(gtx, map[string]string{"sticker": l.T("settings.confirm_sticker"), "gif": l.T("settings.confirm_gif")})
+							}),
+						)
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						if p.input == nil {
+							return layout.Dimensions{}
+						}
+						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return layout.Inset{Top: 8, Left: 4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									return label(gtx, l.T("settings.input"), token.TypestyleTitleSmall, scheme(gtx).Primary.Color, 1)
+								})
+							}),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return p.inputBoxes.Layout(gtx, map[string]string{"focus": l.T("settings.input_manual_focus"), "picker": l.T("settings.input_picker_click")})
+							}),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return layout.Inset{Left: 4, Right: 4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									return label(gtx, l.T("settings.input_hint"), token.TypestyleBodyMedium, scheme(gtx).SurfaceVariant.OnColor, 0)
+								})
 							}),
 						)
 					}),
@@ -1073,6 +1337,32 @@ func (p *settingsPage) layoutOverlays(gtx layout.Context, l localization.Catalog
 	}, defaultCardPadding)
 }
 
+// shadowStep is the difference between the stops of the shadow's slider, in
+// percent.
+const shadowStep = 25
+
+// layoutShadow draws the card of the shadows under dialogs and menus: how
+// dark they are.
+func (p *settingsPage) layoutShadow(gtx layout.Context, l localization.Catalog) layout.Dimensions {
+	sc := scheme(gtx)
+	return p.cardHeight("layoutShadow-1").Card(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, l.T("settings.shadow"), token.TypestyleTitleMedium, sc.Surface.OnColor, 1)
+			}),
+			vspace(8),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, l.T("settings.shadow_intensity")+": "+strconv.Itoa(p.overlays().Shadow)+"%", token.TypestyleBodyLarge, sc.Surface.OnColor, 1)
+			}),
+			layout.Rigid(p.shadow.Layout),
+			vspace(4),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, l.T("settings.shadow_hint"), token.TypestyleBodySmall, sc.SurfaceVariant.OnColor, 0)
+			}),
+		)
+	}, defaultCardPadding)
+}
+
 // settingsChoiceCard draws a card with a title, the choices and, if set, a
 // hint below them.
 func settingsChoiceCard(gtx layout.Context, height *heightTransition, title, hint string, choices layout.Widget) layout.Dimensions {
@@ -1162,6 +1452,14 @@ func (it *settingsItem) Layout(gtx layout.Context, icon wdk.IconWidget, title, s
 
 // layout draws the row with leading, a square of leadingPx, at its start.
 func (it *settingsItem) layout(gtx layout.Context, leading layout.Widget, leadingPx int, title, subtitle string) layout.Dimensions {
+	return it.layoutWith(gtx, leading, leadingPx, title, func(gtx layout.Context) layout.Dimensions {
+		return label(gtx, subtitle, token.TypestyleBodySmall, scheme(gtx).SurfaceVariant.OnColor, 1)
+	})
+}
+
+// layoutWith is layout with a subtitle of its own, as a richLabel, in the
+// width it is given.
+func (it *settingsItem) layoutWith(gtx layout.Context, leading layout.Widget, leadingPx int, title string, subtitle layout.Widget) layout.Dimensions {
 	sc := scheme(gtx)
 	size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(settingsItemHeight))
 	style := surfaceStyle{radius: gtx.Dp(12), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor}
@@ -1186,7 +1484,7 @@ func (it *settingsItem) layout(gtx layout.Context, leading layout.Widget, leadin
 		}, it.badge)
 		titleCall := macro.Stop()
 		macro = op.Record(gtx.Ops)
-		subDims := label(textGtx, subtitle, token.TypestyleBodySmall, sc.SurfaceVariant.OnColor, 1)
+		subDims := subtitle(textGtx)
 		subCall := macro.Stop()
 		top := (size.Y - titleDims.Size.Y - subDims.Size.Y) / 2
 		offset(gtx, image.Pt(textX, top), func(gtx layout.Context) layout.Dimensions {
@@ -1210,6 +1508,15 @@ func (p *settingsPage) premiumText(l localization.Catalog) string {
 		return l.T("premium.on_local")
 	}
 	return l.T("premium.off")
+}
+
+// layoutPremiumMark draws the Premium star in a square of size, nothing
+// where there is no window to take it from.
+func (p *settingsPage) layoutPremiumMark(gtx layout.Context, size unit.Dp) layout.Dimensions {
+	if p.premiumMark != nil {
+		return p.premiumMark(gtx, size)
+	}
+	return layout.Dimensions{}
 }
 
 // isLocalPremium reports whether Local Premium is on.
@@ -1241,6 +1548,15 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 			}
 		}
 	}
+	if p.premiumMediaToggle != nil && p.premiumMedia != nil {
+		if want := p.premiumMedia(); want != (len(p.premiumMediaToggle.GetValues()) == 1) {
+			if want {
+				p.premiumMediaToggle.SetValues([]string{"media"})
+			} else {
+				p.premiumMediaToggle.SetValues(nil)
+			}
+		}
+	}
 	var offer []layout.FlexChild
 	switch {
 	case premium.Active:
@@ -1267,7 +1583,7 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 			}, func(gtx layout.Context) layout.Dimensions {
 				px := gtx.Dp(20)
 				return exact(gtx, image.Pt(px, px), func(gtx layout.Context) layout.Dimensions {
-					return layoutPremiumStar(gtx, 20)
+					return p.layoutPremiumMark(gtx, 20)
 				})
 			})
 		}),
@@ -1318,6 +1634,27 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 			}, defaultCardPadding)
 		}),
 		vspace(12),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			// A lever for those who have Premium, and only where it can act: the
+			// address is the WebSocket's, and Telegram's own. Nothing is known of
+			// what it changes.
+			if !premium.Active || !p.proxy.usesTelegramWebSocket() || p.premiumMediaToggle == nil || p.setPremiumMedia == nil {
+				return layout.Dimensions{}
+			}
+			return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return p.cardHeight("layoutPremium-4").Card(gtx, func(gtx layout.Context) layout.Dimensions {
+					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return p.premiumMediaToggle.Layout(gtx, map[string]string{"media": l.T("premium.media")})
+						}),
+						vspace(4),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return label(gtx, l.T("premium.media_body"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
+						}),
+					)
+				}, defaultCardPadding)
+			})
+		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			if p.localPremiumToggle == nil || p.setLocalPremium == nil {
 				return layout.Dimensions{}

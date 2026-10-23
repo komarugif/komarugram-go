@@ -27,6 +27,10 @@ const (
 	modalEnterScale    = 0.9
 )
 
+// modalRadius is the corner radius of a dialog's card, which its shadow
+// follows.
+const modalRadius = unit.Dp(16)
+
 // modal frames a modal dialog: a scrim over the area, which takes all the
 // input under the dialog, and the dialog in the middle of it. Escape and a
 // click on the scrim close it, and the dialog animates in and out.
@@ -37,8 +41,11 @@ type modal struct {
 	height         heightTransition
 	shown, closing bool
 	// focus takes the keyboard focus on the next frame, from whatever is
-	// under the dialog.
+	// under the dialog, for field, or the dialog itself when field is nil.
+	// The dialog holds it while nothing in it does, so that what is typed
+	// does not go into the message field under it.
 	focus      bool
+	field      event.Tag
 	visibility wdk.FloatTween
 	scrim      widget.Clickable
 	// panel takes the clicks on the dialog itself, which would otherwise
@@ -50,11 +57,17 @@ type modal struct {
 	// toast tells the outcome of what was done in the dialog, at its
 	// bottom.
 	toast toast
+	// visible is how much the dialog showed in the frame drawn last.
+	visible float32
 }
+
+// Entered tells whether the dialog has animated in: what animates in it
+// on its own waits for that, not to move while the dialog grows.
+func (m *modal) Entered() bool { return m.shown && !m.closing && m.visible >= 1 }
 
 // Open shows the dialog, animating in.
 func (m *modal) Open() {
-	*m = modal{shown: true, focus: true, back: m.back}
+	*m = modal{shown: true, focus: true, back: m.back, field: m.field}
 }
 
 // Close animates the dialog out; Layout reports when it is done.
@@ -88,7 +101,7 @@ func (m *modal) Update(gtx layout.Context, locked bool) {
 	}
 	clicked := m.scrim.Clicked(gtx)
 	for {
-		ev, ok := gtx.Event(key.Filter{Name: key.NameEscape})
+		ev, ok := gtx.Event(key.FocusFilter{Target: m}, key.Filter{Name: key.NameEscape})
 		if !ok {
 			break
 		}
@@ -111,6 +124,7 @@ func (m *modal) Layout(gtx layout.Context, locked bool, content layout.Widget) b
 		return false
 	}
 	visibility := m.animate(gtx)
+	m.visible = visibility
 	if m.closing && visibility == 0 {
 		m.Hide()
 		return false
@@ -121,14 +135,18 @@ func (m *modal) Layout(gtx layout.Context, locked bool, content layout.Widget) b
 	}
 	size := gtx.Constraints.Max
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
-	scrim := scheme(gtx).Scrim.SetOpacity(token.OpacityLevel8)
+	scrim := scheme(gtx).Scrim.SetOpacity(scrimOpacity(gtx))
 	scrim.A = uint8(float32(scrim.A)*visibility + .5)
 	paint.Fill(gtx.Ops, scrim.AsNRGBA())
 	// The keyboard focus target lies under the scrim, which takes the clicks.
 	event.Op(gtx.Ops, m)
 	m.scrim.Layout(gtx, func(layout.Context) layout.Dimensions { return layout.Dimensions{Size: size} })
 	if m.focus {
-		gtx.Execute(key.FocusCmd{Tag: m})
+		var tag event.Tag = m
+		if m.field != nil {
+			tag = m.field
+		}
+		gtx.Execute(key.FocusCmd{Tag: tag})
 		m.focus = false
 	}
 
@@ -142,6 +160,7 @@ func (m *modal) Layout(gtx layout.Context, locked bool, content layout.Widget) b
 	event.Op(gtx.Ops, &m.panel)
 	area.Pop()
 	if visibility == 1 {
+		drawShadow(gtx, image.Rectangle{Max: dims.Size}, gtx.Dp(modalRadius), dialogShadow)
 		call.Add(gtx.Ops)
 		m.layoutToast(gtx, size, dims.Size)
 		return true
@@ -150,6 +169,7 @@ func (m *modal) Layout(gtx layout.Context, locked bool, content layout.Widget) b
 	center := layout.FPt(dims.Size).Mul(.5)
 	defer op.Affine(f32.AffineId().Scale(center, f32.Pt(scale, scale))).Push(gtx.Ops).Pop()
 	defer paint.PushOpacity(gtx.Ops, visibility).Pop()
+	drawShadow(gtx, image.Rectangle{Max: dims.Size}, gtx.Dp(modalRadius), dialogShadow)
 	call.Add(gtx.Ops)
 	m.layoutToast(gtx, size, dims.Size)
 	return true
@@ -182,5 +202,5 @@ func (m *modal) animate(gtx layout.Context) float32 {
 
 // Card animates content-driven changes independently of the dialog's entrance.
 func (m *modal) Card(gtx layout.Context, content layout.Widget, padding unit.Dp) layout.Dimensions {
-	return m.height.Card(gtx, content, padding)
+	return m.height.card(gtx, content, padding, dialogSurface(gtx))
 }

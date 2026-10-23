@@ -23,6 +23,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/widget"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -256,6 +257,7 @@ func (d *shotDialog) render(gtx layout.Context, p *chatPage, l localization.Cata
 	d.results = make(chan shotRender, 1)
 	results := d.results
 	go func() {
+		defer crash.Recover("snapshot", func(e *crash.Panic) { results <- shotRender{err: e}; p.invalidate() })
 		img, err := renderSnapshot(ops, size)
 		results <- shotRender{img, err}
 		p.invalidate()

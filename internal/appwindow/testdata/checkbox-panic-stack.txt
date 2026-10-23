@@ -1,0 +1,25 @@
+goroutine 20 [running]:
+runtime/debug.Stack()
+	C:/Program Files/Go/src/runtime/debug/stack.go:26 +0x5e
+komarugram/internal/crash.Guard.func1()
+	C:/Users/dev/Desktop/komarugram-go/internal/crash/crash.go:44 +0x4a
+panic({0x7ff70a331508?, 0x7ff70a9a9560?})
+	C:/Program Files/Go/src/runtime/panic.go:859 +0x125
+gio-mw/widget/checkbox.(*Checkboxes[...]).Update(0x7ff70915ec40, {{{0x4b0, 0x2d9}, {0x4b0, 0x2d9}}, {0x3f800000, 0x3f800000}, {0xc2ae14214a088e64, 0x616d65699, 0x7ff70aa13d00}, ...})
+	C:/Users/dev/Desktop/komarugram-go/third_party/gio-mw/widget/checkbox/checkbox.go:107 +0x531
+komarugram/internal/messenger/ui.(*registrationOffer).Update(0x16450d83e1a0, {{{0x4b0, 0x2d9}, {0x4b0, 0x2d9}}, {0x3f800000, 0x3f800000}, {0xc2ae14214a088e64, 0x616d65699, 0x7ff70aa13d00}, ...}, ...)
+	C:/Users/dev/Desktop/komarugram-go/internal/messenger/ui/registration_offer.go:108 +0x555
+komarugram/internal/messenger/ui.(*App).Update(0x16450d950408, {{{0x4b0, 0x2d9}, {0x4b0, 0x2d9}}, {0x3f800000, 0x3f800000}, {0xc2ae14214a088e64, 0x616d65699, 0x7ff70aa13d00}, ...})
+	C:/Users/dev/Desktop/komarugram-go/internal/messenger/ui/app.go:851 +0x665
+komarugram/internal/appwindow.run.func2()
+	C:/Users/dev/Desktop/komarugram-go/internal/appwindow/appwindow.go:659 +0xcf
+komarugram/internal/crash.Guard({0x16450fa3c858?, 0x7ff708f02752?}, 0x41f8000000000000?)
+	C:/Users/dev/Desktop/komarugram-go/internal/crash/crash.go:48 +0x63
+komarugram/internal/appwindow.run(0x16450d9b64e0, {{0x7ff709101b5f, 0xd}, {0x7ff708f1044f, 0xe}, 0x44960000, 0x443e0000, {{0x7ff708efd054, 0x2}, 0x0}, ...}, ...)
+	C:/Users/dev/Desktop/komarugram-go/internal/appwindow/appwindow.go:654 +0x19aa
+komarugram/internal/appwindow.runSafely(0x16450d9b64e0, {{0x7ff709101b5f, 0xd}, {0x7ff708f1044f, 0xe}, 0x44960000, 0x443e0000, {{0x7ff708efd054, 0x2}, 0x0}, ...}, ...)
+	C:/Users/dev/Desktop/komarugram-go/internal/appwindow/appwindow.go:500 +0x13a
+komarugram/internal/appwindow.(*Host).Open.func1()
+	C:/Users/dev/Desktop/komarugram-go/internal/appwindow/appwindow.go:467 +0x4c8
+created by komarugram/internal/appwindow.(*Host).Open in goroutine 1
+	C:/Users/dev/Desktop/komarugram-go/internal/appwindow/appwindow.go:459 +0x235

@@ -18,6 +18,7 @@ import (
 	"gioui.org/unit"
 
 	"komarugram/internal/appwindow"
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/install"
 	"komarugram/internal/messenger/localization"
 )
@@ -115,6 +116,7 @@ func (u *Uninstaller) Update(gtx layout.Context) {
 		u.running, u.problem = true, ""
 		data := len(u.data.GetValues()) > 0
 		go func() {
+			defer crash.Recover("uninstall", func(e *crash.Panic) { u.result <- e; u.window.Invalidate() })
 			u.result <- u.uninstallFn(context.Background(), u.inst, data)
 			u.window.Invalidate()
 		}()

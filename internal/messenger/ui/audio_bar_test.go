@@ -94,8 +94,16 @@ func TestAudioPlaysNextAfterTheEnd(t *testing.T) {
 	if next, ok := nextAudio(messages, find("demo/music")); ok {
 		t.Fatalf("music is followed by %+v", next.Media)
 	}
-	if _, ok := nextAudio(messages, find("demo/voice-m4a")); ok {
-		t.Fatal("something follows the last voice message")
+	// Video messages are of the voice messages' kind, as in the official
+	// clients: one follows the last voice message.
+	if next, ok := nextAudio(messages, find("demo/voice-m4a")); !ok || next.Media.ID != "demo/round" {
+		t.Fatalf("after the last voice message comes %+v, not the video message", next.Media)
+	}
+	if before, ok := neighborAudio(messages, find("demo/round"), -1); !ok || before.Media.ID != "demo/voice-m4a" {
+		t.Fatalf("before the video message comes %+v", before.Media)
+	}
+	if _, ok := nextAudio(messages, find("demo/round")); ok {
+		t.Fatal("something follows the last video message")
 	}
 	if _, ok := nextAudio(nil, first); ok {
 		t.Fatal("something follows a message that is not in the history")
@@ -260,5 +268,24 @@ func TestAudioBarClosesWithWhatItShowed(t *testing.T) {
 	frame()
 	if p.audioBar.height.value != 0 || p.audioBar.shown != nil {
 		t.Fatal("the bar keeps what it showed after it closed")
+	}
+}
+
+// A message that plays in a section of the info goes on to the next of the
+// section's list, not of the chat's history.
+func TestAudioGoesOnThroughTheSharedList(t *testing.T) {
+	p, played, find := audioHarnessPage(t)
+	first, second, third := find("demo/voice"), find("demo/voice-bare"), find("demo/voice-mp3")
+	p.chat = 2
+	p.audioList = func() []model.Message { return []model.Message{first, third} }
+	p.audio.toggle(p, first, -1)
+	waitAudio(t, "it did not start", func() bool { return p.audio.state(first).playing })
+	if _, after := p.audio.around(); !after {
+		t.Fatal("the bar sees nothing after the first of the list")
+	}
+	played(0).end()
+	waitAudio(t, "the next of the list did not start", func() bool { return p.audio.state(third).playing })
+	if p.audio.state(second).playing {
+		t.Fatal("the chat's history was followed, not the list")
 	}
 }

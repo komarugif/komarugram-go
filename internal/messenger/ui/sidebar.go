@@ -26,6 +26,7 @@ const (
 	sectionProfile
 	sectionSaved
 	sectionSettings
+	sectionDownloads
 )
 
 // section is what the sidebar has selected.
@@ -36,19 +37,22 @@ type section struct {
 
 // showsChats reports whether the chat list is shown next to the page.
 func (s section) showsChats() bool {
-	return s.kind != sectionProfile && s.kind != sectionSettings
+	return s.kind != sectionProfile && s.kind != sectionSettings && s.kind != sectionDownloads
 }
 
 // sidebar is the always visible column of section buttons.
 type sidebar struct {
-	all      navButton
-	folders  map[int64]*navButton
-	search   navButton
-	profile  navButton
-	saved    navButton
-	settings navButton
-	theme    navButton
-	list     scroll.List
+	menus     menuPreferences
+	account   func() string
+	all       navButton
+	folders   map[int64]*navButton
+	search    navButton
+	profile   navButton
+	saved     navButton
+	downloads navButton
+	settings  navButton
+	theme     navButton
+	list      scroll.List
 }
 
 func newSidebar() *sidebar {
@@ -67,27 +71,30 @@ type sidebarEvents struct {
 func (s *sidebar) Update(gtx layout.Context, folders []model.Folder) sidebarEvents {
 	var ev sidebarEvents
 	pick := func(sec section) { ev.section = &sec }
-	if s.all.Clicked(gtx) {
+	if s.visible("all") && s.all.Clicked(gtx) {
 		pick(section{kind: sectionAll})
 	}
 	for _, f := range folders {
-		if s.folderButton(f.ID).Clicked(gtx) {
+		if s.visible(navigationID(drawerKey{section: section{kind: sectionFolder, folder: f.ID}}, s.accountID())) && s.folderButton(f.ID).Clicked(gtx) {
 			pick(section{kind: sectionFolder, folder: f.ID})
 		}
 	}
-	if s.search.Clicked(gtx) {
+	if s.visible("search") && s.search.Clicked(gtx) {
 		pick(section{kind: sectionSearch})
 	}
-	if s.profile.Clicked(gtx) {
+	if s.visible("profile") && s.profile.Clicked(gtx) {
 		pick(section{kind: sectionProfile})
 	}
-	if s.saved.Clicked(gtx) {
+	if s.visible("saved") && s.saved.Clicked(gtx) {
 		pick(section{kind: sectionSaved})
 	}
-	if s.settings.Clicked(gtx) {
+	if s.visible("downloads") && s.downloads.Clicked(gtx) {
+		pick(section{kind: sectionDownloads})
+	}
+	if s.visible("settings") && s.settings.Clicked(gtx) {
 		pick(section{kind: sectionSettings})
 	}
-	if s.theme.Clicked(gtx) {
+	if s.visible("theme") && s.theme.Clicked(gtx) {
 		ev.toggleTheme = true
 	}
 	return ev
@@ -140,10 +147,39 @@ func (s *sidebar) Layout(gtx layout.Context, current section, folders []model.Fo
 		button(&s.search, iconSearch, l.T("nav.search"), current.kind == sectionSearch, 0),
 		button(&s.profile, iconProfile, l.T("nav.profile"), current.kind == sectionProfile, 0),
 		button(&s.saved, iconSaved, l.T("nav.saved"), current.kind == sectionSaved, 0),
+		button(&s.downloads, iconDownloads, l.T("nav.downloads"), current.kind == sectionDownloads, 0),
 		button(&s.settings, iconSettings, l.T("nav.settings"), current.kind == sectionSettings, 0),
 		button(&s.theme, themeIcon, themeText, false, 0),
 	}
 
+	ids := []string{"all"}
+	for _, f := range folders {
+		ids = append(ids, navigationID(drawerKey{section: section{kind: sectionFolder, folder: f.ID}}, s.accountID()))
+	}
+	ids = append(ids, "search", "profile", "saved", "downloads", "settings", "theme")
+	widgets := append(top, bottom...)
+	byID := map[string]layout.Widget{}
+	for i, id := range ids {
+		byID[id] = widgets[i]
+	}
+	ids = s.menus.layout(menuSidebar).Arrange(ids, false)
+	split := len(ids)
+	for split > 0 {
+		id := ids[split-1]
+		if id != "search" && id != "profile" && id != "saved" && id != "downloads" && id != "settings" && id != "theme" {
+			break
+		}
+		split--
+	}
+	top = nil
+	bottom = nil
+	for i, id := range ids {
+		if i < split {
+			top = append(top, byID[id])
+		} else {
+			bottom = append(bottom, byID[id])
+		}
+	}
 	pad := gtx.Dp(8)
 	step := gtx.Dp(navButtonHeight) + gtx.Dp(4)
 	x := (size.X - gtx.Dp(navButtonWidth)) / 2
@@ -161,4 +197,14 @@ func (s *sidebar) Layout(gtx layout.Context, current section, folders []model.Fo
 		})
 	})
 	return layout.Dimensions{Size: size}
+}
+
+func (s *sidebar) accountID() string {
+	if s.account == nil {
+		return ""
+	}
+	return s.account()
+}
+func (s *sidebar) visible(id string) bool {
+	return len(s.menus.layout(menuSidebar).Arrange([]string{id}, false)) > 0
 }

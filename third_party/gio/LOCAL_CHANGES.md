@@ -560,6 +560,15 @@ Run the focused check from the project root:
   - `app/window.go`: a device lost on `Present` is let go and the next frame
     drawn with a new one, as a device lost while drawing is; the window used
     to close with "GPU device lost". `TestDeviceLostOnPresentDrawsAgain`.
+  - `gpu/gpu.go`, `internal/d3d11/d3d11_windows.go`: a device lost while a
+    frame makes its resources is returned from `Frame` as `ErrDeviceLost`,
+    and the window draws again with a new device. The frame panics on any
+    failure to make them, and the Direct3D 11 of VirtualBox's driver for
+    Windows 7 without Aero removes the device now and then
+    (`DeviceCreateBuffer: 0x887a0005`, `DXGI_ERROR_DEVICE_REMOVED`): the
+    panic ended the process. `d3d11.ErrorCode` tells such codes by its
+    `DeviceLost`; other panics go on. `TestDeviceLostInAFrameIsReturned`,
+    `TestOtherPanicsInAFrameGoOn`.
   - `app/os_windows.go`, `app/internal/windows/translucency.go`,
     `app/glass_windows.go`, `app/glass_other.go`: `BlurBehind` is Aero's
     glass on Windows 7, where there is no acrylic: `DwmEnableBlurBehindWindow` over all of the window,
@@ -593,3 +602,40 @@ Run the focused check from the project root:
   a window makes its GPU and invalidates the window when it changed, so the
   frame laid out before is laid out again. Checked on Linux with llvmpipe;
   WARP not checked.
+
+- `io/key`, `io/input`, `app/internal/physical`, and desktop/web key backends:
+  `Event.Physical` and `Filter.Physical` expose unshifted US hardware positions
+  independently of text and logical names. XKB key names, Windows scan codes,
+  macOS key codes and DOM codes feed a common vocabulary; unsupported positions
+  remain empty. Existing logical filters and IME composition remain unchanged.
+  Tests compare platform mappings and dispatch real US/Dvorak/Russian/German XKB
+  maps, including modifiers and Shift. Messenger command remapping uses these
+  filters; text editing keeps the logical event stream.
+
+- `io/input/router.go` (`Router.Frame`): a frame that removes the focused
+  handler, which drops the focus, asks for another frame at once. Upstream
+  drops it silently, and a widget that takes the keyboard when nobody holds
+  it (the messenger's message field, as Telegram Desktop's) saw that only
+  at the next event. `TestKeyLostFocusWakes`.
+- `widget/editor.go`, `widget/selectable.go`, `widget/text.go` (`arrow`):
+  the left or right arrow without Shift collapses a selection to its edge
+  on the side of the arrow, the caret going no further, as GTK, Qt and the
+  browsers have it. Upstream cleared the selection and moved the caret a
+  step from where it was, which Select All leaves at the start of the text:
+  the right arrow put it after the first character; and the editor did not
+  take the left arrow there at all, the caret being at the start, so the
+  selection stayed. With a selection, the editor takes the arrows at either
+  end of the text. `TestArrowCollapsesSelection`.
+- `layout/list.go` (`List.init`): a list whose child panicked in an earlier
+  frame starts again, instead of panicking with "unfinished child". The
+  messenger drops a frame whose layout panicked and draws the next one, but
+  a list the panic left in the middle of a child panicked in every frame
+  after it, and the window never came back. A nested Layout of the list,
+  in the same frame (the same `gtx.Now`), still panics.
+  `TestListAfterPanickedChild`.
+- `widget/editor.go` (`Editor.HideText`, `Editor.PaintText`): an editor can
+  leave its glyphs out of `Layout` and have the caller paint them, as the
+  messenger's message field does to show the formatting of what is typed
+  (bold, italic, links) the way Telegram Desktop's field shows it: parts of
+  the text drawn over, slanted or in another color, by the regions the
+  editor reports. Upstream's editor paints all of its text in one material.

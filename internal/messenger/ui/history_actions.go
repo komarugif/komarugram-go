@@ -16,14 +16,15 @@ import (
 	"gio-mw/widget/scroll"
 
 	"gioui.org/gpu/headless"
-	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/widget"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
+	"komarugram/pkg/userdirs"
 )
 
 // selectionBar holds the buttons over selected messages, as Telegram
@@ -217,8 +218,9 @@ func (p *chatPage) openForwardParts(gtx layout.Context, parts []model.Message, s
 	if f.rows == nil {
 		f.rows = map[int64]*surface{}
 	}
+	// The search takes the keyboard from the message field.
+	f.modal.field = &f.search
 	f.modal.Open()
-	gtx.Execute(key.FocusCmd{Tag: &f.search})
 	gtx.Execute(op.InvalidateCmd{})
 }
 
@@ -284,6 +286,7 @@ func (p *chatPage) forward(target model.Chat) {
 		ctx = p.composer.ctx
 	}
 	go func() {
+		defer crash.Recover("forward", func(e *crash.Panic) { results <- e; p.invalidate() })
 		ctx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()
 		results <- source.ForwardMessages(ctx, from, ids, target.ID)
@@ -425,50 +428,13 @@ func saveSnapshot(png []byte, name string) (string, error) {
 	return path, os.WriteFile(path, png, 0o644)
 }
 
-// picturesDir is the user's pictures directory: XDG_PICTURES_DIR on Linux,
-// Pictures in the home directory elsewhere, or the home directory itself.
-func picturesDir() string {
-	return userDir("XDG_PICTURES_DIR", "Pictures")
-}
-
-// downloadsDir is the user's downloads directory: XDG_DOWNLOAD_DIR on
-// Linux, Downloads in the home directory elsewhere, or the home directory
-// itself.
-func downloadsDir() string {
-	return userDir("XDG_DOWNLOAD_DIR", "Downloads")
-}
-
-// userDir is the user's directory that xdg names in user-dirs.dirs on
-// Linux, and name in the home directory elsewhere, when there is one.
-func userDir(xdg, name string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return os.TempDir()
-	}
-	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" || runtime.GOOS == "openbsd" {
-		config, err := os.UserConfigDir()
-		if err == nil {
-			if b, err := os.ReadFile(filepath.Join(config, "user-dirs.dirs")); err == nil {
-				for _, line := range strings.Split(string(b), "\n") {
-					value, ok := strings.CutPrefix(strings.TrimSpace(line), xdg+"=")
-					if !ok {
-						continue
-					}
-					value = strings.Trim(value, `"`)
-					value = strings.Replace(value, "$HOME", home, 1)
-					if value != "" && value != home {
-						return value
-					}
-				}
-			}
-		}
-	}
-	dir := filepath.Join(home, name)
-	if _, err := os.Stat(dir); err == nil {
-		return dir
-	}
-	return home
-}
+// picturesDir and downloadsDir are the user's pictures and downloads
+// directories, which may not exist yet. Tests save elsewhere: on Windows the
+// system names them, whatever the environment says.
+var (
+	picturesDir  = userdirs.Pictures
+	downloadsDir = userdirs.Downloads
+)
 
 // canRepeat reports whether m may be sent again, as AyuGram's Repeat
 // Message does: a message that may be forwarded, in a private chat or a
@@ -492,6 +458,7 @@ func (p *chatPage) repeat(m model.Message) {
 	}
 	chat := p.chat
 	go func() {
+		defer crash.Recover("forward to the chat", func(e *crash.Panic) { p.reportMedia(e) })
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := forwarder.ForwardMessages(ctx, chat, ids, chat); err != nil {

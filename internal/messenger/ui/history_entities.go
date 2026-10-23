@@ -29,14 +29,16 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
 
 // messageRuns are the runs of m's text with its dates written as l writes
 // them at now, as Telegram Desktop writes a date entity with a format, and
-// when a relative one among them changes next (zero for never).
-func messageRuns(m model.Message, l localization.Catalog, now time.Time) ([]model.TextRun, time.Time) {
+// its timestamps up to stamps linked (none for 0), and when a relative date
+// among them changes next (zero for never).
+func messageRuns(m model.Message, l localization.Catalog, now time.Time, stamps time.Duration) ([]model.TextRun, time.Time) {
 	var next time.Time
 	text, entities := model.FormatDates(m.Text, m.Entities, func(e model.Entity) string {
 		if e.Date == 0 {
@@ -48,13 +50,16 @@ func messageRuns(m model.Message, l localization.Catalog, now time.Time) ([]mode
 		}
 		return s
 	})
+	entities = model.TimestampEntities(text, entities, stamps)
 	return model.TextRuns(text, entities), next
 }
 
-// newMessageRow is the row of m, with its text's runs.
+// newMessageRow is the row of m, with its text's runs; its timestamps are
+// linked once refreshStamps finds what they name times of.
 func newMessageRow(m model.Message, l localization.Catalog, now time.Time) *messageRow {
 	r := &messageRow{revision: m.ContentRevision, noCopy: m.NoForwards, sender: m.SenderID, source: m.Text, language: l.Language(), key: m.Key, streaming: m.Streaming}
-	r.runs, r.datesDue = messageRuns(m, l, now)
+	r.stampable = m.Rich == nil && model.MayHaveTimestamps(m.Text)
+	r.runs, r.datesDue = messageRuns(m, l, now, 0)
 	r.prepareArticle(m, l, now)
 	return r
 }
@@ -92,8 +97,14 @@ func (r *messageRow) refreshDates(gtx layout.Context, m model.Message, l localiz
 		}
 		return
 	}
+	r.rewrite(gtx, m, l)
+}
+
+// rewrite makes r's runs again from m, keeping what the reader did with
+// its blocks, and asks for a frame when a relative date changes next.
+func (r *messageRow) rewrite(gtx layout.Context, m model.Message, l localization.Catalog) {
 	old := r.textBlocks
-	r.runs, r.datesDue = messageRuns(m, l, gtx.Now)
+	r.runs, r.datesDue = messageRuns(m, l, gtx.Now, r.stamp.limit)
 	r.prepareArticle(m, l, gtx.Now)
 	r.language = l.Language()
 	r.textBlocks = nil
@@ -251,6 +262,9 @@ func (p *chatPage) activateRun(gtx layout.Context, r *messageRow, run model.Text
 			p.openEntityMenu(gtx, entityTarget{kind: "date", date: run.Date, text: r.source})
 		}
 		return
+	case "timestamp":
+		p.openTimestamp(gtx, r, run.Value, localization.For(string(r.language)))
+		return
 	case "button":
 		// A button in an article's text, pressed as one under a message.
 		if run.Button != nil {
@@ -333,13 +347,13 @@ type entityTarget struct {
 // opens when clicked, as Telegram Desktop's: what can be copied, and what
 // Telegram says of the number, asked for when the menu opens.
 type entityMenu struct {
-	menu   contextMenu
-	open   bool
-	target entityTarget
-	at     image.Point
-	rect   image.Rectangle
-	corner menuCorner
-	items  []surface
+	menu       contextMenu
+	open       bool
+	target     entityTarget
+	at         image.Point
+	rect       image.Rectangle
+	corner     menuCorner
+	keyedItems map[string]*surface
 	// dismiss takes clicks around the open menu; panel, those on it;
 	// presses, every press on the page, which press is the last of.
 	dismiss, panel, presses byte
@@ -365,6 +379,7 @@ type entityLookup struct {
 // choosing it does; nil for a line that only tells.
 type entityItem struct {
 	text, sub string
+	group     string
 	icon      wdk.IconWidget
 	do        func(gtx layout.Context)
 }
@@ -374,6 +389,7 @@ func (p *chatPage) openEntityMenu(gtx layout.Context, t entityTarget) {
 	m := &p.entityMenu
 	m.close()
 	m.open, m.target, m.at = true, t, m.press
+	m.keyedItems = nil
 	m.menu = contextMenu{}
 	m.results = nil
 	invalidate := p.invalidate
@@ -406,6 +422,13 @@ func (p *chatPage) openEntityMenu(gtx layout.Context, t entityTarget) {
 		m.cancel, m.loading, m.results = cancel, true, results
 		go func() {
 			defer cancel()
+			// A lookup that panics finds nothing.
+			defer crash.Recover("entity lookup", func(*crash.Panic) {
+				results <- entityLookup{}
+				if invalidate != nil {
+					invalidate()
+				}
+			})
 			results <- lookup(ctx)
 			if invalidate != nil {
 				invalidate()
@@ -441,44 +464,57 @@ func (p *chatPage) entityItems(l localization.Catalog) []entityItem {
 	var items []entityItem
 	switch t.kind {
 	case "phone":
-		items = append(items, entityItem{text: l.T("phone.copy"), icon: iconCopy, do: copyText(strings.TrimSpace(t.value), "")})
+		items = append(items, entityItem{group: "copy", text: l.T("phone.copy"), icon: iconCopy, do: copyText(strings.TrimSpace(t.value), "")})
 		if _, ok := p.source.(model.PhoneResolver); ok {
 			switch {
 			case m.loading:
-				items = append(items, entityItem{text: l.T("phone.loading"), icon: iconProfile})
+				items = append(items, entityItem{group: "profile", text: l.T("phone.loading"), icon: iconProfile})
 			case m.chat != nil:
 				chat := *m.chat
-				items = append(items, entityItem{text: chat.Title, sub: l.T("phone.profile"), icon: iconProfile, do: func(layout.Context) {
+				items = append(items, entityItem{group: "profile", text: chat.Title, sub: l.T("phone.profile"), icon: iconProfile, do: func(layout.Context) {
 					if p.openChat != nil {
 						p.openChat(chat, 0)
 					}
 				}})
 			default:
-				items = append(items, entityItem{text: l.T("phone.not_telegram"), icon: iconProfile})
+				items = append(items, entityItem{group: "profile", text: l.T("phone.not_telegram"), icon: iconProfile})
 			}
 		}
 	case "bank_card":
 		copyCard := copyText(t.value, l.T("card.copied"))
-		items = append(items, entityItem{text: l.T("card.copy"), icon: iconCopy, do: copyCard})
+		items = append(items, entityItem{group: "copy", text: l.T("card.copy"), icon: iconCopy, do: copyCard})
 		if m.loading {
-			items = append(items, entityItem{text: l.T("phone.loading"), icon: iconOpenInBrowser})
+			items = append(items, entityItem{group: "links", text: l.T("phone.loading"), icon: iconOpenInBrowser})
 		} else if m.card != nil {
 			for _, link := range m.card.Links {
 				url := link.URL
-				items = append(items, entityItem{text: link.Name, icon: iconOpenInBrowser, do: func(layout.Context) { p.askLink(url) }})
+				items = append(items, entityItem{group: "links", text: link.Name, icon: iconOpenInBrowser, do: func(layout.Context) { p.askLink(url) }})
 			}
 			if m.card.Title != "" {
-				items = append(items, entityItem{text: m.card.Title, do: copyCard})
+				items = append(items, entityItem{group: "title", text: m.card.Title, do: copyCard})
 			}
 		}
 	case "date":
 		date := time.Unix(t.date, 0)
 		items = append(items,
-			entityItem{text: l.T("date.copy"), icon: iconCopy, do: copyText(longDateTime(l, date), l.T("date.copied"))},
-			entityItem{text: l.T("date.calendar"), icon: iconCalendar, do: func(layout.Context) { p.addToCalendar(t.date, longDateTime(l, date), t.text, l) }},
+			entityItem{group: "copy", text: l.T("date.copy"), icon: iconCopy, do: copyText(longDateTime(l, date), l.T("date.copied"))},
+			entityItem{group: "calendar", text: l.T("date.calendar"), icon: iconCalendar, do: func(layout.Context) { p.addToCalendar(t.date, longDateTime(l, date), t.text, l) }},
 		)
 	}
-	return items
+	groups := []string{}
+	byGroup := map[string][]entityItem{}
+	for _, item := range items {
+		if len(byGroup[item.group]) == 0 {
+			groups = append(groups, item.group)
+		}
+		byGroup[item.group] = append(byGroup[item.group], item)
+	}
+	groups = p.menus.layout("entity_"+t.kind).Arrange(groups, false)
+	out := []entityItem{}
+	for _, group := range groups {
+		out = append(out, byGroup[group]...)
+	}
+	return out
 }
 
 // watch takes the presses on the page before the messages take their
@@ -531,18 +567,31 @@ func (p *chatPage) entityMenuLayout(gtx layout.Context, l localization.Catalog) 
 		}
 	}
 	items := p.entityItems(l)
-	if len(m.items) < len(items) {
-		m.items = append(m.items, make([]surface, len(items)-len(m.items))...)
+	if m.keyedItems == nil {
+		m.keyedItems = map[string]*surface{}
+	}
+	buttons := make([]*surface, len(items))
+	for i, it := range items {
+		id := it.group + "/" + it.text + "/" + it.sub
+		if m.keyedItems[id] == nil {
+			m.keyedItems[id] = new(surface)
+		}
+		buttons[i] = m.keyedItems[id]
 	}
 	if m.open {
 		for i, it := range items {
-			if m.items[i].Clicked(gtx) && it.do != nil {
+			if buttons[i].Clicked(gtx) && it.do != nil {
 				it.do(gtx)
 				m.close()
 				gtx.Execute(op.InvalidateCmd{})
 			}
 		}
 	}
+	if len(items) == 0 {
+		m.close()
+		return
+	}
+
 	size := gtx.Constraints.Max
 	heights := make([]int, len(items))
 	h := 2 * gtx.Dp(menuPadding)
@@ -611,7 +660,7 @@ func (p *chatPage) entityMenuLayout(gtx layout.Context, l localization.Catalog) 
 				if it.do == nil {
 					return draw(gtx)
 				}
-				return m.items[i].Layout(gtx, row, style, draw)
+				return buttons[i].Layout(gtx, row, style, draw)
 			})
 			y += heights[i]
 		}

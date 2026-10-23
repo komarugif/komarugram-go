@@ -5,7 +5,6 @@ package miniapp
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -183,7 +182,7 @@ func (p *Page) sectionStatus(gtx layout.Context) layout.Dimensions {
 func (p *Page) statusText(gtx layout.Context) string {
 	switch {
 	case !miniapp.Available():
-		if choice := os.Getenv(miniapp.BrowserEnv); choice != "" {
+		if choice := miniapp.BrowserChoice(); choice != "" {
 			return miniapp.BrowserEnv + " names " + choice + ", which was not found"
 		}
 		return "no Chromium-based browser or Firefox found"

@@ -9,6 +9,7 @@ import (
 
 	"gio-mw/token"
 	"gioui.org/layout"
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -41,6 +42,18 @@ func (p *chatPage) membershipSource() model.MembershipStore {
 	s, _ := p.source.(model.MembershipStore)
 	return s
 }
+
+// joinKey is the text of the button that joins a chat: Telegram Desktop's
+// join_channel, join_group and apply_to_join_group.
+func joinKey(m model.ChatMembership) string {
+	switch {
+	case m.Broadcast:
+		return "membership.join"
+	case m.Request:
+		return "membership.apply"
+	}
+	return "membership.join_group"
+}
 func (p *chatPage) canLeaveChat() bool {
 	s := p.membershipSource()
 	if s == nil || p.threadRoot != 0 || p.frozen.Frozen() {
@@ -64,6 +77,7 @@ func (p *chatPage) startMembership(chat int64, operation membershipOperation) {
 		ctx = p.composer.ctx
 	}
 	go func() {
+		defer crash.Recover("membership", func(e *crash.Panic) { results <- membershipResult{operation: operation, err: e}; p.invalidate() })
 		ctx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()
 		result := membershipResult{operation: operation}
@@ -89,12 +103,25 @@ func (p *chatPage) askLeave() {
 	d.modal.Open()
 	p.startMembership(p.chat, membershipPrepare)
 }
-func membershipError(err error, l localization.Catalog) string {
+
+// membershipError words a failure of joining or leaving; broadcast tells a
+// channel from a group in the texts that differ.
+func membershipError(err error, broadcast bool, l localization.Catalog) string {
 	switch {
 	case errors.Is(err, model.ErrJoinVerification):
 		return l.T("membership.verification")
 	case errors.Is(err, model.ErrJoinRequested):
+		if broadcast {
+			return l.T("membership.request_sent_channel")
+		}
 		return l.T("membership.request_sent")
+	case errors.Is(err, model.ErrJoinFull):
+		return l.T("membership.full")
+	case errors.Is(err, model.ErrChatInaccessible):
+		if broadcast {
+			return l.T("links.channel_not_accessible")
+		}
+		return l.T("links.group_not_accessible")
 	case errors.Is(err, model.ErrLeavePlanChanged):
 		return l.T("membership.changed")
 	case errors.Is(err, model.ErrOwnerCannotLeave):
@@ -120,9 +147,9 @@ func (p *chatPage) updateMembership(chat int64, l localization.Catalog) {
 		}
 		if result.err != nil {
 			if d.modal.Shown() {
-				d.modal.Toast(membershipError(result.err, l))
+				d.modal.Toast(membershipError(result.err, d.broadcast, l))
 			} else {
-				p.toast.Show(membershipError(result.err, l))
+				p.toast.Show(membershipError(result.err, d.broadcast, l))
 			}
 			if errors.Is(result.err, model.ErrLeavePlanChanged) {
 				d.ready = false

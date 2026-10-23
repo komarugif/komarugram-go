@@ -7,6 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"gioui.org/layout"
+	"gioui.org/op"
+
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -27,6 +31,27 @@ type groupOnline struct {
 	asked time.Time
 }
 
+// chatStatusLine is the line under the chat's name in its header, or in
+// its profile when full: chatStatusOnline, or when a user was online, as
+// Telegram Desktop tells it. active is set while the user is online, which
+// the line shows in the accent color. Hiding who is online leaves a user's
+// line as it was before Telegram told it: last seen recently.
+func (p *chatPage) chatStatusLine(gtx layout.Context, c model.Chat, full bool, l localization.Catalog) (line string, active bool) {
+	source, ok := p.source.(model.PresenceSource)
+	if c.Kind != model.KindUser || !ok || calmOf(gtx)&calmOnline != 0 {
+		return p.chatStatusOnline(c, gtx.Now, l), false
+	}
+	source.RefreshPresence(c.ID)
+	presence, known := source.Presence(c.ID)
+	if !known {
+		return chatStatus(c, l), false
+	}
+	if at := presenceChange(presence, gtx.Now); !at.IsZero() {
+		gtx.Execute(op.InvalidateCmd{At: at})
+	}
+	return presenceText(presence, gtx.Now, full, l), presence.Online(gtx.Now)
+}
+
 // chatStatusOnline is chatStatus with the members online, when more than
 // the account is.
 func (p *chatPage) chatStatusOnline(c model.Chat, now time.Time, l localization.Catalog) string {
@@ -45,6 +70,7 @@ func (p *chatPage) chatStatusOnline(c model.Chat, now time.Time, l localization.
 		o.asked = now
 		chat := c.ID
 		go func() {
+			defer crash.Recover("online count", nil)
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			n, err := details.Online(ctx, chat)

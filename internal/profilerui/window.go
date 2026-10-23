@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"komarugram/internal/appwindow"
+	"komarugram/internal/crash"
 	"komarugram/internal/diagnostics"
 
 	"gio-mw/defaults"
@@ -89,6 +90,13 @@ func (v *View) Update(gtx layout.Context) {
 		if v.captures[i].Clicked(gtx) {
 			v.status = "Запись " + kind + "…"
 			go func() {
+				defer crash.Recover("profile capture", func(e *crash.Panic) {
+					select {
+					case v.results <- "Ошибка записи: " + e.Error():
+					default:
+					}
+					v.window.Invalidate()
+				})
 				path, err := v.recorder.Capture(v.directory, kind)
 				message := path
 				if err != nil {

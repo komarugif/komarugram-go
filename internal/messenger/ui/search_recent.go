@@ -27,6 +27,7 @@ import (
 
 // recentSearch is the search history part of the search panel.
 type recentSearch struct {
+	menus menuPreferences
 	store model.RecentChats
 	// shown are the chats the list shows this frame, none while something
 	// is typed.
@@ -132,11 +133,11 @@ func (r *recentSearch) update(gtx layout.Context) {
 			}
 		}
 	}
-	if r.remove.Clicked(gtx) {
+	if r.menuVisible("remove") && r.remove.Clicked(gtx) {
 		r.store.RemoveRecentChat(r.id)
 		r.open = false
 	}
-	if r.all.Clicked(gtx) {
+	if r.menuVisible("all") && r.all.Clicked(gtx) {
 		r.open = false
 		r.confirm.Open()
 	}
@@ -191,7 +192,12 @@ func (r *recentSearch) layoutMenu(gtx layout.Context, bd *blurBackdrop, l locali
 	}
 	margin := gtx.Dp(8)
 	w := min(gtx.Dp(menuWidth), max(0, size.X-2*margin))
-	h := 2*gtx.Dp(menuPadding) + 2*gtx.Dp(menuItemHeight)
+	order := arrangeMenu(r.menus, menuRecent, []string{"remove", "all"}, func(s string) string { return s })
+	if len(order) == 0 {
+		r.open = false
+		return
+	}
+	h := 2*gtx.Dp(menuPadding) + len(order)*gtx.Dp(menuItemHeight)
 	rect, corner := r.menu.Place(gtx, r.at, size, image.Pt(w, h))
 	r.rect = rect
 	radius := gtx.Dp(12)
@@ -203,10 +209,16 @@ func (r *recentSearch) layoutMenu(gtx layout.Context, bd *blurBackdrop, l locali
 		// The menu takes its own clicks from the dismissing area under it.
 		event.Op(gtx.Ops, &r.menu)
 		y := gtx.Dp(menuPadding)
-		for _, item := range []struct {
-			s    *surface
-			text string
-		}{{&r.remove, l.T("search.recent_remove")}, {&r.all, l.T("search.recent_clear_all")}} {
+		for _, id := range order {
+			item := struct {
+				s    *surface
+				text string
+			}{&r.remove, l.T("search.recent_remove")}
+			if id == "all" {
+				item.s = &r.all
+				item.text = l.T("search.recent_clear_all")
+			}
+
 			inRect(gtx, image.Rect(0, y, menuSize.X, y+gtx.Dp(menuItemHeight)), func(gtx layout.Context) layout.Dimensions {
 				row := gtx.Constraints.Max
 				style := surfaceStyle{background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor, button: item.text}
@@ -250,4 +262,8 @@ func (r *recentSearch) layoutConfirm(gtx layout.Context, l localization.Catalog)
 			)
 		}, defaultCardPadding)
 	})
+}
+
+func (r *recentSearch) menuVisible(id string) bool {
+	return len(r.menus.layout(menuRecent).Arrange([]string{id}, false)) > 0
 }

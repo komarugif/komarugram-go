@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
@@ -101,6 +102,7 @@ func (p *chatPage) deleteSelected(revoke bool) {
 		ctx = p.composer.ctx
 	}
 	go func() {
+		defer crash.Recover("delete messages", func(e *crash.Panic) { results <- e; p.invalidate() })
 		ctx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()
 		err := source.DeleteMessages(ctx, chat, ids, revoke)

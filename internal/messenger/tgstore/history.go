@@ -59,6 +59,10 @@ type peerRights struct {
 	// Muted: the account may not send messages (banned, left, or members
 	// may not write).
 	Muted bool `json:",omitempty"`
+	// DirectMessagesID is the chat of a channel's direct messages, 0 for
+	// none; Monoforum marks that chat.
+	DirectMessagesID int64 `json:",omitempty"`
+	Monoforum        bool  `json:",omitempty"`
 	// Left: the account is not in the channel, so Telegram does not push
 	// its updates.
 	Left bool `json:",omitempty"`
@@ -66,6 +70,8 @@ type peerRights struct {
 	// discussion group takes comments only from members.
 	Banned     bool `json:",omitempty"`
 	JoinToSend bool `json:",omitempty"`
+	// JoinRequest: joining a supergroup waits for an admin's approval.
+	JoinRequest bool `json:",omitempty"`
 }
 
 func (p peerRecord) input() tg.InputPeerClass {
@@ -84,6 +90,8 @@ func (p peerRecord) input() tg.InputPeerClass {
 }
 
 type conversation struct {
+	// mediaDir is where the cache keeps large media, beside it when empty.
+	mediaDir      string
 	persist       sync.Mutex
 	avatars       map[int64]avatarSnapshot
 	top           map[int64]int
@@ -132,6 +140,8 @@ type conversation struct {
 	firsts map[int64]int
 	// drafts are the messages bots stream: see drafts.go.
 	drafts streamedDrafts
+	// pending are the account's messages on their way.
+	pending pendingMessages
 }
 type viewSave struct {
 	view    model.Viewport
@@ -141,6 +151,16 @@ type viewSave struct {
 func newConversation() *conversation {
 	return &conversation{top: map[int64]int{}, globalDeleted: map[int]bool{}, ctx: context.Background(), peers: map[int64]peerRecord{}, histories: map[int64]*model.History{}, epochs: map[int64]uint64{}, reveals: map[int64]model.MessageID{}, views: map[int64]model.Viewport{}, refs: map[string]fileLocation{}, touched: map[model.MessageKey]uint64{}, deleted: map[model.MessageKey]bool{}, saves: make(chan viewSave, 64), live: map[int64]bool{}, firsts: map[int64]int{}}
 }
+
+// SetMediaDir keeps the account's large media in dir; it is called before
+// Configure.
+func (s *Store) SetMediaDir(dir string) {
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.mediaDir = dir
+}
+
 func (s *Store) Configure(ctx context.Context, account, path string, p *security.Manager) error {
 	c := s.history
 	c.mu.Lock()
@@ -151,6 +171,9 @@ func (s *Store) Configure(ctx context.Context, account, path string, p *security
 	if cache == nil {
 		if cache, e = historycache.Open(path, account, p); e != nil {
 			return e
+		}
+		if c.mediaDir != "" {
+			cache.SetMediaDir(c.mediaDir)
 		}
 		c.cache = cache
 		c.wg.Go(func() {
@@ -334,6 +357,9 @@ func (s *Store) rememberPeers(users []tg.UserClass, chats []tg.ChatClass) {
 				}
 				c.peers[key] = old
 			}
+			if u.Status != nil {
+				s.setPresence(u.ID, u.Status)
+			}
 			p := c.peers[key]
 			if photo, ok := u.Photo.(*tg.UserProfilePhoto); ok {
 				p.Photo = &avatarRecord{photo.PhotoID, photo.DCID, photo.HasVideo, photo.StrippedThumb}
@@ -369,6 +395,7 @@ func (s *Store) rememberPeers(users []tg.UserClass, chats []tg.ChatClass) {
 			if ch.Min && p.Rights.Known {
 				p.Rights.Default = bannedKinds(ch.DefaultBannedRights)
 				p.Rights.JoinToSend = ch.JoinToSend
+				p.Rights.JoinRequest = ch.JoinRequest
 				p.Rights.Gigagroup = ch.Gigagroup
 				p.Rights.HasDiscussion = ch.HasLink
 				if !ch.HasLink {
@@ -512,7 +539,7 @@ func (s *Store) History(chat int64) model.History {
 	defer c.mu.Unlock()
 	if h := c.histories[chat]; h != nil {
 		out := *h
-		out.Messages = append([]model.Message(nil), h.Messages...)
+		out.Messages = append(append([]model.Message(nil), h.Messages...), c.pendingMessagesOf(chat, h.Messages)...)
 		return out
 	}
 	return model.History{LoadingOlder: true}
@@ -740,6 +767,9 @@ func (s *Store) fetchAt(epoch uint64, chat int64, dir, anchor int) {
 	if e == nil && dir <= 0 {
 		s.noteFirst(ctx, chat, msgs)
 	}
+	if e == nil && dir == 0 && anchor != 0 {
+		s.learnTop(ctx, api, peer, chat, modified.GetMessages(), anchor, req.Limit)
+	}
 	// Telegram's page lacks the messages kept deleted; the cache has them.
 	for _, m := range cached {
 		if m.Deleted {
@@ -747,6 +777,42 @@ func (s *Store) fetchAt(epoch uint64, chat int64, dir, anchor int) {
 		}
 	}
 	s.finishPageAt(epoch, chat, dir, msgs, len(modified.GetMessages()) >= req.Limit, e, start)
+}
+
+// learnTop learns the newest message of a chat opened at a message
+// (anchor), which a chat the account is not in, as a channel opened from a
+// link or a search, has no dialog to tell: whether newer messages follow
+// the history is told by it, and without it a channel opened in its past
+// had none, its newer messages never loaded. The page around anchor tells
+// it when it reaches the end; one message more, the newest, otherwise.
+func (s *Store) learnTop(ctx context.Context, api *tg.Client, peer peerRecord, chat int64, page []tg.MessageClass, anchor, limit int) {
+	c := s.history
+	c.mu.Lock()
+	known := c.top[chat] != 0
+	c.mu.Unlock()
+	if known {
+		return
+	}
+	ids := make([]int, 0, len(page))
+	for _, m := range page {
+		ids = append(ids, m.GetID())
+	}
+	top := 0
+	if _, high, end, ok := pageSpan(ids, 0, anchor, limit); ok && end {
+		top = high
+	} else if newest, err := api.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{Peer: peer.input(), Limit: 1}); err == nil {
+		if m, ok := newest.AsModified(); ok {
+			for _, raw := range m.GetMessages() {
+				top = max(top, raw.GetID())
+			}
+		}
+	}
+	if top == 0 {
+		return
+	}
+	c.mu.Lock()
+	c.top[chat] = max(c.top[chat], top)
+	c.mu.Unlock()
 }
 
 // noteFirst keeps the chat's first message as firsts says, when the
@@ -1112,10 +1178,16 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 		switch u := u.(type) {
 		case *tg.UpdateChannel:
 			id := peerID(&tg.PeerChannel{ChannelID: u.ChannelID})
-			go func() { _ = s.RefreshSendPermissions(s.history.ctx, id) }()
+			go func() {
+				defer crash.Recover("send permissions", nil)
+				_ = s.RefreshSendPermissions(s.history.ctx, id)
+			}()
 		case *tg.UpdateChat:
 			id := peerID(&tg.PeerChat{ChatID: u.ChatID})
-			go func() { _ = s.RefreshSendPermissions(s.history.ctx, id) }()
+			go func() {
+				defer crash.Recover("send permissions", nil)
+				_ = s.RefreshSendPermissions(s.history.ctx, id)
+			}()
 		case *tg.UpdateChatDefaultBannedRights:
 			c := s.history
 			c.mu.Lock()
@@ -1132,6 +1204,12 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			s.setUnread(peerID(u.Peer), u.StillUnreadCount)
 		case *tg.UpdateReadChannelInbox:
 			s.setUnread(peerID(&tg.PeerChannel{ChannelID: u.ChannelID}), u.StillUnreadCount)
+		case *tg.UpdateReadHistoryOutbox:
+			s.setReadOutbox(peerID(u.Peer), u.MaxID)
+		case *tg.UpdateReadChannelOutbox:
+			s.setReadOutbox(peerID(&tg.PeerChannel{ChannelID: u.ChannelID}), u.MaxID)
+		case *tg.UpdateUserStatus:
+			s.setPresence(u.UserID, u.Status)
 		case *tg.UpdateNewMessage:
 			msg, fresh = u.Message, true
 		case *tg.UpdateNewChannelMessage:
@@ -1479,7 +1557,7 @@ func messagePreview(m model.Message, group bool) model.Preview {
 		}
 		return model.Preview{Service: &m}
 	}
-	p := model.Preview{Text: strings.Join(strings.Fields(m.Text), " "), Media: messageKindKey(m)}
+	p := model.Preview{Text: strings.Join(strings.Fields(m.Text), " "), Media: messageKindKey(m), ID: m.Key.MessageID, Sent: m.Outgoing}
 	if group {
 		p.Sender, p.Outgoing = m.SenderName, m.Outgoing
 		if m.Outgoing {
@@ -1502,6 +1580,8 @@ func messageKindKey(m model.Message) string {
 		return "preview.file"
 	case model.MessageVoice:
 		return "preview.voice"
+	case model.MessageRound:
+		return "preview.round"
 	case model.MessageSticker:
 		return "preview.sticker"
 	case model.MessageGIF:
@@ -1520,6 +1600,20 @@ func richFallbackKey(p model.RichPage) string {
 		return "preview.location"
 	}
 	return ""
+}
+
+// setReadOutbox notes that the other side of chat id read the account's
+// messages up to upTo.
+func (s *Store) setReadOutbox(id int64, upTo int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	chats := append([]model.Chat(nil), s.chats...)
+	for i := range chats {
+		if chats[i].ID == id && model.MessageID(upTo) > chats[i].ReadOutbox {
+			chats[i].ReadOutbox = model.MessageID(upTo)
+		}
+	}
+	s.chats = chats
 }
 
 func (s *Store) setUnread(id int64, n int) {
@@ -1637,7 +1731,7 @@ func (s *Store) HistorySince(chat int64, revision uint64) (model.History, bool) 
 	out := *h
 	changed := revision == 0 || revision != h.Revision
 	if changed {
-		out.Messages = append(append([]model.Message(nil), h.Messages...), c.draftMessages(chat)...)
+		out.Messages = append(append(append([]model.Message(nil), h.Messages...), c.pendingMessagesOf(chat, h.Messages)...), c.draftMessages(chat)...)
 	} else {
 		out.Messages = nil
 	}

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
@@ -64,12 +65,17 @@ func (d *emojiPacksDialog) open(p *chatPage, refs []model.StickerSetRef) {
 	results := d.results
 	go func() {
 		defer cancel()
+		defer crash.Recover("emoji packs", nil)
 		var wg sync.WaitGroup
 		limit := make(chan struct{}, 4)
 		for i, ref := range refs {
 			wg.Go(func() {
 				limit <- struct{}{}
 				defer func() { <-limit }()
+				defer crash.Recover("emoji pack", func(e *crash.Panic) {
+					results <- emojiPackResult{index: i, err: e}
+					p.invalidate()
+				})
 				set, err := source.StickerSet(ctx, ref)
 				results <- emojiPackResult{index: i, set: set, err: err}
 				p.invalidate()

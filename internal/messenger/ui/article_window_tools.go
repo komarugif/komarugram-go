@@ -123,29 +123,21 @@ func (a *articleWindow) toolEvents(gtx layout.Context) {
 		}
 	}
 	for {
-		ev, ok := gtx.Event(
-			key.Filter{Name: "F", Required: key.ModShortcut},
-			key.Filter{Name: "А", Required: key.ModShortcut},
-			key.Filter{Name: "=", Required: key.ModShortcut, Optional: key.ModShift},
-			key.Filter{Name: "+", Required: key.ModShortcut, Optional: key.ModShift},
-			key.Filter{Name: "-", Required: key.ModShortcut},
-			key.Filter{Name: "0", Required: key.ModShortcut},
-		)
+		id, e, ok := a.shortcuts.next(gtx, nil, "article.find", "article.zoom_in", "article.zoom_out", "article.zoom_reset")
 		if !ok {
 			break
 		}
-		e, ok := ev.(key.Event)
-		if !ok || e.State != key.Press {
+		if e.State != key.Press {
 			continue
 		}
-		switch e.Name {
-		case "F", "А":
+		switch id {
+		case "article.find":
 			a.openSearch()
-		case "=", "+":
+		case "article.zoom_in":
 			a.zoomBy(articleZoomStep)
-		case "-":
+		case "article.zoom_out":
 			a.zoomBy(-articleZoomStep)
-		case "0":
+		case "article.zoom_reset":
 			a.zoomBy(0)
 		}
 	}

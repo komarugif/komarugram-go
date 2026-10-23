@@ -5,6 +5,7 @@ package model
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"hash/fnv"
 	"time"
 )
@@ -35,7 +36,22 @@ const (
 	MessageGIF
 	MessageMusic
 	MessagePoll
+	// MessageRound is a video message, the round one, which plays in the
+	// client with its sound, as a voice message does.
+	MessageRound
 )
+
+// MaxMediaBytes is the most of a file the client reads into memory whole,
+// to draw it: a larger one is streamed, as a video or a file is to open it.
+const MaxMediaBytes = 64 << 20
+
+// ErrMediaTooLarge is media larger than MaxMediaBytes, asked for whole.
+var ErrMediaTooLarge = fmt.Errorf("media exceeds %d MiB limit", MaxMediaBytes>>20)
+
+// Whole tells whether m's media is small enough to be read whole.
+func (m *MessageMedia) Whole() bool {
+	return m != nil && m.Size <= MaxMediaBytes
+}
 
 // MessageMedia contains durable presentation metadata. The Telegram download
 // location/file_reference belongs in the account database adapter because it
@@ -46,15 +62,18 @@ type MessageMedia struct {
 	// StickerSet identifies the pack of a sticker or custom emoji. It is nil
 	// for documents without a usable pack reference.
 	StickerSet *StickerSetRef `json:",omitempty"`
-	ID         string
-	FileName   string
-	MIMEType   string
-	Size       int64
-	Width      int
-	Height     int
-	Duration   time.Duration
-	Performer  string
-	Title      string
+	// TextColor marks a custom emoji drawn in the color of the text around
+	// it, as Telegram marks some: its shape, not its own colors.
+	TextColor bool `json:",omitempty"`
+	ID        string
+	FileName  string
+	MIMEType  string
+	Size      int64
+	Width     int
+	Height    int
+	Duration  time.Duration
+	Performer string
+	Title     string
 	// Waveform is a voice message's loudness in 5-bit bars, as Telegram
 	// packs it (see voice.Bars); nil when the sender gave none.
 	Waveform []byte `json:",omitempty"`
@@ -156,6 +175,17 @@ type Message struct {
 	// see StreamedDrafts. Stoppable is set when the account may stop it.
 	Streaming bool `json:"-"`
 	Stoppable bool `json:"-"`
+	// Sending marks a message the account sent that Telegram has not taken
+	// yet, which only the history shows: it has an id of its own, below
+	// zero, until Telegram's comes.
+	Sending bool `json:"-"`
+}
+
+// Local reports whether m is not a message of Telegram's yet, but one the
+// client shows on its own: a draft a bot streams, or a message on its way.
+// It is not one to reply to, select or keep the layout of.
+func (m Message) Local() bool {
+	return m.Streaming || m.Sending
 }
 
 // GeneralTopic is the id of the topic every forum has, whose messages have
@@ -361,11 +391,19 @@ type MessageButton struct {
 // Sources may use Telegram search or an offline cache. A page is oldest
 // first: before it when dir is negative, after it otherwise.
 type PhotoGallery interface {
-	ChatPhotos(ctx context.Context, chat int64, anchor MessageID, dir, limit int) (PhotoPage, error)
+	ChatPhotos(ctx context.Context, chat int64, anchor MessageID, dir, limit int) (GalleryPage, error)
 }
 
-// PhotoPage is a page of a chat's photos or of the photos of its profile.
-type PhotoPage struct {
+// GIFGallery pages a chat's GIFs, as PhotoGallery its photos and videos: a
+// GIF opened goes on to the chat's other GIFs, as in Telegram Desktop, and
+// a photo to its photos and videos, not to the GIFs.
+type GIFGallery interface {
+	ChatGIFs(ctx context.Context, chat int64, anchor MessageID, dir, limit int) (GalleryPage, error)
+}
+
+// GalleryPage is a page of a chat's photos, of its GIFs or of the photos of
+// its profile.
+type GalleryPage struct {
 	Messages []Message
 	// Total counts the photos of the whole gallery, 0 when it is not known,
 	// as for a page read from the offline cache.

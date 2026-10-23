@@ -14,6 +14,12 @@ type WebPreview struct {
 	// video message's does; VideoKind is MessageVideo or MessageGIF.
 	Video     *MessageMedia `json:",omitempty"`
 	VideoKind MessageKind   `json:",omitempty"`
+	// Type is the kind of the page as Telegram tells it ("video",
+	// "article", "photo"…), and Duration the length of its video in
+	// seconds, as of a page of YouTube (embed_duration); pages cached
+	// before they were kept have neither.
+	Type     string `json:",omitempty"`
+	Duration int    `json:",omitempty"`
 }
 
 // InstantViewStore loads the Instant View of the page at a URL, as an

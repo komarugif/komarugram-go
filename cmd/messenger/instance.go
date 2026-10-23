@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"komarugram/internal/crash"
 )
 
 // instanceSocket is where the running instance listens; Unix sockets work on
@@ -95,6 +97,7 @@ func claimInstance(notice string, activate func(token string), open func(tag str
 				return
 			}
 			go func() {
+				defer crash.Recover("instance request", nil)
 				defer conn.Close()
 				conn.SetDeadline(time.Now().Add(time.Second))
 				line, err := bufio.NewReader(conn).ReadString('\n')

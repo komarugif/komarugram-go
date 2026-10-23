@@ -133,7 +133,7 @@ func TestRenderToasts(t *testing.T) {
 			settings.images.EndFrame()
 		})
 
-		// The photo viewer, over its strip of photos.
+		// The media viewer, over its strip.
 		var start model.Message
 		for _, m := range store.History(2).Messages {
 			if m.Kind == model.MessagePhoto && m.Media != nil && len(m.Media.Variants) > 0 {
@@ -141,8 +141,8 @@ func TestRenderToasts(t *testing.T) {
 			}
 		}
 		images := &imageOps{}
-		v := newPhotoViewer(store, images, func() {})
-		v.popout = func(int64, model.Message, photoList) {}
+		v := newMediaViewer(store, images, func() {})
+		v.popout = func(int64, model.Message, mediaList) {}
 		v.Open(2, start, nil)
 		v.toast.Show("Фото сохранено: /home/user/Изображения/photo.jpg")
 		renderToast(t, name("photo-viewer"), image.Pt(1100, 720), dark, func(gtx layout.Context) {

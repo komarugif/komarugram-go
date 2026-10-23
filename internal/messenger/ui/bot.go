@@ -13,12 +13,14 @@ import (
 	"time"
 
 	"gio-mw/token"
+	"gio-mw/wdk"
 
 	"gioui.org/io/clipboard"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -44,14 +46,17 @@ type botPage struct {
 	heightChat    int64
 	shownKeyboard *model.ReplyKeyboard
 	// keyboard is the chat's reply keyboard, and keyboardKey the message
-	// that set it; hidden, by chat, is the one the account hid.
+	// that set it; hidden, by chat, is the one the account hid. offered is
+	// set while the chat has a keyboard, shown or hidden: the composer has
+	// the button that hides it and shows it again.
 	keyboard    *model.ReplyKeyboard
 	keyboardKey model.MessageKey
 	// keyboardBot is the bot that set it, whose Mini Apps its buttons open.
 	keyboardBot int64
 	hidden      map[int64]model.MessageKey
+	offered     bool
 	keys        [][]surface
-	hide        surface
+	toggle      surface
 	start       surface
 	// menu is the bot's menu button beside the composer's field.
 	menu surface
@@ -77,7 +82,7 @@ type botOutcome struct {
 // does.
 func (p *chatPage) updateBot(c model.Chat, history model.History) {
 	b := &p.bot
-	b.keyboard, b.keyboardKey, b.keyboardBot = nil, model.MessageKey{}, 0
+	b.keyboard, b.keyboardKey, b.keyboardBot, b.offered = nil, model.MessageKey{}, 0, false
 	if !history.HasNewer {
 		b.keyboard, b.keyboardKey = model.ActiveKeyboard(p.messages)
 		for i := len(p.messages) - 1; b.keyboard != nil && i >= 0; i-- {
@@ -85,7 +90,10 @@ func (p *chatPage) updateBot(c model.Chat, history model.History) {
 				b.keyboardBot = p.botOf(c.ID, p.messages[i])
 			}
 		}
-		if b.keyboard != nil && b.hidden[c.ID] == b.keyboardKey && !b.keyboard.Persistent {
+		b.offered = b.keyboard != nil && len(b.keyboard.Rows) > 0
+		// A persistent keyboard is hidden by the composer's button too, as
+		// in Telegram Desktop: it only stays after its keys are pressed.
+		if b.keyboard != nil && b.hidden[c.ID] == b.keyboardKey {
 			b.keyboard = nil
 		}
 	}
@@ -149,14 +157,6 @@ func (p *chatPage) layoutKeyboard(gtx layout.Context, chat int64, rect image.Rec
 	if k == nil || rect.Empty() {
 		return
 	}
-	if b.keyboard != nil && b.hide.Clicked(gtx) {
-		if b.hidden == nil {
-			b.hidden = map[int64]model.MessageKey{}
-		}
-		b.hidden[chat] = b.keyboardKey
-		gtx.Execute(op.InvalidateCmd{})
-		return
-	}
 	inRect(gtx, rect, func(gtx layout.Context) layout.Dimensions {
 		sc := scheme(gtx)
 		size := gtx.Constraints.Max
@@ -164,15 +164,16 @@ func (p *chatPage) layoutKeyboard(gtx layout.Context, chat int64, rect image.Rec
 		if classic {
 			radius = 0
 		}
+		composerShadow(gtx, classic, image.Rectangle{Max: size}, radius)
 		defer clip.UniformRRect(image.Rectangle{Max: size}, radius).Push(gtx.Ops).Pop()
-		overlayFill(gtx, backdrop, size, rect.Min, sc.SurfaceContainerHigh, radius)
+		composerFill(gtx, classic, backdrop, size, rect.Min, sc.SurfaceContainerHigh, radius)
 		if classic {
 			fillRect(gtx, sc.OutlineVariant, image.Pt(size.X, gtx.Dp(1)))
 		}
 		gap := gtx.Dp(keyboardGap)
-		// The hide button takes a column at the end.
-		closeW := gtx.Dp(36)
-		keysW := size.X - closeW - gap
+		// The keys take the whole width: the button that hides them is in
+		// the composer's bar.
+		keysW := size.X
 		rows := len(k.Rows)
 		keyH := max((size.Y-(rows+1)*gap)/max(rows, 1), gtx.Dp(24))
 		for y, row := range k.Rows {
@@ -188,20 +189,31 @@ func (p *chatPage) layoutKeyboard(gtx layout.Context, chat int64, rect image.Rec
 				})
 			}
 		}
-		inRect(gtx, image.Rect(size.X-closeW, 0, size.X, size.Y), func(gtx layout.Context) layout.Dimensions {
-			area := gtx.Constraints.Max
-			d := min(gtx.Dp(32), area.X)
-			circle := image.Rectangle{Max: image.Pt(d, d)}.Add(image.Pt((area.X-d)/2, gap))
-			content := sc.SurfaceVariant.OnColor
-			style := surfaceStyle{area: circle, radius: d / 2, background: content.SetOpacity(0), content: content, button: l.T("bot.hide_keyboard")}
-			return b.hide.Layout(gtx, area, style, func(gtx layout.Context) layout.Dimensions {
-				return offset(gtx, circle.Min.Add(image.Pt((d-gtx.Dp(20))/2, (d-gtx.Dp(20))/2)), func(gtx layout.Context) layout.Dimensions {
-					return exact(gtx, image.Pt(gtx.Dp(20), gtx.Dp(20)), func(gtx layout.Context) layout.Dimensions { return iconClear(gtx, content) })
-				})
-			})
-		})
 		return layout.Dimensions{Size: size}
 	})
+}
+
+// toggleKeyboard hides the chat's reply keyboard when the composer's button
+// for it is clicked, or shows it again, so that the account need not send
+// /start for it; it returns the button's icon and label.
+func (p *chatPage) toggleKeyboard(gtx layout.Context, chat int64, l localization.Catalog) (wdk.IconWidget, string) {
+	b := &p.bot
+	if b.toggle.Clicked(gtx) {
+		if b.keyboard != nil {
+			if b.hidden == nil {
+				b.hidden = map[int64]model.MessageKey{}
+			}
+			b.hidden[chat] = b.keyboardKey
+		} else {
+			delete(b.hidden, chat)
+		}
+		// The next frame works out the keyboard again from the messages.
+		gtx.Execute(op.InvalidateCmd{})
+	}
+	if b.keyboard != nil {
+		return iconKeyboardHide, l.T("bot.hide_keyboard")
+	}
+	return iconKeyboard, l.T("bot.show_keyboard")
 }
 
 // layoutKey draws one key of the reply keyboard and does what it is for.
@@ -250,8 +262,9 @@ func (p *chatPage) layoutStart(gtx layout.Context, chat int64, rect image.Rectan
 		if classic {
 			radius = 0
 		}
+		composerShadow(gtx, classic, image.Rectangle{Max: size}, radius)
 		defer clip.UniformRRect(image.Rectangle{Max: size}, radius).Push(gtx.Ops).Pop()
-		overlayFill(gtx, backdrop, size, rect.Min, sc.SurfaceContainerHigh, radius)
+		composerFill(gtx, classic, backdrop, size, rect.Min, sc.SurfaceContainerHigh, radius)
 		if classic {
 			fillRect(gtx, sc.OutlineVariant, image.Pt(size.X, gtx.Dp(1)))
 		}
@@ -292,6 +305,13 @@ func (p *chatPage) pressButton(gtx layout.Context, m model.Message, y, x int, b 
 		bp.pressing[id] = true
 		bp.mu.Unlock()
 		go func() {
+			defer crash.Recover("bot button", func(e *crash.Panic) {
+				bp.mu.Lock()
+				delete(bp.pressing, id)
+				bp.outcome = &botOutcome{err: e}
+				bp.mu.Unlock()
+				p.invalidate()
+			})
 			ctx, cancel := context.WithTimeout(context.Background(), botWait)
 			defer cancel()
 			answer, err := store.PressButton(ctx, m.Key, b.Data)

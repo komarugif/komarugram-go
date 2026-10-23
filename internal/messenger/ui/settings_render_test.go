@@ -5,12 +5,14 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"gio-mw/exp"
 	"image"
 	"image/color"
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -24,11 +26,14 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
+	"gioui.org/io/key"
 	"komarugram/internal/messenger/emojipacks"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/preferences"
+	"komarugram/internal/messenger/proxy"
+	"komarugram/internal/messenger/shortcuts"
 	"komarugram/internal/miniappprefs"
 	"komarugram/internal/motion"
 	"komarugram/pkg/miniapp"
@@ -45,7 +50,7 @@ func (staticAccounts) Subscribe(func()) func()    { return func() {} }
 
 // TestRenderSettingsAccounts draws the main settings page with a list of
 // saved accounts and saves a screenshot, for looking at it. SETTINGS_SECTION=appearance,
-// chats, notify, privacy, integrations, power or about draws that section instead; wallpapers,
+// chats, notify, privacy, visibility, integrations, power or about draws that section instead; wallpapers,
 // the chats' section under the gallery of wallpapers:
 //
 //	SETTINGS_PNG=/tmp/settings.png go test ./internal/messenger/ui -run RenderSettingsAccounts
@@ -71,7 +76,7 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	p.images = &images
 	p.composerStyle = func() preferences.ComposerStyle { return preferences.ComposerFloating }
 	p.composerBlur = func() bool { return true }
-	overlays := preferences.Overlays{Transparency: 30, MenusBlur: true}
+	overlays := preferences.Overlays{Transparency: 30, MenusBlur: true, Shadow: preferences.ShadowDefault}
 	windowBlur := true
 	p.windowBlur = func() bool { return windowBlur }
 	p.setWindowBlur = func(on bool) { windowBlur = on }
@@ -82,7 +87,41 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	p.overlays = func() preferences.Overlays { return overlays }
 	p.setOverlays = func(o preferences.Overlays) { overlays = o }
 	p.uninstall = func() {}
+	proxies := proxy.NewStore("", nil)
+	proxies.Add(proxy.Proxy{Kind: proxy.SOCKS5, Host: "127.0.0.1", Port: 2080})
+	proxies.Add(proxy.Proxy{Kind: proxy.MTProto, Host: "mt.example.org", Port: 443, Secret: "dddf83f4ddaee1f1171b2e7a6e7403c60d"})
+	proxies.Select(proxy.Telegram().ID())
+	p.proxy = newProxyView(proxies, (&pingLog{fail: map[string]error{"mtproto|mt.example.org|443|": context.DeadlineExceeded}}).ping, nil)
 	size := image.Pt(900, 1300)
+	if os.Getenv("SETTINGS_SECTION") == "proxy" {
+		p.section = settingsProxy
+		p.proxy.Open()
+		size.Y = 900
+	}
+	if section := os.Getenv("SETTINGS_SECTION"); section == "shortcuts" || section == "shortcut-record" || section == "main" {
+		prefs := preferences.Memory()
+		_ = prefs.SetShortcuts(shortcuts.Bindings{"example.count": {{Key: "T", Modifiers: key.ModCtrl | key.ModAlt}}})
+		p.shortcuts = newShortcutSettings(func() shortcuts.Bindings { return prefs.Global().Shortcuts }, prefs.SetShortcuts, func() []shortcuts.Command {
+			return append(shortcuts.Commands(), shortcuts.Command{ID: "example.count", Label: "Пример команды", Scope: "history"})
+		}, func() {}, &p.toast)
+		p.shortcuts.check = func(context.Context, []shortcuts.Chord) shortcuts.SystemReport {
+			return shortcuts.SystemReport{KDE: true, PortalVersion: 2, Occupied: map[shortcuts.Chord]bool{{Key: "T", Modifiers: key.ModCtrl | key.ModAlt}: true}}
+		}
+		defer p.shortcuts.Close()
+		if section != "main" {
+			p.section = settingsShortcuts
+			size.Y = 6300
+		}
+		if section == "shortcut-record" {
+			size.Y = 900
+			p.shortcuts.editing = "example.count"
+			c := shortcuts.Chord{Key: "T", Modifiers: key.ModCtrl | key.ModAlt}
+			p.shortcuts.candidate = &c
+			p.shortcuts.report = shortcuts.SystemReport{KDE: true, Occupied: map[shortcuts.Chord]bool{c: true}}
+			p.shortcuts.dialog.Open()
+		}
+	}
+
 	if os.Getenv("SETTINGS_SECTION") == "appearance" {
 		p.section = settingsAppearance
 		// One font is picked and gone since, the others are the system's.
@@ -107,6 +146,40 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		}
 		size.Y = 2700
 	}
+	if section := os.Getenv("SETTINGS_SECTION"); section == "main" || section == "menus" {
+		prefs := preferences.Memory()
+		_ = prefs.SetMenus(preferences.Menus{menuMessage: {Order: []string{"delete", "reply"}, Hidden: []string{"repeat"}}, menuSidebar: {Hidden: []string{"profile"}}})
+		p.menus = newMenuSettings(func() preferences.Menus { return prefs.Global().Menus }, prefs.SetMenus, func(l localization.Catalog) []menuCatalog {
+			return menuCatalogs([]model.Folder{{ID: 1, Title: "Личное"}, {ID: 2, Title: "Работа"}}, "demo", l)
+		}, &p.toast)
+		if section == "menus" {
+			p.section = settingsMenuOrder
+			size.Y = 5700
+		}
+	}
+	if p.shortcuts != nil {
+		var bindings []shortcuts.Chord
+		for _, c := range p.shortcuts.catalog() {
+			if c.ReadOnly {
+				continue
+			}
+			for _, b := range p.shortcuts.get().For(c) {
+				if !slices.Contains(bindings, b) {
+					bindings = append(bindings, b)
+				}
+			}
+		}
+		if p.shortcuts.candidate != nil && !slices.Contains(bindings, *p.shortcuts.candidate) {
+			bindings = append(bindings, *p.shortcuts.candidate)
+		}
+		p.shortcuts.signature = fmt.Sprint(bindings)
+		p.shortcuts.report = shortcuts.SystemReport{KDE: true, PortalVersion: 2, Occupied: map[shortcuts.Chord]bool{{Key: "T", Modifiers: key.ModCtrl | key.ModAlt}: true}}
+		if os.Getenv("SETTINGS_SECTION") == "shortcut-record" {
+			warm := layout.Context{Ops: new(op.Ops), Now: time.Now().Add(-time.Second), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
+			wdk.InitMaterialThemeInContext(warm, defaults.NewTheme(warm, schemes.SchemeBaselineLight()))
+			p.shortcuts.Overlay(warm, localization.For("ru"))
+		}
+	}
 	var chats *preferences.Store
 	if section := os.Getenv("SETTINGS_SECTION"); section == "chats" || section == "wallpapers" {
 		t.Chdir("../../..")
@@ -128,6 +201,8 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		defer c.thumbs.Close()
 		p.confirmations = func() (bool, bool) { return true, false }
 		p.setConfirmations = func(bool, bool) {}
+		p.input = func() (bool, bool) { return false, true }
+		p.setInput = func(bool, bool) {}
 		look := preferences.Look{BubbleRadius: 8, AvatarCorners: 10, Seconds: true}
 		p.lookView.look = func() preferences.Look { return look }
 		p.lookView.setLook = func(l preferences.Look) { look = l }
@@ -157,9 +232,21 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		p.shownAccounts = p.accounts.All()
 		size.Y = 1100
 	}
-	if os.Getenv("SETTINGS_SECTION") == "privacy" {
+	if section := os.Getenv("SETTINGS_SECTION"); section == "privacy" || section == "visibility" {
 		p.section = settingsPrivacy
-		size.Y = 2300
+		size.Y = 1300
+		if section == "visibility" {
+			p.section = settingsVisibility
+			size.Y = 2500
+		}
+		calm := preferences.Calm{On: true, KeepOnline: true}
+		p.calm = func() preferences.Calm { return calm }
+		p.setCalm = func(c preferences.Calm) { calm = c }
+		hideBadges, keepArrows, keepFaces := true, false, true
+		p.hidePeerBadges = func() bool { return hideBadges }
+		p.setHidePeerBadges = func(on bool) { hideBadges = on }
+		p.keepPeerBadges = func() (bool, bool) { return keepArrows, keepFaces }
+		p.setKeepPeerBadges = func(arrows, faces bool) { keepArrows, keepFaces = arrows, faces }
 		ghost := preferences.Ghost{ReadOnInteract: true}
 		p.ghost = func() preferences.Ghost { return ghost }
 		p.setGhost = func(g preferences.Ghost) { ghost = g }
@@ -171,6 +258,12 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		p.filtersView.setFilters = func(f preferences.Filters) { filters = f }
 		p.filtersView.remove = make([]surface, 2)
 	}
+	if os.Getenv("SETTINGS_SECTION") == "main" {
+		// The main page lists the Visibility section, between the chats'
+		// and the notifications'.
+		calm := preferences.Calm{}
+		p.calm = func() preferences.Calm { return calm }
+	}
 	if os.Getenv("SETTINGS_SECTION") == "premium" {
 		// An account without Premium that has Local Premium on.
 		p.section = settingsPremium
@@ -178,6 +271,12 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		on := os.Getenv("LOCAL_PREMIUM") != "off"
 		p.localPremium = func() bool { return on }
 		p.setLocalPremium = func(v bool) { on = v }
+		if os.Getenv("PREMIUM_ACTIVE") == "on" {
+			p.premium = activePremium{}
+			media := true
+			p.premiumMedia = func() bool { return media }
+			p.setPremiumMedia = func(v bool) { media = v }
+		}
 		size.Y = 1500
 	}
 	if os.Getenv("SETTINGS_SECTION") == "about" {
@@ -195,7 +294,7 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	}
 	if os.Getenv("SETTINGS_SECTION") == "integrations" {
 		p.section = settingsIntegrations
-		size.Y = 1300
+		size.Y = 1650
 		// A VLC the user pointed at, and a file that is not mpv.
 		custom := map[player.Kind]string{player.VLC: "/var/lib/flatpak/exports/bin/org.videolan.VLC", player.MPV: "/usr/bin/ls"}
 		p.players.paths = func() map[player.Kind]string { return custom }
@@ -246,6 +345,13 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	if err := png.Encode(f, img); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// activePremium is an account that has Premium.
+type activePremium struct{}
+
+func (activePremium) Premium() model.Premium {
+	return model.PremiumFromConfig(true, map[string]any{})
 }
 
 // plainPremium is an account without Premium.

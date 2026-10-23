@@ -24,7 +24,20 @@ import (
 // BrowserEnv names the browser to drive, overriding the one that would
 // otherwise be chosen: a program on PATH, an absolute path to one, or the
 // application id of an installed flatpak.
-const BrowserEnv = "KITCHEN_MINIAPP_BROWSER"
+const BrowserEnv = "KOMARUGRAM_MINIAPP_BROWSER"
+
+// legacyBrowserEnv is the name BrowserEnv had, from when only the kitchen
+// used it. It is read when BrowserEnv is not set.
+const legacyBrowserEnv = "KITCHEN_MINIAPP_BROWSER"
+
+// BrowserChoice is the browser the environment names, BrowserEnv's value or
+// else that of its old name, and "" when it names none.
+func BrowserChoice() string {
+	if choice := os.Getenv(BrowserEnv); choice != "" {
+		return choice
+	}
+	return os.Getenv(legacyBrowserEnv)
+}
 
 // nativeBrowsers are the programs looked for on PATH. Among browsers of the
 // same engine and version, the one listed first wins.
@@ -372,7 +385,7 @@ func checkBrowser(ctx context.Context, path string) (string, error) {
 // controls of its own, and Firefox, whose versions cannot be compared with
 // Chromium's, is driven only where no Chromium is, as on Haiku.
 func findBrowser() browser {
-	if os.Getenv(BrowserEnv) == "" {
+	if BrowserChoice() == "" {
 		if b := customBrowser(); b.found {
 			return b
 		}
@@ -394,7 +407,7 @@ func FoundBrowser() (ref, banner string) {
 // autoBrowser is findBrowser without the browser the user picked.
 func autoBrowser() browser {
 	browserOnce.Do(func() {
-		if choice := os.Getenv(BrowserEnv); choice != "" {
+		if choice := BrowserChoice(); choice != "" {
 			if strings.Contains(choice, ".") && flatpakInstalled(choice) {
 				browserFound = probe(browser{ref: choice, flatpak: true, found: true})
 			} else if path, err := exec.LookPath(choice); err == nil {

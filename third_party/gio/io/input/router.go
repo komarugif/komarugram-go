@@ -387,7 +387,14 @@ func (q *Router) Frame(frame *op.Ops) {
 	st := q.lastState()
 	pst, evts := q.pointer.queue.Frame(q.handlers, st.pointerState)
 	st.pointerState = pst
+	focus := q.lastState().keyState.focus
 	st.keyState = q.key.queue.Frame(q.handlers, q.lastState().keyState)
+	if focus != nil && st.keyState.focus == nil {
+		// The focused handler is gone: another frame lets whoever waits
+		// for the keyboard to be free take it, without waiting for an
+		// event.
+		q.wakeup, q.wakeupTime = true, time.Time{}
+	}
 	q.changeState(nil, st, evts)
 
 	// Collapse state and events.

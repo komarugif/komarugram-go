@@ -329,6 +329,8 @@ func (c Catalog) pinnedMedia(m model.Message) string {
 		return c.T("service.pinned_media_gif")
 	case model.MessageVoice:
 		return c.T("service.pinned_media_voice")
+	case model.MessageRound:
+		return c.T("service.pinned_media_round")
 	case model.MessageMusic:
 		return c.T("service.pinned_media_audio")
 	case model.MessageFile:

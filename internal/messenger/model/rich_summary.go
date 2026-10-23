@@ -357,7 +357,7 @@ func (p RichPage) Fallback() string {
 					photos = true
 				case MessageVideo, MessageGIF:
 					videos = true
-				case MessageMusic, MessageVoice:
+				case MessageMusic, MessageVoice, MessageRound:
 					if len(b.Media) == 1 {
 						return "audio"
 					}

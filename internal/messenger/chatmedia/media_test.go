@@ -1126,3 +1126,37 @@ func TestStatusOfLoadedMediaDoesNotAllocate(t *testing.T) {
 		t.Fatalf("%v allocations a frame, want none", allocs)
 	}
 }
+
+type textColorEmojiSource struct{ *fakeSource }
+
+func (s textColorEmojiSource) CustomEmoji(context.Context, int64) (model.Message, error) {
+	return model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "emoji-document", MIMEType: "application/x-tgsticker", TextColor: true}}, nil
+}
+
+// A custom emoji Telegram marks of the text's color is known as one by the
+// time its first frame is, for the caller to color; another is not.
+func TestCustomEmojiTextColored(t *testing.T) {
+	data, err := os.ReadFile("../../../assets/stickers/sample.tgs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		source Source
+		want   bool
+	}{{textColorEmojiSource{&fakeSource{data: data}}, true}, {customEmojiSource{&fakeSource{data: data}}, false}} {
+		m := NewShared(c.source, func() {})
+		msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "emoji/1", MIMEType: "application/x-custom-emoji"}}
+		deadline := time.Now().Add(5 * time.Second)
+		var frame image.Image
+		for frame == nil && time.Now().Before(deadline) {
+			m.BeginFrame()
+			frame, _ = m.Frame(msg, false)
+			m.EndFrame()
+			time.Sleep(10 * time.Millisecond)
+		}
+		if frame == nil || m.TextColored(msg) != c.want {
+			t.Fatalf("frame %v, text colored %v, want %v", frame != nil, m.TextColored(msg), c.want)
+		}
+		m.Close()
+	}
+}

@@ -46,6 +46,18 @@ func TestLowMemoryPreservesExplicitLimits(t *testing.T) {
 	}
 }
 
+// go.work asks for the Go go.mod does: Go refuses one that asks for less.
+func TestWorkTakesTheGoOfGoMod(t *testing.T) {
+	for _, goMod := range []string{
+		"module komarugram\n\ngo 1.29.4\n\nrequire x v1.0.0\n",
+		"module komarugram\r\n\r\ngo 1.29.4\r\n",
+	} {
+		if got := modGoLine(goMod); got != "go 1.29.4" {
+			t.Errorf("go line of %q = %q, want %q", goMod, got, "go 1.29.4")
+		}
+	}
+}
+
 // Environment entries appended later override earlier values in exec.Cmd.
 func commandEnv(entries []string) map[string]string {
 	out := map[string]string{}

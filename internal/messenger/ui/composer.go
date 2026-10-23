@@ -13,8 +13,8 @@ import (
 	"reflect"
 	"strings"
 	"time"
-	"unicode/utf16"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
@@ -22,6 +22,7 @@ import (
 	"gio-mw/wdk"
 	"gio-mw/widget/scroll"
 
+	"gioui.org/f32"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
@@ -45,6 +46,11 @@ type messageDraft struct {
 	told error
 	// reply is the message what is sent next replies to, nil for none.
 	reply *model.Message
+	// editing is the message the field edits, of a chat of editKind, nil
+	// for none; before, what the field had when the edit began.
+	editing  *model.Message
+	editKind model.ChatKind
+	before   *draftBefore
 }
 type composerResult struct {
 	chat    int64
@@ -65,17 +71,50 @@ type featuredPackResult struct {
 	err        error
 }
 type messageComposer struct {
-	join              surface
-	mute, discussion  surface
-	muted             map[int64]bool
-	discussions       chan discussionResult
-	discussionLoading bool
-	nextRights        time.Time
+	shortcuts shortcutPreferences
+	menus     menuPreferences
+	join      surface
+	// The actions of a channel's bottom bar: icons whose text shows on
+	// hover.
+	mute, discussion, directMessages, gift revealButton
+	// muted is what Mute set where the store cannot mute a chat.
+	muted map[int64]bool
+	// mutes tells what came of a mute or an unmute; muting, that one runs.
+	mutes  chan error
+	muting bool
+	// discussions bring the chats the discussion and direct messages
+	// buttons open.
+	discussions                      chan discussionResult
+	discussionLoading, directLoading bool
+	nextRights                       time.Time
 	// confirmations tells whether a sticker and a GIF are sent only once
 	// confirmed; sendConfirm is the dialog that asks.
 	confirmations func() (sticker, gif bool)
-	sendConfirm   sendConfirm
-	editorHit     struct{}
+	// input tells whether the field takes the keyboard only when clicked,
+	// and the picker opens only by a click; nil is neither.
+	input func() (manualFocus, pickerOnClick bool)
+	// pickerHovered tells that the pointer over the emoji button opened the
+	// picker, which closes pickerHideDelay after the pointer left both; a
+	// click pins it. pickerInside tells whether the pointer is over it,
+	// pickerLeft when it left both, and hoverSpent that the pointer has not
+	// left the button since the picker closed, so it does not open again;
+	// pickerWasOpen is whether the picker was open in the last frame.
+	pickerHovered, pickerInside, hoverSpent, pickerWasOpen bool
+	pickerLeft                                             time.Time
+	pickerPointer                                          struct{}
+	sendConfirm                                            sendConfirm
+	editorHit                                              struct{}
+	// editorChat is the chat whose field was laid out last, editorLaid
+	// whether it was in this frame, with room to type, and editorWasLaid
+	// whether in the frame before.
+	editorChat                int64
+	editorLaid, editorWasLaid bool
+	// farSend tells whether the capsule's far slot shows Send rather than
+	// the microphone in farChat, since farSwitched, zero for no change to
+	// animate.
+	farSend     bool
+	farChat     int64
+	farSwitched time.Time
 	// top is where the composer began on the last frame, its reply strip
 	// included: the history's toast shows above it.
 	top                    int
@@ -168,6 +207,16 @@ type messageComposer struct {
 	stopDraft surface
 	// ffmpeg is the FFmpeg the user set, "" for the one on PATH.
 	ffmpeg func() string
+	// edits brings what came of saving edits; askDelete is a message
+	// edited to nothing, which the page asks to delete instead.
+	edits     chan editResult
+	askDelete *model.Message
+	// fieldMenu is the field's menu of formatting, and fieldOrigin where
+	// the field was in the composer on the last frame; link, the dialog
+	// that makes a link of what is selected.
+	fieldMenu   fieldMenu
+	fieldOrigin image.Point
+	link        linkDialog
 }
 
 func newMessageComposer(source model.ConversationStore, invalidate func()) *messageComposer {
@@ -176,6 +225,8 @@ func newMessageComposer(source model.ConversationStore, invalidate func()) *mess
 	c.source, _ = source.(model.ComposerStore)
 	c.muted = map[int64]bool{}
 	c.discussions = make(chan discussionResult, 2)
+	c.edits = make(chan editResult, 2)
+	c.mutes = make(chan error, 1)
 	c.search.SingleLine = true
 	c.path.SingleLine = true
 	c.title.SingleLine = true
@@ -211,6 +262,13 @@ func (c *messageComposer) request(l localization.Catalog, appendPage bool) {
 	}
 	go func() {
 		defer cancel()
+		defer crash.Recover("picker", func(e *crash.Panic) {
+			select {
+			case c.results <- pickerResult{generation: generation, err: e, append: appendPage}:
+				c.invalidate()
+			case <-c.ctx.Done():
+			}
+		})
 		page, err := c.source.Picker(ctx, req)
 		select {
 		case c.results <- pickerResult{generation: generation, page: page, err: err, append: appendPage}:
@@ -249,6 +307,13 @@ func (c *messageComposer) loadFeatured(pack model.PickerPack) {
 	generation, tab := c.featuredGeneration, c.tab
 	go func() {
 		defer cancel()
+		defer crash.Recover("featured sticker set", func(e *crash.Panic) {
+			select {
+			case c.featuredResults <- featuredPackResult{generation: generation, id: pack.ID, tab: tab, err: e}:
+				c.invalidate()
+			case <-c.ctx.Done():
+			}
+		})
 		full, err := source.StickerSet(ctx, pack.Ref)
 		select {
 		case c.featuredResults <- featuredPackResult{generation: generation, id: pack.ID, tab: tab, pack: full, err: err}:
@@ -306,6 +371,13 @@ func (c *messageComposer) submit(chat int64, msg model.OutgoingMessage) {
 	d.err = nil
 	c.noteSent(chat)
 	go func() {
+		defer crash.Recover("send", func(e *crash.Panic) {
+			select {
+			case c.sends <- composerResult{chat: chat, request: msg, err: e}:
+				c.invalidate()
+			case <-c.ctx.Done():
+			}
+		})
 		ctx, cancel := context.WithTimeout(c.ctx, 10*time.Minute)
 		defer cancel()
 		err := c.source.Send(ctx, chat, msg)
@@ -318,6 +390,10 @@ func (c *messageComposer) submit(chat int64, msg model.OutgoingMessage) {
 }
 func (c *messageComposer) submitText() {
 	d := c.draft(c.chat)
+	if d.editing != nil {
+		c.saveEdit(c.chat)
+		return
+	}
 	if d.pending != nil && d.err != nil {
 		c.submit(c.chat, *d.pending)
 		return
@@ -333,7 +409,8 @@ func (c *messageComposer) textChanged(d *messageDraft) {
 	if next == d.text {
 		return
 	}
-	d.entities = shiftEmojiEntities(d.text, next, d.entities)
+	caret, _ := d.editor.Selection()
+	d.entities = shiftEntities(d.text, next, d.entities, caret)
 	d.text = next
 	d.pending = nil
 	d.err = nil
@@ -342,7 +419,43 @@ func (c *messageComposer) textChanged(d *messageDraft) {
 	}
 }
 
-func (c *messageComposer) update(gtx layout.Context, chat int64, l localization.Catalog) {
+// takeKeyboard gives the message field the keyboard whenever nobody else
+// wants it, as Telegram Desktop's field keeps it: a dialog, the chat's
+// search, text selected in the history and a recording take it, and it comes
+// back once they are done. While the picker is open, its search takes the
+// field's place. free tells whether nobody holds the keyboard now. It runs
+// before anything else of the frame, so that whatever asks for the keyboard
+// in the frame gets it, and only for a field laid out in the frame before:
+// Gio drops the focus of what is not laid out.
+func (c *messageComposer) takeKeyboard(gtx layout.Context, chat int64, free bool) {
+	c.editorWasLaid = c.editorLaid && c.editorChat == chat
+	c.editorLaid = false
+	// A picker or a form closing, by Escape or by a click beside it, is
+	// still drawn while it fades: its field keeps a keyboard nobody wants.
+	if !c.pickerOpen && gtx.Focused(&c.search) || c.form == 0 && (gtx.Focused(&c.title) || gtx.Focused(&c.path)) {
+		free = true
+	}
+	if !free || c.form != 0 || c.recording != nil {
+		return
+	}
+	manualFocus, _ := c.inputPrefs()
+	if c.pickerOpen {
+		// A picker the pointer opened leaves the keyboard where it is, to
+		// go on typing; a click on it gives it to the search.
+		if !c.pickerHovered && c.pickerDrawn && !gtx.Focused(&c.search) {
+			gtx.Execute(key.FocusCmd{Tag: &c.search})
+		}
+		return
+	}
+	if !c.editorWasLaid || manualFocus {
+		return
+	}
+	if d := c.drafts[chat]; d != nil && !gtx.Focused(&d.editor) {
+		gtx.Execute(key.FocusCmd{Tag: &d.editor})
+	}
+}
+
+func (c *messageComposer) update(gtx layout.Context, chat int64, l localization.Catalog, p *chatPage) {
 	if c.chat != chat {
 		c.cancelFeatured()
 		c.chat = chat
@@ -355,7 +468,10 @@ func (c *messageComposer) update(gtx layout.Context, chat int64, l localization.
 	if c.nextRights.IsZero() || !gtx.Now.Before(c.nextRights) {
 		c.nextRights = gtx.Now.Add(time.Minute)
 		if source, ok := c.source.(model.SendPermissionsRefresher); ok {
-			go func() { _ = source.RefreshSendPermissions(c.ctx, chat) }()
+			go func() {
+				defer crash.Recover("send permissions", nil)
+				_ = source.RefreshSendPermissions(c.ctx, chat)
+			}()
 		}
 	}
 	if _, ok := c.source.(model.SendPermissionsRefresher); ok {
@@ -391,6 +507,8 @@ func (c *messageComposer) update(gtx layout.Context, chat int64, l localization.
 					c.form = 0
 				}
 			}
+		case r := <-c.edits:
+			c.editDone(r)
 		case r := <-c.results:
 			if r.generation != c.generation {
 				continue
@@ -474,17 +592,21 @@ drained:
 	permissions := c.permissions(chat)
 	d := c.draft(chat)
 	c.updateRecording(gtx, l)
+	c.updateEdit(chat, p, l)
 	for {
-		_, ok := gtx.Event(pointer.Filter{Target: &c.editorHit, Kinds: pointer.Press})
+		ev, ok := gtx.Event(pointer.Filter{Target: &c.editorHit, Kinds: pointer.Press})
 		if !ok {
 			break
 		}
 		if !d.sending && c.source != nil && permissions.Allows(model.SendText) {
 			gtx.Execute(key.FocusCmd{Tag: &d.editor})
+			if e, ok := ev.(pointer.Event); ok && e.Source == pointer.Mouse && e.Buttons == pointer.ButtonSecondary {
+				c.openFieldMenu(gtx, d, e.Position.Round())
+			}
 		}
 		c.attachOpen = false
 	}
-	for i := range c.attachmentActions {
+	for _, i := range c.attachmentOrder() {
 		if c.attachmentActions[i].Clicked(gtx) && permissions.Any(model.SendAttachments) && (i != 2 || permissions.Allows(model.SendText)) {
 			c.attachOpen = false
 			c.pickerOpen = false
@@ -500,6 +622,7 @@ drained:
 	}
 
 	if !d.sending && permissions.Allows(model.SendText) {
+		c.editKeys(gtx, chat, d, p)
 		c.updatePaste(gtx, d)
 		for {
 			ev, ok := d.editor.Update(gtx)
@@ -536,10 +659,21 @@ drained:
 		c.selectedPack = 0
 		c.list.Position = layout.Position{}
 	}
-	if c.smile.Clicked(gtx) && permissions.Any(model.SendText|model.SendSticker|model.SendGIF) {
-		c.pickerOpen = !c.pickerOpen
+	pickerAllowed := permissions.Any(model.SendText | model.SendSticker | model.SendGIF)
+	if c.smile.Clicked(gtx) && pickerAllowed {
+		switch {
+		case c.pickerOpen && c.pickerHovered:
+			// A click on the button of a picker the pointer opened pins it.
+			c.pickerHovered = false
+		case c.pickerOpen:
+			c.pickerOpen, c.hoverSpent = false, true
+		default:
+			c.pickerOpen = true
+		}
 		if c.pickerOpen {
-			gtx.Execute(key.FocusCmd{Tag: &c.search})
+			// The search takes the keyboard once the picker is drawn, which
+			// it is not yet: takeKeyboard gives it.
+			gtx.Execute(key.FocusCmd{})
 		}
 		c.attachOpen = false
 		c.form = 0
@@ -547,7 +681,8 @@ drained:
 			c.request(l, false)
 		}
 	}
-	if c.attach.Clicked(gtx) && permissions.Any(model.SendAttachments) {
+	c.hoverPicker(gtx, l, pickerAllowed)
+	if c.attach.Clicked(gtx) && permissions.Any(model.SendAttachments) && len(c.attachmentOrder()) > 0 {
 		c.attachOpen = !c.attachOpen
 		if c.attachOpen {
 			gtx.Execute(key.FocusCmd{Tag: &d.editor})
@@ -604,31 +739,6 @@ drained:
 	}
 }
 
-// Preserve custom-emoji UTF-16 entities across ordinary edits, dropping only overlaps.
-func shiftEmojiEntities(old, new string, entities []model.Entity) []model.Entity {
-	a, b := []rune(old), []rune(new)
-	prefix := 0
-	for prefix < len(a) && prefix < len(b) && a[prefix] == b[prefix] {
-		prefix++
-	}
-	suffix := 0
-	for suffix < len(a)-prefix && suffix < len(b)-prefix && a[len(a)-1-suffix] == b[len(b)-1-suffix] {
-		suffix++
-	}
-	start := len(utf16.Encode(a[:prefix]))
-	end := len(utf16.Encode(a[:len(a)-suffix]))
-	delta := len(utf16.Encode(b)) - len(utf16.Encode(a))
-	var out []model.Entity
-	for _, e := range entities {
-		if e.Offset+e.Length <= start {
-			out = append(out, e)
-		} else if e.Offset >= end {
-			e.Offset += delta
-			out = append(out, e)
-		}
-	}
-	return out
-}
 func flatEditor(gtx layout.Context, e *widget.Editor, hint string) layout.Dimensions {
 	theme := wdk.GetMaterialTheme(gtx)
 	sc := scheme(gtx)
@@ -682,10 +792,155 @@ func floatingComposerCover(gtx layout.Context, size image.Point) int {
 	return height + min(gtx.Dp(12), max(0, size.Y-height))
 }
 
+// pickerHideDelay is how long a picker the pointer opened stays after the
+// pointer left it and its button, Telegram Desktop's kHideTimeoutMs: long
+// enough to cross the gap between them.
+const pickerHideDelay = 300 * time.Millisecond
+
+// inputPrefs tells whether the field takes the keyboard only when clicked,
+// and the picker opens only by a click.
+func (c *messageComposer) inputPrefs() (manualFocus, pickerOnClick bool) {
+	if c.input == nil {
+		return false, false
+	}
+	return c.input()
+}
+
+// hoverPicker opens the picker while the pointer is over the emoji button,
+// as Telegram Desktop's tabbed panel does, and closes it once the pointer
+// has left both for pickerHideDelay, unless a click pinned it. allowed
+// tells whether the chat lets anything of the picker be sent.
+func (c *messageComposer) hoverPicker(gtx layout.Context, l localization.Catalog, allowed bool) {
+	for {
+		ev, ok := gtx.Event(pointer.Filter{Target: &c.pickerPointer, Kinds: pointer.Enter | pointer.Leave | pointer.Press | pointer.Cancel})
+		if !ok {
+			break
+		}
+		switch e, _ := ev.(pointer.Event); e.Kind {
+		case pointer.Enter:
+			c.pickerInside = true
+		case pointer.Leave, pointer.Cancel:
+			c.pickerInside = false
+		case pointer.Press:
+			// Working in the picker pins it, as a click on its button does.
+			c.pickerHovered = false
+		}
+	}
+	if !c.pickerOpen {
+		c.pickerHovered, c.pickerInside = false, false
+	}
+	button := c.smile.click.Hovered()
+	// However the picker closed, by Escape, a click beside it or a sticker
+	// sent, it does not open again under the pointer still on the button.
+	if c.pickerWasOpen && !c.pickerOpen {
+		c.hoverSpent = true
+	}
+	if !button {
+		c.hoverSpent = false
+	}
+	defer func() { c.pickerWasOpen = c.pickerOpen }()
+	_, onClick := c.inputPrefs()
+	switch {
+	case !c.pickerOpen:
+		if onClick || !allowed || !button || c.hoverSpent || c.attachOpen || c.form != 0 || c.recording != nil {
+			return
+		}
+		c.pickerOpen, c.pickerHovered, c.pickerLeft = true, true, time.Time{}
+		if c.source != nil {
+			c.request(l, false)
+		}
+	case !c.pickerHovered:
+	case button || c.pickerInside:
+		c.pickerLeft = time.Time{}
+	case c.pickerLeft.IsZero():
+		c.pickerLeft = gtx.Now
+		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(pickerHideDelay)})
+	case gtx.Now.Sub(c.pickerLeft) >= pickerHideDelay:
+		c.pickerOpen, c.pickerHovered = false, false
+	default:
+		gtx.Execute(op.InvalidateCmd{At: c.pickerLeft.Add(pickerHideDelay)})
+	}
+}
+
+// farSwitchDuration is how long the microphone and Send take to change
+// into each other, Telegram Desktop's universalDuration.
+const farSwitchDuration = 120 * time.Millisecond
+
+// farIcon is the icon of the capsule's far slot, Send or the microphone. As
+// in Telegram Desktop, the one shown shrinks and fades while the other grows
+// in its place; not in a chat just opened, nor with animations off.
+func (c *messageComposer) farIcon(gtx layout.Context, chat int64, send bool) wdk.IconWidget {
+	if c.farChat != chat || !wdk.AnimationsEnabled(gtx) {
+		c.farChat, c.farSend, c.farSwitched = chat, send, time.Time{}
+	} else if send != c.farSend {
+		c.farSend, c.farSwitched = send, gtx.Now
+	}
+	sc := scheme(gtx)
+	to, from, fromColor := iconMic, iconSend, sc.Primary.Color
+	if send {
+		to, from, fromColor = iconSend, iconMic, sc.SurfaceVariant.OnColor
+	}
+	if c.farSwitched.IsZero() {
+		return to
+	}
+	progress := float32(gtx.Now.Sub(c.farSwitched)) / float32(farSwitchDuration)
+	if progress >= 1 {
+		c.farSwitched = time.Time{}
+		return to
+	}
+	gtx.Execute(op.InvalidateCmd{})
+	return morphIcon(from, fromColor, to, max(0, progress))
+}
+
+// forgetFar makes the far slot's next icon appear without animation: the
+// slot showed something else, Stop or nothing.
+func (c *messageComposer) forgetFar() { c.farChat = 0 }
+
+// morphIcon draws from, in fromColor, changing into to, in the color it is
+// given, progress of the way: from shrinks to a fifth and fades out while to
+// grows from a fifth and fades in, both about their centers.
+func morphIcon(from wdk.IconWidget, fromColor token.MatColor, to wdk.IconWidget, progress float32) wdk.IconWidget {
+	return func(gtx layout.Context, color token.MatColor) layout.Dimensions {
+		var size image.Point
+		draw := func(icon wdk.IconWidget, color token.MatColor, scale, opacity float32) {
+			m := op.Record(gtx.Ops)
+			dims := icon(gtx, color)
+			call := m.Stop()
+			size = image.Pt(max(size.X, dims.Size.X), max(size.Y, dims.Size.Y))
+			center := layout.FPt(dims.Size).Mul(.5)
+			defer op.Affine(f32.AffineId().Scale(center, f32.Pt(scale, scale))).Push(gtx.Ops).Pop()
+			defer paint.PushOpacity(gtx.Ops, opacity).Pop()
+			call.Add(gtx.Ops)
+		}
+		draw(from, fromColor, 1-.8*progress, 1-progress)
+		draw(to, color, .2+.8*progress, progress)
+		return layout.Dimensions{Size: size}
+	}
+}
+
+// composerShadow draws the shadow of a floating composer's plate, under the
+// plate; the classic bar below the history casts none.
+func composerShadow(gtx layout.Context, classic bool, plate image.Rectangle, radius int) {
+	if !classic {
+		drawShadow(gtx, plate, radius, composerShadowStyle)
+	}
+}
+
+// composerFill fills a plate of the composer: a floating one over the
+// blurred history, as an overlay; the classic bar as the window's other
+// surfaces, as translucent as the window.
+func composerFill(gtx layout.Context, classic bool, backdrop *blurBackdrop, size, origin image.Point, fill token.MatColor, radius int) {
+	if classic {
+		fillWindowSurface(gtx, fill, size)
+		return
+	}
+	overlayFill(gtx, backdrop, size, origin, fill, radius)
+}
+
 // Layout draws the composer over the chat page p. A floating composer shows
 // backdrop, the history behind it, blurred; nil draws it opaque.
 func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.Catalog, p *chatPage, animate bool, backdrop *blurBackdrop) layout.Dimensions {
-	c.update(gtx, chat, l)
+	c.update(gtx, chat, l, p)
 	size := gtx.Constraints.Max
 	pad := min(gtx.Dp(16), size.X/8)
 	classic := p.classicComposer()
@@ -704,6 +959,13 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 		p.toast.Show(composerErrorText(d.err, l))
 	}
 	d.told = d.err
+	if m := c.askDelete; m != nil {
+		// An edit to nothing deletes the message, once asked, as in
+		// Telegram Desktop.
+		c.askDelete = nil
+		parts := []model.Message{*m}
+		p.openDeleteParts(gtx, parts, p.rightsFor(parts))
+	}
 	if p.frozen.Frozen() {
 		// A frozen account cannot send: the bar tells why, as Telegram
 		// Desktop's does.
@@ -714,8 +976,9 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			if classic {
 				radius = 0
 			}
+			composerShadow(gtx, classic, image.Rectangle{Max: s}, radius)
 			defer clip.UniformRRect(image.Rectangle{Max: s}, radius).Push(gtx.Ops).Pop()
-			overlayFill(gtx, backdrop, s, rect.Min, sc.SurfaceContainerHigh, radius)
+			composerFill(gtx, classic, backdrop, s, rect.Min, sc.SurfaceContainerHigh, radius)
 			if classic {
 				fillRect(gtx, sc.OutlineVariant, image.Pt(s.X, gtx.Dp(1)))
 			}
@@ -730,8 +993,9 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			if classic {
 				radius = 0
 			}
+			composerShadow(gtx, classic, image.Rectangle{Max: s}, radius)
 			defer clip.UniformRRect(image.Rectangle{Max: s}, radius).Push(gtx.Ops).Pop()
-			overlayFill(gtx, backdrop, s, rect.Min, scheme(gtx).SurfaceContainerHigh, radius)
+			composerFill(gtx, classic, backdrop, s, rect.Min, scheme(gtx).SurfaceContainerHigh, radius)
 			return c.layoutReadOnly(gtx, p, l)
 		})
 		return layout.Dimensions{Size: size}
@@ -765,8 +1029,9 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			radius = 0
 		}
 		// Keep pointer input inside the composer from reaching the history.
+		composerShadow(gtx, classic, image.Rectangle{Max: s}, radius)
 		defer clip.UniformRRect(image.Rectangle{Max: s}, radius).Push(gtx.Ops).Pop()
-		overlayFill(gtx, backdrop, s, rect.Min, sc.SurfaceContainerHigh, radius)
+		composerFill(gtx, classic, backdrop, s, rect.Min, sc.SurfaceContainerHigh, radius)
 		if classic {
 			fillRect(gtx, sc.OutlineVariant, image.Pt(s.X, gtx.Dp(1)))
 		}
@@ -778,7 +1043,8 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			inRect(gtx, image.Rect(x, 0, x+iconWidth, s.Y), func(gtx layout.Context) layout.Dimensions {
 				size := gtx.Constraints.Max
 				rights := c.permissions(chat)
-				disabled := click == &c.attach && !rights.Any(model.SendAttachments) || click == &c.smile && !rights.Any(model.SendText|model.SendSticker|model.SendGIF) || click == &c.micClick && !rights.Allows(model.SendVoice)
+				disabled := click == &c.attach && (!rights.Any(model.SendAttachments) || d.editing != nil) || click == &c.smile && !rights.Any(model.SendText|model.SendSticker|model.SendGIF) || click == &c.micClick && !rights.Allows(model.SendVoice) ||
+					click == &c.send && c.recording == nil && (d.sending || !rights.Allows(model.SendText))
 				if disabled {
 					gtx = gtx.Disabled()
 				}
@@ -787,6 +1053,10 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 				d := min(gtx.Dp(40), size.X, size.Y)
 				circle := image.Rectangle{Max: image.Pt(d, d)}.Add(size.Sub(image.Pt(d, d)).Div(2))
 				content := sc.SurfaceVariant.OnColor
+				if click == &c.send {
+					// Send stands out, as in Telegram Desktop.
+					content = sc.Primary.Color
+				}
 				if disabled {
 					content = content.SetOpacity(0.38)
 				}
@@ -799,53 +1069,68 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 		if c.recording != nil {
 			// While it records, the cross drops the recording and Send
 			// sends it.
+			c.forgetFar()
 			button(0, &c.voiceCancel, iconClear, l.T("record.cancel"))
-			sendWidth := min(gtx.Dp(92), s.X/3)
-			inRect(gtx, image.Rect(s.X-sendWidth-gtx.Dp(8), 0, s.X-gtx.Dp(8), s.Y), func(gtx layout.Context) layout.Dimensions {
-				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions { return textButton(gtx, &c.send, l.T("composer.send")) })
-			})
-			inRect(gtx, image.Rect(iconWidth, 0, max(iconWidth, s.X-sendWidth-gtx.Dp(8)), s.Y), c.layoutRecording)
+			button(s.X-iconWidth, &c.send, iconSend, l.T("composer.send"))
+			inRect(gtx, image.Rect(iconWidth, 0, max(iconWidth, s.X-iconWidth), s.Y), c.layoutRecording)
 			return layout.Dimensions{Size: s}
 		}
 		button(0, &c.attach, iconAttach, l.T("composer.attach"))
+		// A chat with a bot's keyboard has the button that hides it and
+		// shows it again left of the emoji button, as in Telegram Desktop.
+		keyboardWidth := 0
+		if p.bot.offered {
+			keyboardWidth = iconWidth
+		}
 		// A bot's menu button, which opens its Mini App, is beside the
 		// clip.
-		menuWidth := p.layoutBotMenu(gtx, chat, image.Rect(iconWidth, 0, s.X-2*iconWidth, s.Y), l)
+		menuWidth := p.layoutBotMenu(gtx, chat, image.Rect(iconWidth, 0, s.X-2*iconWidth-keyboardWidth, s.Y), l)
 		sendWidth := 0
-		if p.stoppableDraft() && !d.sending {
+		if d.editing != nil {
+			// An edit is saved by the check in Send's place.
+			sendWidth = iconWidth
+			c.forgetFar()
+			label := l.T("composer.save")
+			if d.sending {
+				label = l.T("composer.saving")
+			}
+			button(s.X-iconWidth, &c.send, iconDone, label)
+			button(s.X-2*iconWidth, &c.smile, iconEmoji, l.T("composer.emoji"))
+		} else if p.stoppableDraft() && !d.sending {
 			// While a bot streams a draft the account may stop, Stop takes
 			// the place of Send, as in Telegram Desktop.
 			sendWidth = iconWidth
+			c.forgetFar()
 			button(s.X-iconWidth, &c.stopDraft, iconStop, l.T("rich.stop_draft"))
 			button(s.X-2*iconWidth, &c.smile, iconEmoji, l.T("composer.emoji"))
 		} else if c.canRecord(d) || !c.permissions(chat).Allows(model.SendVoice) && !d.sending && d.pending == nil && d.editor.Text() == "" {
 			// With nothing written, the microphone takes the far right, as
 			// in Telegram Desktop, and the emoji button moves left of it.
 			sendWidth = iconWidth
-			button(s.X-iconWidth, &c.micClick, iconMic, l.T("record.voice"))
+			button(s.X-iconWidth, &c.micClick, c.farIcon(gtx, chat, false), l.T("record.voice"))
 			button(s.X-2*iconWidth, &c.smile, iconEmoji, l.T("composer.emoji"))
 		} else if strings.TrimSpace(d.editor.Text()) != "" || d.sending || d.pending != nil {
-			button(s.X-iconWidth, &c.smile, iconEmoji, l.T("composer.emoji"))
-			sendWidth = min(gtx.Dp(92), s.X/3)
-			inRect(gtx, image.Rect(s.X-iconWidth-sendWidth, 0, s.X-iconWidth, s.Y), func(gtx layout.Context) layout.Dimensions {
-				if d.sending || !c.permissions(chat).Allows(model.SendText) {
-					gtx = gtx.Disabled()
-				}
-				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					txt := l.T("composer.send")
-					if d.sending {
-						txt = l.T("composer.sending")
-					}
-					if d.err != nil && d.pending != nil {
-						txt = l.T("composer.retry")
-					}
-					return textButton(gtx, &c.send, txt)
-				})
-			})
+			// Send takes the microphone's place, the emoji button stays
+			// left of it.
+			sendWidth = iconWidth
+			label := l.T("composer.send")
+			if d.sending {
+				label = l.T("composer.sending")
+			}
+			if d.err != nil && d.pending != nil {
+				label = l.T("composer.retry")
+			}
+			button(s.X-iconWidth, &c.send, c.farIcon(gtx, chat, true), label)
+			button(s.X-2*iconWidth, &c.smile, iconEmoji, l.T("composer.emoji"))
 		} else {
+			c.forgetFar()
 			button(s.X-iconWidth, &c.smile, iconEmoji, l.T("composer.emoji"))
 		}
-		inRect(gtx, image.Rect(iconWidth+menuWidth, 0, max(iconWidth+menuWidth, s.X-iconWidth-sendWidth), s.Y), func(gtx layout.Context) layout.Dimensions {
+		if keyboardWidth > 0 {
+			icon, label := p.toggleKeyboard(gtx, chat, l)
+			button(s.X-2*iconWidth-sendWidth, &p.bot.toggle, icon, label)
+		}
+		inRect(gtx, image.Rect(iconWidth+menuWidth, 0, max(iconWidth+menuWidth, s.X-iconWidth-sendWidth-keyboardWidth), s.Y), func(gtx layout.Context) layout.Dimensions {
 			if !c.permissions(chat).Allows(model.SendText) {
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return label(gtx, restrictionText(c.permissions(chat), model.SendText, l), token.TypestyleBodySmall, sc.SurfaceVariant.OnColor, 2)
@@ -853,13 +1138,21 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			}
 			if d.sending || c.source == nil {
 				gtx = gtx.Disabled()
+			} else {
+				if !c.editorWasLaid {
+					// A field just shown takes the keyboard in the next
+					// frame, which nothing else may ask for.
+					gtx.Execute(op.InvalidateCmd{})
+				}
+				c.editorChat, c.editorLaid = chat, true
 			}
+			c.fieldOrigin = rect.Min.Add(image.Pt(iconWidth+menuWidth, 0))
 			size := gtx.Constraints.Max
 			inner := gtx
 			inner.Constraints.Min.Y = 0
 			inner.Constraints.Max.Y = max(0, size.Y-gtx.Dp(12))
 			record := op.Record(gtx.Ops)
-			dims := flatEditor(inner, &d.editor, l.T("composer.message"))
+			dims := formattedEditor(inner, &d.editor, l.T("composer.message"), d.entities)
 			call := record.Stop()
 			transform := op.Offset(image.Pt(0, max(0, (size.Y-dims.Size.Y)/2))).Push(gtx.Ops)
 			call.Add(gtx.Ops)
@@ -891,13 +1184,16 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 		}
 		if drawn && !c.pickerDrawn {
 			p.stickerViewShown()
+			// Its search takes the keyboard in the next frame.
+			gtx.Execute(op.InvalidateCmd{})
 		}
 		c.pickerDrawn = drawn
 	}
 	{
 		// The attachment menu opens from the paperclip, at the start.
 		w := min(gtx.Dp(264), size.X-2*pad)
-		h := min(gtx.Dp(144), max(0, above-gtx.Dp(8)))
+		order := c.attachmentOrder()
+		h := min(gtx.Dp(48)*len(order), max(0, above-gtx.Dp(8)))
 		area := image.Rect(pad, above-h-gtx.Dp(8), pad+w, above-gtx.Dp(8))
 		c.attachMenu.Layout(gtx, c.attachOpen, area, menuFromBottomLeft, gtx.Dp(12), func(gtx layout.Context) layout.Dimensions {
 			menuSize := gtx.Constraints.Max
@@ -908,15 +1204,16 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			// and prevents the outside-click handler from closing the menu.
 			event.Op(gtx.Ops, &c.attachmentActions)
 			icons := []wdk.IconWidget{iconAttachPhoto, iconAttachFile, iconAttachTasks}
-			for i, k := range []string{"photo", "file", "tasks"} {
-				inRect(gtx, image.Rect(0, i*h/3, w, (i+1)*h/3), func(gtx layout.Context) layout.Dimensions {
+			for position, i := range order {
+				k := []string{"photo", "file", "tasks"}[i]
+				inRect(gtx, image.Rect(0, position*h/len(order), w, (position+1)*h/len(order)), func(gtx layout.Context) layout.Dimensions {
 					row := gtx.Constraints.Max
 					if i == 2 && !c.permissions(chat).Allows(model.SendText) {
 						gtx = gtx.Disabled()
 					}
 					style := surfaceStyle{background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor}
 					return c.attachmentActions[i].Layout(gtx, row, style, func(gtx layout.Context) layout.Dimensions {
-						if i > 0 {
+						if position > 0 {
 							fillRect(gtx, sc.OutlineVariant, image.Pt(row.X, gtx.Dp(1)))
 						}
 						return layout.Inset{Left: 16, Right: 16}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -945,6 +1242,7 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 		bar.Min.X, bar.Max.X = pad, max(pad, size.X-pad)
 	}
 	c.formLayout(gtx, bar, l)
+	c.layoutFieldMenu(gtx, d, p, l)
 	return layout.Dimensions{Size: size}
 }
 func (c *messageComposer) formLayout(gtx layout.Context, bar image.Rectangle, l localization.Catalog) {
@@ -970,6 +1268,13 @@ func (c *messageComposer) formLayout(gtx layout.Context, bar image.Rectangle, l 
 			media := form == 1
 			chat := c.chat
 			go func() {
+				defer crash.Recover("choose attachment", func(e *crash.Panic) {
+					select {
+					case c.fileResults <- fileChoice{chat: chat, form: form, err: e}:
+						c.invalidate()
+					case <-ctx.Done():
+					}
+				})
 				f := chooseAttachment(ctx, media)
 				f.chat, f.form = chat, form
 				select {
@@ -1040,4 +1345,8 @@ func (c *messageComposer) formLayout(gtx layout.Context, bar image.Rectangle, l 
 			)
 		})
 	})
+}
+
+func (c *messageComposer) attachmentOrder() []int {
+	return arrangeMenu(c.menus, menuAttachment, []int{0, 1, 2}, func(i int) string { return []string{"photo", "file", "tasks"}[i] })
 }

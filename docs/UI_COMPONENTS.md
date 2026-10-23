@@ -44,19 +44,27 @@ put it next to these, and add it to this page.
 | `textButton(gtx, *surface, text)` | A text-only button in the primary color, as in dialogs and status lines. |
 | `tonalButton(gtx, *surface, text, count)` | A filled button in the secondary container color with an optional count, as the actions over selected messages. |
 | `navigationButton` | Icon and title with a 48 dp target, for navigation controls. |
+| `revealButton` (`reveal_button.go`) | An icon whose text shows beside it, in the same line, while the pointer is on it or it has the focus: the button widens to the text and the text fades in (`token.DurationMedium2`, at once without animations). The actions of a channel's bottom bar, where the account does not post (direct messages, discussion, notifications, a gift), are these; `COMPOSER_VIEW=channel-readonly-hover` renders one open. |
 | `button.Filled()` / `button.Text()` (gio-mw) | The main and the secondary action of a dialog or a card, side by side with a `layout.Spacer{Width: 8}`. |
 | `label`, `centeredLabel` | Text in a typestyle and color, limited to a number of lines (0 is unlimited). |
 | `card(gtx, content, padding)` | A rounded surface container; `defaultCardPadding` for settings and profile cards. |
 | `pill(gtx, text)` | Text on a rounded plate, like service messages and the "Choose a chat" hint. |
-| `toast` (`toast.go`) | Every error and outcome of an action (sent, copied, saved, failed): a grey plate at the bottom of the list or dialog it is about, gone after four seconds, a new one replacing it. Never keep such a message as text on screen. The history's is `chatPage.toast`, over the composer, floating or classic; a dialog's is `modal.Toast`, under the dialog when there is room; the chat list, `scrollPage` (settings, profile), the picker and the photo viewer have their own. A failure that repeats on every refresh is told once: compare with the one told last. A load that failed keeps a round retry button (icon only, `history_jump.go`, with the ones that scroll to the start and the end of the history), without the error text. The buttons that scroll are not there at the end of the history, nor within 480 dp of it, as in Telegram Desktop (`jumpReserve`), and the one to the start not within the same of the start; the retry stays. Errors of fields with room beside them (sign-in, passwords, profile, program paths) stay under the field. |
+| `toast` (`toast.go`) | Every error and outcome of an action (sent, copied, saved, failed): a grey plate at the bottom of the list or dialog it is about, gone after four seconds, a new one replacing it. Never keep such a message as text on screen. The history's is `chatPage.toast`, over the composer, floating or classic; a dialog's is `modal.Toast`, under the dialog when there is room; the chat list, `scrollPage` (settings, profile), the picker and the media viewer have their own. A failure that repeats on every refresh is told once: compare with the one told last. A load that failed keeps a round retry button (icon only, `history_jump.go`, with the ones that scroll to the start and the end of the history), without the error text. The buttons that scroll are not there at the end of the history, nor within 480 dp of it, as in Telegram Desktop (`jumpReserve`), and the one to the start not within the same of the start; the retry stays. Errors of fields with room beside them (sign-in, passwords, profile, program paths) stay under the field. |
 | `vspace(dp)` | Vertical gap in a `layout.Flex`. |
 | `fillRect`, `fillRounded` | Filling a size with a theme color. |
 | `offset`, `inRect`, `exact` | Placing a widget at a point, in a rectangle or at an exact size. |
-| `avatar` / `App.layoutAvatar` | A chat's photo, or its colored initials; pass `layoutAvatar` down as `avatarLayout`. The avatar in a chat's header and at the top of its info (and the account's own on the profile page) opens the photos of its profile in the photo viewer (`layoutAvatarTarget`, `photoViewer.OpenProfile`). |
+| `avatar` / `App.layoutAvatar` | A chat's photo, or its colored initials; pass `layoutAvatar` down as `avatarLayout`. The avatar in a chat's header and at the top of its info (and the account's own on the profile page) opens the photos of its profile in the media viewer (`layoutAvatarTarget`, `mediaViewer.OpenProfile`). |
 | `withBadges` / `App.badges` | A name with the Premium star, emoji status, check mark or scam marks around it. |
 | `drawBadge`, `drawBadgeRight` | Unread counters. |
 | `flatEditor` | A borderless one-line editor with a hint, as in the composer and the picker's search. |
-| `textField` | A one-line outlined field with a label, which can mask what is typed (passwords). |
+| `textField` | A one-line outlined field with a label, which can mask what is typed (passwords). A field for a password to be chosen has an eye (`newPasswordField`, `peekButton`) at its end, which shows what is typed for as long as it is held down, and takes no focus from the field; the master password of the offer to protect local data has it, in the sign-in and in the settings. |
+| `phoneField` (`phone_field.go`) | The phone number of the sign-in, as Telegram's web client has it: a country field over the number, which finds the country from the calling code as it is typed (`internal/messenger/countries`, where several countries share a code the digits after it tell them, and a country picked from the list stays the one of its code) and opens `countryPicker` (`country_picker.go`, a `modal` with a search that takes names in the language and in English, and calling codes) on a click; the number is written in groups as it is typed or pasted, "+7 900 123 45 67", the caret staying after the digit it was after, and a Backspace or Delete over a separator taking the digit beside it. The list shows each country's flag emoji (`Country.Flag`): where the font has no flags, as Windows' has not (0 of 231 are drawn there), it is the two letters of the country's code, and an emoji set that has flags (Apple, Twemoji, Android, JoyPixels) draws them as pictures; where the fonts show not even letters, only the box of a missing character (a system with no emoji font, as Haiku), the column is left out (`emojiDrawn.shows`). The names of the countries are the keys `country.<ISO>`. `PHONE_PNG_DIR` renders the step. |
+| `codeInput` (`code_input.go`) | The login code, a box for each digit, as many sites have it, where Telegram has told how many digits it has (up to 8; otherwise the field is a plain `textField`). It is one editor under the boxes, which takes digits only, pastes and deletes as a line does, keeps the caret after the last digit (the box that has it is outlined), and has no label: the step's title says what it is for. A code that is all there takes itself at once, and the button needs all the digits. The cloud password is not one: it is a `textField`, whatever the user types. |
+| `qrView` (`login_qr.go`) | The first step of the sign-in, as Telegram Desktop's (`intro_qr.cpp`): the QR code of a login token to scan with a device where the account is signed in, black on a white plate in a light theme and light on a dark one in a dark theme, which Telegram reads, with a button beside it that makes it black on white for scanners that read only that (`rsc.io/qr`, Quartile correction as tdesktop's). The square logo in its middle is `assets/logo.svg` drawn by oksvg at the SVG's own size and scaled down (oksvg widens strokes at other scales; it reads a gradient's stops only from its own `stop-color` attributes), 44 dp wide as tdesktop's round one, in a hole of whole modules around it (`qrHole`), which Quartile correction makes up for, the title, the three numbered steps of scanning it, and the button to the phone number, whose step has the button back. A loading ring stands in for the code until its token comes; `account` replaces the token when it expires and when it is accepted. In a window too low for the card the code shrinks, to `qrMinSize`. `PHONE_PNG_DIR` renders it too (`qr`, `qr-waiting`, and `qr-dark…` in a dark theme). |
+| `proxyView` (`proxy_view.go`) | The proxies of `internal/messenger/proxy`, as a list and a field: "No proxy", Telegram over WebSocket and the user's own, each with how long it takes to answer (`proxy.Ping`, measured when the view opens, when one is added and on "Check"; `Services.PingProxy` replaces it in the demo) and, where it is the user's, a button that removes it. A link typed in the field is read as it is typed (what it is is told under it) and added with the button or Enter; the one added is the one in use. `LayoutForm`, `LayoutList` and `LayoutCheck` are its parts, for a dialog that keeps the field in sight while the list scrolls; `Layout` is all of them, for the settings' section of the proxies. |
+| `proxyDialog` (`login_corner.go`) | `proxyView` in a dialog, which the sign-in has to hold the proxies: it has no settings. |
+| `loginCorner` (`login_corner.go`) | The three buttons in the top corner of the sign-in: the language, the theme (each goes on to the next at a click) and the proxy, which opens `proxyDialog` and has a dot where one is in use. The card keeps `cornerMargin` away from the corner, above and below. |
+| `strengthMeter` (`password_strength.go`) | How strong the master password being typed is: five segments and the level in words under them, from `internal/messenger/passwordstrength`, beside the password field of the offer to protect local data and of the settings. It is an indicator and nothing more: a weak password holds nothing back, though the segments are colored by level, from red to green (`strengthColors`, one set for the light themes and one for the dark ones). The estimate is lowered by what is common, the passwords, words and first names of the dictionaries (English and Russian, typed in the other layout too, in capitals or with digits for letters), runs of one character, sequences, walks over the keyboard, keys pressed at random in a small area of it (a mash, such as `dfssfdsdfsfd`) and strings of a few different characters, and dates, and raised by what is none of them. It is not strict about length: eight random characters of every kind are the highest level, and four or five random words are not asked for. The highest level is given only to a password with the usual kinds of characters, lower and upper case, a digit and a special character (`passwordstrength.KindsOf`), however many bits it has; the letters of a script without case count as both cases. The list of the 1000 commonest passwords is SecLists' (MIT; `docs/THIRD_PARTY_LICENSES.md`), the other words are written for it, and words of a language that are in no dictionary are told by how their letters read. |
 | `openBrowser` | Opening a link in the system browser; call it off the frame goroutine. |
 
 ## Containers and navigation
@@ -64,16 +72,24 @@ put it next to these, and add it to this page.
 | Component | Use it for |
 |---|---|
 | `tabRow` (`tabs.go`) | Tabs of equal width: centered titles, the active one in the primary color, an indicator that slides to the tab switched to, ripple on each tab. `Slide` brings in the content of the tab switched to from its side. Used by the composer's picker and the search. |
-| `folderChip` (`folderbar.go`) | A capsule that is selected or not, with an optional counter: folders in the compact layout, sections of the search. Put several in a horizontal `scroll.List`. |
-| `modal` (`modal.go`) | A dialog over a scrim: animates in and out, closes on Escape or a click beside it, takes the focus. The owner keeps what it shows until `Layout` reports it closed. Examples: `sessionEndedDialog`, `connectionFailedDialog`, `emojiOffer`, `frozenView`, the delete dialog. |
-| `contextMenu` (`contextmenu.go`) | A menu that grows from a corner of a rectangle, such as the attachment menu. |
+| `folderChip` (`folderbar.go`) | A capsule that is selected or not, with an optional counter: folders in the compact layout, sections of the search, a profile's collectible usernames. Put several in a horizontal `scroll.List`. |
+| `richLabel` (`rich_label.go`) | A label of `model.TextRun`s: bold and italic parts, custom emoji drawn as their pictures in a square of their own. A custom emoji Telegram marks of the text's color (`MessageMedia.TextColor`, `chatmedia.Manager.TextColored`) is its shape in the text's color, as Telegram Desktop draws it, here and wherever custom emoji are drawn: `emojiFrame`, `imageOps.Colored`. `maxLines: 1` cuts one line with an ellipsis. `markedRuns` makes the runs of a catalog's text whose bold parts are between `**`, as Telegram Desktop's `lng_…` texts mark them. |
+| `motionTrack`, `drawStreak` (`motion_blur.go`) | Motion blur, as a camera's 180° shutter: `motionTrack.Streak` is how far a picture moved while the shutter was open (none on its first frame or after it stood still), and `drawStreak` draws the picture as the average of where it was, in premultiplied colors, which blending lays over the background exactly (drawing copies half transparent would not). It asks for the next frame, in which a picture that stopped is sharp. Only with `animate`; the picture must be an image: `App.avatarSprite` makes one of an avatar, a photo cut to its shape or the initials drawn once by the GPU off the frame. The cover's gifts streak in flight, its avatar as it moves into the header. |
+| `modal` (`modal.go`) | A dialog over a scrim: animates in and out, closes on Escape or a click beside it, takes the focus: for its `field`, a search or a caption the owner sets before `Open`, or for itself, which keeps what is typed out of the message field under it. A field focused before `Open` loses to the dialog's own request. The owner keeps what it shows until `Layout` reports it closed. Examples: `sessionEndedDialog`, `connectionFailedDialog`, `emojiOffer`, `frozenView`, the delete dialog. |
+| `contextMenu` (`contextmenu.go`) | A menu that grows from a corner of a rectangle, such as the attachment menu. Draws its own shadow. |
+| `drawShadow` (`shadow.go`) | The soft shadow of a rounded rectangle, with `dialogShadow` and `menuShadow`: `modal` and `contextMenu` draw them, so a dialog or a menu built on those needs nothing more. Its intensity is a setting of the appearance section (`preferences.Overlays.Shadow`, in percent of the usual shadow, put in the frame by `withShadowIntensity`). Darker on dark themes; faint where the page is nearly black already. It is a picture made once per radius, blur and color and drawn in nine pieces: a shadow made of a fill per layer cost 20 times the frame without it on a rasterizer without a GPU (`BenchmarkDialogShadowFrame`). |
 | `scrollPage` (`pages.go`) | A centered scrollable column for a page, such as the profile. |
+| `shortcutSettings` (`settings_shortcuts.go`) | Context-grouped command cards, physical-key recording and manual-entry dialog, local collision validation and asynchronous desktop collision checks. |
+| `menuSettings` (`settings_menus.go`) | One card per menu, stable action IDs, drag handles and hide/show controls. Applies user order only after host availability checks; unknown contributions keep their saved position. |
 | `settingsItem`, `settingsChoiceCard` (`settings.go`) | A settings row with an icon, title and subtitle; a card with a title, choices and a hint. |
 | `buttonRow` (`security.go`) | A secondary action at the start of a row and the main one at its end. |
 | `navButton`, `sidebar` | The sidebar's sections and folders. |
 | `splitter` | The draggable edge between the chat list and the page. |
 | `spoiler` | Covering a value, such as a phone number in visual privacy mode, until it is clicked. |
 | `loadingIndicator` | The circular progress indicator, labeled for accessibility: `page` fills a page, `sized` draws it d wide, `centered` in the middle of a line. Each place that loads keeps its own. |
+| `selectionMark` (`common.go`) | The round mark of a thing that can be picked: a check on the primary color when picked, an outline when not. A row that has one draws it, and its buttons, over the row's `surface`, not in it: the row's area would take their clicks. The Downloads section's rows pick files with it. |
+| `downloadsPage` (`downloads_page.go`) | The Downloads section of the sidebar and the drawer, as Telegram Desktop's: the files on their way (the window's `attachmentFiles`, which its pages share, so a download goes on in another chat), each with its `downloadRing`, a click cancelling; then the files downloaded, newest or largest first (two `folderChip`s), with their size, date and what became of them (deleted or moved, changed since), the count and size of those there above. A row opens its file and its button goes to the message; the header's button shows the folder they are all downloaded into (made if it is not there yet); marks pick files, which "Delete from disk" deletes after a dialog, as Telegram Desktop asks. A file is the user's: nothing else deletes it. `DOWNLOADS_PNG` renders it, sorted and picked, the dialog and empty. |
+| `downloadRing` | A download in a circle (`download_ring.go`): an arc as long as the part received over a faint track, turning while the size is not known, around the mark of what a click does (cancel, load again). The media tiles and the file rows draw theirs in their own circle; each row keeps its own, for the arc to grow smoothly. |
 | `scroll.List`, `search.Bar` (gio-mw) | Scrolling lists with a scrollbar; the search field of the chat list. |
 | `toggle`, `checkbox`, `radio`, `slider` (gio-mw) | Settings controls. |
 
@@ -84,7 +100,20 @@ The history is drawn as materialgram draws it:
 - `messageJoins` groups a sender's messages in a row (same sender, same
   day, less than 15 minutes apart): the group shows the sender's name at
   its top and one avatar, which sticks to the bottom of the view while the
-  group is in it (`stickyAvatars`).
+  group is in it (`stickyAvatars`). In a group, a member's avatar goes
+  to the account's chat with them, or, with none yet, opens their info
+  over the group (`chatInfo.OpenOver`), whose first card goes to the chat
+  (`model.SenderChatSource`, `sender_chat.go`). A channel's that posted
+  there opens it, followed or not; one the account is banned from, with
+  nothing of it cached, shows only its info (`chatInfo.OpenClosed`).
+  The avatars in the comments and in a forum's topics do the same.
+- **The way back** (`chat_return.go`): a chat opened from another, as a
+  sender's from the group or the comments, or a channel's discussion
+  from its Discussion button, gets a back button before the avatar in
+  its header (the `back` of `layoutChatPage`), a forum's too.
+  `App.openReturning` keeps the steps, so the way goes back through each
+  in turn, opening again the comments or the topic it was left from; a
+  chat opened off it forgets it.
 - `bubbleShape`/`shapeOf` round a bubble 16 dp, and 6 dp where it touches
   its group; `chatThemeController.Bubble` takes the same shape.
 - `senderColor` colors a sender's name from its avatar color, readable on
@@ -92,6 +121,15 @@ The history is drawn as materialgram draws it:
 - `replyQuote` is the quote of a replied message, which jumps to it;
   `messageFooter` has the comments, views, author, edit mark and time;
   `reactions` wraps reaction chips.
+- `bubbleBody` puts the footer at the bubble's bottom right: on the
+  text's last line when it fits there 10 dp after the text (`footerGap`),
+  the bubble widening for it up to its width, as Telegram Desktop's skip
+  block and Telegram for Android do; on a line of its own otherwise, and
+  under media, a link preview, reactions, a quote or code that ends the
+  text, a last line that does not start at the left (right to left), and
+  a bot's text while it streams. The footer's own width decides, so the
+  seconds and the edit mark move it off the line sooner.
+  `TestTimeOnLastLine`.
 - Channel posts have no avatar; groups, channels and bots have an icon of
   their kind before the title in the chat list (`chatKindIcon`).
 
@@ -266,12 +304,35 @@ size-stability fixes remain in place.
   says the files are pictures, or pictures and videos. A drop goes to the
   box above, as documents or not by the area; over an open box the files
   join it. Where the page is comes from the last frame.
+- **Editing a message** (`composer_edit.go`): "Edit" in the message menu, or
+  the Up arrow in an empty field (the last message `model.Editable` allows),
+  puts the message in the field as Telegram Desktop does: the reply strip
+  shows "Edit message" and the text, its cross or Escape gives the field back
+  what it had (a reply too), and a check in Send's place saves it through
+  `model.MessageEditor` (`messages.editMessage`). A text that did not change
+  ends the edit without asking Telegram; an empty one asks to delete the
+  message; one too long, or a message that can no longer be edited, is told
+  in the toast with Telegram Desktop's texts. `COMPOSER_VIEW=edit`,
+  `edit-classic` and `edit-menu` render it.
+- **Formatting in the field** (`composer_format.go`): the draft keeps its
+  formatting as entities (`messageDraft.entities`, UTF-16, as Telegram's),
+  which `shiftEntities` moves with what is typed or deleted. Telegram
+  Desktop's shortcuts (Ctrl+B, I, U, Ctrl+Shift+X, ., M, P, N, Ctrl+K, by
+  the keys' places) and a menu on a right click over a selection format it;
+  Ctrl+K opens `linkDialog`. `formattedEditor` draws the field's text itself
+  (the Gio fork's `Editor.HideText` and `PaintText`), run by run: links in
+  the accent color, plates under code and spoilers, lines under and through,
+  bold thickened and italic slanted from the one face the field has.
 - **Bots** (`bot.go`): `botPage` on the chat page. The buttons under a message
   are `textButton`s in the bubble (`history_bubble.go`); a callback asks the store
   (`model.BotStore`) in a goroutine and comes back through `botUpdate` to the
   toast. The reply keyboard is a strip under the composer's bar, over which the
   reply strip stacks: `keyboardHeight` is added to `replyHeight` wherever the
   history reserves room for the composer, and `composer.Layout` draws it.
+  Its keys take the whole width: the button that hides it is in the bar, left
+  of the emoji button (`toggleKeyboard`), and shows it again while hidden,
+  as Telegram Desktop's does; `COMPOSER_VIEW=bot-keyboard` and
+  `bot-keyboard-hidden` render both.
   An empty chat with a bot draws `layoutStart` in the bar's place. Typing
   `/` lists commands over the composer (`layoutCommands`).
 - **Overlays and blur** (`overlay.go`): the floating composer, the context menus
@@ -288,12 +349,12 @@ size-stability fixes remain in place.
   fill over it at the chosen opacity. An overlay whose owner gives none is
   opaque. A toast is never less than 80% opaque (`toastMinOpacity`): its
   light text is only readable on its dark plate. A new overlay: take `p.menuBackdrop()` / `p.toastBackdrop()` (or the
-  list's), fill with `overlayFill`. Not covered: forms, dialogs' toasts, the photo viewer,
+  list's), fill with `overlayFill`. Not covered: forms, dialogs' toasts, the media viewer,
   and the toast of the search results.
 - **Main window surfaces** (`window_surface.go`): on Wayland and Windows the
   sidebar, chat list (including the compact folder bar) and chat header let
   the desktop show through at `preferences.Global.WindowTransparency`. The
-  compositor supplies blur through the same effects as the photo viewer's
+  compositor supplies blur through the same effects as the media viewer's
   window: `appwindow.Options.Transparent` / `BlurBehind`, and
   `Window.SetEffects` to change them; do not pass `app.Transparent` or
   `app.BlurBehind` to a window yourself. `fillWindowSurface` changes only the fill alpha; text, avatars and
@@ -340,6 +401,20 @@ size-stability fixes remain in place.
   list's `toast` without asking the store, and a store's failure comes back to
   the toast on the next frame. A pinned chat with nothing unread draws
   `drawPin` where its counter would be.
+- **A chat's info** (`shared.go`, `profile_cover.go`,
+  `collectible_username.go`): a `modal` whose first page scrolls under its
+  header, which shows the name only once the cover's has gone under it.
+  The cover, as Telegram Desktop's profile, centers the avatar, the name
+  with its badges (`badgesLayout`, emoji status included) and the status
+  over the backdrop of the gift the emoji status is (a radial gradient,
+  its pattern's emoji around the avatar in `patternTone`) or the profile's
+  color, with the gifts pinned to the profile around the avatar, which
+  open in the gift's dialog. Under it, `settingsItem` cards: a user's
+  channel (`settingsItem.layout` with its avatar for the icon), the
+  username, the collectible usernames as `folderChip`s in lines, whose
+  click opens their Fragment dialog (a `modal` of its own,
+  `filledButton`), the details, the theme and the sections.
+  `model.PeerProfileSource` gives the profile; `SHARED_PNG` saves it.
 - **Forum page** (`forum.go`): the topics of a forum chat in place of its
   history, under the chat's header (which opens its info). A row is drawn as the
   chat list's: `surface`, icon plate (`fillRounded`, the topic's colour, a house
@@ -360,8 +435,12 @@ size-stability fixes remain in place.
   composer to its place while it fades in (300 ms); the rest of the history
   moves at once. The composer notes each send (`noteSent`) and the page takes
   a note for each message of the user that comes (an outgoing one, or any in
-  Saved Messages, where Telegram does not mark them outgoing), so one from
-  another device does not fly. With the animations off, by the setting or the window, or
+  Saved Messages, where Telegram does not mark them outgoing). A text message
+  shows on its way, with a clock (`Message.Sending`), and flies; the message
+  Telegram makes of it goes on with the same flight. Any other message that
+  comes at the end (of other users, from another device) rises 24 dp to its
+  place as it fades in, when it is less than two minutes old: older ones come
+  with pages. With the animations off, by the setting or the window, or
   when the history is not at its end, the message is in its place at once.
 - **Composer picker** (`composer_picker.go`): installed sticker/emoji packs and
   a Trending section for server-featured packs. A featured sticker is sent
@@ -402,6 +481,24 @@ size-stability fixes remain in place.
   it stays as cached. Loading stays at the center of the dialog. The creator menu action opens
   an accessible user or copies the creator ID hint, decoded from known pack
   ID formats; this is undocumented Telegram metadata, not verified authorship.
+  A user known only by that ID is asked for by a message of theirs the cache
+  has in a group or a channel (`historycache.SenderMessage`, then
+  `inputUserFromMessage`), as a group's min member is; then the bot
+  @oLolsBot is asked the ID inline (`tgstore/user_lookup.go`), which sends
+  no message but tells the bot the ID: its answer about a user mentions
+  them, and Telegram sends the user mentioned with an access hash of the
+  account's, which opens the chat; of a bot it tells the username, which is
+  resolved and checked to be the author's. The bot is asked by its ID too,
+  so that its username gone to another bot is not. Checked on the
+  maintainer's account, 2026-10-22: a user with no username (777000) and
+  one with came with their access hashes, BotFather by its username, a bad
+  ID with nothing. With none of these, the ID is copied and the toast says
+  only that. Telegram gives no username for an ID itself: AyuGram asked
+  third-party bots (tgdb, usinfobot) for it, and stopped in April 2026, as
+  they want a subscription or a /start. The
+  messages are read without an index, in batches of 5000 rows, the cache's
+  lock let go between them: 205 ms for 100,000 messages none of which is the
+  author's (2026-10-22).
 - **Message menu** (`history_menu.go`): a right click on a message opens a
   `contextMenu` at the pointer with Telegram Desktop's actions in its order.
   The area that takes right clicks passes every input on, and a closing menu
@@ -433,11 +530,15 @@ size-stability fixes remain in place.
   `ffprobe`. The internal MP4 animation player (`decoderSettings.animations`,
   `sticker_player.go`) is the same choice for GIFs and animated avatars:
   FFmpeg when found, otherwise, or when chosen, FFmpeg's H.264 decoder in a
-  WASM sandbox, one GIF at a time on hover. That decoder is not in the
+  WASM sandbox, one GIF at a time on hover, and its MPEG-4 Part 2 one for
+  GIFs in that (Telegram's video codec "mpeg4", MP4's mp4v; `pkg/mp4` reads
+  its esds), since 2026-10-22: before, such a GIF asked to play with FFmpeg
+  or in the external player (`gif_fallback.go`), as it still does with a
+  module of the user's without it. That decoder is not in the
   binary: `wasmmodule.AVCDec` downloads it the first time it is needed
   from [libavcodec-wasm](https://github.com/komarugif/libavcodec-wasm), at a
-  pinned commit, zstd-compressed (`avcdec.wasm.zst`, 419 KB instead of
-  2 MB), checks its SHA-256 and keeps it in the cache directory as it came,
+  pinned commit, zstd-compressed (`avcdec.wasm.zst`, 490 KB instead of
+  2.4 MB; 70 KB more with MPEG-4 Part 2), checks its SHA-256 and keeps it in the cache directory as it came,
   unpacking it as it loads it; `KOMARUGRAM_AVCDEC` names a build of the
   user's instead (a path or a URL, plain or `.zst`). MP4 GIFs played through
   the compressed module were checked live by the maintainer on 2026-10-13.
@@ -461,7 +562,13 @@ size-stability fixes remain in place.
   after the end (`nextAudio`);
   `voiceLayout`, the row with its button, waveform (`drawWaveform`) and
   time, and `musicLayout`, with the title, the performer and a bar
-  (`drawBar`); `audioRow.update` takes their clicks and drags. `showWaveform`
+  (`drawBar`); `audioRow.update` takes their clicks and drags. A video
+  message (`model.MessageRound`) plays in the same player, as the voice
+  messages' kind (`listenable`, `audioKind`): `roundLayout`
+  (`history_round.go`) draws its circle, without a bubble, its ring of what
+  was seen and its time, `roundSeek` takes its clicks and the drags round
+  its ring, and `roundVideo` (`round_player.go`) decodes its pictures with
+  pkg/h264 as its sound comes to them, none while the circle is not drawn. `showWaveform`
   works one out, as soon as it is shown, for a voice message sent without
   one; `audioFormat` picks libopus, dr_libs or fdk-aac, and a format none
   takes goes to the external player (`takeExternal`); tests give
@@ -469,9 +576,45 @@ size-stability fixes remain in place.
   thumbnail, fetched before the file (a real GIF file's first frame is
   decoded in Go); large GIFs have none and stay blank until played, as in the
   official clients. `ffprobe` and `ffmpeg` start when it plays, and `ffmpeg`
-  exits a second after it stops.
-- **Without a bubble** (`history_unwrapped.go`): stickers and a lone emoji
-  (half a sticker's size) lie on the chat's background, as in the official
+  exits a second after it stops. A GIF that plays in the chat
+  (`gifControls`, `history_gif.go`) pauses on a click and plays on from the
+  picture it stood on (`chatmedia.Manager.ToggleGIF`; a new decoder starts
+  there, `-ss` for FFmpeg, `h264.Video.Seek` in the sandbox); the middle
+  button opens it in the viewer. It shows nothing over it while it plays:
+  its time fades in while the pointer is over it, the bar along its bottom,
+  which moves it (`SeekGIF`), while the pointer is over the bar, and play
+  while it is paused, as on a video message. Moved by its bar, a paused GIF
+  stays paused and shows the picture there; a timestamp plays it on.
+- **Videos in the viewer** (`viewer_video.go`, `viewer_controls.go`): a
+  click on a video, in the chat or in the viewer, plays it in the viewer,
+  unless the video player of the settings is the external one
+  (`videoEngineOf`): with FFmpeg, as MP4 animations play, any video, its
+  pictures from one `ffmpeg` and its sound from another
+  (`video.NewFrames`, `video.NewSound`, over a loopback stream of the
+  file); in the sandbox, HD videos in MP4, the H.264 track read where it
+  lies (`mp4.DemuxAt`, `h264.Runtime.OpenFile`) and AAC sound through
+  fdk-aac; anything else, and what neither takes, goes to the external
+  player. A window drawn by a software rasterizer, as in a virtual
+  machine, makes the external player the default, as it turns animations
+  off (`preferences.DefaultVideoExternal`), unless the user chose. The
+  sound is the clock the pictures follow (`roundVideo`, for
+  the sandbox, `ffmpegVideo`), a silent video's silence as long as it;
+  one video plays at a time, and it pauses what the window's audio
+  player plays. `videoControls` are a plate over the bottom of the stage:
+  play, the time, the bar that moves it, the speed, the volume (the
+  client's, `volumeSlider` above its button) and the external player,
+  from where it is; they fade out while it plays and the pointer rests,
+  and a press where they were shows them. Space or K plays or pauses it, J
+  and L move it 5 s, M mutes it (shortcuts `viewer.play_pause`,
+  `viewer.seek_back`, `viewer.seek_forward`, `viewer.mute`). Another item,
+  or closing the viewer, stops it. Every FFmpeg and ffprobe that reads a
+  stranger's file runs with its memory bounded (`program.StartLimited`:
+  a job object on Windows, RLIMIT_DATA and a watch on Linux, a watch of
+  its footprint on macOS and of its areas on Haiku; `video.DecodeMemory`)
+  and `-max_alloc`, and a reader is told `program.ErrMemory` when it was
+  killed for it.
+- **Without a bubble** (`history_unwrapped.go`): stickers, video messages
+  and a lone emoji (half a sticker's size) lie on the chat's background, as in the official
   clients; `infoPlate` is their time, and a reply or forward goes in a card
   at the side.
 - **Reactions** (`reactions.go`): chips under a message toggle a reaction
@@ -547,14 +690,18 @@ new piece sits next to its neighbours.
   and emoji pack states; `TestRenderMessageMenu`, the message menu over a
   reply, with a floating and a classic composer. They are skipped unless their
   variable (`COMPOSER_PNG`, `COMPOSER_MOTION_PNG`, `SETTINGS_PNG`,
-  `ACCOUNTS_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `SESSIONS_PNG`, `FORUM_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
+  `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
   first dialog exists. `COMPOSER_VIEW=emoji-search`, the picker's emoji found for a word;
   `COMPOSER_VIEW=featured-stickers` or `featured-emoji`
   with `COMPOSER_PNG` shows the picker's recommendations; `COMPOSER_VIEW=voice`,
   a voice message being recorded; `files`, `files-one`, `files-documents`,
   `files-many`, `files-caption` and `files-music`, the box for sending files;
   `drop-photos`, `drop-media` and `drop-files`, the areas files dragged over
-  the chat are dropped on.
+  the chat are dropped on; `text` and `text-classic`, a message written,
+  with Send in the microphone's place; `classic-translucent` and `floating-translucent`,
+  the composer of a half-transparent window over stripes, as over a desktop:
+  the classic bar is a surface of the window and shows them, the history
+  and the floating capsule, which casts a shadow, do not.
   `SETTINGS_SECTION=premium` with `SETTINGS_PNG` shows the Premium section of
   an account without Premium and with Local Premium on (`LOCAL_PREMIUM=off`,
   off).
@@ -572,6 +719,31 @@ new piece sits next to its neighbours.
 - **The app itself.** `go run ./cmd/messenger -demo` runs without an account.
   On Linux under X11, `xdotool` drives a window (`mousemove --window … click`)
   and `xfce4-screenshooter -w` saves the active one.
+
+## The message field's keyboard
+
+As in Telegram Desktop, the message field holds the keyboard whenever
+nobody else wants it (`messageComposer.takeKeyboard`, at the top of
+`chatPage.Layout`): in a chat just opened, in the window activated again,
+after a menu, dialog, search or recording is gone. Whatever takes the
+keyboard (`key.FocusCmd`) keeps it while it is there, and text selected in
+the history keeps it for copying (`chatPage.holdsKeyboard`) until Escape or
+a click drops the selection. While the composer's picker is open, its
+search takes the field's place: it holds the keyboard from the frame the
+picker is first drawn in, and a picked emoji gives it to the field, to go on
+typing; once the picker closes, the field takes it back, even while the
+picker fades. The picker also opens under the pointer over the emoji button,
+as Telegram Desktop's tabbed panel (`messageComposer.hoverPicker`): that one
+leaves the keyboard to the field, stays while the pointer is over it or the
+button, closes 300ms after it left both, and a click on either pins it. The
+settings' Chats section has both off switches (`preferences.Global`'s
+`ManualFocus`, the field taking the keyboard only when clicked, and
+`PickerOnClick`). The field asks only in a frame after one it was
+laid out in, before anything else of the frame, so that what asks later in
+the same frame wins; the Gio fork asks for a frame once the focused handler
+is gone (`third_party/gio/LOCAL_CHANGES.md`). A new overlay needs nothing
+for this: take the keyboard when it opens, and the field gets it back. A `modal` takes it on its own; a dialog whose
+search or caption should have it names that as the modal's `field`.
 
 ## Composer permissions
 
@@ -613,3 +785,41 @@ zero. Full peer refreshes can change or clear these facts without overwriting
 unread counts, pins, notification settings or message previews. Leave notices
 use the operation's captured channel/group kind and are delivered to the chat
 list, which remains visible after the dialog is removed.
+
+### Menu customization
+
+Settings → Menu item order uses `menuSettings`, with separate cards for the sidebar,
+navigation drawer, message menu, chat list, chat header, attachments, recent
+searches, sticker sets, phone numbers, bank cards and dates. Conditional pairs
+(pin/unpin, forward/forward selected, delete/delete selected, copy text/selection,
+select/clear selection) share a user-facing slot. Bank-provided links share one
+slot while retaining their server order. Folder slots include the local account
+ID, so equal folder numbers on different accounts do not collide.
+
+The grabbed row follows the pointer above its neighbors, which slide into the
+new slots. Release persists the order and settles the row into its slot; cancel
+discards the preview. Motion follows the global animation/power-saving setting.
+Labels and icons share the vertical center of the row. The right
+`ContentRemoveCircleOutline` / `ContentRemoveCircle` button hides or restores a row, which remains in the settings. Reset affects
+only that menu. `Ctrl+,` (`⌘,` on macOS) opens settings even if its menu entry is
+hidden. The sidebar anchors only the trailing group of utility buttons; any
+button can be dragged above or below chat folders. The compact drawer has its
+own layout.
+
+`SETTINGS_SECTION=menus SETTINGS_PNG=/tmp/menus.png go test
+./internal/messenger/ui -run TestRenderSettingsAccounts` renders every menu card;
+`cmd/render-all -only settings-menus` runs the same scene.
+
+### Keyboard shortcuts
+
+`shortcutSettings` lists shared stable command IDs from `internal/messenger/shortcuts`,
+Record is a `modal` with an explicit
+keyboard focus tag; a `textField` permits manual entry of intercepted system
+combinations. The application command route pauses while recording. Standard
+editing/navigation keys remain read-only. Local conflicts block Save; KDE
+system matches are advisory and shown before Save. Desktop probes run as
+cancellable jobs. Full architecture and
+manual KDE/Wayland checks: `KEYBOARD_SHORTCUTS.md`.
+
+`SETTINGS_SECTION=shortcuts` and `shortcut-record` use `SETTINGS_PNG` with
+`TestRenderSettingsAccounts`; `cmd/render-all -only settings-shortcut` runs both.

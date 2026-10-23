@@ -34,11 +34,11 @@ type render struct {
 
 func renders() []render {
 	var all []render
-	for _, view := range []string{"channel-readonly", "restricted-text", "restricted-media", "emoji", "stickers", "gif", "featured-stickers", "featured-emoji", "emoji-search", "floating", "classic", "blur", "avatars", "voice", "files", "files-one", "files-documents", "files-many", "files-caption", "files-music", "drop-photos", "drop-media", "drop-files", "tasks", "toast", "toast-classic"} {
+	for _, view := range []string{"channel-readonly", "channel-readonly-hover", "restricted-text", "restricted-media", "emoji", "stickers", "gif", "featured-stickers", "featured-emoji", "emoji-search", "floating", "classic", "text", "text-classic", "floating-translucent", "classic-translucent", "blur", "avatars", "voice", "files", "files-one", "files-documents", "files-many", "files-caption", "files-music", "drop-photos", "drop-media", "drop-files", "tasks", "toast", "toast-classic", "bot-keyboard", "bot-keyboard-hidden", "edit", "edit-classic", "edit-menu"} {
 		all = append(all, render{"composer-" + view, "TestRenderComposer", []string{"COMPOSER_VIEW=" + view, "COMPOSER_PNG={out}/composer-" + view + ".png"}})
 	}
 	all = append(all, render{"composer-motion", "TestRenderComposerMotion", []string{"COMPOSER_MOTION_PNG={out}/composer-motion"}})
-	for _, section := range []string{"main", "appearance", "chats", "wallpapers", "notify", "privacy", "premium", "integrations", "power"} {
+	for _, section := range []string{"main", "appearance", "menus", "shortcuts", "shortcut-record", "chats", "wallpapers", "notify", "privacy", "premium", "integrations", "power"} {
 		all = append(all, render{"settings-" + section, "TestRenderSettingsAccounts", []string{"SETTINGS_SECTION=" + section, "SETTINGS_PNG={out}/settings-" + section + ".png"}})
 	}
 	return append(all,
@@ -47,14 +47,17 @@ func renders() []render {
 		render{"article", "TestRenderArticle", []string{"ARTICLE_PNG_DIR={out}"}},
 		render{"window-surfaces", "TestWindowSurfacePixels", []string{"WINDOW_SURFACES_PNG_DIR={out}"}},
 		render{"accounts", "TestRenderAccountScreens", []string{"ACCOUNTS_PNG_DIR={out}"}},
+		render{"phone", "TestRenderPhoneStep", []string{"PHONE_PNG_DIR={out}"}},
 		render{"session-ended", "TestRenderSessionEnded", []string{"SESSION_PNG_DIR={out}"}},
 		render{"sessions", "TestRenderSessions", []string{"SESSIONS_PNG={out}/sessions.png"}},
+		render{"downloads", "TestRenderDownloads", []string{"DOWNLOADS_PNG={out}/downloads.png"}},
 		render{"sticker-set", "TestRenderStickerSet", []string{"STICKER_SET_PNG_DIR={out}"}},
 		render{"message-menu", "TestRenderMessageMenu", []string{"MENU_PNG={out}/menu.png"}},
 		render{"reaction-menu", "TestRenderReactionMenu", []string{"MENU_PNG={out}/menu.png"}},
 		render{"reacted", "TestRenderReacted", []string{"REACTED_PNG={out}/reacted.png"}},
-		render{"viewer", "TestRenderPhotoViewer", []string{"VIEWER_PNG={out}/viewer.png"}},
-		render{"viewer-zoom", "TestRenderPhotoViewer", []string{"VIEWER_ZOOM=2", "VIEWER_PNG={out}/viewer-zoom.png"}},
+		render{"viewer", "TestRenderMediaViewer", []string{"VIEWER_PNG={out}/viewer.png"}},
+		render{"viewer-zoom", "TestRenderMediaViewer", []string{"VIEWER_ZOOM=2", "VIEWER_PNG={out}/viewer-zoom.png"}},
+		render{"viewer-gifs", "TestRenderMediaViewer", []string{"VIEWER_GIFS=1", "VIEWER_PNG={out}/viewer-gifs.png"}},
 		render{"player", "TestRenderPlayerChoice", []string{"PLAYER_PNG={out}/player.png"}},
 		render{"comments", "TestRenderCommentsHead", []string{"COMMENTS_PNG={out}/comments.png"}},
 		render{"forum", "TestRenderForum", []string{"FORUM_PNG={out}/forum.png"}},
@@ -66,6 +69,7 @@ func renders() []render {
 		render{"snapshot", "TestRenderSnapshotDialog", []string{"SHOT_PNG={out}/snapshot.png"}},
 		render{"saved-empty", "TestRenderEmptySavedMessages", []string{"SAVED_EMPTY_PNG={out}/saved-empty.png"}},
 		render{"shared", "TestRenderSharedMediaAndThemes", []string{"SHARED_PNG={out}/shared"}},
+		render{"registration-offer", "TestRenderRegistrationOffer", []string{"REGISTRATION_OFFER_PNG={out}/registration-offer"}},
 		render{"toasts", "TestRenderToasts", []string{"TOAST_PNG_DIR={out}"}},
 		render{"audio", "TestRenderAudio", []string{"AUDIO_PNG_DIR={out}"}},
 	)

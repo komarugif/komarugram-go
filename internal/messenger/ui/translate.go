@@ -12,6 +12,7 @@ import (
 
 	"gioui.org/layout"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -62,6 +63,7 @@ func (d *translateDialog) open(p *chatPage, m model.Message, selected string, to
 		results := d.results
 		go func() {
 			defer cancel()
+			defer crash.Recover("translate", func(e *crash.Panic) { results <- translateResult{err: e}; p.invalidate() })
 			out, err := translator.Translate(ctx, chat, id, text, to)
 			results <- translateResult{out, err}
 			p.invalidate()

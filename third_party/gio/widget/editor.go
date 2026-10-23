@@ -51,6 +51,9 @@ type Editor struct {
 	// user interaction. If set to true, the editor will allow selecting text
 	// and copying it interactively, but not modifying it.
 	ReadOnly bool
+	// HideText leaves the glyphs out of Layout, for the caller to paint them
+	// with PaintText.
+	HideText bool
 	// Submit enabled translation of carriage return keys to SubmitEvents.
 	// If not enabled, carriage returns are inserted as newlines in the text.
 	Submit bool
@@ -362,9 +365,11 @@ func (e *Editor) processKey(gtx layout.Context) (EditorEvent, bool) {
 	if e.text.Changed() {
 		return ChangeEvent{}, true
 	}
-	caret, _ := e.text.Selection()
-	atBeginning := caret == 0
-	atEnd := caret == e.text.Len()
+	caret, end := e.text.Selection()
+	// With a selection the arrows are the editor's at either end, as
+	// they collapse it.
+	atBeginning := caret == 0 && end == caret
+	atEnd := caret == e.text.Len() && end == caret
 	if gtx.Locale.Direction.Progression() != system.FromOrigin {
 		atEnd, atBeginning = atBeginning, atEnd
 	}
@@ -579,19 +584,13 @@ func (e *Editor) command(gtx layout.Context, k key.Event) (EditorEvent, bool) {
 		if moveByWord {
 			e.text.MoveWord(-1*direction, selAct)
 		} else {
-			if selAct == selectionClear {
-				e.text.ClearSelection()
-			}
-			e.text.MoveCaret(-1*direction, -1*direction*int(selAct))
+			e.text.arrow(-1*direction, selAct)
 		}
 	case key.NameRightArrow:
 		if moveByWord {
 			e.text.MoveWord(1*direction, selAct)
 		} else {
-			if selAct == selectionClear {
-				e.text.ClearSelection()
-			}
-			e.text.MoveCaret(1*direction, int(selAct)*direction)
+			e.text.arrow(1*direction, selAct)
 		}
 	case key.NamePageUp:
 		e.text.MovePages(-1, selAct)
@@ -765,7 +764,9 @@ func (e *Editor) layout(gtx layout.Context, textMaterial, selectMaterial op.Call
 	semantic.Editor.Add(gtx.Ops)
 	if e.Len() > 0 {
 		e.paintSelection(gtx, selectMaterial)
-		e.paintText(gtx, textMaterial)
+		if !e.HideText {
+			e.paintText(gtx, textMaterial)
+		}
 		e.paintComposition(gtx, textMaterial)
 	}
 	if gtx.Enabled() {
@@ -782,6 +783,15 @@ func (e *Editor) paintSelection(gtx layout.Context, material op.CallOp) {
 		return
 	}
 	e.text.PaintSelection(gtx, material)
+}
+
+// PaintText paints the glyphs of the text laid out last with material, in
+// the editor's coordinates, for a caller that draws them itself: as styles
+// of parts of the text, with HideText set.
+func (e *Editor) PaintText(gtx layout.Context, material op.CallOp) {
+	if e.Len() > 0 {
+		e.paintText(gtx, material)
+	}
 }
 
 // paintText paints the text glyphs using the provided material to set the fill of the

@@ -16,7 +16,23 @@ func (s *Store) Membership(chat int64) model.ChatMembership {
 	s.history.mu.Lock()
 	p, ok := s.history.peers[chat]
 	s.history.mu.Unlock()
-	return model.ChatMembership{Known: ok && p.Rights.Known && (p.Kind == "channel" || p.Kind == "chat"), Left: p.Rights.Left, Creator: p.Rights.Creator, Broadcast: p.Rights.Broadcast}
+	return model.ChatMembership{
+		Known: ok && p.Rights.Known && (p.Kind == "channel" || p.Kind == "chat"), Left: p.Rights.Left, Creator: p.Rights.Creator, Broadcast: p.Rights.Broadcast,
+		Channel: p.Kind == "channel", Request: p.Rights.JoinRequest && !p.Rights.Creator && !p.Rights.Broadcast,
+	}
+}
+
+// joinError words Telegram's refusals of a join, as Telegram Desktop does.
+func joinError(err error) error {
+	switch {
+	case tgerr.Is(err, "INVITE_REQUEST_SENT"):
+		return model.ErrJoinRequested
+	case tgerr.Is(err, "USERS_TOO_MUCH"):
+		return model.ErrJoinFull
+	case tgerr.Is(err, "CHANNEL_PRIVATE", "CHANNEL_PUBLIC_GROUP_NA", "USER_BANNED_IN_CHANNEL"):
+		return model.ErrChatInaccessible
+	}
+	return err
 }
 
 func (s *Store) JoinChat(ctx context.Context, chat int64) error {
@@ -32,11 +48,8 @@ func (s *Store) JoinChat(ctx context.Context, chat int64) error {
 		return nil
 	}
 	result, err := api.ChannelsJoinChannel(ctx, &tg.InputChannel{ChannelID: peer.ID, AccessHash: peer.Hash})
-	if tgerr.Is(err, "INVITE_REQUEST_SENT") {
-		return model.ErrJoinRequested
-	}
 	if err != nil {
-		return err
+		return joinError(err)
 	}
 	joined, ok := result.(*tg.MessagesChatInviteJoinResultOk)
 	if !ok {

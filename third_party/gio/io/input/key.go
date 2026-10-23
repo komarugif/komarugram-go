@@ -265,7 +265,16 @@ func keyFilterMatch(focus event.Tag, f key.Filter, e key.Event, system bool) boo
 	if f.Focus != nil && f.Focus != focus {
 		return false
 	}
-	if (f.Name != "" || system) && f.Name != e.Name {
+	if f.Physical != "" {
+		name := e.Physical
+		// Synthetic events and unsupported backends retain logical matching.
+		if name == "" {
+			name = e.Name
+		}
+		if name != f.Physical {
+			return false
+		}
+	} else if (f.Name != "" || system) && f.Name != e.Name {
 		return false
 	}
 	if e.Modifiers&f.Required != f.Required {

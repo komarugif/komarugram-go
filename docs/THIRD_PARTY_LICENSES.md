@@ -47,7 +47,7 @@ The Go modules linked into `messenger` and `kitchen`, as `go version -m` lists t
 
 | Component | License |
 |---|---|
-| `pkg/vp9/vpxdec.wasm.zst`: [libvpx](https://github.com/webmproject/libvpx) with [SIMDe](https://github.com/simd-everywhere/simde) | BSD-3-Clause (libvpx), MIT (SIMDe) |
+| `pkg/vp9/vpxdec.wasm.zst`, `pkg/vp9/vpxenc.wasm.zst` (v1.17.0): [libvpx](https://github.com/webmproject/libvpx) with [SIMDe](https://github.com/simd-everywhere/simde) | BSD-3-Clause (libvpx), MIT (SIMDe) |
 | `pkg/opus/opusdec.wasm.zst`: [libopus](https://github.com/xiph/opus) (notice in `pkg/opus/COPYING.libopus`) | BSD-3-Clause |
 | `pkg/drdec/drdec.wasm.zst`: [dr_libs](https://github.com/mackron/dr_libs) (dr_mp3, dr_flac, dr_wav; `pkg/drdec/LICENSE.dr_libs`) | Unlicense OR MIT-0 |
 | `pkg/lottie/tlottie.wasm.zst`: [tlottie](https://github.com/dkaraush/tlottie) and the Rust standard library | MIT; MIT OR Apache-2.0 |
@@ -56,10 +56,13 @@ The Go modules linked into `messenger` and `kitchen`, as `go version -m` lists t
 | `pkg/ratex/fonts`: [KaTeX](https://github.com/KaTeX/KaTeX)'s fonts (`pkg/ratex/fonts/OFL.txt`, `NOTICE`) | SIL OFL 1.1 |
 | `pkg/cmark/cmark.wasm.zst`: [cmark-gfm](https://github.com/desktop-app/cmark-gfm) (desktop-app's fork, built by `pkg/cmark/build`; `pkg/cmark/LICENSE.cmark-gfm`) | BSD-2-Clause, parts MIT |
 | `pkg/prism/grammars.dat.zst`: [Prism.js](https://prismjs.com) 1.29.0's grammars, with `pkg/prism`, a port of [libprisma](https://github.com/desktop-app/libprisma)'s tokenizer (`pkg/prism/LICENSE.prism`) | MIT |
+| `internal/messenger/passwordstrength/top1000.go`: the 1000 most common passwords, from [SecLists](https://github.com/danielmiessler/SecLists)'s `Pwdb_top-1000.txt`, made from many published leaks | MIT |
+| `internal/messenger/model/registrations.go`: a curve smoothed by `cmd/registration-table` through user ids and the days their accounts were registered, from [Jobians/telegram-id-age](https://github.com/Jobians/telegram-id-age)'s `dataset.json` (2025-11-22) and [materialgram](https://github.com/kukuruzka165/materialgram)'s `findRegistrationTime`; the files of points are not in the repository | Jobians: no license stated; materialgram: GPL-3.0. Where the points are few, the curve passes through them as they are |
 | `pkg/miniapp/assets/telegram-web-app.js`: Telegram's Mini App SDK | © Telegram, no license stated |
-| `avcdec.wasm`, downloaded at run time: FFmpeg's H.264 decoder ([libavcodec-wasm](https://github.com/komarugif/libavcodec-wasm)) | LGPL-2.1-or-later |
+| `avcdec.wasm`, downloaded at run time: FFmpeg's H.264 and MPEG-4 Part 2 decoders ([libavcodec-wasm](https://github.com/komarugif/libavcodec-wasm)) | LGPL-2.1-or-later |
 | `aacdec.wasm`, downloaded at run time: the Fraunhofer FDK AAC decoder ([fdk-aac-wasm](https://github.com/komarugif/fdk-aac-wasm)) | Fraunhofer FDK AAC license, no patent grant |
 | Claude's mascot, scenes downloaded when the settings' About section opens, from [clawd-animations](https://github.com/komarugif/clawd-animations): extracted from [Wale-Durojaye Ayotomiwa](https://ayotomcs.me/claude-mascot)'s reconstruction of its animations; played by `pkg/rectanim`, not in this repository nor the program | © Anthropic, the character and the brand; the reconstruction its author's. No license stated; removed with that repository on request |
+| The lists of the badges beside names (`internal/messenger/peerbadges`), downloaded every hour, each unless the settings hide its badges (the arrows and the faces apart), and kept in the settings' directory: of the developers and supporters of exteraGram and AyuGram (`update.ayugram.one/rc/current/desktop2`, then `api.exteragram.app/api/v1/profiles/compact`) and of KomaruGram (`badges.txt`, `donates.txt`, `partner.txt` of a [gist](https://gist.github.com/svatoshgpt/300f51e5b67854aa23ab5b592bca0aa8) of svatoshgpt). Only ids and colors are read. The marks are not in the repository nor drawn by the client: the Premium star, the Komaru faces and the arrow are custom emoji of Telegram's sets [TgAndroidIcons](https://t.me/addemoji/TgAndroidIcons), [KomaruGramAdaptive](https://t.me/addemoji/KomaruGramAdaptive) and [ExteraArrowAdaptive](https://t.me/addemoji/ExteraArrowAdaptive), loaded through the account; nothing is drawn until they are | Data of those projects, no license stated |
 | GitHub's mark (`github.githubassets.com/favicons/favicon.svg`) and its users' avatars, fetched when the settings' About section opens and kept in memory only: not in the repository nor the program | © GitHub and the users; the mark under [GitHub's logo guidelines](https://github.com/logos) |
 
 The full texts are in each module's `LICENSE` file (`go env GOMODCACHE`) and in the repositories linked above.

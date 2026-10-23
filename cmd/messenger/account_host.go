@@ -13,6 +13,7 @@ import (
 	"os"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gioui.org/io/system"
@@ -22,13 +23,16 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"komarugram/internal/appwindow"
+	"komarugram/internal/crash"
 	"komarugram/internal/diagnostics"
 	"komarugram/internal/messenger/account"
 	"komarugram/internal/messenger/install"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/login"
 	"komarugram/internal/messenger/model"
+	"komarugram/internal/messenger/peerbadges"
 	"komarugram/internal/messenger/preferences"
+	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/messenger/security"
 	"komarugram/internal/messenger/tgstore"
 	"komarugram/internal/messenger/ui"
@@ -49,10 +53,13 @@ const logOutTimeout = 30 * time.Second
 // and adds those given with -tdata, and then becomes the window of one of
 // them, or signs in to a new one.
 type accountWindows struct {
-	mu          sync.Mutex
-	process     *appwindow.Host
-	options     appwindow.Options
-	manager     *account.Manager
+	mu      sync.Mutex
+	process *appwindow.Host
+	options appwindow.Options
+	manager *account.Manager
+	// proxies are the proxies the user keeps, and the one in use.
+	proxies     *proxy.Store
+	peerBadges  *peerbadges.Registry
 	security    *security.Manager
 	preferences *preferences.Store
 	miniapps    *miniappprefs.Settings
@@ -92,9 +99,12 @@ type accountWindows struct {
 	quitting bool
 }
 
-func newAccountWindows(process *appwindow.Host, options appwindow.Options, manager *account.Manager, protection *security.Manager, preferences *preferences.Store, miniapps *miniappprefs.Settings, imports []*account.TData) *accountWindows {
+func newAccountWindows(process *appwindow.Host, options appwindow.Options, manager *account.Manager, proxies *proxy.Store, protection *security.Manager, preferences *preferences.Store, miniapps *miniappprefs.Settings, imports []*account.TData) *accountWindows {
+	if proxies == nil {
+		proxies = proxy.NewStore("", nil)
+	}
 	return &accountWindows{
-		process: process, options: options, manager: manager, security: protection,
+		process: process, options: options, manager: manager, proxies: proxies, security: protection,
 		preferences: preferences, miniapps: miniapps, imports: imports,
 		accounts: make(map[string]*account.Account),
 		cards:    make(map[string]account.Card), photos: make(map[string]image.Image),
@@ -114,10 +124,17 @@ func (h *accountWindows) start(ctx context.Context, offer func(context.Context) 
 	if h.started {
 		return nil, nil
 	}
+	// The proxies come first: the accounts connect through them.
+	if err := h.proxies.Load(); err != nil {
+		return nil, err
+	}
 	if err := h.manager.Load(); err != nil {
 		return nil, err
 	}
 	h.addAccounts(h.manager.Accounts()...)
+	if len(h.manager.Accounts()) > 0 {
+		h.keepProxies()
+	}
 	pending := 0
 	for _, t := range h.imports {
 		n, err := h.manager.NewInTData(t)
@@ -143,6 +160,15 @@ func (h *accountWindows) start(ctx context.Context, offer func(context.Context) 
 	}
 	h.imports, h.started = nil, true
 	return added, nil
+}
+
+// keepProxies saves the proxies from now on: with an account, the client is
+// there to stay, and they are what it connects through. Before that they are
+// in memory alone.
+func (h *accountWindows) keepProxies() {
+	if err := h.proxies.Persist(); err != nil {
+		log.Printf("proxies: %v", err)
+	}
 }
 
 // addAccounts lists accounts the manager has, with their cards.
@@ -274,35 +300,52 @@ func (h *accountWindows) Open(id string) {
 	h.process.Open(h.windowSpec(a, session, false))
 }
 
-// ShowAll brings the application back from the tray: it raises the open
-// windows, with the XDG activation token if there is one, and opens a window
-// for every account running in the background.
+// trayAccountLocked is the account the tray brings back: the one used last,
+// or the first if it is gone; "" when there is none.
+func (h *accountWindows) trayAccountLocked() string {
+	if id := h.preferences.Global().LastAccountID; h.accounts[id] != nil {
+		return id
+	}
+	if len(h.order) != 0 {
+		return h.order[0]
+	}
+	return ""
+}
+
+// ShowAll brings the application back from the tray: it raises the window of
+// the account used last, with the XDG activation token if there is one, or
+// opens it if the account runs in the background. The windows of the other
+// accounts stay as they are.
 func (h *accountWindows) ShowAll(token string) {
 	h.mu.Lock()
 	if h.quitting {
 		h.mu.Unlock()
 		return
 	}
-	type background struct {
-		account *account.Account
-		session *accountSession
-	}
-	var reopen []background
-	for _, id := range h.order {
-		s := h.sessions[id]
-		if s != nil && h.windows[id] == nil && !h.opening[id] && !h.leaving[id] {
-			h.opening[id] = true
-			reopen = append(reopen, background{h.accounts[id], s})
+	id := h.trayAccountLocked()
+	if id == "" {
+		// No account: only the sign-in window can be there.
+		window := h.signIn
+		h.mu.Unlock()
+		if window != nil {
+			window.Activate(token)
 		}
+		return
 	}
+	if window := h.windows[id]; window != nil {
+		h.mu.Unlock()
+		window.Activate(token)
+		return
+	}
+	if h.opening[id] || h.leaving[id] {
+		h.mu.Unlock()
+		return
+	}
+	h.opening[id] = true
+	a, session := h.accounts[id], h.sessions[id]
 	h.mu.Unlock()
-	h.process.ActivateAll(token)
-	for _, b := range reopen {
-		h.process.Open(h.windowSpec(b.account, b.session, false))
-	}
-	if len(reopen) > 0 {
-		h.notify()
-	}
+	h.process.Open(h.windowSpec(a, session, false))
+	h.notify()
 }
 
 // Quit closes every window and stops every account, and with them the
@@ -326,6 +369,7 @@ func (h *accountWindows) Quit() {
 	}
 	for id, s := range background {
 		go func() {
+			defer crash.Recover("stop session", nil)
 			s.stop()
 			h.forgetSession(id, s)
 		}()
@@ -414,6 +458,12 @@ func (h *accountWindows) LogOut(id string) {
 		}
 	}
 	go func() {
+		defer crash.Recover("leave account", func(*crash.Panic) {
+			h.mu.Lock()
+			delete(h.leaving, id)
+			h.mu.Unlock()
+			h.notify()
+		})
 		defer release()
 		if window != nil {
 			// The window stops the session as it closes.
@@ -547,12 +597,15 @@ func (h *accountWindows) windowSpec(a *account.Account, session *accountSession,
 			window = w
 			session.window.Store(w)
 			content := ui.New(w, session.store, ui.Services{
-				Preferences: h.preferences, MiniApps: h.miniapps, Accounts: h, Security: h.security,
+				Preferences: h.preferences, MiniApps: h.miniapps, Accounts: h, Security: h.security, Proxies: h.proxies,
+				PeerBadges:     h.peerBadges,
 				WindowLocked:   &session.locked,
 				CurrentAccount: session.accountID,
 				OpenWindow:     h.process.Open,
 				OfferEmoji:     true,
-				Uninstall:      h.uninstaller(),
+				// The points of the account's chats, sent on the user's word.
+				OfferRegistrationPoints: true,
+				Uninstall:               h.uninstaller(),
 			})
 			app = content
 			session.app.Store(content)
@@ -628,6 +681,7 @@ func (h *accountWindows) windowSpec(a *account.Account, session *accountSession,
 						if err != nil {
 							return err
 						}
+						h.keepProxies()
 						h.addAccounts(a)
 						chosen = a
 					}
@@ -828,7 +882,7 @@ func (h *accountWindows) runAccount(ctx context.Context, a *account.Account, sto
 			log.Printf("account %s: %v", a.ID, err)
 		}
 		return err
-	}, store)
+	}, store, h.manager)
 }
 
 // connection is where keepConnected tells a failure and waits to be asked
@@ -838,17 +892,57 @@ type connection interface {
 	Reconnects() <-chan struct{}
 }
 
+// proxyWatch tells when the proxy the connections are made through changes.
+type proxyWatch interface {
+	ProxyChanged() <-chan struct{}
+}
+
 // keepConnected calls connect until ctx ends or Telegram ends the session;
 // after any other failure it waits to be asked for the connection again.
-func keepConnected(ctx context.Context, connect func(context.Context) error, c connection) {
+// A change of the proxy, which watch tells of unless it is nil, makes the
+// connection again at once, whether it is running or was told as failed:
+// what it was ended for is what the user has just changed.
+func keepConnected(ctx context.Context, connect func(context.Context) error, c connection, watch proxyWatch) {
+	changed := func() <-chan struct{} {
+		if watch == nil {
+			return nil
+		}
+		return watch.ProxyChanged()
+	}
 	for {
-		err := connect(ctx)
-		if err == nil || ctx.Err() != nil || tgstore.SessionEnd(err) != model.SessionAlive {
+		attempt, cancel := context.WithCancel(ctx)
+		var proxyChanged atomic.Bool
+		go func(changed <-chan struct{}) {
+			select {
+			case <-changed:
+				proxyChanged.Store(true)
+				cancel()
+			case <-attempt.Done():
+			}
+		}(changed())
+		err := connect(attempt)
+		cancel()
+		if ctx.Err() != nil {
+			return
+		}
+		if proxyChanged.Load() {
+			continue
+		}
+		if err == nil || tgstore.SessionEnd(err) != model.SessionAlive {
 			return
 		}
 		c.FailConnection(err)
 		select {
 		case <-c.Reconnects():
+		case <-changed():
+			// The failure told is not the connection's any more.
+			if r, ok := c.(interface{ Reconnect() }); ok {
+				r.Reconnect()
+				select {
+				case <-c.Reconnects():
+				default:
+				}
+			}
 		case <-ctx.Done():
 			return
 		}
@@ -869,6 +963,7 @@ func (h *accountWindows) runStore(ctx context.Context, a *account.Account, store
 }
 
 func (h *accountWindows) runClient(ctx context.Context, a *account.Account, store *tgstore.Store) error {
+	store.SetMediaDir(a.MediaPath())
 	if err := store.Configure(ctx, a.ID, a.HistoryPath(), h.security); err != nil {
 		return err
 	}

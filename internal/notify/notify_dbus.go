@@ -11,6 +11,8 @@ import (
 	"sync"
 
 	"github.com/godbus/dbus/v5"
+
+	"komarugram/internal/crash"
 )
 
 const (
@@ -80,7 +82,11 @@ func (d *dbusNotifier) Show(n Notification) {
 	d.start.Do(func() {
 		go func() {
 			for n := range d.queue {
-				d.show(n)
+				func() {
+					// A notification that panics is not shown; the next are.
+					defer crash.Recover("notification", nil)
+					d.show(n)
+				}()
 			}
 		}()
 	})

@@ -80,6 +80,9 @@ func TestWaveformBarsAreKept(t *testing.T) {
 // of a bubble and of a text flow grew from nothing, and the jump buttons
 // made closures over the history. 279 allocations a frame before, 144
 // after (2026-10-13); the bound leaves room for what comes, not for those.
+// It is of a row in view: when the time went on the text's last line, the
+// rows got shorter, 16 in view where 11 were, and the frame's count rose
+// to 207 while a row's fell from 14.9 to 12.9 (2026-10-22).
 func TestHistoryFrameAllocations(t *testing.T) {
 	source := benchmarkHistory{h: model.History{Revision: 1, Messages: make([]model.Message, 1000)}}
 	for i := range source.h.Messages {
@@ -102,7 +105,9 @@ func TestHistoryFrameAllocations(t *testing.T) {
 	}
 	render()
 	render()
-	if n := testing.AllocsPerRun(20, render); n > 180 {
-		t.Errorf("%v allocations a frame of the history, want at most 180", n)
+	n := testing.AllocsPerRun(20, render)
+	rows := max(1, p.list.Position.Count)
+	if perRow := n / float64(rows); perRow > 16 {
+		t.Errorf("%v allocations a frame of the history, %.1f for each of its %d rows, want at most 16", n, perRow, rows)
 	}
 }

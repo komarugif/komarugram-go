@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/gotd/td/tg"
+
 	"komarugram/internal/messenger/model"
 )
 
@@ -37,5 +39,32 @@ func TestRecentChatsKept(t *testing.T) {
 	again.ClearRecentChats()
 	if len(again.RecentChats()) != 0 {
 		t.Error("the history was not cleared")
+	}
+}
+
+// A chat in the search history that has no dialog gets no updates of its
+// status, so the history shows what the store heard of it since, from its
+// profile or a history; one with a dialog is as the chat list has it.
+func TestRecentChatsShowTheCurrentStatus(t *testing.T) {
+	s := New(nil)
+	s.BumpRecentChat(model.Chat{ID: 5, Kind: model.KindUser, Title: "Svatosh", Badges: model.Badges{User: 5, EmojiStatus: 7}})
+	s.BumpRecentChat(model.Chat{ID: 6, Kind: model.KindUser, Title: "Unknown", Badges: model.Badges{User: 6, EmojiStatus: 9}})
+	if got := s.RecentChats(); got[0].Badges.EmojiStatus != 9 || got[1].Badges.EmojiStatus != 7 {
+		t.Fatalf("a peer not heard of changed: %+v", got)
+	}
+	s.rememberPeers([]tg.UserClass{&tg.User{ID: 5, AccessHash: 1, FirstName: "Svatosh",
+		EmojiStatus: &tg.EmojiStatus{DocumentID: 42}}}, nil)
+	got := s.RecentChats()
+	if got[1].ID != 5 || got[1].Badges.EmojiStatus != 42 {
+		t.Fatalf("the status is %d, want the one heard of since, 42", got[1].Badges.EmojiStatus)
+	}
+	if got[0].Badges.EmojiStatus != 9 {
+		t.Fatalf("another peer's status changed to %d", got[0].Badges.EmojiStatus)
+	}
+	if b, ok := s.PeerBadges(5); !ok || b.EmojiStatus != 42 {
+		t.Fatalf("PeerBadges %+v %v", b, ok)
+	}
+	if _, ok := s.PeerBadges(6); ok {
+		t.Fatal("badges of a peer not known")
 	}
 }

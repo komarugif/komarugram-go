@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -32,9 +33,12 @@ import (
 	"komarugram/internal/messenger/install"
 	"komarugram/internal/messenger/langpack"
 	"komarugram/internal/messenger/localization"
+	"komarugram/internal/messenger/login"
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
+	"komarugram/internal/messenger/peerbadges"
 	"komarugram/internal/messenger/preferences"
+	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/messenger/security"
 	"komarugram/internal/messenger/tgstore"
 	"komarugram/internal/messenger/ui"
@@ -60,10 +64,13 @@ func main() {
 	demoChats := flag.Int("demo-chats", 0, "run on demo data with this many generated chats added")
 	demoPanic := flag.Bool("demo-panic", false, "show the recovered-panic dialog once on demo data")
 	demoNotify := flag.Duration("demo-notify", 0, "on demo data, receive a message this often, to try notifications")
+	demoOpen := flag.String("demo-open", "", "on demo data, open a chat at a message: CHAT or CHAT/MESSAGE by their IDs, or a message of the demo's history by name ("+strings.Join(mockstore.Landmarks(), ", ")+")")
+	demoQuiet := flag.Bool("demo-quiet", false, "on demo data, offer nothing unasked (an emoji pack, the registration points): no dialog comes over what is being tried")
+	demoSignInFlag := flag.Bool("demo-signin", false, "on demo data, first go through everything before an account is added: the offers to install and to protect local data, the QR code, the phone number, the code ("+demoCode+") and the cloud password ("+demoPassword+"); nothing is installed or saved")
 	var tdataPaths pathsFlag
 	flag.Var(&tdataPaths, "tdata", "import a Telegram Desktop tdata zip or every zip in a directory; may be repeated")
 	check := flag.Bool("check", false, "import/load accounts without windows, print counts and exit")
-	proxy := flag.String("proxy", os.Getenv("KOMARUGRAM_PROXY"), "connect through this MTProxy link, tg://proxy?server=…&port=…&secret=… (default: $KOMARUGRAM_PROXY)")
+	proxyLink := flag.String("proxy", os.Getenv("KOMARUGRAM_PROXY"), "connect through this proxy, over the ones kept in the settings: tg://proxy?server=…&port=…&secret=… for MTProto, socks5://user:pass@host:port or socks5://host:port for SOCKS5, wss://web.telegram.org for Telegram over WebSocket (default: $KOMARUGRAM_PROXY)")
 	profile := flag.Bool("profile", false, "open performance profiler in a separate window")
 	profileDir := flag.String("profile-dir", "profiles", "directory for explicitly exported profiler artifacts")
 	profileExport := flag.Duration("profile-export", 0, "automatically export JSON at this interval (e.g. 2s); enables collection without profiler UI")
@@ -134,7 +141,7 @@ func main() {
 	if profiling && *check {
 		fail("-profile requires a window; cannot be combined with -check")
 	}
-	demoMode := *demo || *demoChats > 0 || *demoPanic || *demoNotify > 0
+	demoMode := *demo || *demoChats > 0 || *demoPanic || *demoNotify > 0 || *demoSignInFlag
 	if demoMode && (*check || len(tdataPaths) > 0) {
 		fail("-demo runs without accounts; cannot be combined with -check or -tdata")
 	}
@@ -149,6 +156,7 @@ func main() {
 		}
 		if len(captures) > 0 {
 			go func() {
+				defer crash.Recover("profile capture", nil)
 				for _, kind := range captures {
 					path, err := r.Capture(*profileDir, kind)
 					if err != nil {
@@ -163,7 +171,7 @@ func main() {
 
 	if demoMode {
 		reportLastCrash(catalog)
-		runDemo(*demoChats, *profile, *profileDir, *demoPanic, *demoNotify)
+		runDemo(*demoChats, *profile, *profileDir, *demoPanic, *demoNotify, *demoSignInFlag, *demoOpen, *demoQuiet)
 		return
 	}
 	// A second start brings the running instance back from the tray.
@@ -211,11 +219,18 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
-	manager, err := newManager(*proxy, protection)
+	manager, err := newManager(*proxyLink, protection)
 	if err != nil {
 		fail(err)
 	}
 	defer manager.Close()
+	if sharedPreferences != nil {
+		manager.SetPremiumMedia(func() bool { return sharedPreferences.Global().PremiumMedia })
+	}
+	proxies, err := newProxies(manager, protection, *proxyLink)
+	if err != nil {
+		fail(err)
+	}
 	var imports []*account.TData
 	if len(tdataPaths) > 0 {
 		paths, err := expandTDataPaths(tdataPaths)
@@ -246,7 +261,8 @@ func main() {
 			w.Quit()
 		}
 	})
-	accounts := newAccountWindows(process, windowOptions(sharedPreferences), manager, protection, sharedPreferences, sharedMiniApps, imports)
+	accounts := newAccountWindows(process, windowOptions(sharedPreferences), manager, proxies, protection, sharedPreferences, sharedMiniApps, imports)
+	accounts.peerBadges = openPeerBadges(sharedPreferences)
 	balloon := &trayBalloon{}
 	notifier := notify.New(catalog.T("app.title"), balloon)
 	accounts.notifier = notifier
@@ -334,15 +350,37 @@ func reportLastCrash(catalog localization.Catalog) {
 
 // runDemo shows demo data with settings kept in memory only: the demo
 // neither reads nor changes the user's settings, accounts or local-data
-// protection.
-func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive time.Duration) {
+// protection. With signIn the window starts at the sign-in that comes before
+// the first account (demo_signin.go), and the demo's data show once it is done.
+func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive time.Duration, signIn bool, open string, quiet bool) {
 	prefs := preferences.Memory()
 	followLanguage(prefs)
 	process := newProcess(profile, profileDir, nil)
+	var protection *security.Manager
+	if signIn {
+		manager, remove, err := demoProtection()
+		if err != nil {
+			log.Fatalf("demo sign-in: %v", err)
+		}
+		protection = manager
+		flush := process.BeforeExit
+		process.BeforeExit = func() {
+			remove()
+			if flush != nil {
+				flush()
+			}
+		}
+	}
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
 	opts := windowOptions(prefs)
 	opts.ProfileName = "demo"
 	opts.DemoPanic = panicDemo
 	store := mockstore.New(time.Now(), chats)
+	openAt, err := demoMessage(store, open)
+	if err != nil {
+		log.Fatalf("-demo-open: %v", err)
+	}
 	var window atomic.Pointer[appwindow.Window]
 	var app atomic.Pointer[ui.App]
 	catalog := localization.For(prefs.Global().Language)
@@ -404,6 +442,7 @@ func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive
 	})
 	if receive > 0 {
 		go func() {
+			defer crash.Recover("demo receive", nil)
 			for range time.Tick(receive) {
 				store.Receive()
 				if w := window.Load(); w != nil {
@@ -412,15 +451,38 @@ func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive
 			}
 		}()
 	}
-	process.Open(appwindow.Spec{Options: opts, Build: func(w *appwindow.Window) appwindow.Content {
+	// The proxies of the demo are kept in memory, and measured by no one.
+	proxies := proxy.NewStore("", nil)
+	process.Open(appwindow.Spec{Options: opts, Closed: stop, Build: func(w *appwindow.Window) appwindow.Content {
 		content := ui.New(w, store, ui.Services{
 			Preferences: prefs,
+			Proxies:     proxies,
+			PingProxy:   demoPing,
 			MiniApps:    miniApps(prefs),
+			Security:    protection,
 			OpenWindow:  process.Open,
-			OfferEmoji:  true,
+			OfferEmoji:  !quiet,
+			// The demo's points go nowhere.
+			OfferRegistrationPoints: !quiet,
 		})
 		window.Store(w)
 		app.Store(content)
+		if openAt.ChatID != 0 {
+			// The first window only: one opened again from the tray
+			// stays where the user is.
+			content.OpenMessage(openAt.ChatID, openAt.MessageID)
+			openAt = model.MessageKey{}
+		}
+		if signIn {
+			l := login.New(w.Invalidate)
+			content.RequireDemoLogin(l)
+			go func() {
+				defer crash.Recover("demo sign-in", nil)
+				if err := demoSignIn(ctx, l, demoPause); err != nil && !errors.Is(err, context.Canceled) {
+					log.Print(err)
+				}
+			}()
+		}
 		return content
 	}})
 	process.Main()
@@ -530,17 +592,74 @@ func checkAccounts(manager *account.Manager, imports []*account.TData) error {
 	return nil
 }
 
-// newManager returns an account manager that connects through the MTProxy
-// in proxy, or directly if it is empty.
-func newManager(proxy string, protection *security.Manager) (*account.Manager, error) {
+// openPeerBadges returns the marks of exteraGram, AyuGram and KomaruGram, which
+// read their lists unless the settings hide them.
+func openPeerBadges(prefs *preferences.Store) *peerbadges.Registry {
+	dir := ""
+	if config, err := os.UserConfigDir(); err == nil {
+		dir = filepath.Join(config, "komarugram-go", "peer_badges")
+	}
+	reg := peerbadges.New(dir)
+	reg.Start(context.Background(), func() (arrows, faces bool) {
+		if prefs == nil {
+			return true, true
+		}
+		g := prefs.Global()
+		return !g.HidesPeerArrows(), !g.HidesPeerFaces()
+	})
+	return reg
+}
+
+// newManager returns an account manager that connects through the proxy the
+// link names, or directly if it is empty.
+func newManager(link string, protection *security.Manager) (*account.Manager, error) {
 	manager, err := account.NewManager(account.TDesktop(), protection)
 	if err != nil {
 		return nil, err
 	}
-	if err := manager.SetProxy(proxy); err != nil {
+	if link == "" {
+		return manager, nil
+	}
+	p, err := proxy.Parse(link)
+	if err != nil {
+		return nil, fmt.Errorf("-proxy: %w", err)
+	}
+	if err := manager.UseProxy(&p); err != nil {
 		return nil, err
 	}
 	return manager, nil
+}
+
+// newProxies returns the proxies the user keeps, which the manager connects
+// through, the one in use at any time. The link of the command line or of the
+// environment is the one in use, over the list's, and is not kept in it.
+func newProxies(manager *account.Manager, protection *security.Manager, link string) (*proxy.Store, error) {
+	path, err := proxy.DefaultPath()
+	if err != nil {
+		return nil, err
+	}
+	store := proxy.NewStore(path, protection)
+	if link != "" {
+		p, err := proxy.Parse(link)
+		if err != nil {
+			return nil, fmt.Errorf("-proxy: %w", err)
+		}
+		if err := store.Force(&p); err != nil {
+			return nil, err
+		}
+	}
+	follow := func() {
+		var use *proxy.Proxy
+		if p, ok := store.Active(); ok {
+			use = &p
+		}
+		if err := manager.UseProxy(use); err != nil {
+			log.Printf("proxy: %v", err)
+		}
+	}
+	follow()
+	store.Subscribe(follow)
+	return store, nil
 }
 
 // printSummary tells what was loaded without printing anything personal.
@@ -613,4 +732,28 @@ func useWasmCache() {
 		return
 	}
 	sandbox.SetCache(c)
+}
+
+// demoMessage is the message -demo-open names: "CHAT", "CHAT/MESSAGE" or a
+// landmark of the demo's history; none for an empty value.
+func demoMessage(store *mockstore.Store, value string) (model.MessageKey, error) {
+	if value == "" {
+		return model.MessageKey{}, nil
+	}
+	chat, message, hasMessage := strings.Cut(value, "/")
+	if id, err := strconv.ParseInt(chat, 10, 64); err == nil {
+		key := model.MessageKey{ChatID: id}
+		if hasMessage {
+			n, err := strconv.Atoi(message)
+			if err != nil || n <= 0 {
+				return model.MessageKey{}, fmt.Errorf("%q is not a message ID", message)
+			}
+			key.MessageID = model.MessageID(n)
+		}
+		return key, nil
+	}
+	if key, ok := store.Landmark(value); ok {
+		return key, nil
+	}
+	return model.MessageKey{}, fmt.Errorf("%q is neither CHAT/MESSAGE nor one of %s", value, strings.Join(mockstore.Landmarks(), ", "))
 }

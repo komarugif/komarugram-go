@@ -10,6 +10,7 @@ import (
 	"image/color"
 	"image/gif"
 	"image/png"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -35,6 +36,17 @@ func (s *Store) SaveView(v model.Viewport, ls []model.MessageLayout) {
 		s.views = map[int64]model.Viewport{}
 	}
 	s.views[v.ChatID] = v
+}
+
+// Reveal implements model.MessageRevealer: the whole history is there, and
+// only its viewport starts at the message.
+func (s *Store) Reveal(chat int64, id model.MessageID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.views == nil {
+		s.views = map[int64]model.Viewport{}
+	}
+	s.views[chat] = model.Viewport{AccountID: "demo", ChatID: chat, AnchorMessageID: id, UpdatedAt: time.Now()}
 }
 func (s *Store) Layouts(int64, model.RenderEnvironment) []model.MessageLayout { return nil }
 func (s *Store) History(chat int64) model.History {
@@ -67,6 +79,10 @@ func (s *Store) History(chat int64) model.History {
 			n := i / 35
 			m.Kind, m.Media, m.Text = model.MessagePhoto, demoPhoto(n), fmt.Sprintf("Фото %d — откройте, чтобы листать все фото чата", n)
 		}
+		if i%45 == 22 {
+			// GIFs between the photos, which the viewer goes through apart.
+			m.Kind, m.Media, m.Text = model.MessageGIF, &model.MessageMedia{ID: "demo/gif", MIMEType: "image/gif", Width: 240, Height: 140}, fmt.Sprintf("GIF %d — откройте, чтобы листать все GIF чата", i/45+1)
+		}
 		messages = append(messages, m)
 	}
 	add := func(text string, kind model.MessageKind, media *model.MessageMedia, entities []model.Entity, buttons [][]model.MessageButton) {
@@ -89,10 +105,11 @@ func (s *Store) History(chat int64) model.History {
 	messages[len(messages)-1].Poll = &model.Poll{Question: "Какое оформление выберем?", Total: 10, Answers: []model.PollAnswer{{Text: "Светлое", Voters: 6}, {Text: "Тёмное", Voters: 4, Chosen: true}}}
 
 	add("Изображение из локального кеша", model.MessagePhoto, &model.MessageMedia{ID: "demo/photo", MIMEType: "image/png", Width: 640, Height: 360}, nil, nil)
-	add("GIF воспроизводится прямо в чате", model.MessageGIF, &model.MessageMedia{ID: "demo/gif", MIMEType: "image/gif", Width: 240, Height: 140}, nil, nil)
+	// A GIF, as Telegram keeps them: a silent MP4, assets/video.mp4, 720×1280.
+	add("GIF воспроизводится прямо в чате", model.MessageGIF, &model.MessageMedia{ID: "demo/gifv", MIMEType: "video/mp4", Width: 720, Height: 1280, Size: 7789765, Duration: 36 * time.Second, Thumbnail: &model.MessageMedia{ID: "demo/portrait", MIMEType: "image/png", Width: 180, Height: 320}}, nil, nil)
 	add("", model.MessageSticker, &model.MessageMedia{ID: "demo/tgs", MIMEType: "application/x-tgsticker", Width: 512, Height: 512}, nil, nil)
 	add("", model.MessageSticker, &model.MessageMedia{ID: "demo/webm", MIMEType: "video/webm", Width: 512, Height: 512}, nil, nil)
-	add("Видео открывается в отдельном окне", model.MessageVideo, &model.MessageMedia{ID: "demo/video", MIMEType: "video/mp4", Width: 640, Height: 360, Size: 7789765, Thumbnail: &model.MessageMedia{ID: "demo/photo", MIMEType: "image/png", Width: 640, Height: 360}}, nil, nil)
+	add("Видео играет в просмотрщике", model.MessageVideo, &model.MessageMedia{ID: "demo/video", MIMEType: "video/mp4", Width: 720, Height: 1280, Size: 7789765, Duration: 36 * time.Second, Thumbnail: &model.MessageMedia{ID: "demo/portrait", MIMEType: "image/png", Width: 180, Height: 320}}, nil, nil)
 	// Voice messages: one with the waveform Telegram sends, one without,
 	// whose waveform the player works out.
 	add("", model.MessageVoice, &model.MessageMedia{ID: "demo/voice", MIMEType: "audio/ogg", Size: int64(len(demoVoice)), Duration: 7 * time.Second, Waveform: demoVoiceWaveform}, nil, nil)
@@ -104,6 +121,11 @@ func (s *Store) History(chat int64) model.History {
 	add("", model.MessageMusic, &model.MessageMedia{ID: "demo/music", MIMEType: "audio/mpeg", Size: int64(len(demoVoiceMP3)), Duration: 5 * time.Second, Title: "Ночной трамвай", Performer: "Демо-оркестр"}, nil, nil)
 	// An M4A voice message, as one sent from a file; its decoder is fetched.
 	add("", model.MessageVoice, &model.MessageMedia{ID: "demo/voice-m4a", MIMEType: "audio/mp4", Size: int64(len(demoVoiceM4A)), Duration: 5 * time.Second}, nil, nil)
+	// A video message, assets/video.mp4 with its sound, in a circle: it
+	// plays in the chat, after the voice messages, and its decoder is
+	// fetched.
+	add("", model.MessageRound, &model.MessageMedia{ID: "demo/round", MIMEType: "video/mp4", Width: 720, Height: 1280, Size: 7789765, Duration: 36 * time.Second, Thumbnail: &model.MessageMedia{ID: "demo/portrait", MIMEType: "image/png", Width: 180, Height: 320}}, nil, nil)
+	messages[len(messages)-1].MediaUnread = true
 	add("Кнопки бота: ссылки и обратные вызовы работают.", model.MessageText, nil, nil, [][]model.MessageButton{{{Text: "Telegram", Kind: "url", URL: "https://telegram.org"}, {Text: "Обновить", Kind: "callback", Data: []byte("refresh")}}})
 	for i := 0; i < 3; i++ {
 		add("Альбом: несколько вложений в одном сообщении", model.MessagePhoto, demoPhoto(len(demoPhotoSizes)-3+i), nil, nil)
@@ -138,12 +160,33 @@ func (s *Store) History(chat int64) model.History {
 	add("Статья с мгновенным просмотром: https://telegram.org/blog/instant-view", model.MessageText, nil, []model.Entity{{Kind: "url", Offset: 32, Length: 38, URL: "https://telegram.org/blog/instant-view"}}, nil)
 	messages[len(messages)-1].WebPage = &model.WebPreview{URL: "https://telegram.org/blog/instant-view", DisplayURL: "telegram.org/blog/instant-view", Site: "Telegram", Title: "Instant View", Description: "Статьи из интернета открываются мгновенно, прямо в клиенте, даже без подключения.", InstantView: true}
 	add("https://www.youtube.com/watch?v=demo", model.MessageText, nil, []model.Entity{{Kind: "url", Offset: 0, Length: 36}}, nil)
-	messages[len(messages)-1].WebPage = &model.WebPreview{URL: "https://www.youtube.com/watch?v=demo", Site: "YouTube", Title: "Видео со ссылки", Description: "Telegram хранит видео страницы, и оно играет, как видео сообщения.", VideoKind: model.MessageVideo, Video: &model.MessageMedia{ID: "demo/video", MIMEType: "video/mp4", Width: 640, Height: 360, Size: 7789765, Thumbnail: &model.MessageMedia{ID: "demo/photo", MIMEType: "image/png", Width: 640, Height: 360}}}
+	messages[len(messages)-1].WebPage = &model.WebPreview{URL: "https://www.youtube.com/watch?v=demo", Site: "YouTube", Title: "Видео со ссылки", Description: "Telegram хранит видео страницы, и оно играет, как видео сообщения.", VideoKind: model.MessageVideo, Video: &model.MessageMedia{ID: "demo/video", MIMEType: "video/mp4", Width: 720, Height: 1280, Size: 7789765, Duration: 36 * time.Second, Thumbnail: &model.MessageMedia{ID: "demo/portrait", MIMEType: "image/png", Width: 180, Height: 320}}}
 	add("", model.MessageFile, &model.MessageMedia{ID: "demo/markdown", FileName: "Пример.md", MIMEType: "text/markdown", Size: int64(len(demoMarkdown))}, nil, nil)
 	blocksText, blocksEntities := TextBlocksExample()
 	add(blocksText, model.MessageText, nil, blocksEntities, nil)
 	entitiesText, entities := EntitiesExample(time.Now())
 	add(entitiesText, model.MessageText, nil, entities, nil)
+	// Timestamps: in a reply to a video, a voice message, a video message
+	// or a GIF they play it from their time, and by a YouTube link they
+	// open the video at it.
+	replyTo := func(id string) model.MessageID {
+		for _, m := range messages {
+			if m.Media != nil && m.Media.ID == id {
+				return m.Key.MessageID
+			}
+		}
+		return 0
+	}
+	add("Самое интересное — на 0:12, а потом на 0:30", model.MessageText, nil, nil, nil)
+	messages[len(messages)-1].ReplyToMessageID = replyTo("demo/video")
+	add("Послушайте с 0:03", model.MessageText, nil, nil, nil)
+	messages[len(messages)-1].ReplyToMessageID = replyTo("demo/voice")
+	add("В кружке с 0:20 — самое смешное", model.MessageText, nil, nil, nil)
+	messages[len(messages)-1].ReplyToMessageID = replyTo("demo/round")
+	add("А в GIF — с 0:25", model.MessageText, nil, nil, nil)
+	messages[len(messages)-1].ReplyToMessageID = replyTo("demo/gifv")
+	add("https://youtu.be/demo — смотрите с 1:23 и с 4:05", model.MessageText, nil, []model.Entity{{Kind: "url", Offset: 0, Length: 21}}, nil)
+	messages[len(messages)-1].WebPage = &model.WebPreview{URL: "https://youtu.be/demo", Site: "YouTube", Type: "video", Duration: 300, Title: "Видео на YouTube", Description: "Тайм-коды рядом со ссылкой открывают его с их времени."}
 	if s.isChannel(chat) {
 		// A channel's posts have no sender and a discussion: the last ones
 		// have comments, the others wait for the first one.
@@ -168,7 +211,27 @@ func (s *Store) History(chat int64) model.History {
 	s.histories[chat] = h
 	return h
 }
+
+// Media implements model.ConversationStore: as Telegram's store, it reads
+// whole no more than model.MaxMediaBytes, which MediaStream streams.
 func (s *Store) Media(ctx context.Context, m model.Message) ([]byte, error) {
+	if !m.Media.Whole() {
+		return nil, model.ErrMediaTooLarge
+	}
+	return s.media(ctx, m)
+}
+
+// MediaStream streams m's media, of any size, as Telegram's store does a
+// video or a file to open.
+func (s *Store) MediaStream(ctx context.Context, m model.Message) (io.ReaderAt, int64, func(), error) {
+	data, err := s.media(ctx, m)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	return bytes.NewReader(data), int64(len(data)), func() {}, nil
+}
+
+func (s *Store) media(ctx context.Context, m model.Message) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -195,16 +258,14 @@ func (s *Store) Media(ctx context.Context, m model.Message) ([]byte, error) {
 		return os.ReadFile("assets/stickers/sample.tgs")
 	case "demo/webm":
 		return os.ReadFile("assets/stickers/circle.webm")
-	case "demo/video":
+	case "demo/video", "demo/gifv", "demo/round":
 		return os.ReadFile("assets/video.mp4")
 	case "demo/photo":
-		im := image.NewRGBA(image.Rect(0, 0, 640, 360))
-		for y := 0; y < 360; y++ {
-			for x := 0; x < 640; x++ {
-				im.SetRGBA(x, y, color.RGBA{uint8(30 + x/4), uint8(80 + y/3), 150, 255})
-			}
-		}
-		e := png.Encode(&b, im)
+		e := png.Encode(&b, gradient(640, 360))
+		return b.Bytes(), e
+	case "demo/portrait":
+		// The thumbnail of assets/video.mp4, which is upright.
+		e := png.Encode(&b, gradient(180, 320))
 		return b.Bytes(), e
 	case "demo/gif":
 		g := &gif.GIF{}
@@ -223,6 +284,17 @@ func (s *Store) Media(ctx context.Context, m model.Message) ([]byte, error) {
 		return b.Bytes(), e
 	}
 	return nil, errors.New("demo media unavailable")
+}
+
+// gradient is the demo's picture w×h, a gradient across it.
+func gradient(w, h int) *image.RGBA {
+	im := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			im.SetRGBA(x, y, color.RGBA{uint8(30 + x*160/w), uint8(80 + y*120/h), 150, 255})
+		}
+	}
+	return im
 }
 
 // Deterministic fixtures also exercise profile images and the energy policy.

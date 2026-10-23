@@ -5,6 +5,7 @@ package ui
 import (
 	"context"
 	"image"
+	"image/color"
 	"image/png"
 	"os"
 	"testing"
@@ -25,6 +26,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
+	"gioui.org/widget"
 )
 
 func sharedContext(ops *op.Ops, size image.Point) layout.Context {
@@ -82,7 +84,7 @@ func TestChatHeaderClickableAndDialogBlocksOutside(t *testing.T) {
 		}
 		layoutChatPage(gtx, model.Chat{ID: 2, Title: "Chat"}, localization.For("en"), func(layout.Context, int64, model.ChatKind, string, unit.Dp) layout.Dimensions {
 			return layout.Dimensions{}
-		}, nil, func(layout.Context) layout.Dimensions { return layout.Dimensions{} }, page)
+		}, nil, nil, func(layout.Context) layout.Dimensions { return layout.Dimensions{} }, page)
 		p.Layout(gtx, localization.For("en"), false)
 		router.Frame(ops)
 	}
@@ -157,19 +159,7 @@ func TestRenderSharedMediaAndThemes(t *testing.T) {
 	themes.choose(choices[0])
 	info.Open(chat)
 	awaitShared(t, info)
-	render := func(name string) {
-		ops := new(op.Ops)
-		for i := 0; i < 25; i++ {
-			ops.Reset()
-			gtx := sharedContext(ops, size)
-			images.BeginFrame()
-			history.media.BeginFrame()
-			history.Layout(gtx, chat, localization.For("ru"), true)
-			history.media.EndFrame()
-			info.Layout(gtx, localization.For("ru"), true)
-			images.EndFrame()
-			time.Sleep(20 * time.Millisecond)
-		}
+	shoot := func(name string, ops *op.Ops) {
 		if err := win.Frame(ops); err != nil {
 			t.Fatal(err)
 		}
@@ -186,6 +176,21 @@ func TestRenderSharedMediaAndThemes(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
+	render := func(name string) {
+		ops := new(op.Ops)
+		for i := 0; i < 25; i++ {
+			ops.Reset()
+			gtx := sharedContext(ops, size)
+			images.BeginFrame()
+			history.media.BeginFrame()
+			history.Layout(gtx, chat, localization.For("ru"), true)
+			history.media.EndFrame()
+			info.Layout(gtx, localization.For("ru"), true)
+			images.EndFrame()
+			time.Sleep(20 * time.Millisecond)
+		}
+		shoot(name, ops)
+	}
 	counts := info.counts
 	info.counts = nil
 	info.loading = true
@@ -193,6 +198,61 @@ func TestRenderSharedMediaAndThemes(t *testing.T) {
 	info.counts = counts
 	info.loading = false
 	render("info")
+	info.openCollectible("anna")
+	render("collectible")
+	info.closeCollectible()
+	info.list.Position.Offset = 60
+	render("info-scrolling")
+	info.list.Position.Offset = 400
+	render("info-scrolled")
+	info.list.Position = layout.Position{}
+
+	// Motion blur, in frames a 60th of a second apart: the gifts a few
+	// frames into their flight, and the avatar halfway to the header as the
+	// info scrolls fast, a picture of its own.
+	info.avatarSprite = func(gtx layout.Context, _ int64, _ model.ChatKind, _ string, px int) image.Image {
+		photo := image.NewRGBA(image.Rect(0, 0, 96, 96))
+		for y := range 96 {
+			for x := range 96 {
+				photo.SetRGBA(x, y, color.RGBA{uint8(40 + x*2), uint8(90 + y), 200, 255})
+			}
+		}
+		return roundedSprite(photo, px, avatarRadius(gtx, px))
+	}
+	now := time.Now()
+	motion := func(ops *op.Ops) {
+		ops.Reset()
+		gtx := sharedContext(ops, size)
+		gtx.Now = now
+		images.BeginFrame()
+		info.Layout(gtx, localization.For("ru"), true)
+		images.EndFrame()
+		now = now.Add(time.Second / 60)
+	}
+	ops := new(op.Ops)
+	info.Open(chat)
+	for i := 0; i < 500; i++ {
+		motion(ops)
+		st := info.renderer.media.StatusFullRate(info.profile.Gifts[0], true, image.Pt(24, 24), false)
+		if info.modal.Entered() && (st.Frame != nil || st.Preview != nil) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for range 3 {
+		motion(ops)
+	}
+	shoot("info-gifts-flying", ops)
+	for range 40 {
+		motion(ops)
+	}
+	for i := range 4 {
+		info.list.Position.Offset = i * 20
+		motion(ops)
+	}
+	shoot("info-avatar-moving", ops)
+	info.list.Position = layout.Position{}
+	info.avatarSprite = nil
 	info.selectSection(model.SharedPhotos)
 	awaitShared(t, info)
 	render("photos")
@@ -220,6 +280,9 @@ func TestRenderSharedMediaAndThemes(t *testing.T) {
 	info.Close()
 	themes.choose(choices[0])
 	render("chat")
+	info.Open(model.Chat{ID: 4, Title: "Новости Go", Kind: model.KindChannel, Members: 48210, Badges: model.Badges{Verified: true}})
+	awaitShared(t, info)
+	render("channel")
 }
 
 func TestInfoThumbDragStableAcrossUnequalContent(t *testing.T) {
@@ -240,7 +303,7 @@ func TestInfoThumbDragStableAcrossUnequalContent(t *testing.T) {
 		gtx := sharedContext(ops, image.Pt(640, 360))
 		gtx.Source = router.Source()
 		gtx.Now = now
-		p.layoutInfo(gtx, localization.For("en"))
+		p.layoutInfo(gtx, localization.For("en"), false)
 		router.Frame(ops)
 		now = now.Add(16 * time.Millisecond)
 	}
@@ -405,5 +468,32 @@ func TestChatInfoDetails(t *testing.T) {
 	frame()
 	if _, text, ok := router.WriteClipboard(); !ok || string(text) != "DC 4, Amsterdam" {
 		t.Fatalf("copied %q", text)
+	}
+}
+
+// TestOwnUsernameFollowsCollectibles shows a channel that put its
+// collectible username first: its own follows the chips, which the card
+// above does not show then, and the username of the card is not repeated.
+func TestOwnUsernameFollowsCollectibles(t *testing.T) {
+	store := mockstore.New(time.Now(), 0)
+	var images imageOps
+	p := newChatInfo(store, &images, func() {})
+	defer p.Destroy()
+	p.chat = model.Chat{ID: 4, Kind: model.KindChannel}
+	p.profile.Usernames = []model.Username{{Name: "gonews", Collectible: true}, {Name: "golang_news"}}
+	if p.chatUsername() != "gonews" {
+		t.Fatal("the card does not show the collectible username put first")
+	}
+	gtx := sharedContext(new(op.Ops), image.Pt(600, 200))
+	p.layoutCollectibles(gtx)
+	if p.chips["gonews"] == nil || p.plainNames["golang_news"] == nil {
+		t.Fatal("the own username is not shown after the collectible one")
+	}
+	p.plainNames = map[string]*widget.Clickable{}
+	p.chat.ID = 2
+	p.profile.Usernames = []model.Username{{Name: "anna_smirnova"}, {Name: "anna", Collectible: true}}
+	p.layoutCollectibles(gtx)
+	if p.plainNames["anna_smirnova"] != nil {
+		t.Fatal("the username of the card is shown again")
 	}
 }

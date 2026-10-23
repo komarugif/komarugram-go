@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"komarugram/internal/appwindow"
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/tgstore"
 	"komarugram/internal/messenger/ui"
 )
@@ -66,6 +67,7 @@ func (s *accountSession) start(run func(ctx context.Context)) {
 	}
 	s.workers.Add(1)
 	go func() {
+		defer crash.Recover("account "+s.accountID(), nil)
 		defer s.workers.Done()
 		run(s.ctx)
 	}()
@@ -78,6 +80,7 @@ func (s *accountSession) start(run func(ctx context.Context)) {
 func (s *accountSession) handOff(run func(ctx context.Context)) {
 	s.workers.Add(1)
 	go func() {
+		defer crash.Recover("account "+s.accountID(), nil)
 		defer s.workers.Done()
 		run(s.ctx)
 	}()

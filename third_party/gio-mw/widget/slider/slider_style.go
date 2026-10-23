@@ -53,24 +53,39 @@ func (s *widgetStyle) layoutTracks(gtx layout.Context) layout.Dimensions {
 
 	stopIndicatorCount := len(s.Slider.sOptions)
 	stopIndicatorSize := gtx.Dp(s.Theme.SliderStopIndicatorSize)
+	// The handle slides between the stops: position is the index of the
+	// stop it is at, fractional on the way, and everything is drawn from it.
+	anim := &s.Slider.animation
+	if anim.pressed.Duration == 0 {
+		// A slider is dragged and clicked: the handle starts moving at once
+		// and settles fast, not in the 200 ms of the standard curve.
+		anim.position.Duration, anim.position.Easing = positionDuration, &positionEasing
+		anim.pressed.Duration = token.DurationShort2
+	}
+	position := anim.position.Animate(gtx, float32(activeStopIndicatorIndex))
+	pressed := anim.pressed.Animate(gtx, boolToFloat(s.Slider.sStartDrag.Dragging()))
 	stopIndicatorBox := wdk.Box{
 		Shape:    wdk.FromCornerShapesToken(gtx, s.Theme.SliderStopIndicatorShape),
 		EndPoint: image.Point{X: stopIndicatorSize, Y: stopIndicatorSize},
 	}
 	stopIndicatorSpacing := s.getStopIndicatorSpacing(gtx)
+	stopStep := float32(stopIndicatorSize) + stopIndicatorSpacing
 	leadingSpace := s.Theme.SliderActiveHandleLeadingSpace
 	trailingSpace := s.Theme.SliderActiveHandleTrailingSpace
 
 	segments := []block.Segment{
 		block.NewSegment(func(gtx layout.Context) layout.Dimensions {
 			startSpace := gtx.Dp(s.Theme.SliderStopIndicatorStartSpace)
-			activeTrackLength := startSpace - gtx.Dp(leadingSpace)
-			if activeStopIndicatorIndex == 0 {
-				return layout.Dimensions{Size: s.Slider.Orientation.OrientPoint(image.Point{X: activeTrackLength, Y: trackHeight})}
+			baseLength := startSpace - gtx.Dp(leadingSpace)
+			activeTrackLength := baseLength + int(math.Round(float64(position*stopStep)))
+			trackSize := s.Slider.Orientation.OrientPoint(image.Point{X: activeTrackLength, Y: trackHeight})
+			// Nothing is drawn at the first stop: the track grows out of
+			// nothing as the handle leaves it.
+			paintLength := int(math.Round(float64(position*stopStep + float32(baseLength)*min(position, 1))))
+			if paintLength <= 0 {
+				return layout.Dimensions{Size: trackSize}
 			}
 			activeTrackColor := s.Theme.SliderActiveTrackColor.AsNRGBA()
-			activeTrackLength += (activeStopIndicatorIndex) * stopIndicatorSize
-			activeTrackLength += int(float32(activeStopIndicatorIndex) * stopIndicatorSpacing)
 			activeTrackBox := wdk.Box{
 				Shape: s.Slider.Orientation.OrientShape(wdk.FromCornerShapesToken(gtx, token.CornerShapes{
 					TopStart:    s.Theme.SliderActiveTrackOuterCornerShape,
@@ -78,7 +93,7 @@ func (s *widgetStyle) layoutTracks(gtx layout.Context) layout.Dimensions {
 					TopEnd:      s.Theme.SliderActiveTrackInnerCornerShape,
 					BottomEnd:   s.Theme.SliderActiveTrackInnerCornerShape,
 				})),
-				EndPoint: s.Slider.Orientation.OrientPoint(image.Point{X: activeTrackLength, Y: trackHeight}),
+				EndPoint: s.Slider.Orientation.OrientPoint(image.Point{X: paintLength, Y: trackHeight}),
 			}
 			paint.FillShape(
 				gtx.Ops,
@@ -89,10 +104,12 @@ func (s *widgetStyle) layoutTracks(gtx layout.Context) layout.Dimensions {
 			yOffset := (trackHeight - stopIndicatorSize) / 2
 			stopIndicatorColor := s.Theme.SliderStopIndicatorColorSelected.AsNRGBA()
 			for i := range s.Slider.sOptions {
-				if i >= activeStopIndicatorIndex {
+				xOffset := startSpace + int(stopIndicatorSpacing*float32(i)) + stopIndicatorSize*i
+				// A stop shows once the handle has left it behind, and
+				// stays hidden while the handle is over it.
+				if xOffset+stopIndicatorSize > activeTrackLength && float32(i) >= position-positionEpsilon {
 					continue
 				}
-				xOffset := startSpace + int(stopIndicatorSpacing*float32(i)) + stopIndicatorSize*i
 				if gtx.Locale.Direction == system.RTL && s.Slider.Orientation == wdk.AxisHorizontal {
 					xOffset = activeTrackLength - stopIndicatorSize - xOffset
 				}
@@ -101,7 +118,7 @@ func (s *widgetStyle) layoutTracks(gtx layout.Context) layout.Dimensions {
 				paint.FillShape(gtx.Ops, stopIndicatorColor, stopIndicatorBox.Outline(gtx))
 				transformStack.Pop()
 			}
-			return layout.Dimensions{Size: s.Slider.Orientation.OrientPoint(image.Point{X: activeTrackLength, Y: trackHeight})}
+			return layout.Dimensions{Size: trackSize}
 		}).AlignMiddle(),
 		block.NewSegment(func(gtx layout.Context) layout.Dimensions {
 			return layout.Dimensions{Size: s.Slider.Orientation.OrientPoint(image.Point{X: gtx.Dp(leadingSpace), Y: 0})}
@@ -109,14 +126,16 @@ func (s *widgetStyle) layoutTracks(gtx layout.Context) layout.Dimensions {
 		block.NewSegment(func(gtx layout.Context) layout.Dimensions {
 			handleHeight := gtx.Dp(s.Theme.SliderHandleHeight)
 			handleWidth := gtx.Dp(s.Theme.SliderHandleWidth)
-			handleSize := image.Point{X: handleWidth, Y: handleHeight}
-			handleOffset := image.Point{X: 0, Y: 0}
-			if s.Slider.sStartDrag.Dragging() {
-				activeHandleHeight := gtx.Dp(s.Theme.SliderActiveHandleHeight)
-				activeHandleWidth := gtx.Dp(s.Theme.SliderActiveHandleWidth)
-				handleSize = image.Point{X: activeHandleWidth, Y: activeHandleHeight}
-				handleOffset.X = (handleWidth - activeHandleWidth) / 2
-				handleOffset.Y = (handleHeight - activeHandleHeight) / 2
+			// The handle narrows while it is held, and widens back.
+			activeHandleHeight := gtx.Dp(s.Theme.SliderActiveHandleHeight)
+			activeHandleWidth := gtx.Dp(s.Theme.SliderActiveHandleWidth)
+			handleSize := image.Point{
+				X: handleWidth + int(math.Round(float64(float32(activeHandleWidth-handleWidth)*pressed))),
+				Y: handleHeight + int(math.Round(float64(float32(activeHandleHeight-handleHeight)*pressed))),
+			}
+			handleOffset := image.Point{
+				X: (handleWidth - handleSize.X) / 2,
+				Y: (handleHeight - handleSize.Y) / 2,
 			}
 			handleBox := wdk.Box{
 				Shape:      s.Slider.Orientation.OrientShape(wdk.FromCornerShapesToken(gtx, s.Theme.SliderHandleShape)),
@@ -135,36 +154,43 @@ func (s *widgetStyle) layoutTracks(gtx layout.Context) layout.Dimensions {
 		}),
 		block.NewSegment(func(gtx layout.Context) layout.Dimensions {
 			endSpace := gtx.Dp(s.Theme.SliderStopIndicatorEndSpace)
-			if activeStopIndicatorIndex == stopIndicatorCount-1 {
+			baseLength := endSpace - gtx.Dp(trailingSpace)
+			remaining := float32(stopIndicatorCount-1) - position
+			if remaining <= 0 {
 				return layout.Dimensions{
-					Size: s.Slider.Orientation.OrientPoint(image.Point{X: endSpace - gtx.Dp(trailingSpace), Y: trackHeight}),
+					Size: s.Slider.Orientation.OrientPoint(image.Point{X: baseLength, Y: trackHeight}),
 				}
 			}
 			inactiveTrackLength := s.Slider.Orientation.OrientPoint(gtx.Constraints.Max).X
-			activeTrackColor := s.Theme.SliderInactiveTrackColor.AsNRGBA()
-			activeTrackBox := wdk.Box{
+			// Nothing is drawn at the last stop: the track shrinks into
+			// nothing as the handle arrives.
+			paintLength := inactiveTrackLength - int(math.Round(float64(float32(baseLength)*(1-min(remaining, 1)))))
+			inactiveTrackColor := s.Theme.SliderInactiveTrackColor.AsNRGBA()
+			inactiveTrackBox := wdk.Box{
 				Shape: s.Slider.Orientation.OrientShape(wdk.FromCornerShapesToken(gtx, token.CornerShapes{
 					TopStart:    s.Theme.SliderActiveTrackInnerCornerShape,
 					BottomStart: s.Theme.SliderActiveTrackInnerCornerShape,
 					TopEnd:      s.Theme.SliderActiveTrackOuterCornerShape,
 					BottomEnd:   s.Theme.SliderActiveTrackOuterCornerShape,
 				})),
-				EndPoint: s.Slider.Orientation.OrientPoint(image.Point{X: inactiveTrackLength, Y: trackHeight}),
+				EndPoint: s.Slider.Orientation.OrientPoint(image.Point{X: paintLength, Y: trackHeight}),
 			}
 			paint.FillShape(
 				gtx.Ops,
-				activeTrackColor,
-				activeTrackBox.Outline(gtx),
+				inactiveTrackColor,
+				inactiveTrackBox.Outline(gtx),
 			)
 			yOffset := (trackHeight - stopIndicatorSize) / 2
 			stopIndicatorColor := s.Theme.SliderStopIndicatorColor.AsNRGBA()
 			xEndOffset := inactiveTrackLength - endSpace - stopIndicatorSize
 			for i := range s.Slider.sOptions {
-				if i <= activeStopIndicatorIndex {
-					continue
-				}
 				inverseIndex := stopIndicatorCount - 1 - i
 				xOffset := xEndOffset - stopIndicatorSize*inverseIndex - int(stopIndicatorSpacing*float32(inverseIndex))
+				// A stop shows once the handle is before it, and stays
+				// hidden while the handle is over it.
+				if xOffset < 0 && float32(i) <= position+positionEpsilon {
+					continue
+				}
 				if gtx.Locale.Direction == system.RTL && s.Slider.Orientation == wdk.AxisHorizontal {
 					xOffset = inactiveTrackLength - endSpace - xOffset
 				}
@@ -216,4 +242,11 @@ func (s *widgetStyle) getStopIndicatorSpacing(gtx layout.Context) float32 {
 	availableSize := s.Slider.Orientation.OrientPoint(gtx.Constraints.Max)
 	availableSpace := float32(availableSize.X - startSpace - endSpace - stopIndicatorsSize)
 	return availableSpace / float32(stopIndicatorCount-1)
+}
+
+func boolToFloat(b bool) float32 {
+	if b {
+		return 1
+	}
+	return 0
 }

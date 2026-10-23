@@ -3,25 +3,28 @@
 package appwindow
 
 import (
+	"image"
 	"io"
-	"os/exec"
-	"runtime"
 	"strings"
 
 	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
+	"gio-mw/exp/appearance"
 	"gio-mw/token"
+	"gio-mw/wdk"
+	"gio-mw/widget/button"
+	"gio-mw/widget/scroll"
 
 	"gioui.org/io/clipboard"
 	"gioui.org/io/system"
 	"gioui.org/layout"
+	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/text"
 	"gioui.org/unit"
-	"gioui.org/widget"
-	"gioui.org/widget/material"
 
+	"komarugram/internal/buildinfo"
 	"komarugram/internal/crash"
-	"komarugram/pkg/program"
 )
 
 const panicDialogWhere = "crash dialog"
@@ -39,7 +42,7 @@ func (h *Host) showPanic(p *crash.Panic) {
 	}
 	h.Open(Spec{
 		Options: Options{
-			Title: texts().T("window.error_title"), Width: unit.Dp(620), Height: unit.Dp(320),
+			Title: texts().T("window.error_title"), Width: unit.Dp(640), Height: unit.Dp(440),
 			TopMost: true, QuitOnEscape: true, panicDialog: true,
 		},
 		Build:  func(w *Window) Content { return newPanicDialog(w, p) },
@@ -70,44 +73,85 @@ func (h *Host) ignorePanicNotice(key string) {
 	h.mu.Unlock()
 }
 
+// panicDialog shows a panic with its stack and offers to copy the report,
+// or to open an issue of it on GitHub. The report file crash.Report wrote
+// is not shown: it stays for whoever looks for it.
 type panicDialog struct {
-	w                  *Window
-	p                  *crash.Panic
-	theme              *token.Theme
-	material           *material.Theme
-	copy, open, ignore widget.Clickable
-	opening            bool
-	opened             chan error
-	status             string
+	w            *Window
+	p            *crash.Panic
+	theme        *token.Theme
+	themeFonts   uint64
+	dark         bool
+	copy, ignore *button.Button
+	issue        *button.Button
+	// opened tells how opening the issue went, once the browser has it.
+	opened chan error
+	// issueFilled is whether the issue opened has the report in it.
+	issueFilled bool
+	opening     bool
+	trace       scroll.List
+	// stack is the panic's, a tab in front of a frame's file widened to
+	// spaces, which the shaper draws narrow.
+	stack  string
+	status string
 }
 
 func newPanicDialog(w *Window, p *crash.Panic) *panicDialog {
-	return &panicDialog{w: w, p: p, material: material.NewTheme(), opened: make(chan error, 1)}
+	stack := strings.ReplaceAll(strings.TrimRight(string(p.Stack), "\n"), "\t", "    ")
+	return &panicDialog{
+		w: w, p: p, copy: button.Filled(), ignore: button.Text(), issue: button.Text(),
+		opened: make(chan error, 1),
+		trace:  scroll.List{List: layout.List{Axis: layout.Vertical}},
+		stack:  stack,
+	}
 }
 
+// Theme is the one the user picked in the application, as the host was
+// last told it: the dialog depends on nothing from the content.
 func (d *panicDialog) Theme(gtx layout.Context) *token.Theme {
-	if d.theme == nil {
-		d.theme = defaults.NewTheme(gtx, schemes.SchemeBaselineLight())
+	theme := d.w.host.Theme()
+	dark := theme == ThemeDark || theme == ThemeAuto && d.w.Appearance != nil && d.w.Appearance.Scheme() == appearance.Dark
+	if v := defaults.FontsVersion(); d.theme == nil || v != d.themeFonts || dark != d.dark {
+		d.themeFonts, d.dark = v, dark
+		scheme := schemes.SchemeBaselineLight()
+		if dark {
+			scheme = schemes.SchemeBaselineDark()
+		}
+		d.theme = defaults.NewTheme(gtx, scheme)
 	}
+	d.w.SetFrameDark(dark)
+	d.w.SetFrameColor(d.theme.Scheme.SurfaceContainerLowest.AsNRGBA())
 	return d.theme
 }
 
 func (d *panicDialog) Update(gtx layout.Context) {
 	if d.copy.Clicked(gtx) {
-		gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(d.p.Text()))})
+		d.copyReport(gtx)
 		d.status = texts().T("window.copied")
 	}
-	if d.open.Clicked(gtx) && d.p.Path != "" && !d.opening {
-		d.opening = true
-		go func() { d.opened <- openPanicReport(d.p.Path); d.w.Invalidate() }()
+	if d.issue.Clicked(gtx) && !d.opening {
+		link, filled := panicIssue(d.p, buildinfo.Current())
+		if !filled {
+			// The form opens without the report, for it to be pasted.
+			d.copyReport(gtx)
+		}
+		d.opening, d.issueFilled = true, filled
+		go func() {
+			defer crash.Recover(panicDialogWhere, func(e *crash.Panic) { d.opened <- e; d.w.Invalidate() })
+			d.opened <- openBrowser(link)
+			d.w.Invalidate()
+		}()
 	}
 	select {
 	case err := <-d.opened:
 		d.opening = false
-		if err != nil {
-			d.status = texts().Format("window.open_failed", map[string]string{"error": err.Error()})
-		} else {
-			d.status = texts().T("window.opened")
+		switch {
+		case err != nil:
+			d.status = texts().Format("window.issue_failed", map[string]string{"error": err.Error()})
+		case d.issueFilled:
+			d.status = texts().T("window.issue_opened")
+		default:
+			d.status = texts().T("window.issue_paste")
 		}
 	default:
 	}
@@ -116,69 +160,75 @@ func (d *panicDialog) Update(gtx layout.Context) {
 	}
 }
 
-func openPanicReport(path string) error {
-	var command *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin", "haiku":
-		command = program.Command("open", path)
-	case "windows":
-		command = program.Command("rundll32", "url.dll,FileProtocolHandler", path)
-	default:
-		command = program.Command("xdg-open", path)
+func (d *panicDialog) copyReport(gtx layout.Context) {
+	gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(d.p.Text()))})
+}
+
+func panicLabel(txt string, style token.Typestyle, col token.MatColor, maxLines int) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions {
+		return wdk.LayoutLabel(gtx, wdk.LabelStyle{Typestyle: style, Color: col, MaxLines: maxLines}, txt)
 	}
-	return command.Run()
 }
 
-func (d *panicDialog) button(gtx layout.Context, click *widget.Clickable, text string) layout.Dimensions {
-	button := material.Button(d.material, click, text)
-	button.TextSize = unit.Sp(14)
-	return button.Layout(gtx)
-}
-
+// Layout puts the stack in a box that takes what the window leaves it, and
+// the buttons at the right, as the app's dialogs have them.
 func (d *panicDialog) Layout(gtx layout.Context) {
-	paint.Fill(gtx.Ops, d.material.Bg)
+	sc := wdk.GetMaterialTheme(gtx).Scheme
+	paint.Fill(gtx.Ops, sc.SurfaceContainerLowest.AsNRGBA())
 	layout.UniformInset(unit.Dp(24)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-			layout.Rigid(material.H6(d.material, texts().T("window.panic")).Layout),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(12)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				label := material.Body1(d.material, d.p.Error())
-				label.MaxLines = 3
-				return label.Layout(gtx)
-			}),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(12)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				text := texts().T("window.report_unsaved")
-				if d.p.Path != "" {
-					text = texts().Format("window.report", map[string]string{"path": d.p.Path})
-				}
-				label := material.Body2(d.material, text)
-				label.MaxLines = 2
-				return label.Layout(gtx)
-			}),
+			layout.Rigid(panicLabel(texts().T("window.panic"), token.TypestyleTitleLarge, sc.Surface.OnColor, 2)),
+			layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
+			layout.Rigid(panicLabel(d.p.Error(), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 3)),
 			layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
+			layout.Flexed(1, d.layoutTrace),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return d.button(gtx, &d.copy, texts().T("window.copy")) }),
-					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
+				// What the last button did, in a line of its own: beside
+				// three buttons there is no room for it.
+				if d.status == "" {
+					return layout.Spacer{Height: unit.Dp(16)}.Layout(gtx)
+				}
+				return layout.Inset{Top: unit.Dp(12), Bottom: unit.Dp(12)}.Layout(gtx,
+					panicLabel(d.status, token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 2))
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Spacing: layout.SpaceStart, Alignment: layout.Middle}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						if d.p.Path == "" || d.opening {
-							gtx = gtx.Disabled()
-						}
-						return d.button(gtx, &d.open, texts().T("window.open_file"))
+						return d.ignore.Layout(gtx, texts().T("window.ignore"))
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return d.button(gtx, &d.ignore, texts().T("window.ignore"))
+						if d.opening {
+							gtx = gtx.Disabled()
+						}
+						return d.issue.Layout(gtx, texts().T("window.report_issue"))
+					}),
+					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return d.copy.Layout(gtx, texts().T("window.copy"))
 					}),
 				)
 			}),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(12)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				label := material.Caption(d.material, d.status)
-				label.MaxLines = 2
-				return label.Layout(gtx)
-			}),
 		)
+	})
+}
+
+// layoutTrace draws the stack in a rounded box that fills the constraints.
+// It is one label, so that a wrapped line is as far from the next as two
+// lines are.
+func (d *panicDialog) layoutTrace(gtx layout.Context) layout.Dimensions {
+	sc := wdk.GetMaterialTheme(gtx).Scheme
+	size := gtx.Constraints.Max
+	box := clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(12))
+	paint.FillShape(gtx.Ops, sc.SurfaceContainer.AsNRGBA(), box.Op(gtx.Ops))
+	defer box.Push(gtx.Ops).Pop()
+	gtx.Constraints = layout.Exact(size)
+	return layout.UniformInset(unit.Dp(12)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return d.trace.Layout(gtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
+			gtx.Constraints.Min.X = 0
+			// Paths and calls have no spaces to wrap at: they break anywhere.
+			style := wdk.LabelStyle{Typestyle: token.TypestylePreformatted, Color: sc.Surface.OnColor, WrapPolicy: text.WrapGraphemes}
+			return wdk.LayoutLabel(gtx, style, d.stack)
+		})
 	})
 }
