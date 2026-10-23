@@ -221,7 +221,7 @@ func (c *messageComposer) chooseIn(gtx layout.Context, tab model.PickerTab, item
 		pos := min(a, b)
 		d.editor.Insert(text)
 		next := d.editor.Text()
-		d.entities = shiftEmojiEntities(old, next, d.entities)
+		d.entities = shiftEntities(old, next, d.entities, -1)
 		if item.Custom {
 			d.entities = append(d.entities, model.Entity{Kind: "emoji", Offset: len(utf16.Encode([]rune(old)[:pos])), Length: len(utf16.Encode([]rune(text))), DocumentID: item.DocumentID})
 		}

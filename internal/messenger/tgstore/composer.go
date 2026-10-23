@@ -400,11 +400,7 @@ func (s *Store) Send(ctx context.Context, chat int64, msg model.OutgoingMessage)
 		res, err = api.MessagesSendMedia(ctx, &tg.MessagesSendMediaRequest{Peer: peer.input(), RandomID: msg.RandomID, Message: caption, Media: media, ReplyTo: replyTo})
 	} else {
 		req := &tg.MessagesSendMessageRequest{Peer: peer.input(), RandomID: msg.RandomID, Message: msg.Text, ReplyTo: replyTo, NoWebpage: !s.SendPermissions(chat).Allows(model.SendLinkPreview)}
-		for _, e := range msg.Entities {
-			if e.Kind == "emoji" {
-				req.Entities = append(req.Entities, &tg.MessageEntityCustomEmoji{Offset: e.Offset, Length: e.Length, DocumentID: e.DocumentID})
-			}
-		}
+		req.Entities = inputEntities(msg.Entities)
 		res, err = api.MessagesSendMessage(ctx, req)
 	}
 	if err != nil {

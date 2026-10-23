@@ -633,3 +633,9 @@ Run the focused check from the project root:
   after it, and the window never came back. A nested Layout of the list,
   in the same frame (the same `gtx.Now`), still panics.
   `TestListAfterPanickedChild`.
+- `widget/editor.go` (`Editor.HideText`, `Editor.PaintText`): an editor can
+  leave its glyphs out of `Layout` and have the caller paint them, as the
+  messenger's message field does to show the formatting of what is typed
+  (bold, italic, links) the way Telegram Desktop's field shows it: parts of
+  the text drawn over, slanted or in another color, by the regions the
+  editor reports. Upstream's editor paints all of its text in one material.

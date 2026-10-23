@@ -41,6 +41,9 @@ func restrictionText(p model.SendPermissions, k model.SendKind, l localization.C
 	return l.T(key)
 }
 func composerErrorText(err error, l localization.Catalog) string {
+	if text := editErrorText(err, l); text != "" {
+		return text
+	}
 	var ban *model.SendRestriction
 	if errors.As(err, &ban) {
 		return restrictionText(ban.Permissions, ban.Kind, l)

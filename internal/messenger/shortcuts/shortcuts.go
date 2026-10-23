@@ -72,6 +72,16 @@ var builtinCommands = []Command{
 	{ID: "fixed.editor_paste", Label: "keys.editor_paste", Scope: "editor", Default: []Chord{primary("V")}, ReadOnly: true},
 	{ID: "fixed.editor_select_all", Label: "keys.editor_select_all", Scope: "editor", Default: []Chord{primary("A")}, ReadOnly: true},
 	{ID: "fixed.editor_undo", Label: "keys.editor_undo", Scope: "editor", Default: []Chord{primary("Z"), {Key: "Z", Modifiers: key.ModShortcut | key.ModShift}}, ReadOnly: true},
+	// The formatting of the message field, Telegram Desktop's (lib_ui, input_field.h).
+	{ID: "fixed.format_bold", Label: "format.bold", Scope: "editor", Default: []Chord{primary("B")}, ReadOnly: true},
+	{ID: "fixed.format_italic", Label: "format.italic", Scope: "editor", Default: []Chord{primary("I")}, ReadOnly: true},
+	{ID: "fixed.format_underline", Label: "format.underline", Scope: "editor", Default: []Chord{primary("U")}, ReadOnly: true},
+	{ID: "fixed.format_strike", Label: "format.strike", Scope: "editor", Default: []Chord{{Key: "X", Modifiers: key.ModShortcut | key.ModShift}}, ReadOnly: true},
+	{ID: "fixed.format_quote", Label: "format.quote", Scope: "editor", Default: []Chord{{Key: ".", Modifiers: key.ModShortcut | key.ModShift}}, ReadOnly: true},
+	{ID: "fixed.format_monospace", Label: "format.monospace", Scope: "editor", Default: []Chord{{Key: "M", Modifiers: key.ModShortcut | key.ModShift}}, ReadOnly: true},
+	{ID: "fixed.format_spoiler", Label: "format.spoiler", Scope: "editor", Default: []Chord{{Key: "P", Modifiers: key.ModShortcut | key.ModShift}}, ReadOnly: true},
+	{ID: "fixed.format_link", Label: "format.link", Scope: "editor", Default: []Chord{primary("K")}, ReadOnly: true},
+	{ID: "fixed.format_clear", Label: "format.clear", Scope: "editor", Default: []Chord{{Key: "N", Modifiers: key.ModShortcut | key.ModShift}}, ReadOnly: true},
 }
 
 func Commands() []Command {

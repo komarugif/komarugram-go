@@ -13,7 +13,6 @@ import (
 	"reflect"
 	"strings"
 	"time"
-	"unicode/utf16"
 
 	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
@@ -47,6 +46,11 @@ type messageDraft struct {
 	told error
 	// reply is the message what is sent next replies to, nil for none.
 	reply *model.Message
+	// editing is the message the field edits, of a chat of editKind, nil
+	// for none; before, what the field had when the edit began.
+	editing  *model.Message
+	editKind model.ChatKind
+	before   *draftBefore
 }
 type composerResult struct {
 	chat    int64
@@ -203,6 +207,16 @@ type messageComposer struct {
 	stopDraft surface
 	// ffmpeg is the FFmpeg the user set, "" for the one on PATH.
 	ffmpeg func() string
+	// edits brings what came of saving edits; askDelete is a message
+	// edited to nothing, which the page asks to delete instead.
+	edits     chan editResult
+	askDelete *model.Message
+	// fieldMenu is the field's menu of formatting, and fieldOrigin where
+	// the field was in the composer on the last frame; link, the dialog
+	// that makes a link of what is selected.
+	fieldMenu   fieldMenu
+	fieldOrigin image.Point
+	link        linkDialog
 }
 
 func newMessageComposer(source model.ConversationStore, invalidate func()) *messageComposer {
@@ -211,6 +225,7 @@ func newMessageComposer(source model.ConversationStore, invalidate func()) *mess
 	c.source, _ = source.(model.ComposerStore)
 	c.muted = map[int64]bool{}
 	c.discussions = make(chan discussionResult, 2)
+	c.edits = make(chan editResult, 2)
 	c.mutes = make(chan error, 1)
 	c.search.SingleLine = true
 	c.path.SingleLine = true
@@ -375,6 +390,10 @@ func (c *messageComposer) submit(chat int64, msg model.OutgoingMessage) {
 }
 func (c *messageComposer) submitText() {
 	d := c.draft(c.chat)
+	if d.editing != nil {
+		c.saveEdit(c.chat)
+		return
+	}
 	if d.pending != nil && d.err != nil {
 		c.submit(c.chat, *d.pending)
 		return
@@ -390,7 +409,8 @@ func (c *messageComposer) textChanged(d *messageDraft) {
 	if next == d.text {
 		return
 	}
-	d.entities = shiftEmojiEntities(d.text, next, d.entities)
+	caret, _ := d.editor.Selection()
+	d.entities = shiftEntities(d.text, next, d.entities, caret)
 	d.text = next
 	d.pending = nil
 	d.err = nil
@@ -435,7 +455,7 @@ func (c *messageComposer) takeKeyboard(gtx layout.Context, chat int64, free bool
 	}
 }
 
-func (c *messageComposer) update(gtx layout.Context, chat int64, l localization.Catalog) {
+func (c *messageComposer) update(gtx layout.Context, chat int64, l localization.Catalog, p *chatPage) {
 	if c.chat != chat {
 		c.cancelFeatured()
 		c.chat = chat
@@ -487,6 +507,8 @@ func (c *messageComposer) update(gtx layout.Context, chat int64, l localization.
 					c.form = 0
 				}
 			}
+		case r := <-c.edits:
+			c.editDone(r)
 		case r := <-c.results:
 			if r.generation != c.generation {
 				continue
@@ -570,13 +592,17 @@ drained:
 	permissions := c.permissions(chat)
 	d := c.draft(chat)
 	c.updateRecording(gtx, l)
+	c.updateEdit(chat, p, l)
 	for {
-		_, ok := gtx.Event(pointer.Filter{Target: &c.editorHit, Kinds: pointer.Press})
+		ev, ok := gtx.Event(pointer.Filter{Target: &c.editorHit, Kinds: pointer.Press})
 		if !ok {
 			break
 		}
 		if !d.sending && c.source != nil && permissions.Allows(model.SendText) {
 			gtx.Execute(key.FocusCmd{Tag: &d.editor})
+			if e, ok := ev.(pointer.Event); ok && e.Source == pointer.Mouse && e.Buttons == pointer.ButtonSecondary {
+				c.openFieldMenu(gtx, d, e.Position.Round())
+			}
 		}
 		c.attachOpen = false
 	}
@@ -596,6 +622,7 @@ drained:
 	}
 
 	if !d.sending && permissions.Allows(model.SendText) {
+		c.editKeys(gtx, chat, d, p)
 		c.updatePaste(gtx, d)
 		for {
 			ev, ok := d.editor.Update(gtx)
@@ -712,31 +739,6 @@ drained:
 	}
 }
 
-// Preserve custom-emoji UTF-16 entities across ordinary edits, dropping only overlaps.
-func shiftEmojiEntities(old, new string, entities []model.Entity) []model.Entity {
-	a, b := []rune(old), []rune(new)
-	prefix := 0
-	for prefix < len(a) && prefix < len(b) && a[prefix] == b[prefix] {
-		prefix++
-	}
-	suffix := 0
-	for suffix < len(a)-prefix && suffix < len(b)-prefix && a[len(a)-1-suffix] == b[len(b)-1-suffix] {
-		suffix++
-	}
-	start := len(utf16.Encode(a[:prefix]))
-	end := len(utf16.Encode(a[:len(a)-suffix]))
-	delta := len(utf16.Encode(b)) - len(utf16.Encode(a))
-	var out []model.Entity
-	for _, e := range entities {
-		if e.Offset+e.Length <= start {
-			out = append(out, e)
-		} else if e.Offset >= end {
-			e.Offset += delta
-			out = append(out, e)
-		}
-	}
-	return out
-}
 func flatEditor(gtx layout.Context, e *widget.Editor, hint string) layout.Dimensions {
 	theme := wdk.GetMaterialTheme(gtx)
 	sc := scheme(gtx)
@@ -938,7 +940,7 @@ func composerFill(gtx layout.Context, classic bool, backdrop *blurBackdrop, size
 // Layout draws the composer over the chat page p. A floating composer shows
 // backdrop, the history behind it, blurred; nil draws it opaque.
 func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.Catalog, p *chatPage, animate bool, backdrop *blurBackdrop) layout.Dimensions {
-	c.update(gtx, chat, l)
+	c.update(gtx, chat, l, p)
 	size := gtx.Constraints.Max
 	pad := min(gtx.Dp(16), size.X/8)
 	classic := p.classicComposer()
@@ -957,6 +959,13 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 		p.toast.Show(composerErrorText(d.err, l))
 	}
 	d.told = d.err
+	if m := c.askDelete; m != nil {
+		// An edit to nothing deletes the message, once asked, as in
+		// Telegram Desktop.
+		c.askDelete = nil
+		parts := []model.Message{*m}
+		p.openDeleteParts(gtx, parts, p.rightsFor(parts))
+	}
 	if p.frozen.Frozen() {
 		// A frozen account cannot send: the bar tells why, as Telegram
 		// Desktop's does.
@@ -1034,7 +1043,7 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			inRect(gtx, image.Rect(x, 0, x+iconWidth, s.Y), func(gtx layout.Context) layout.Dimensions {
 				size := gtx.Constraints.Max
 				rights := c.permissions(chat)
-				disabled := click == &c.attach && !rights.Any(model.SendAttachments) || click == &c.smile && !rights.Any(model.SendText|model.SendSticker|model.SendGIF) || click == &c.micClick && !rights.Allows(model.SendVoice) ||
+				disabled := click == &c.attach && (!rights.Any(model.SendAttachments) || d.editing != nil) || click == &c.smile && !rights.Any(model.SendText|model.SendSticker|model.SendGIF) || click == &c.micClick && !rights.Allows(model.SendVoice) ||
 					click == &c.send && c.recording == nil && (d.sending || !rights.Allows(model.SendText))
 				if disabled {
 					gtx = gtx.Disabled()
@@ -1071,7 +1080,17 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 		// clip.
 		menuWidth := p.layoutBotMenu(gtx, chat, image.Rect(iconWidth, 0, s.X-2*iconWidth, s.Y), l)
 		sendWidth := 0
-		if p.stoppableDraft() && !d.sending {
+		if d.editing != nil {
+			// An edit is saved by the check in Send's place.
+			sendWidth = iconWidth
+			c.forgetFar()
+			label := l.T("composer.save")
+			if d.sending {
+				label = l.T("composer.saving")
+			}
+			button(s.X-iconWidth, &c.send, iconDone, label)
+			button(s.X-2*iconWidth, &c.smile, iconEmoji, l.T("composer.emoji"))
+		} else if p.stoppableDraft() && !d.sending {
 			// While a bot streams a draft the account may stop, Stop takes
 			// the place of Send, as in Telegram Desktop.
 			sendWidth = iconWidth
@@ -1117,12 +1136,13 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 				}
 				c.editorChat, c.editorLaid = chat, true
 			}
+			c.fieldOrigin = rect.Min.Add(image.Pt(iconWidth+menuWidth, 0))
 			size := gtx.Constraints.Max
 			inner := gtx
 			inner.Constraints.Min.Y = 0
 			inner.Constraints.Max.Y = max(0, size.Y-gtx.Dp(12))
 			record := op.Record(gtx.Ops)
-			dims := flatEditor(inner, &d.editor, l.T("composer.message"))
+			dims := formattedEditor(inner, &d.editor, l.T("composer.message"), d.entities)
 			call := record.Stop()
 			transform := op.Offset(image.Pt(0, max(0, (size.Y-dims.Size.Y)/2))).Push(gtx.Ops)
 			call.Add(gtx.Ops)
@@ -1212,6 +1232,7 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 		bar.Min.X, bar.Max.X = pad, max(pad, size.X-pad)
 	}
 	c.formLayout(gtx, bar, l)
+	c.layoutFieldMenu(gtx, d, p, l)
 	return layout.Dimensions{Size: size}
 }
 func (c *messageComposer) formLayout(gtx layout.Context, bar image.Rectangle, l localization.Catalog) {

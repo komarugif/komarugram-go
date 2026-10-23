@@ -207,11 +207,11 @@ func TestComposerSendEnterAndShiftEnter(t *testing.T) {
 }
 func TestCustomEmojiEditOffsets(t *testing.T) {
 	e := []model.Entity{{Kind: "emoji", Offset: 2, Length: 2, DocumentID: 42}}
-	shifted := shiftEmojiEntities("a 🙂 z", "🦆a 🙂 z", e)
+	shifted := shiftEntities("a 🙂 z", "🦆a 🙂 z", e, -1)
 	if len(shifted) != 1 || shifted[0].Offset != 4 {
 		t.Fatalf("UTF16 offset: %+v", shifted)
 	}
-	if got := shiftEmojiEntities("a 🙂 z", "a x z", e); len(got) != 0 {
+	if got := shiftEntities("a 🙂 z", "a x z", e, -1); len(got) != 0 {
 		t.Fatalf("deleted emoji kept entity: %+v", got)
 	}
 }
@@ -325,6 +325,39 @@ func TestRenderComposer(t *testing.T) {
 		h.chat = 2
 		if strings.HasPrefix(os.Getenv("COMPOSER_VIEW"), "toast") {
 			h.p.toast.Show("Не удалось отправить сообщение: нет соединения с Telegram")
+		}
+	case "edit", "edit-classic", "edit-menu":
+		// A message of the account's own edited: the strip over the field
+		// tells it, the check saves it, and the field shows the formatting
+		// of the text; edit-menu has the field's menu of formatting open.
+		h.p.composer.pickerOpen = false
+		classic := os.Getenv("COMPOSER_VIEW") == "edit-classic"
+		h.p.classic = func() bool { return classic }
+		h.chat = 2
+		h.frame()
+		m, ok := h.p.lastEditable()
+		if !ok {
+			t.Fatal("no message of the account's own to edit")
+		}
+		text := "Жирный, курсив, подчёркнутый, зачёркнутый, ссылка, код и спойлер"
+		u := func(word string) (int, int) {
+			at := strings.Index(text, word)
+			return u16Len(text[:at]), u16Len(word)
+		}
+		var entities []model.Entity
+		for word, kind := range map[string]string{"Жирный": model.EntityBold, "курсив": model.EntityItalic, "подчёркнутый": model.EntityUnderline, "зачёркнутый": model.EntityStrike, "ссылка": model.EntityURL, "код": model.EntityCode, "спойлер": model.EntitySpoiler} {
+			o, n := u(word)
+			entities = append(entities, model.Entity{Kind: kind, Offset: o, Length: n, URL: map[bool]string{true: "https://telegram.org"}[kind == model.EntityURL]})
+		}
+		m.Text, m.Entities = text, entities
+		d := h.p.composer.draft(2)
+		d.before = &draftBefore{}
+		d.editing, d.editKind = &m, model.KindUser
+		d.editor.SetText(text)
+		d.text, d.entities = text, model.SortEntities(model.EditableEntities(m))
+		if os.Getenv("COMPOSER_VIEW") == "edit-menu" {
+			d.editor.SetCaret(0, 6)
+			h.p.composer.fieldMenu = fieldMenu{open: true, at: image.Pt(120, 560)}
 		}
 	case "blur":
 		// The history scrolled so that messages pass behind the blurred capsule.

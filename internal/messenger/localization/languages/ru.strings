@@ -165,6 +165,14 @@
 "composer.close" = "Закрыть";
 "composer.direct_messages" = "Личные сообщения";
 "composer.discussion" = "Обсуждение";
+"composer.edit_cancel" = "Отмена";
+"composer.edit_deleted" = "Это сообщение было удалено";
+"composer.edit_error" = "Это сообщение нельзя изменить.";
+"composer.edit_limit#few" = "Достигнут предел длины сообщения. Сократите текст на {count} символа.";
+"composer.edit_limit#many" = "Достигнут предел длины сообщения. Сократите текст на {count} символов.";
+"composer.edit_limit#one" = "Достигнут предел длины сообщения. Сократите текст на {count} символ.";
+"composer.edit_limit#other" = "Достигнут предел длины сообщения. Сократите текст на {count} символа.";
+"composer.edit_title" = "Редактирование";
 "composer.emoji" = "Эмодзи";
 "composer.emoji_category1" = "Смайлы и люди";
 "composer.emoji_category2" = "Животные и природа";
@@ -192,6 +200,8 @@
 "composer.reply_to" = "Ответ {name}";
 "composer.results" = "Результаты поиска";
 "composer.retry" = "Повторить";
+"composer.save" = "Сохранить";
+"composer.saving" = "Сохранение…";
 "composer.search" = "Поиск…";
 "composer.send" = "Отправить";
 "composer.sending" = "Отправка…";
@@ -693,6 +703,22 @@
 "fonts.title" = "Шрифты";
 "fonts.too_large" = "файл больше 128 МБ";
 
+"format.bold" = "Жирный";
+"format.clear" = "Очистить форматирование";
+"format.italic" = "Курсив";
+"format.link" = "Добавить ссылку";
+"format.link_create" = "Добавить";
+"format.link_edit" = "Изменить ссылку";
+"format.link_edit_title" = "Изменить ссылку";
+"format.link_text" = "Текст";
+"format.link_title" = "Добавить ссылку";
+"format.link_url" = "Ссылка";
+"format.monospace" = "Моноширинный";
+"format.quote" = "Цитата";
+"format.spoiler" = "Скрытый";
+"format.strike" = "Зачёркнутый";
+"format.underline" = "Подчёркнутый";
+
 "forum.general" = "General";
 "forum.loading" = "Загрузка…";
 "forum.messages#few" = "{count} сообщения";
@@ -1001,6 +1027,7 @@
 "menu.delete_selected" = "Удалить выбранные";
 "menu.download" = "Скачать";
 "menu.downloaded" = "Скачано: {path}";
+"menu.edit" = "Изменить";
 "menu.edits" = "История правок";
 "menu.emoji_pack" = "Это сообщение содержит эмодзи из набора {name}.";
 "menu.emoji_packs#few" = "Это сообщение содержит эмодзи из {count} наборов.";

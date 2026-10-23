@@ -73,6 +73,11 @@
 
 "composer.direct_messages" = "lng_profile_direct_messages";
 "composer.discussion" = "lng_profile_view_discussion";
+"composer.edit_cancel" = "lng_cancel";
+"composer.edit_deleted" = "lng_edit_deleted";
+"composer.edit_error" = "lng_edit_error";
+"composer.edit_limit" = "lng_edit_limit_reached";
+"composer.edit_title" = "lng_edit_message";
 "composer.emoji_category1" = "lng_emoji_category1";
 "composer.emoji_category2" = "lng_emoji_category2";
 "composer.emoji_category3" = "lng_emoji_category3";
@@ -84,6 +89,7 @@
 "composer.gift" = "lng_gift_channel_title";
 "composer.reply_remove" = "lng_reply_remove";
 "composer.reply_to" = "lng_preview_reply_to";
+"composer.save" = "lng_settings_save";
 
 "date.calendar" = "lng_context_add_to_calendar";
 "date.copied" = "lng_date_copied";
@@ -181,6 +187,22 @@
 "files.invalid" = "lng_send_media_invalid_files";
 "files.quality" = "lng_send_high_quality";
 "files.video" = "lng_send_video";
+
+"format.bold" = "lng_menu_formatting_bold";
+"format.clear" = "lng_menu_formatting_clear";
+"format.italic" = "lng_menu_formatting_italic";
+"format.link" = "lng_menu_formatting_link_create";
+"format.link_create" = "lng_formatting_link_create";
+"format.link_edit" = "lng_menu_formatting_link_edit";
+"format.link_edit_title" = "lng_formatting_link_edit_title";
+"format.link_text" = "lng_formatting_link_text";
+"format.link_title" = "lng_formatting_link_create_title";
+"format.link_url" = "lng_formatting_link_url";
+"format.monospace" = "lng_menu_formatting_monospace";
+"format.quote" = "lng_menu_formatting_blockquote";
+"format.spoiler" = "lng_menu_formatting_spoiler";
+"format.strike" = "lng_menu_formatting_strike_out";
+"format.underline" = "lng_menu_formatting_underline";
 
 "forum.loading" = "lng_contacts_loading";
 "forum.messages" = "lng_forum_messages";
@@ -282,6 +304,7 @@
 "menu.copy_text" = "lng_context_copy_text";
 "menu.delete" = "lng_context_delete_msg";
 "menu.delete_selected" = "lng_context_delete_selected";
+"menu.edit" = "lng_context_edit_msg";
 "menu.emoji_pack" = "lng_context_animated_emoji";
 "menu.emoji_packs" = "lng_context_animated_emoji_many";
 "menu.forward" = "lng_context_forward_msg";

@@ -39,7 +39,11 @@ type Store struct {
 	themes  themeCatalogue
 	changed func()
 	notices atomic.Pointer[func(model.MessageNotice)]
-	history *conversation
+	// editLimit is Telegram's edit_time_limit in seconds, 0 until read;
+	// editLimitAsked, that it is being read or was.
+	editLimit      atomic.Int64
+	editLimitAsked atomic.Bool
+	history        *conversation
 
 	themeRevisions map[int64]uint64
 	// appearances are the states of the chats' cached appearances.

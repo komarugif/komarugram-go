@@ -36,6 +36,7 @@ type menuAction int
 // (history/view/history_view_context_menu.cpp, FillContextMenuItems).
 const (
 	actionReply menuAction = iota
+	actionEdit
 	actionCopySelected
 	actionCopyText
 	actionCopyLink
@@ -215,6 +216,9 @@ func (p *chatPage) menuActions(m model.Message) []menuAction {
 		out = append(out, actionReply)
 	}
 	selected := p.selection.selected[m.Key.MessageID]
+	if _, ok := p.editablePart(m); ok && !selected {
+		out = append(out, actionEdit)
+	}
 	protected := false
 	for _, part := range parts {
 		protected = protected || part.NoForwards
@@ -332,6 +336,10 @@ func (p *chatPage) menuDo(gtx layout.Context, a menuAction, m model.Message, l l
 	switch a {
 	case actionReply:
 		p.composer.replyTo(gtx, p.chat, m)
+	case actionEdit:
+		if part, ok := p.editablePart(m); ok {
+			p.composer.startEdit(gtx, p.chat, part, p.kind)
+		}
 	case actionCopySelected:
 		if r := p.menuSelectedRow(m); r != nil {
 			copySelection(gtx, r)
@@ -410,6 +418,8 @@ func (p *chatPage) menuLabel(a menuAction, l localization.Catalog) string {
 	switch a {
 	case actionReply:
 		return l.T("menu.reply")
+	case actionEdit:
+		return l.T("menu.edit")
 	case actionCopySelected:
 		return l.T("menu.copy_selected")
 	case actionCopyText:
@@ -479,6 +489,8 @@ func menuIcon(a menuAction) wdk.IconWidget {
 	switch a {
 	case actionReply:
 		return iconReply
+	case actionEdit:
+		return iconEdit
 	case actionCopySelected, actionCopyText:
 		return iconCopy
 	case actionCopyLink:

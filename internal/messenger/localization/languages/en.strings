@@ -156,6 +156,12 @@
 "composer.close" = "Close";
 "composer.direct_messages" = "Direct messages";
 "composer.discussion" = "Discussion";
+"composer.edit_cancel" = "Cancel";
+"composer.edit_deleted" = "This message was deleted";
+"composer.edit_error" = "You can't edit this message.";
+"composer.edit_limit#one" = "You've reached the message text limit. Please make the text shorter by {count} character.";
+"composer.edit_limit#other" = "You've reached the message text limit. Please make the text shorter by {count} characters.";
+"composer.edit_title" = "Edit message";
 "composer.emoji" = "Emoji";
 "composer.emoji_category1" = "Emoji & People";
 "composer.emoji_category2" = "Nature";
@@ -183,6 +189,8 @@
 "composer.reply_to" = "Reply to {name}";
 "composer.results" = "Search results";
 "composer.retry" = "Retry";
+"composer.save" = "Save";
+"composer.saving" = "Saving…";
 "composer.search" = "Search…";
 "composer.send" = "Send";
 "composer.sending" = "Sending…";
@@ -653,6 +661,22 @@
 "fonts.title" = "Fonts";
 "fonts.too_large" = "the file is over 128 MB";
 
+"format.bold" = "Bold";
+"format.clear" = "Clear formatting";
+"format.italic" = "Italic";
+"format.link" = "Create link";
+"format.link_create" = "Create";
+"format.link_edit" = "Edit link";
+"format.link_edit_title" = "Edit link";
+"format.link_text" = "Text";
+"format.link_title" = "Create link";
+"format.link_url" = "URL";
+"format.monospace" = "Monospace";
+"format.quote" = "Quote";
+"format.spoiler" = "Spoiler";
+"format.strike" = "Strikethrough";
+"format.underline" = "Underline";
+
 "forum.general" = "General";
 "forum.loading" = "Loading...";
 "forum.messages#one" = "{count} message";
@@ -955,6 +979,7 @@
 "menu.delete_selected" = "Delete Selected";
 "menu.download" = "Download";
 "menu.downloaded" = "Downloaded: {path}";
+"menu.edit" = "Edit";
 "menu.edits" = "Edits History";
 "menu.emoji_pack" = "This message contains emoji from {name} pack.";
 "menu.emoji_packs#one" = "This message contains emoji from {count} pack.";

@@ -304,6 +304,25 @@ size-stability fixes remain in place.
   says the files are pictures, or pictures and videos. A drop goes to the
   box above, as documents or not by the area; over an open box the files
   join it. Where the page is comes from the last frame.
+- **Editing a message** (`composer_edit.go`): "Edit" in the message menu, or
+  the Up arrow in an empty field (the last message `model.Editable` allows),
+  puts the message in the field as Telegram Desktop does: the reply strip
+  shows "Edit message" and the text, its cross or Escape gives the field back
+  what it had (a reply too), and a check in Send's place saves it through
+  `model.MessageEditor` (`messages.editMessage`). A text that did not change
+  ends the edit without asking Telegram; an empty one asks to delete the
+  message; one too long, or a message that can no longer be edited, is told
+  in the toast with Telegram Desktop's texts. `COMPOSER_VIEW=edit`,
+  `edit-classic` and `edit-menu` render it.
+- **Formatting in the field** (`composer_format.go`): the draft keeps its
+  formatting as entities (`messageDraft.entities`, UTF-16, as Telegram's),
+  which `shiftEntities` moves with what is typed or deleted. Telegram
+  Desktop's shortcuts (Ctrl+B, I, U, Ctrl+Shift+X, ., M, P, N, Ctrl+K, by
+  the keys' places) and a menu on a right click over a selection format it;
+  Ctrl+K opens `linkDialog`. `formattedEditor` draws the field's text itself
+  (the Gio fork's `Editor.HideText` and `PaintText`), run by run: links in
+  the accent color, plates under code and spoilers, lines under and through,
+  bold thickened and italic slanted from the one face the field has.
 - **Bots** (`bot.go`): `botPage` on the chat page. The buttons under a message
   are `textButton`s in the bubble (`history_bubble.go`); a callback asks the store
   (`model.BotStore`) in a goroutine and comes back through `botUpdate` to the

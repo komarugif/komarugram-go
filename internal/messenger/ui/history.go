@@ -895,6 +895,7 @@ func (p *chatPage) layoutDialogs(gtx layout.Context, l localization.Catalog) {
 	p.translation.layout(gtx, p, l)
 	if p.composer != nil {
 		p.composer.layoutConfirm(gtx, p, l)
+		p.composer.layoutLinkDialog(gtx, l)
 		p.composer.layoutFilesBox(gtx, p, l)
 	}
 }

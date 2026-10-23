@@ -51,6 +51,9 @@ type Editor struct {
 	// user interaction. If set to true, the editor will allow selecting text
 	// and copying it interactively, but not modifying it.
 	ReadOnly bool
+	// HideText leaves the glyphs out of Layout, for the caller to paint them
+	// with PaintText.
+	HideText bool
 	// Submit enabled translation of carriage return keys to SubmitEvents.
 	// If not enabled, carriage returns are inserted as newlines in the text.
 	Submit bool
@@ -761,7 +764,9 @@ func (e *Editor) layout(gtx layout.Context, textMaterial, selectMaterial op.Call
 	semantic.Editor.Add(gtx.Ops)
 	if e.Len() > 0 {
 		e.paintSelection(gtx, selectMaterial)
-		e.paintText(gtx, textMaterial)
+		if !e.HideText {
+			e.paintText(gtx, textMaterial)
+		}
 		e.paintComposition(gtx, textMaterial)
 	}
 	if gtx.Enabled() {
@@ -778,6 +783,15 @@ func (e *Editor) paintSelection(gtx layout.Context, material op.CallOp) {
 		return
 	}
 	e.text.PaintSelection(gtx, material)
+}
+
+// PaintText paints the glyphs of the text laid out last with material, in
+// the editor's coordinates, for a caller that draws them itself: as styles
+// of parts of the text, with HideText set.
+func (e *Editor) PaintText(gtx layout.Context, material op.CallOp) {
+	if e.Len() > 0 {
+		e.paintText(gtx, material)
+	}
 }
 
 // paintText paints the text glyphs using the provided material to set the fill of the
