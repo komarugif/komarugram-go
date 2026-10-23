@@ -10,6 +10,8 @@
 "audio.volume" = "lng_ringtones_box_volume";
 "audio.yesterday" = "lng_player_message_yesterday";
 
+"bot.hide_keyboard" = "lng_bot_keyboard_hide";
+"bot.show_keyboard" = "lng_bot_keyboard_show";
 "bot.start" = "lng_bot_start";
 
 "call.cancelled" = "lng_call_cancelled";

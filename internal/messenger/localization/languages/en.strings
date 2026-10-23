@@ -64,7 +64,8 @@
 "badges.hide_faces" = "Komaru faces of KomaruGram";
 
 "bot.failed" = "Could not press the button";
-"bot.hide_keyboard" = "Hide keyboard";
+"bot.hide_keyboard" = "Hide bot keyboard";
+"bot.show_keyboard" = "Show bot keyboard";
 "bot.menu" = "Menu";
 "bot.password" = "The button needs the account's password, which this client does not support";
 "bot.silent" = "The bot did not answer";

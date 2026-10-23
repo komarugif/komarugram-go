@@ -329,6 +329,10 @@ size-stability fixes remain in place.
   toast. The reply keyboard is a strip under the composer's bar, over which the
   reply strip stacks: `keyboardHeight` is added to `replyHeight` wherever the
   history reserves room for the composer, and `composer.Layout` draws it.
+  Its keys take the whole width: the button that hides it is in the bar, left
+  of the emoji button (`toggleKeyboard`), and shows it again while hidden,
+  as Telegram Desktop's does; `COMPOSER_VIEW=bot-keyboard` and
+  `bot-keyboard-hidden` render both.
   An empty chat with a bot draws `layoutStart` in the bar's place. Typing
   `/` lists commands over the composer (`layoutCommands`).
 - **Overlays and blur** (`overlay.go`): the floating composer, the context menus

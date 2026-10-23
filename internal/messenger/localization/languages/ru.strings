@@ -69,7 +69,8 @@
 "badges.hide_faces" = "Морды Komaru от KomaruGram";
 
 "bot.failed" = "Не удалось нажать кнопку";
-"bot.hide_keyboard" = "Скрыть клавиатуру";
+"bot.hide_keyboard" = "Скрыть клавиатуру бота";
+"bot.show_keyboard" = "Показать клавиатуру бота";
 "bot.menu" = "Меню";
 "bot.password" = "Кнопка требует пароль аккаунта: здесь это не поддерживается";
 "bot.silent" = "Бот не ответил";

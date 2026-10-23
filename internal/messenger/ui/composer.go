@@ -1076,9 +1076,15 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			return layout.Dimensions{Size: s}
 		}
 		button(0, &c.attach, iconAttach, l.T("composer.attach"))
+		// A chat with a bot's keyboard has the button that hides it and
+		// shows it again left of the emoji button, as in Telegram Desktop.
+		keyboardWidth := 0
+		if p.bot.offered {
+			keyboardWidth = iconWidth
+		}
 		// A bot's menu button, which opens its Mini App, is beside the
 		// clip.
-		menuWidth := p.layoutBotMenu(gtx, chat, image.Rect(iconWidth, 0, s.X-2*iconWidth, s.Y), l)
+		menuWidth := p.layoutBotMenu(gtx, chat, image.Rect(iconWidth, 0, s.X-2*iconWidth-keyboardWidth, s.Y), l)
 		sendWidth := 0
 		if d.editing != nil {
 			// An edit is saved by the check in Send's place.
@@ -1120,7 +1126,11 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			c.forgetFar()
 			button(s.X-iconWidth, &c.smile, iconEmoji, l.T("composer.emoji"))
 		}
-		inRect(gtx, image.Rect(iconWidth+menuWidth, 0, max(iconWidth+menuWidth, s.X-iconWidth-sendWidth), s.Y), func(gtx layout.Context) layout.Dimensions {
+		if keyboardWidth > 0 {
+			icon, label := p.toggleKeyboard(gtx, chat, l)
+			button(s.X-2*iconWidth-sendWidth, &p.bot.toggle, icon, label)
+		}
+		inRect(gtx, image.Rect(iconWidth+menuWidth, 0, max(iconWidth+menuWidth, s.X-iconWidth-sendWidth-keyboardWidth), s.Y), func(gtx layout.Context) layout.Dimensions {
 			if !c.permissions(chat).Allows(model.SendText) {
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return label(gtx, restrictionText(c.permissions(chat), model.SendText, l), token.TypestyleBodySmall, sc.SurfaceVariant.OnColor, 2)

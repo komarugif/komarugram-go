@@ -176,6 +176,29 @@ func TestBotStartAndKeyboard(t *testing.T) {
 	}
 }
 
+// The button left of the emoji button hides the bot's keyboard and shows it
+// again, without /start sent once more.
+func TestBotKeyboardHiddenAndShownFromTheComposer(t *testing.T) {
+	h := newComposerHarness(t)
+	h.chat, h.kind = mockstore.DemoNotesBot, model.KindBot
+	h.frame()
+	waitBotPage(t, h, "the empty chat of a bot", func() bool { return h.p.bot.empty })
+	h.click(340, 680)
+	waitBotPage(t, h, "the keyboard the bot sets", func() bool { return h.p.bot.keyboard != nil })
+	sent := len(h.p.source.History(h.chat).Messages)
+	// The emoji button is at 580 in an empty field, the keyboard's left of it.
+	h.click(530, 680)
+	waitBotPage(t, h, "the keyboard hidden", func() bool { return h.p.bot.keyboard == nil })
+	if !h.p.bot.offered {
+		t.Fatal("the hidden keyboard is no longer offered: it cannot be shown again")
+	}
+	h.click(530, 680)
+	waitBotPage(t, h, "the keyboard shown again", func() bool { return h.p.bot.keyboard != nil })
+	if got := len(h.p.source.History(h.chat).Messages); got != sent {
+		t.Fatalf("%d messages after the button, %d before: it sent something", got, sent)
+	}
+}
+
 // Typing "/" in a bot's chat lists its commands the text starts; a click on
 // one sends it, and the field is left empty.
 func TestBotCommandsMenu(t *testing.T) {

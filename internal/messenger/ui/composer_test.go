@@ -359,6 +359,19 @@ func TestRenderComposer(t *testing.T) {
 			d.editor.SetCaret(0, 6)
 			h.p.composer.fieldMenu = fieldMenu{open: true, at: image.Pt(120, 560)}
 		}
+	case "bot-keyboard", "bot-keyboard-hidden":
+		// A bot's keyboard over the composer, whose button hides it; hidden,
+		// the button shows it again.
+		h.p.composer.pickerOpen = false
+		h.chat, h.kind = mockstore.DemoNotesBot, model.KindBot
+		h.frame()
+		waitBotPage(t, h, "the empty chat of a bot", func() bool { return h.p.bot.empty })
+		h.click(340, 680)
+		waitBotPage(t, h, "the keyboard the bot sets", func() bool { return h.p.bot.keyboard != nil })
+		if os.Getenv("COMPOSER_VIEW") == "bot-keyboard-hidden" {
+			h.click(530, 680)
+			waitBotPage(t, h, "the keyboard hidden", func() bool { return h.p.bot.keyboard == nil })
+		}
 	case "blur":
 		// The history scrolled so that messages pass behind the blurred capsule.
 		h.p.composer.pickerOpen = false
