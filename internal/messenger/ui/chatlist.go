@@ -37,7 +37,9 @@ const (
 
 // chatList is the list of chats of a section.
 type chatList struct {
-	// toast tells, at the bottom of the list, what happened in it.
+	// toast is what to tell of what happened in the list: the list, too
+	// narrow for a long error, does not draw it, but the App, in the chat
+	// open or over the window (relayListToast).
 	toast  toast
 	avatar avatarLayout
 	// badges draw the marks around a chat's name: see App.badges.
@@ -58,9 +60,9 @@ type chatList struct {
 	items []searchItem
 	// menu is the menu of a chat right-clicked.
 	menu chatRowMenu
-	// overlays says how the menus and the toast are drawn; nil draws them
-	// opaque. bd is the recording of the rows behind them in the frame drawn
-	// last, nil when nothing blurs it.
+	// overlays says how the menus are drawn; nil draws them opaque. bd is
+	// the recording of the rows behind them in the frame drawn last, nil
+	// when nothing blurs it.
 	overlays func() overlayPrefs
 	bd       *blurBackdrop
 }
@@ -231,8 +233,6 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 		if text := l.panel.failure(catalog); text != "" {
 			l.toast.Show(text)
 		}
-		l.toast.bd = nil
-		l.toast.Layout(gtx, area)
 		return layout.Dimensions{Size: size}
 	}
 	l.items = l.items[:0]
@@ -244,7 +244,7 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 	// The rows are recorded to be drawn again, blurred, behind whatever
 	// overlay blurs them.
 	overlays := l.overlayPrefs()
-	recording := overlays.menus || overlays.toasts
+	recording := overlays.menus
 	l.bd = nil
 	rows := func(gtx layout.Context) layout.Dimensions {
 		if len(visible) == 0 {
@@ -282,13 +282,6 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 		l.menu.layout(gtx, l.menuBackdrop(), catalog)
 		return layout.Dimensions{}
 	})
-	l.toast.bd = nil
-	if overlays.toasts {
-		// The toast is drawn in the list's coordinates, the rows recorded
-		// in those of the rows.
-		l.toast.bd = l.bd.shifted(image.Pt(0, headerHeight))
-	}
-	l.toast.Layout(gtx, image.Rect(0, headerHeight, size.X, size.Y))
 	return layout.Dimensions{Size: size}
 }
 
