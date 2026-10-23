@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"maps"
 	"mime"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/voice"
 
@@ -23,50 +25,138 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// pickerFresh is how long a tab's catalogue is taken as it is, before
+// Telegram is asked what changed in it.
+const pickerFresh = 5 * time.Minute
+
+// pickerCache keeps each tab's catalogue: its page, the hashes Telegram
+// tells by whether it changed since, and when it was brought up to date;
+// refreshing is the fetch of a tab that runs, which every caller waits for.
 type pickerCache struct {
-	mu    sync.Mutex
-	pages map[model.PickerTab]model.PickerPage
-	at    map[model.PickerTab]time.Time
+	mu         sync.Mutex
+	pages      map[model.PickerTab]model.PickerPage
+	hashes     map[model.PickerTab]pickerHashes
+	at         map[model.PickerTab]time.Time
+	refreshing map[model.PickerTab]*pickerRefresh
+}
+
+// pickerHashes are what a catalogue was fetched with: the hash of the
+// installed sets, or of the saved GIFs, of recent stickers and of featured
+// sets, and each set's, by its ID.
+type pickerHashes struct {
+	All, Recent, Featured int64
+	Sets                  map[int64]int
+}
+
+// pickerSaved is a tab's catalogue as the cache keeps it.
+type pickerSaved struct {
+	Page   model.PickerPage
+	Hashes pickerHashes
+}
+
+// pickerRefresh is a fetch of a catalogue, done once done is closed.
+type pickerRefresh struct {
+	done chan struct{}
+	page model.PickerPage
+	err  error
+}
+
+func pickerKey(tab model.PickerTab) string { return fmt.Sprintf("picker/catalogue/v1/%d", tab) }
+
+func (p *pickerCache) init() {
+	if p.pages == nil {
+		p.pages = map[model.PickerTab]model.PickerPage{}
+	}
+	if p.hashes == nil {
+		p.hashes = map[model.PickerTab]pickerHashes{}
+	}
+	if p.at == nil {
+		p.at = map[model.PickerTab]time.Time{}
+	}
+	if p.refreshing == nil {
+		p.refreshing = map[model.PickerTab]*pickerRefresh{}
+	}
+}
+
+// expire has the catalogues of tabs asked for again, as an update tells
+// they changed.
+func (p *pickerCache) expire(tabs ...model.PickerTab) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, tab := range tabs {
+		delete(p.at, tab)
+	}
+}
+
+// stickerTab is the tab of sticker sets, or of emoji ones.
+func stickerTab(emoji bool) model.PickerTab {
+	if emoji {
+		return model.PickerEmoji
+	}
+	return model.PickerStickers
 }
 
 func (s *Store) pickerItems(ctx context.Context, docs []tg.DocumentClass) []model.PickerItem {
+	return s.pickerItemsOf(ctx, docs, false)
+}
+
+// savedGIFItems are pickerItems of the saved GIFs.
+func (s *Store) savedGIFItems(ctx context.Context, docs []tg.DocumentClass) []model.PickerItem {
+	return s.pickerItemsOf(ctx, docs, true)
+}
+
+// pickerItemsOf makes items of docs, and keeps where their media are, with
+// what renews their references: their set, or the saved GIFs.
+func (s *Store) pickerItemsOf(ctx context.Context, docs []tg.DocumentClass, savedGIF bool) []model.PickerItem {
 	var out []model.PickerItem
+	refs := map[string]fileLocation{}
 	for _, raw := range docs {
 		d, ok := raw.(*tg.Document)
 		if !ok {
 			continue
 		}
 		kind, meta, ref := documentMedia(d)
+		ref.SavedGIF = savedGIF
 		item := model.PickerItem{ID: meta.ID, DocumentID: d.ID, Media: model.Message{Kind: kind, Media: meta}}
+		set := func(in tg.InputStickerSetClass) {
+			if in, ok := in.(*tg.InputStickerSetID); ok {
+				ref.StickerSet, ref.StickerSetHash = in.ID, in.AccessHash
+			}
+		}
 		for _, a := range d.Attributes {
 			switch a := a.(type) {
 			case *tg.DocumentAttributeSticker:
 				item.Emoji = a.Alt
+				set(a.Stickerset)
 			case *tg.DocumentAttributeCustomEmoji:
 				item.Emoji = a.Alt
 				item.Custom = true
+				set(a.Stickerset)
 			}
 		}
 		// The thumbnail is located too: a GIF shows it until played.
-		refs := map[string]fileLocation{meta.ID: *ref}
+		refs[meta.ID] = *ref
 		if thumb := meta.Thumbnail; thumb != nil {
 			if r := *ref; thumb.Width > 0 {
 				r.Thumb = thumb.ID[strings.LastIndexByte(thumb.ID, '/')+1:]
 				refs[thumb.ID] = r
 			}
 		}
-		s.history.mu.Lock()
-		for id, r := range refs {
-			s.history.refs[id] = r
-		}
-		cache := s.history.cache
-		s.history.mu.Unlock()
-		if cache != nil {
-			for id, r := range refs {
-				_ = cache.Put(ctx, "ref/"+id, r)
-			}
-		}
 		out = append(out, item)
+	}
+	s.history.mu.Lock()
+	for id, r := range refs {
+		s.history.refs[id] = r
+	}
+	cache := s.history.cache
+	s.history.mu.Unlock()
+	if cache != nil && len(refs) > 0 {
+		// In one transaction: a set has hundreds of stickers.
+		values := make(map[string]any, len(refs))
+		for id, r := range refs {
+			values["ref/"+id] = r
+		}
+		_ = cache.PutAll(ctx, values)
 	}
 	return out
 }
@@ -75,19 +165,9 @@ func (s *Store) Picker(ctx context.Context, req model.PickerRequest) (model.Pick
 	api := s.history.api
 	peer := s.history.peers[req.ChatID]
 	s.history.mu.Unlock()
-	if api == nil {
-		return model.PickerPage{}, errors.New("picker unavailable offline")
-	}
-	if req.Tab == model.PickerGIF {
-		if req.Query == "" {
-			res, err := api.MessagesGetSavedGifs(ctx, 0)
-			if err != nil {
-				return model.PickerPage{}, err
-			}
-			if gifs, ok := res.(*tg.MessagesSavedGifs); ok {
-				return model.PickerPage{Items: s.pickerItems(ctx, gifs.Gifs)}, nil
-			}
-			return model.PickerPage{}, nil
+	if req.Tab == model.PickerGIF && req.Query != "" {
+		if api == nil {
+			return model.PickerPage{}, errors.New("picker unavailable offline")
 		}
 		// Use the account's configured GIF provider, like Telegram Desktop.
 		cfg, err := api.HelpGetConfig(ctx)
@@ -135,7 +215,12 @@ func (s *Store) Picker(ctx context.Context, req model.PickerRequest) (model.Pick
 		}
 		return page, nil
 	}
-	base, err := s.pickerCatalogue(ctx, api, req.Tab)
+	// The saved GIFs, or the catalogue of sets: as kept, while Telegram is
+	// asked what changed, offline too.
+	base, err := s.pickerPage(ctx, api, req.Tab)
+	if req.Tab == model.PickerGIF {
+		return base, err
+	}
 	if cache := s.Cache(); cache != nil {
 		var recent []model.PickerItem
 		_, _ = cache.Get(ctx, fmt.Sprintf("picker/recent/%d", req.Tab), &recent)
@@ -149,17 +234,20 @@ func (s *Store) Picker(ctx context.Context, req model.PickerRequest) (model.Pick
 	if req.Query == "" {
 		return base, nil
 	}
-	offset, _ := strconv.Atoi(req.Offset)
-	res, err := api.MessagesSearchStickers(ctx, &tg.MessagesSearchStickersRequest{Emojis: req.Tab == model.PickerEmoji, Q: req.Query, LangCode: []string{req.Language}, Offset: offset, Limit: 60})
-	if err != nil {
-		return model.PickerPage{}, err
-	}
 	var global []model.PickerItem
 	next := ""
-	if found, ok := res.(*tg.MessagesFoundStickers); ok {
-		global = s.pickerItems(ctx, found.Stickers)
-		if n, ok := found.GetNextOffset(); ok {
-			next = strconv.Itoa(n)
+	// Offline, the sets kept are searched alone.
+	if api != nil {
+		offset, _ := strconv.Atoi(req.Offset)
+		res, err := api.MessagesSearchStickers(ctx, &tg.MessagesSearchStickersRequest{Emojis: req.Tab == model.PickerEmoji, Q: req.Query, LangCode: []string{req.Language}, Offset: offset, Limit: 60})
+		if err != nil {
+			return model.PickerPage{}, err
+		}
+		if found, ok := res.(*tg.MessagesFoundStickers); ok {
+			global = s.pickerItems(ctx, found.Stickers)
+			if n, ok := found.GetNextOffset(); ok {
+				next = strconv.Itoa(n)
+			}
 		}
 	}
 	ids := map[string]bool{}
@@ -179,106 +267,301 @@ func (s *Store) Picker(ctx context.Context, req model.PickerRequest) (model.Pick
 	// the search ends.
 	return model.PickerPage{Packs: base.Packs, Recent: base.Recent, Featured: base.Featured, Items: model.PreferSaved(saved, global), Next: next}, nil
 }
-func (s *Store) pickerCatalogue(ctx context.Context, api *tg.Client, tab model.PickerTab) (model.PickerPage, error) {
-	s.picker.mu.Lock()
-	defer s.picker.mu.Unlock()
-	if time.Since(s.picker.at[tab]) < 5*time.Minute {
-		return s.picker.pages[tab], nil
+
+// RefreshPicker implements model.PickerRefresher: it waits for the fetch
+// of the tab's catalogue that a Stale page started, and gives the page then.
+func (s *Store) RefreshPicker(ctx context.Context, req model.PickerRequest) (model.PickerPage, error) {
+	s.history.mu.Lock()
+	api := s.history.api
+	s.history.mu.Unlock()
+	if api == nil {
+		return model.PickerPage{}, errors.New("picker unavailable offline")
 	}
-	page := model.PickerPage{}
+	if _, err := s.pickerCatalogue(ctx, api, req.Tab); err != nil {
+		return model.PickerPage{}, err
+	}
+	return s.Picker(ctx, req)
+}
+
+// pickerPage is the tab's catalogue: as kept, Stale while a fetch brings it
+// up to date, unless it is fresh or the account offline; fetched when
+// nothing is kept.
+func (s *Store) pickerPage(ctx context.Context, api *tg.Client, tab model.PickerTab) (model.PickerPage, error) {
+	page, fresh, ok := s.keptCatalogue(ctx, tab)
+	switch {
+	case ok && (fresh || api == nil):
+		return page, nil
+	case ok:
+		s.pickerRefresh(api, tab)
+		page.Stale = true
+		return page, nil
+	case api == nil:
+		return model.PickerPage{}, errors.New("picker unavailable offline")
+	}
+	return s.pickerCatalogue(ctx, api, tab)
+}
+
+// keptCatalogue is the tab's catalogue kept in memory, or in the cache,
+// and whether it is fresh.
+func (s *Store) keptCatalogue(ctx context.Context, tab model.PickerTab) (model.PickerPage, bool, bool) {
+	p := &s.picker
+	p.mu.Lock()
+	page, ok := p.pages[tab]
+	fresh := time.Since(p.at[tab]) < pickerFresh
+	p.mu.Unlock()
+	if ok {
+		return page, fresh, true
+	}
+	cache := s.Cache()
+	if cache == nil {
+		return model.PickerPage{}, false, false
+	}
+	var saved pickerSaved
+	if found, err := cache.Get(ctx, pickerKey(tab), &saved); err != nil || !found {
+		return model.PickerPage{}, false, false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.init()
+	if _, ok := p.pages[tab]; !ok {
+		// Not fetched here yet: it is asked for again.
+		p.pages[tab], p.hashes[tab] = saved.Page, saved.Hashes
+	}
+	return p.pages[tab], time.Since(p.at[tab]) < pickerFresh, true
+}
+
+// pickerCatalogue is the tab's catalogue, fetched unless fresh; a fetch
+// that runs already is waited for.
+func (s *Store) pickerCatalogue(ctx context.Context, api *tg.Client, tab model.PickerTab) (model.PickerPage, error) {
+	r, page := s.pickerRefresh(api, tab)
+	if r == nil {
+		return page, nil
+	}
+	select {
+	case <-r.done:
+		return r.page, r.err
+	case <-ctx.Done():
+		return model.PickerPage{}, ctx.Err()
+	}
+}
+
+// pickerRefresh is the fetch of the tab's catalogue that runs, started when
+// none does; nil, with the page, when the page kept is fresh.
+func (s *Store) pickerRefresh(api *tg.Client, tab model.PickerTab) (*pickerRefresh, model.PickerPage) {
+	p := &s.picker
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if page, ok := p.pages[tab]; ok && time.Since(p.at[tab]) < pickerFresh {
+		return nil, page
+	}
+	if r := p.refreshing[tab]; r != nil {
+		return r, model.PickerPage{}
+	}
+	p.init()
+	r := &pickerRefresh{done: make(chan struct{})}
+	p.refreshing[tab] = r
+	old := pickerSaved{Page: p.pages[tab], Hashes: p.hashes[tab]}
+	s.history.mu.Lock()
+	base := s.history.ctx
+	s.history.mu.Unlock()
+	if base == nil {
+		base = context.Background()
+	}
+	go func() {
+		// The store's context, not the caller's: what a picker closed
+		// meanwhile asked for is kept for the next.
+		ctx, cancel := context.WithTimeout(base, 90*time.Second)
+		defer cancel()
+		var saved pickerSaved
+		err := func() (err error) {
+			defer crash.Recover("picker catalogue", func(p *crash.Panic) { err = p })
+			saved, err = s.fetchCatalogue(ctx, api, tab, old)
+			return err
+		}()
+		p.mu.Lock()
+		if err == nil {
+			p.pages[tab], p.hashes[tab], p.at[tab] = saved.Page, saved.Hashes, time.Now()
+		}
+		delete(p.refreshing, tab)
+		p.mu.Unlock()
+		if cache := s.Cache(); cache != nil && err == nil && !sameHashes(old.Hashes, saved.Hashes) {
+			_ = cache.Put(ctx, pickerKey(tab), saved)
+		}
+		r.page, r.err = saved.Page, err
+		close(r.done)
+	}()
+	return r, model.PickerPage{}
+}
+
+func sameHashes(a, b pickerHashes) bool {
+	return a.All == b.All && a.Recent == b.Recent && a.Featured == b.Featured && maps.Equal(a.Sets, b.Sets)
+}
+
+// fetchCatalogue asks Telegram for the tab's catalogue with the hashes of
+// old: what did not change is old's, and only the sets that did are
+// fetched.
+func (s *Store) fetchCatalogue(ctx context.Context, api *tg.Client, tab model.PickerTab, old pickerSaved) (pickerSaved, error) {
+	var out pickerSaved
+	if tab == model.PickerGIF {
+		res, err := api.MessagesGetSavedGifs(ctx, old.Hashes.All)
+		if err != nil {
+			return out, err
+		}
+		if gifs, ok := res.(*tg.MessagesSavedGifs); ok {
+			out.Page.Items, out.Hashes.All = s.savedGIFItems(ctx, gifs.Gifs), gifs.Hash
+			return out, nil
+		}
+		return old, nil
+	}
+	if tab != model.PickerEmoji {
+		recent, err := api.MessagesGetRecentStickers(ctx, &tg.MessagesGetRecentStickersRequest{Hash: old.Hashes.Recent})
+		if err != nil {
+			return out, err
+		}
+		if r, ok := recent.(*tg.MessagesRecentStickers); ok {
+			out.Page.Recent, out.Hashes.Recent = s.pickerItems(ctx, r.Stickers), r.Hash
+		} else {
+			out.Page.Recent, out.Hashes.Recent = old.Page.Recent, old.Hashes.Recent
+		}
+	}
 	var result tg.MessagesAllStickersClass
 	var err error
 	if tab == model.PickerEmoji {
-		result, err = api.MessagesGetEmojiStickers(ctx, 0)
+		result, err = api.MessagesGetEmojiStickers(ctx, old.Hashes.All)
 	} else {
-		recent, e := api.MessagesGetRecentStickers(ctx, &tg.MessagesGetRecentStickersRequest{})
-		if e != nil {
-			return page, e
-		}
-		if r, ok := recent.(*tg.MessagesRecentStickers); ok {
-			page.Recent = s.pickerItems(ctx, r.Stickers)
-		}
-		result, err = api.MessagesGetAllStickers(ctx, 0)
+		result, err = api.MessagesGetAllStickers(ctx, old.Hashes.All)
 	}
 	if err != nil {
-		return page, err
+		return out, err
 	}
 	if all, ok := result.(*tg.MessagesAllStickers); ok {
-		installed := make(map[int64]bool, len(all.Sets))
-		page.Packs = make([]model.PickerPack, len(all.Sets))
-		group, gctx := errgroup.WithContext(ctx)
-		group.SetLimit(4)
-		for n, set := range all.Sets {
-			installed[set.ID] = true
-			group.Go(func() error {
-				raw, e := api.MessagesGetStickerSet(gctx, &tg.MessagesGetStickerSetRequest{Stickerset: &tg.InputStickerSetID{ID: set.ID, AccessHash: set.AccessHash}})
-				if e != nil {
-					return e
-				}
-				if pack, ok := raw.(*tg.MessagesStickerSet); ok {
-					items := s.pickerItems(gctx, pack.Documents)
-					keywords := map[int64]string{}
-					for _, k := range pack.Keywords {
-						keywords[k.DocumentID] = strings.Join(k.Keyword, " ")
-					}
-					for i := range items {
-						items[i].Keywords = keywords[items[i].DocumentID]
-					}
-					page.Packs[n] = model.PickerPack{ID: set.ID, Title: set.Title, Items: items, Complete: true,
-						Ref: model.StickerSetRef{Type: "id", ID: set.ID, AccessHash: set.AccessHash}}
-				}
-				return nil
-			})
-		}
-		if err = group.Wait(); err != nil {
-			return page, err
-		}
-		var featured tg.MessagesFeaturedStickersClass
-		if tab == model.PickerEmoji {
-			featured, err = api.MessagesGetFeaturedEmojiStickers(ctx, 0)
-		} else {
-			featured, err = api.MessagesGetFeaturedStickers(ctx, 0)
-		}
+		out.Page.Packs, out.Hashes.Sets, err = s.pickerPacks(ctx, api, all.Sets, old)
 		if err != nil {
-			// Installed packs still work. Retry recommendations next time.
-			return page, nil
+			return out, err
 		}
-		if listing, ok := featured.(*tg.MessagesFeaturedStickers); ok {
-			seen := make(map[int64]bool, len(listing.Sets))
-			for _, covered := range listing.Sets {
-				set := covered.GetSet()
-				_, installedDate := set.GetInstalledDate()
-				if set.ID == 0 || installed[set.ID] || (installedDate && !set.Archived) || seen[set.ID] {
-					continue
-				}
-				seen[set.ID] = true
-				var docs []tg.DocumentClass
-				switch covered := covered.(type) {
-				case *tg.StickerSetCovered:
-					docs = []tg.DocumentClass{covered.Cover}
-				case *tg.StickerSetMultiCovered:
-					docs = covered.Covers
-				case *tg.StickerSetFullCovered:
-					docs = covered.Documents
-				}
-				// The catalogue needs a preview; the dialog fetches the full set.
-				if len(docs) > 8 {
-					docs = docs[:8]
-				}
-				page.Featured = append(page.Featured, model.PickerPack{
-					ID: set.ID, Title: set.Title, Items: s.pickerItems(ctx, docs),
-					Ref: model.StickerSetRef{Type: "id", ID: set.ID, AccessHash: set.AccessHash},
-				})
+		out.Hashes.All = all.Hash
+	} else {
+		out.Page.Packs, out.Hashes.Sets, out.Hashes.All = old.Page.Packs, old.Hashes.Sets, old.Hashes.All
+	}
+	installed := make(map[int64]bool, len(out.Page.Packs))
+	for _, pack := range out.Page.Packs {
+		installed[pack.ID] = true
+	}
+	var featured tg.MessagesFeaturedStickersClass
+	if tab == model.PickerEmoji {
+		featured, err = api.MessagesGetFeaturedEmojiStickers(ctx, old.Hashes.Featured)
+	} else {
+		featured, err = api.MessagesGetFeaturedStickers(ctx, old.Hashes.Featured)
+	}
+	listing, ok := featured.(*tg.MessagesFeaturedStickers)
+	if err != nil || !ok {
+		// Not changed, or not told: the recommendations kept stay, but for
+		// the sets installed since. A failure leaves no hash, to ask again
+		// next time; installed packs still work.
+		for _, pack := range old.Page.Featured {
+			if !installed[pack.ID] {
+				out.Page.Featured = append(out.Page.Featured, pack)
 			}
 		}
+		if err == nil {
+			out.Hashes.Featured = old.Hashes.Featured
+		}
+		return out, nil
 	}
-	if s.picker.pages == nil {
-		s.picker.pages = map[model.PickerTab]model.PickerPage{}
-		s.picker.at = map[model.PickerTab]time.Time{}
+	out.Hashes.Featured = listing.Hash
+	seen := make(map[int64]bool, len(listing.Sets))
+	for _, covered := range listing.Sets {
+		set := covered.GetSet()
+		_, installedDate := set.GetInstalledDate()
+		if set.ID == 0 || installed[set.ID] || (installedDate && !set.Archived) || seen[set.ID] {
+			continue
+		}
+		seen[set.ID] = true
+		var docs []tg.DocumentClass
+		switch covered := covered.(type) {
+		case *tg.StickerSetCovered:
+			docs = []tg.DocumentClass{covered.Cover}
+		case *tg.StickerSetMultiCovered:
+			docs = covered.Covers
+		case *tg.StickerSetFullCovered:
+			docs = covered.Documents
+		}
+		// The catalogue needs a preview; the dialog fetches the full set.
+		if len(docs) > 8 {
+			docs = docs[:8]
+		}
+		out.Page.Featured = append(out.Page.Featured, model.PickerPack{
+			ID: set.ID, Title: set.Title, Items: s.pickerItems(ctx, docs),
+			Ref: model.StickerSetRef{Type: "id", ID: set.ID, AccessHash: set.AccessHash},
+		})
 	}
-	s.picker.pages[tab] = page
-	s.picker.at[tab] = time.Now()
-	return page, nil
+	return out, nil
+}
+
+// pickerPacks are the packs of the installed sets, in their order: those
+// whose hash old has as the set's are old's, and only the others are
+// fetched, a few at once. The hashes are the sets', by ID.
+func (s *Store) pickerPacks(ctx context.Context, api *tg.Client, sets []tg.StickerSet, old pickerSaved) ([]model.PickerPack, map[int64]int, error) {
+	kept := make(map[int64]model.PickerPack, len(old.Page.Packs))
+	for _, pack := range old.Page.Packs {
+		if pack.Complete {
+			kept[pack.ID] = pack
+		}
+	}
+	packs := make([]model.PickerPack, len(sets))
+	group, gctx := errgroup.WithContext(ctx)
+	group.SetLimit(4)
+	for n, set := range sets {
+		ref := model.StickerSetRef{Type: "id", ID: set.ID, AccessHash: set.AccessHash}
+		prev, had := kept[set.ID]
+		prev.Title, prev.Ref = set.Title, ref
+		hash, hashed := old.Hashes.Sets[set.ID]
+		had = had && hashed
+		if had && set.Hash != 0 && hash == set.Hash {
+			packs[n] = prev
+			continue
+		}
+		group.Go(func() error {
+			req := &tg.MessagesGetStickerSetRequest{Stickerset: &tg.InputStickerSetID{ID: set.ID, AccessHash: set.AccessHash}}
+			if had {
+				req.Hash = hash
+			}
+			raw, e := api.MessagesGetStickerSet(gctx, req)
+			if e != nil {
+				return e
+			}
+			switch pack := raw.(type) {
+			case *tg.MessagesStickerSet:
+				items := s.pickerItems(gctx, pack.Documents)
+				keywords := map[int64]string{}
+				for _, k := range pack.Keywords {
+					keywords[k.DocumentID] = strings.Join(k.Keyword, " ")
+				}
+				for i := range items {
+					items[i].Keywords = keywords[items[i].DocumentID]
+				}
+				packs[n] = model.PickerPack{ID: set.ID, Title: set.Title, Items: items, Complete: true, Ref: ref}
+			case *tg.MessagesStickerSetNotModified:
+				if had {
+					packs[n] = prev
+				}
+			}
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return nil, nil, err
+	}
+	out := packs[:0]
+	hashes := make(map[int64]int, len(sets))
+	for n, pack := range packs {
+		if pack.ID == 0 {
+			continue
+		}
+		out = append(out, pack)
+		hashes[pack.ID] = sets[n].Hash
+	}
+	return out, hashes, nil
 }
 func (s *Store) Send(ctx context.Context, chat int64, msg model.OutgoingMessage) error {
 	if err := s.checkSend(chat, msg); err != nil {

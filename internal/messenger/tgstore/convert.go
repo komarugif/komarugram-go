@@ -35,6 +35,12 @@ type fileLocation struct {
 	// ProfileMessage is the service message that tells a group's profile
 	// photo, by which its file reference is renewed.
 	ProfileMessage int `json:",omitempty"`
+	// StickerSet and StickerSetHash are the set of a picker's sticker or
+	// emoji, and SavedGIF tells a saved GIF: by them its file reference is
+	// renewed, as the picker has no message of it.
+	StickerSet     int64 `json:",omitempty"`
+	StickerSetHash int64 `json:",omitempty"`
+	SavedGIF       bool  `json:",omitempty"`
 }
 
 func (l fileLocation) input() tg.InputFileLocationClass {

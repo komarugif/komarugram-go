@@ -762,3 +762,46 @@ func TestEmojiFooterGoesToSection(t *testing.T) {
 		t.Fatalf("the list is at row %d, section 4 starts at %d", c.list.Position.First, want)
 	}
 }
+
+// staleStore gives the picker's page kept first, and the one up to date
+// once asked to refresh it.
+type staleStore struct{ *mockstore.Store }
+
+func (s staleStore) Picker(context.Context, model.PickerRequest) (model.PickerPage, error) {
+	return model.PickerPage{Stale: true, Packs: []model.PickerPack{{ID: 1, Title: "kept"}}, Featured: []model.PickerPack{{ID: 9}}}, nil
+}
+
+func (s staleStore) RefreshPicker(context.Context, model.PickerRequest) (model.PickerPage, error) {
+	return model.PickerPage{Packs: []model.PickerPack{{ID: 1, Title: "fresh"}, {ID: 2}}, Featured: []model.PickerPack{{ID: 9}}}, nil
+}
+
+// The picker shows the page kept at once, then the one up to date, which
+// keeps the featured set shown in full.
+func TestPickerShowsKeptThenFresh(t *testing.T) {
+	c := newMessageComposer(staleStore{mockstore.New(time.Now(), 0)}, func() {})
+	defer c.cancel()
+	c.request(localization.For("en"), false)
+	take := func() pickerResult {
+		select {
+		case r := <-c.results:
+			return r
+		case <-time.After(5 * time.Second):
+			t.Fatal("no page")
+			return pickerResult{}
+		}
+	}
+	kept := take()
+	if !kept.page.Stale || kept.refreshed || kept.page.Packs[0].Title != "kept" {
+		t.Fatalf("first page %+v", kept)
+	}
+	fresh := take()
+	if !fresh.refreshed || fresh.generation != kept.generation || len(fresh.page.Packs) != 2 {
+		t.Fatalf("second page %+v", fresh)
+	}
+	shown := kept.page
+	shown.Featured[0] = model.PickerPack{ID: 9, Complete: true, Items: []model.PickerItem{{ID: "a"}, {ID: "b"}}}
+	keepFeatured(&fresh.page, shown)
+	if !fresh.page.Featured[0].Complete || len(fresh.page.Featured[0].Items) != 2 {
+		t.Fatalf("featured set shown lost: %+v", fresh.page.Featured)
+	}
+}

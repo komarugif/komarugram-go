@@ -1210,6 +1210,19 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			s.setReadOutbox(peerID(&tg.PeerChannel{ChannelID: u.ChannelID}), u.MaxID)
 		case *tg.UpdateUserStatus:
 			s.setPresence(u.UserID, u.Status)
+		// The picker's catalogues are asked for again, with their hashes.
+		case *tg.UpdateStickerSets:
+			s.picker.expire(stickerTab(u.Emojis))
+		case *tg.UpdateStickerSetsOrder:
+			s.picker.expire(stickerTab(u.Emojis))
+		case *tg.UpdateMoveStickerSetToTop:
+			s.picker.expire(stickerTab(u.Emojis))
+		case *tg.UpdateNewStickerSet:
+			s.picker.expire(model.PickerStickers, model.PickerEmoji)
+		case *tg.UpdateRecentStickers:
+			s.picker.expire(model.PickerStickers)
+		case *tg.UpdateSavedGifs:
+			s.picker.expire(model.PickerGIF)
 		case *tg.UpdateNewMessage:
 			msg, fresh = u.Message, true
 		case *tg.UpdateNewChannelMessage:

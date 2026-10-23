@@ -304,6 +304,36 @@ func (c *Cache) Put(ctx context.Context, key string, value any) error {
 	_, err = c.db.ExecContext(ctx, `INSERT INTO kv VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, b)
 	return err
 }
+
+// PutAll is Put of each value by its key, in one transaction: thousands of
+// them, as the stickers of a picker's sets, are written in one go and not
+// one by one.
+func (c *Cache) PutAll(ctx context.Context, values map[string]any) error {
+	if len(values) == 0 {
+		return nil
+	}
+	encoded := make(map[string][]byte, len(values))
+	for key, value := range values {
+		b, err := json.Marshal(value)
+		if err != nil {
+			return err
+		}
+		encoded[key] = b
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for key, b := range encoded {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO kv VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, b); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
 func (c *Cache) Get(ctx context.Context, key string, value any) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

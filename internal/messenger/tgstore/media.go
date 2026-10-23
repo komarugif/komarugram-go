@@ -145,6 +145,28 @@ func (s *Store) refreshReference(ctx context.Context, m model.Message) error {
 	if model.IsProfilePhoto(m.Key.MessageID) {
 		return s.refreshProfilePhoto(ctx, api, peer, ref)
 	}
+	if m.Key.MessageID == 0 && ref.StickerSet != 0 {
+		// A sticker or an emoji of the picker, perhaps from its cache: its
+		// set renews it.
+		raw, e := api.MessagesGetStickerSet(ctx, &tg.MessagesGetStickerSetRequest{Stickerset: &tg.InputStickerSetID{ID: ref.StickerSet, AccessHash: ref.StickerSetHash}})
+		if e != nil {
+			return e
+		}
+		if pack, ok := raw.(*tg.MessagesStickerSet); ok {
+			s.pickerItems(ctx, pack.Documents)
+		}
+		return nil
+	}
+	if m.Key.MessageID == 0 && ref.SavedGIF {
+		res, e := api.MessagesGetSavedGifs(ctx, 0)
+		if e != nil {
+			return e
+		}
+		if gifs, ok := res.(*tg.MessagesSavedGifs); ok {
+			s.savedGIFItems(ctx, gifs.Gifs)
+		}
+		return nil
+	}
 	if ref.Gift {
 		chat := ref.GiftChat
 		if chat == 0 {

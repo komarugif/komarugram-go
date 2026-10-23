@@ -62,6 +62,8 @@ type pickerResult struct {
 	page       model.PickerPage
 	err        error
 	append     bool
+	// refreshed is the page up to date after a Stale one of the request.
+	refreshed bool
 }
 type featuredPackResult struct {
 	generation uint64
@@ -274,6 +276,22 @@ func (c *messageComposer) request(l localization.Catalog, appendPage bool) {
 		case c.results <- pickerResult{generation: generation, page: page, err: err, append: appendPage}:
 			c.invalidate()
 		case <-c.ctx.Done():
+			return
+		}
+		// The page kept is shown, and the one up to date replaces it.
+		refresher, ok := c.source.(model.PickerRefresher)
+		if err != nil || !page.Stale || !ok {
+			return
+		}
+		page, err = refresher.RefreshPicker(ctx, req)
+		if err != nil {
+			// The page shown stays; the next opening asks again.
+			return
+		}
+		select {
+		case c.results <- pickerResult{generation: generation, page: page, append: appendPage, refreshed: true}:
+			c.invalidate()
+		case <-c.ctx.Done():
 		}
 	}()
 }
@@ -293,6 +311,23 @@ func (c *messageComposer) selectedFeatured() *model.PickerPack {
 	}
 	return nil
 }
+
+// keepFeatured keeps in page the featured sets shown loads in full, which
+// page has only the covers of.
+func keepFeatured(page *model.PickerPage, shown model.PickerPage) {
+	full := map[int64]model.PickerPack{}
+	for _, pack := range shown.Featured {
+		if pack.Complete {
+			full[pack.ID] = pack
+		}
+	}
+	for i, pack := range page.Featured {
+		if kept, ok := full[pack.ID]; ok {
+			page.Featured[i] = kept
+		}
+	}
+}
+
 func (c *messageComposer) loadFeatured(pack model.PickerPack) {
 	c.cancelFeatured()
 	source, ok := c.source.(model.StickerSetStore)
@@ -521,9 +556,13 @@ func (c *messageComposer) update(gtx layout.Context, chat int64, l localization.
 					c.page.Items = model.PreferSaved(c.page.Items, r.page.Items)
 					c.page.Next = r.page.Next
 				} else {
+					if r.refreshed {
+						// What was shown of a featured set stays shown.
+						keepFeatured(&r.page, c.page)
+					}
 					c.page = r.page
 					c.itemClicks = map[string]*surface{}
-					if c.query == "" {
+					if c.query == "" && !c.featuredLoading {
 						if pack := c.selectedFeatured(); pack != nil && !pack.Complete {
 							c.loadFeatured(*pack)
 						}
