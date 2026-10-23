@@ -213,3 +213,26 @@ func TestToggleFormat(t *testing.T) {
 		t.Fatalf("link %+v", e)
 	}
 }
+
+// A quote of a message, over a reply and in the strip over the field,
+// keeps the message's custom emoji, which plain text would draw as their
+// fallback emoji.
+func TestQuoteKeepsCustomEmoji(t *testing.T) {
+	l := localization.For("en")
+	m := model.Message{Kind: model.MessagePhoto, Media: &model.MessageMedia{ID: "p"}, Text: "hi 🙂\nthere", Entities: []model.Entity{{Kind: model.EntityBold, Offset: 0, Length: 2}, {Kind: model.EntityEmoji, Offset: 3, Length: 2, DocumentID: 77}}}
+	runs := quoteRuns(m, l)
+	var text string
+	emoji := false
+	for _, r := range runs {
+		text += r.Text
+		if r.Emoji == 77 && r.Text == "🙂" {
+			emoji = true
+		}
+		if r.Bold {
+			t.Fatal("a quote has the message's formatting")
+		}
+	}
+	if !emoji || text != "Photo, hi 🙂 there" {
+		t.Fatalf("quote %q, custom emoji kept: %v", text, emoji)
+	}
+}

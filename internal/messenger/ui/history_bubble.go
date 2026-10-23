@@ -681,6 +681,7 @@ func (p *chatPage) reactionIcon(gtx layout.Context, reaction model.Reaction, ani
 func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog) layout.Dimensions {
 	replied, state, known := p.referenced(m.Key.ChatID, m.ReplyToMessageID)
 	name, text := l.T("history.reply_missing"), ""
+	var runs []model.TextRun
 	switch {
 	case known && state == model.LookupLoading:
 		text = l.T("service.loading")
@@ -700,10 +701,7 @@ func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message
 		if !replied.Outgoing {
 			color = senderColor(gtx, replied.SenderID)
 		}
-		text = foundText(replied, l)
-		if replied.SenderName != "" {
-			text = strings.TrimPrefix(text, replied.SenderName+": ")
-		}
+		runs = quoteRuns(replied, l)
 	}
 	macro := op.Record(gtx.Ops)
 	dims := layout.Inset{Top: 5, Bottom: 5, Left: 11, Right: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -712,6 +710,9 @@ func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message
 				return label(gtx, name, token.TypestyleLabelLargeEmphasized, color, 1)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if runs != nil {
+					return p.quoteLine(gtx, runs, scheme(gtx).Surface.OnColor)
+				}
 				if text == "" {
 					return layout.Dimensions{}
 				}
@@ -729,6 +730,44 @@ func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message
 		call.Add(gtx.Ops)
 		return layout.Dimensions{Size: size}
 	})
+}
+
+// quoteRuns are the line a quote of m shows: what media it has and its
+// text, on one line, with its custom emoji, which Telegram Desktop's
+// quotes draw as they are: as plain text they would be their fallback
+// emoji.
+func quoteRuns(m model.Message, l localization.Catalog) []model.TextRun {
+	var emoji []model.Entity
+	for _, e := range m.Entities {
+		if e.Kind == model.EntityEmoji {
+			emoji = append(emoji, e)
+		}
+	}
+	var runs []model.TextRun
+	for _, r := range model.TextRuns(m.Text, emoji) {
+		runs = append(runs, model.TextRun{Text: strings.ReplaceAll(r.Text, "\n", " "), Emoji: r.Emoji})
+	}
+	if len(runs) > 0 {
+		runs[0].Text = strings.TrimLeft(runs[0].Text, " ")
+	}
+	if media := foundText(model.Message{Kind: m.Kind, Media: m.Media}, l); media != "" {
+		if len(runs) > 0 {
+			media += ", "
+		}
+		runs = append([]model.TextRun{{Text: media}}, runs...)
+	}
+	if len(runs) == 0 {
+		return []model.TextRun{}
+	}
+	return runs
+}
+
+// quoteLine draws runs, a quote's line, in color.
+func (p *chatPage) quoteLine(gtx layout.Context, runs []model.TextRun, color token.MatColor) layout.Dimensions {
+	if len(runs) == 0 {
+		return layout.Dimensions{}
+	}
+	return richLabel{runs: runs, style: token.TypestyleBodySmall, color: color, maxLines: 1, media: p.media, images: p.images, animate: p.animate}.Layout(gtx)
 }
 
 // referenced is a message another one names, as the one it replies to:

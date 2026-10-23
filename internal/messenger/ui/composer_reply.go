@@ -129,7 +129,7 @@ func (c *messageComposer) replyLayout(gtx layout.Context, chat int64, bar image.
 		if classic {
 			fillRect(gtx, sc.OutlineVariant, image.Pt(size.X, gtx.Dp(1)))
 		}
-		name, text := p.replyNames(reply, l)
+		name, _ := p.replyNames(reply, l)
 		title, removeLabel := l.Format("composer.reply_to", map[string]string{"name": name}), l.T("composer.reply_remove")
 		if editing {
 			// Telegram Desktop's strip of an edit: its title, and the text
@@ -152,7 +152,7 @@ func (c *messageComposer) replyLayout(gtx layout.Context, chat int64, bar image.
 								return label(gtx, title, token.TypestyleLabelLargeEmphasized, sc.Primary.Color, 1)
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return label(gtx, text, token.TypestyleBodySmall, sc.Surface.OnColor, 1)
+								return p.quoteLine(gtx, quoteRuns(reply, l), sc.Surface.OnColor)
 							}),
 						)
 						if c.replies.lines != dims.Size.Y {
