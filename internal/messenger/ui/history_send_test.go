@@ -249,6 +249,70 @@ func TestMessageOnItsWayFlies(t *testing.T) {
 	}
 }
 
+// A message on its way that landed before Telegram took it, as on a slow
+// connection, is in its place: the message Telegram makes of it does not
+// rise again, in Saved Messages too, nor when it comes before the message
+// on its way goes.
+func TestLandedMessageDoesNotFlyAgain(t *testing.T) {
+	for _, kind := range []model.ChatKind{model.KindUser, model.KindSaved} {
+		for _, both := range []bool{false, true} {
+			store := &relayStore{Store: mockstore.New(time.Now(), 0)}
+			p := newChatPage(store, func() {})
+			p.images = &imageOps{}
+			t.Cleanup(p.Close)
+			h := &composerHarness{p: p, now: time.Now(), size: image.Pt(680, 720), chat: 2, kind: kind, animate: true}
+			for range 4 {
+				h.frame()
+			}
+			sendAndWait(t, h, "hello")
+			for range 60 {
+				h.frame()
+			}
+			if len(h.p.flights) != 0 {
+				t.Fatal("the flight has no end")
+			}
+			if both {
+				// Telegram's message comes while the one on its way is there.
+				store.mu.Lock()
+				pending := *store.pending
+				store.mu.Unlock()
+				store.take(h.chat)
+				store.mu.Lock()
+				store.pending = &pending
+				store.mu.Unlock()
+				h.frame()
+				store.mu.Lock()
+				store.pending = nil
+				store.mu.Unlock()
+			} else {
+				store.take(h.chat)
+			}
+			h.frame()
+			last := h.p.messages[len(h.p.messages)-1]
+			if last.Sending || last.Key.MessageID <= 0 {
+				t.Fatalf("not taken: %+v", last)
+			}
+			if len(h.p.flights) != 0 {
+				t.Fatalf("%v, both shown %v: the message flies again: %v", kind, both, h.p.flights)
+			}
+		}
+	}
+}
+
+// A message flies from the composer to where its row is: at the bottom of
+// the view, or, in a history too short to fill it, under the rows above.
+func TestFlightStartsUnderItsRow(t *testing.T) {
+	p := chatPage{viewHeight: 720}
+	p.heights = model.NewHeightIndex([]int{100, 180})
+	if top := p.endTop(1, 180); top != 100 {
+		t.Fatalf("in a short history the row is at %d, want 100", top)
+	}
+	p.heights = model.NewHeightIndex([]int{800, 180})
+	if top := p.endTop(1, 180); top != 720-180 {
+		t.Fatalf("in a long history the row is at %d, want %d", top, 720-180)
+	}
+}
+
 // A message of another user that comes at the end of the history rises to
 // its place; one an older page brings does not.
 func TestIncomingMessageRises(t *testing.T) {

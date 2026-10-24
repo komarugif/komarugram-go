@@ -65,6 +65,13 @@ func (s *Store) addPending(chat int64, msg model.OutgoingMessage) *pendingMessag
 		ReplyToMessageID: msg.ReplyTo,
 		Sending:          true,
 	}
+	real, _ := c.threadChat(chat)
+	if real != 0 && (real == me.ID || c.peers[real].Rights.Self) {
+		// In Saved Messages Telegram does not mark the user's messages as
+		// outgoing, nor tell who sent them: the message on its way is as
+		// the one it makes of it will be, on its side, without a name.
+		p.msg.Outgoing, p.msg.SenderID, p.msg.SenderName = false, 0, ""
+	}
 	p.msg.ContentRevision = model.Revision(p.msg)
 	c.pending.list = append(c.pending.list, p)
 	c.touchPending(chat)

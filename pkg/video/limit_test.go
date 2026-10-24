@@ -26,8 +26,13 @@ func TestFFmpegMemoryBound(t *testing.T) {
 		t.Skip("memory is not bounded here")
 	}
 	decode := func(memory uint64) (int64, error) {
-		cmd := program.Command(ffmpeg, append(LimitArgs(memory), "-hide_banner", "-loglevel", "error", "-nostdin",
-			"-i", "../../assets/video.mp4", "-t", "3", "-an", "-pix_fmt", "rgba", "-f", "rawvideo", "-")...)
+		// The threads the player and the frames take (player.go,
+		// stream.go): by default a thread a core for the decoder and the
+		// encoder, each with a stack RLIMIT_DATA counts, and on a machine
+		// of many cores the FFmpeg within its bound could not start.
+		args := append(LimitArgs(memory), "-hide_banner", "-loglevel", "error", "-nostdin",
+			"-threads", "2", "-i", "../../assets/video.mp4", "-t", "3", "-an")
+		cmd := program.Command(ffmpeg, append(args, rawOutputArgs("rgba")...)...)
 		out, err := cmd.StdoutPipe()
 		if err != nil {
 			t.Fatal(err)

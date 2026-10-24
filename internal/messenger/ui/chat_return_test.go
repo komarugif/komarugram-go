@@ -186,6 +186,43 @@ func TestForumHeaderBack(t *testing.T) {
 	}
 }
 
+// The comments' back button draws the channel in the frame of the click,
+// not an empty page before it.
+func TestCommentsBackDrawsChannel(t *testing.T) {
+	a, store := returnApp(t)
+	const channel = 4
+	a.open(chatPick{ID: channel})
+	for _, m := range store.History(channel).Messages {
+		if m.CommentsOpen {
+			a.openComments(m)
+			break
+		}
+	}
+	if a.thread == nil {
+		t.Fatal("no comments opened")
+	}
+	var router input.Router
+	frame := func() {
+		gtx := layout.Context{Ops: new(op.Ops), Source: router.Source(), Now: time.Now(), Constraints: layout.Exact(image.Pt(500, 600)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
+		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		a.layoutPage(gtx)
+		router.Frame(gtx.Ops)
+	}
+	frame()
+	// What the channel's history laid out last, before the comments.
+	a.history.list.Position.Count = 0
+	for _, kind := range []pointer.Kind{pointer.Press, pointer.Release} {
+		router.Queue(pointer.Event{Kind: kind, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: f32.Pt(28, 28)})
+		frame()
+	}
+	if a.thread != nil {
+		t.Fatal("the comments stayed open")
+	}
+	if a.history.list.Position.Count == 0 {
+		t.Fatal("the frame of the click drew no channel")
+	}
+}
+
 // The channel's Discussion button opens its group with a way back to the
 // channel.
 func TestDiscussionReturns(t *testing.T) {

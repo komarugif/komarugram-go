@@ -304,6 +304,36 @@ func (c *Cache) Put(ctx context.Context, key string, value any) error {
 	_, err = c.db.ExecContext(ctx, `INSERT INTO kv VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, b)
 	return err
 }
+
+// PutAll is Put of each value by its key, in one transaction: thousands of
+// them, as the stickers of a picker's sets, are written in one go and not
+// one by one.
+func (c *Cache) PutAll(ctx context.Context, values map[string]any) error {
+	if len(values) == 0 {
+		return nil
+	}
+	encoded := make(map[string][]byte, len(values))
+	for key, value := range values {
+		b, err := json.Marshal(value)
+		if err != nil {
+			return err
+		}
+		encoded[key] = b
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for key, b := range encoded {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO kv VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, b); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
 func (c *Cache) Get(ctx context.Context, key string, value any) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -518,10 +548,22 @@ func (c *Cache) Layouts(ctx context.Context, chat int64, env model.RenderEnviron
 	}
 	return out, rows.Err()
 }
+
+// mediaTouch is how long a small media goes between the times a read marks
+// it used.
+const mediaTouch = time.Hour
+
 func (c *Cache) Media(ctx context.Context, key string) ([]byte, error) {
 	c.mu.Lock()
 	var b []byte
-	e := c.db.QueryRowContext(ctx, `SELECT data FROM media WHERE key=?`, key).Scan(&b)
+	var used int64
+	e := c.db.QueryRowContext(ctx, `SELECT data, used FROM media WHERE key=?`, key).Scan(&b, &used)
+	if now := time.Now(); e == nil && now.Sub(time.Unix(0, used)) > mediaTouch {
+		// Read, it is used: SaveMedia evicts what was used longest ago.
+		// Marked only when written, an avatar read every day went first,
+		// to be downloaded again, as the files are not (mediaFiles).
+		_, e = c.db.ExecContext(ctx, `UPDATE media SET used=? WHERE key=?`, now.UnixNano(), key)
+	}
 	c.mu.Unlock()
 	if errors.Is(e, sql.ErrNoRows) {
 		return c.fileMedia(key)

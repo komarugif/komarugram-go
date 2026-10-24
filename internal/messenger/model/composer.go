@@ -42,6 +42,9 @@ type PickerPage struct {
 	Featured []PickerPack
 	Items    []PickerItem
 	Next     string
+	// Stale tells a page as the store last kept it, shown while it asks
+	// Telegram what changed since: PickerRefresher brings the page after.
+	Stale bool `json:",omitempty"`
 }
 type PickerRequest struct {
 	Tab                     PickerTab
@@ -132,6 +135,13 @@ func PreferSaved(saved, global []PickerItem) []PickerItem {
 		}
 	}
 	return out
+}
+
+// PickerRefresher is a ComposerStore whose Picker may give a Stale page:
+// RefreshPicker waits until it is brought up to date, and gives the page
+// of req then.
+type PickerRefresher interface {
+	RefreshPicker(ctx context.Context, req PickerRequest) (PickerPage, error)
 }
 
 // PickerRecentStore optionally persists selections in the account's local cache.

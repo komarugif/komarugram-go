@@ -180,6 +180,9 @@ type chatPage struct {
 	filterShown  *messageFilter
 	filtered     int
 	showFiltered map[int64]bool
+	// newest is the newest message of the history loaded, a hidden one
+	// too: read once its end is.
+	newest model.MessageID
 	// addFilter saves a pattern made from selected text.
 	addFilter func(preferences.FilterPattern)
 	deletion  messageDeletion
@@ -224,8 +227,11 @@ type chatPage struct {
 	media      *chatmedia.Manager
 	animate    bool
 	chat       int64
-	// forgot is the chat forget dropped, to be loaded again, not left.
+	// forgot is the chat forget dropped, to be loaded again, not left;
+	// jumping, that it is loaded again so, until its messages come: the
+	// ring of the load is the one over the buttons, not the empty page's.
 	forgot   int64
+	jumping  bool
 	list     scroll.List
 	messages []model.Message
 	rows     map[model.MessageID]*messageRow
@@ -481,7 +487,9 @@ func (p *chatPage) abandon() {
 }
 
 func (p *chatPage) save(force bool) {
-	if len(p.messages) == 0 || p.chat == 0 {
+	// Before it is restored the list is at its end, not where the chat
+	// opens: saved, that would take the place of the anchor on its way.
+	if len(p.messages) == 0 || p.chat == 0 || !p.restored {
 		return
 	}
 	pos := p.list.Position
@@ -582,7 +590,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		// (forget): what is open over it stays, as the search that
 		// jumped to a message not loaded, which closed.
 		reload := p.chat == 0 && p.forgot == c.ID
-		p.forgot = 0
+		p.forgot, p.jumping = 0, reload
 		if !reload {
 			p.forgetDialogStickers()
 			p.stickers.stop()
@@ -602,6 +610,9 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.save(true)
 		p.activeText = nil
 		p.chat = c.ID
+		if o, ok := p.source.(model.UnreadOpener); ok {
+			o.OpenUnread(c.ID)
+		}
 		p.revision = 0
 		p.list = scroll.List{List: layout.List{Axis: layout.Vertical, ScrollToEnd: true}}
 		p.messages = nil
@@ -639,6 +650,12 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	}
 	p.threadRoot = history.ThreadRoot
 	if fresh {
+		p.newest = 0
+		for _, m := range history.Messages {
+			if !m.Local() {
+				p.newest = max(p.newest, m.Key.MessageID)
+			}
+		}
 		history.Messages = p.filterMessages(model.GroupAlbums(history.Messages), c.ID)
 		p.revision = history.Revision
 	} else {
@@ -689,6 +706,9 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		}
 		p.rebuild(history.Messages, env)
 		p.startFlights(gtx, prev, animate)
+	}
+	if len(p.messages) > 0 || history.Err != nil || !history.LoadingOlder && !history.LoadingNewer {
+		p.jumping = false
 	}
 	p.updateBot(c, history)
 	v, anchored := p.source.Viewport(c.ID)
@@ -761,6 +781,10 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		if len(p.messages) == 0 {
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min = image.Point{}
+				if p.jumping {
+					// The ring over the buttons tells the load.
+					return layout.Dimensions{}
+				}
 				if history.LoadingOlder {
 					return p.loader.sized(gtx, l, 32)
 				}
@@ -787,7 +811,11 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 				p.trace.History.RowsLaidOut++
 			}
 			rowEnd := p.trace.Begin("history.rows")
-			dims := p.flyingRow(gtx, msg.Key.MessageID, flightFrom, func(gtx layout.Context) layout.Dimensions {
+			end := 0
+			if i == len(p.messages)-1 {
+				end = tail
+			}
+			dims := p.flyingRow(gtx, i, p.viewHeight-tail+flightFrom, end, func(gtx layout.Context) layout.Dimensions {
 				return p.row(gtx, msg, date, p.joins[i], l, animate)
 			})
 			if i == len(p.messages)-1 {
@@ -861,6 +889,11 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	if g, ok := p.source.(model.GhostStore); ok && (p.threadRoot == 0 || p.topic) {
 		// What the history shows is read, if Ghost allows telling that.
 		if id := p.bottomMessage(); id > 0 {
+			if !p.list.Position.BeforeEnd && !history.HasNewer {
+				// Scrolled to the end: the messages a filter hides after the
+				// last one shown are read too.
+				id = max(id, p.newest)
+			}
 			g.MarkRead(c.ID, id, false)
 		}
 	}

@@ -147,6 +147,9 @@ type App struct {
 	downloads        *downloadsPage
 	downloadMessages chan downloadMessage
 	thread           *commentsView
+	// toast tells over the window what the chat list told, when no chat
+	// is open to tell it in: see relayListToast.
+	toast toast
 	// drop is a drag of files over the window.
 	drop fileDrop
 	// mini runs the Mini Apps of bots; nil when the store cannot ask for
@@ -1272,6 +1275,13 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	if a.info != nil && a.info.visible {
 		gtx = gtx.Disabled()
 	}
+	// The window's toast, when toasts blur, blurs all that is drawn under
+	// it: recorded while it is drawn, as a chat's rows are for its overlays.
+	overlays := a.overlayPrefs()
+	var under op.MacroOp
+	if overlays.toasts {
+		under = op.Record(gtx.Ops)
+	}
 	size := gtx.Constraints.Max
 	folders := a.store.Folders()
 	chats := a.store.Chats()
@@ -1331,6 +1341,8 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 		x += gtx.Dp(1)
 	}
 
+	// Before the page, which shows the chat list's toast in this frame.
+	a.relayListToast()
 	pageTop := 0
 	if a.compact && !a.section.showsChats() {
 		// Without the chat list, the menu button gets a bar over the page.
@@ -1344,42 +1356,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	// The page is where files dragged over the window are dropped, when it
 	// is a chat that takes them.
 	a.drop.page, a.drop.area, a.drop.metric = nil, image.Rect(x, pageTop, size.X, size.Y), gtx.Metric
-	column(x, pageTop, size.X-x, size.Y-pageTop, func(gtx layout.Context) layout.Dimensions {
-		l := a.catalog()
-		c, chat := a.selectedChat()
-		// A chat's page and its comments draw the bar of what plays
-		// themselves; the others get it here.
-		switch {
-		case a.section.showsChats() && a.thread != nil:
-			if a.comments.takesFiles() {
-				a.drop.page = a.comments
-			}
-			return a.layoutComments(gtx, l)
-		case a.section.showsChats() && chat && !(c.Forum && a.forum != nil):
-			if a.history.takesFiles() {
-				a.drop.page = a.history
-			}
-			return layoutChatPage(gtx, c, l, a.layoutAvatar, a.badges, a.returnButton(), func(gtx layout.Context) layout.Dimensions {
-				if a.history != nil {
-					return a.history.Layout(gtx, c, l, a.window.Motion.AnimationsEnabled())
-				}
-				return layoutEmptyPage(gtx, l)
-			}, a.history)
-		}
-		return a.withAudioBar(gtx, l, func(gtx layout.Context) layout.Dimensions {
-			switch {
-			case a.section.kind == sectionProfile:
-				return a.profile.Layout(gtx, a.store.Me(), l, a.layoutAvatar, a.private(), a.window.Motion.AnimationsEnabled())
-			case a.section.kind == sectionSettings:
-				return a.settings.Layout(gtx, a.themeMode(), a.window.Appearance.Scheme(), a.dark(), l)
-			case a.section.kind == sectionDownloads && a.downloads != nil:
-				return a.downloads.Layout(gtx, l, a.window.Motion.AnimationsEnabled())
-			case chat:
-				return a.layoutForum(gtx, c, l)
-			}
-			return layoutEmptyPage(gtx, l)
-		})
-	})
+	column(x, pageTop, size.X-x, size.Y-pageTop, a.layoutPage)
 
 	// The splitter goes last so that it takes the pointer over the columns.
 	if a.section.showsChats() {
@@ -1413,6 +1390,89 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	if a.registrationOffer != nil {
 		a.registrationOffer.Layout(overlayGtx, a.catalog())
 	}
+	a.toast.bd = nil
+	if overlays.toasts {
+		call := under.Stop()
+		call.Add(overlayGtx.Ops)
+		a.toast.bd = newBackdrop(call, overlays.opacity)
+	}
+	a.toast.Layout(overlayGtx, image.Rectangle{Max: size})
+}
+
+// relayListToast moves what the chat list tells, and what tells through
+// it, to the toast of the chat open, its comments' when they are, and to
+// the window's when none is: at the bottom of the list, a long error had
+// little room.
+func (a *App) relayListToast() {
+	text := a.chats.toast.Text()
+	if text == "" {
+		return
+	}
+	a.chats.toast.Hide()
+	if t := a.pageToast(); t != nil {
+		t.Show(text)
+		return
+	}
+	a.toast.Show(text)
+}
+
+// pageToast is the toast of the chat page layoutPage draws, nil when it
+// draws none.
+func (a *App) pageToast() *toast {
+	if !a.section.showsChats() {
+		return nil
+	}
+	if a.thread != nil && a.comments != nil {
+		return &a.comments.toast
+	}
+	if c, chat := a.selectedChat(); chat && !(c.Forum && a.forum != nil) && a.history != nil {
+		return &a.history.toast
+	}
+	return nil
+}
+
+// layoutPage draws the page right of the chat list: a chat's, its
+// comments, or a section's.
+func (a *App) layoutPage(gtx layout.Context) layout.Dimensions {
+	l := a.catalog()
+	if a.section.showsChats() && a.thread != nil && a.thread.back.Clicked(gtx) {
+		// Taken before the page is chosen: the channel is drawn in this
+		// frame, not after an empty one.
+		a.closeComments()
+	}
+	c, chat := a.selectedChat()
+	// A chat's page and its comments draw the bar of what plays
+	// themselves; the others get it here.
+	switch {
+	case a.section.showsChats() && a.thread != nil:
+		if a.comments.takesFiles() {
+			a.drop.page = a.comments
+		}
+		return a.layoutComments(gtx, l)
+	case a.section.showsChats() && chat && !(c.Forum && a.forum != nil):
+		if a.history.takesFiles() {
+			a.drop.page = a.history
+		}
+		return layoutChatPage(gtx, c, l, a.layoutAvatar, a.badges, a.returnButton(), func(gtx layout.Context) layout.Dimensions {
+			if a.history != nil {
+				return a.history.Layout(gtx, c, l, a.window.Motion.AnimationsEnabled())
+			}
+			return layoutEmptyPage(gtx, l)
+		}, a.history)
+	}
+	return a.withAudioBar(gtx, l, func(gtx layout.Context) layout.Dimensions {
+		switch {
+		case a.section.kind == sectionProfile:
+			return a.profile.Layout(gtx, a.store.Me(), l, a.layoutAvatar, a.private(), a.window.Motion.AnimationsEnabled())
+		case a.section.kind == sectionSettings:
+			return a.settings.Layout(gtx, a.themeMode(), a.window.Appearance.Scheme(), a.dark(), l)
+		case a.section.kind == sectionDownloads && a.downloads != nil:
+			return a.downloads.Layout(gtx, l, a.window.Motion.AnimationsEnabled())
+		case chat:
+			return a.layoutForum(gtx, c, l)
+		}
+		return layoutEmptyPage(gtx, l)
+	})
 }
 
 // withAudioBar draws the bar of what plays over a page that is not a chat's,

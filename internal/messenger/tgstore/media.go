@@ -12,9 +12,10 @@ import (
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/dcpool"
 	"sort"
+	"strings"
 	"sync"
+	"time"
 
-	"github.com/gotd/td/telegram/downloader"
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
 )
@@ -66,6 +67,14 @@ func (s *Store) MediaProgress(ctx context.Context, m model.Message, progress fun
 		// The user's download of it, every chunk as it was tagged.
 		return b, cache.SaveMedia(ctx, m.Media.ID, b)
 	}
+	// Telegram said to wait before this file again: asked meanwhile, it
+	// says so again, on every show of what draws it.
+	c.mu.Lock()
+	until := c.floodUntil[m.Media.ID].until
+	c.mu.Unlock()
+	if wait := time.Until(until); wait > 0 {
+		return nil, fmt.Errorf("media: Telegram asked to wait %v before asking for it again", wait.Round(time.Second))
+	}
 	if pool == nil {
 		return nil, errors.New("media unavailable offline")
 	}
@@ -87,13 +96,18 @@ func (s *Store) MediaProgress(ctx context.Context, m model.Message, progress fun
 				progress(n, m.Media.Size)
 			}
 		}}
-		_, err := downloader.NewDownloader().WithAllowCDN(true).Download(withDownloadSize(dcpool.DownloadClient(pool, ctx, ref.DC), m.Media.Size), ref.input()).WithThreads(4).Parallel(ctx, out)
+		err := downloadFile(ctx, dcpool.DownloadClient(pool, ctx, ref.DC), ref.input(), m.Media.Size, out, func(wait time.Duration) {
+			s.noteFloodWait(m.Media.ID, wait)
+		})
 		return out.data, err
 	}
 	start = diagnostics.Start()
 	b, e = download()
 	if !start.IsZero() {
 		s.profileHistory("media.download", m.Key.ChatID, 0, 0, len(b), start, e)
+	}
+	if tgerr.Is(e, "FILE_ID_INVALID") {
+		s.avatarGone(ctx, m.Media.ID)
 	}
 	if tgerr.Is(e, "FILE_REFERENCE_EXPIRED", "FILE_REFERENCE_EMPTY", "FILE_REFERENCE_INVALID") {
 		if e = s.refreshReference(ctx, m); e != nil {
@@ -118,6 +132,41 @@ func (s *Store) MediaProgress(ctx context.Context, m model.Message, progress fun
 	}
 	return b, nil
 }
+
+// floodBackoff is the least a file refused with FLOOD_WAIT waits before it
+// is asked for again, doubled each time it is refused again, up to
+// floodBackoffMost.
+const (
+	floodBackoff     = 10 * time.Second
+	floodBackoffMost = 30 * time.Minute
+)
+
+// floodState is how long a file Telegram refused waits, and how many times
+// it was refused.
+type floodState struct {
+	until time.Time
+	times int
+}
+
+// noteFloodWait keeps how long the media of key waits, refused with a
+// FLOOD_WAIT of wait, before it is asked for again: as long as Telegram
+// said, and more each time it is refused again. Telegram may refuse a file
+// every time, a few seconds named each: asked again as soon as said, it was
+// all along.
+func (s *Store) noteFloodWait(key string, wait time.Duration) {
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.floodUntil == nil {
+		c.floodUntil = map[string]floodState{}
+	}
+	f := c.floodUntil[key]
+	backoff := floodBackoff << min(f.times, 10)
+	f.times++
+	f.until = time.Now().Add(max(wait, min(backoff, floodBackoffMost)))
+	c.floodUntil[key] = f
+}
+
 func (s *Store) refreshReference(ctx context.Context, m model.Message) error {
 	c := s.history
 	c.mu.Lock()
@@ -145,6 +194,35 @@ func (s *Store) refreshReference(ctx context.Context, m model.Message) error {
 	if model.IsProfilePhoto(m.Key.MessageID) {
 		return s.refreshProfilePhoto(ctx, api, peer, ref)
 	}
+	if key, ok := strings.CutSuffix(m.Media.ID, "/"+ref.Thumb); ok && ref.Thumb != "" && strings.HasPrefix(key, "avatar/") && strings.HasSuffix(key, "/video") {
+		// A profile video, of no message: the profile's full info renews
+		// it. It was asked of messages.getMessages for message 0, which
+		// renewed nothing, on every show of the avatar.
+		_, e := s.avatarVideo(ctx, key, true)
+		return e
+	}
+	if m.Key.MessageID == 0 && ref.StickerSet != 0 {
+		// A sticker or an emoji of the picker, perhaps from its cache: its
+		// set renews it.
+		raw, e := api.MessagesGetStickerSet(ctx, &tg.MessagesGetStickerSetRequest{Stickerset: &tg.InputStickerSetID{ID: ref.StickerSet, AccessHash: ref.StickerSetHash}})
+		if e != nil {
+			return e
+		}
+		if pack, ok := raw.(*tg.MessagesStickerSet); ok {
+			s.pickerItems(ctx, pack.Documents)
+		}
+		return nil
+	}
+	if m.Key.MessageID == 0 && ref.SavedGIF {
+		res, e := api.MessagesGetSavedGifs(ctx, 0)
+		if e != nil {
+			return e
+		}
+		if gifs, ok := res.(*tg.MessagesSavedGifs); ok {
+			s.savedGIFItems(ctx, gifs.Gifs)
+		}
+		return nil
+	}
 	if ref.Gift {
 		chat := ref.GiftChat
 		if chat == 0 {
@@ -165,6 +243,9 @@ func (s *Store) refreshReference(ctx context.Context, m model.Message) error {
 			}
 		}
 		return errors.New("story no longer available")
+	}
+	if m.Key.MessageID == 0 || peer.ID == 0 {
+		return errors.New("media reference of no message")
 	}
 	ids := []tg.InputMessageClass{&tg.InputMessageID{ID: int(m.Key.MessageID)}}
 	var res tg.MessagesMessagesClass

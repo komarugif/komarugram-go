@@ -783,6 +783,32 @@ func TestPausedAnimationHoldsItsFrame(t *testing.T) {
 	}
 }
 
+// TestHoldingKeepsStillsStill holds the views under a dialog while the
+// dialog plays an animation: a view under it that asked for its still gets
+// the still, not each picture the dialog shows, and one that played it
+// stands where it is.
+func TestHoldingKeepsStillsStill(t *testing.T) {
+	m := New(&fakeSource{}, func() {})
+	defer m.Close()
+	still, current := image.NewRGBA(image.Rect(0, 0, 8, 8)), image.NewRGBA(image.Rect(0, 0, 8, 8))
+	e := &entry{animated: true, still: still, frame: current, box: image.Pt(1024, 1024), wake: make(chan struct{}, 1), cancel: func() {}}
+	m.entries["gift"] = e
+	msg := model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "gift"}}
+	m.BeginFrame()
+	m.SetHolding(true)
+	pattern, _ := m.Frame(msg, false)
+	card, _ := m.Frame(msg, true)
+	m.SetHolding(false)
+	dialog, _ := m.Frame(msg, true)
+	m.EndFrame()
+	if pattern != still {
+		t.Fatal("a still under a dialog shows what the dialog plays")
+	}
+	if card != current || dialog != current {
+		t.Fatal("an animation under a dialog jumped to its first picture")
+	}
+}
+
 // TestOneFrameLottieDrawsOnce plays a Lottie animation of one frame, as some
 // emoji statuses are: it is a picture, published once, and never wakes the
 // window again.

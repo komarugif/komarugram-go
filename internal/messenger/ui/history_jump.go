@@ -136,9 +136,10 @@ func (p *chatPage) scrollToEnd(history model.History) {
 // jumpButtons draws over the bottom right corner of the history, above
 // end, the round buttons that scroll to its end and its start and retry a
 // failed load, each there only when it has something to do, and above them
-// the ring of a load on its way, of the size of a button.
+// the ring of a load on its way, of the size of a button: of a jump's too,
+// while the history it empties is loaded again.
 func (p *chatPage) jumpButtons(gtx layout.Context, size image.Point, end, viewport int, history model.History, l localization.Catalog) {
-	if !p.restored || len(p.messages) == 0 && history.Err == nil {
+	if !p.jumping && (!p.restored || len(p.messages) == 0 && history.Err == nil) {
 		return
 	}
 	if c := p.composer; c != nil && (c.pickerOpen || c.pickerDrawn) {
@@ -181,8 +182,8 @@ func (p *chatPage) jumpButtons(gtx layout.Context, size image.Point, end, viewpo
 	x := size.X - gtx.Dp(jumpMargin) - btn
 	y := end - gtx.Dp(jumpMargin) - btn
 	defer func() {
-		if !(history.LoadingOlder || history.LoadingNewer) || len(p.messages) == 0 {
-			return // the empty history shows its own ring
+		if !(history.LoadingOlder || history.LoadingNewer) || len(p.messages) == 0 && !p.jumping {
+			return // the empty history shows its own ring, but on a jump
 		}
 		offset(gtx, image.Pt(x, y), func(gtx layout.Context) layout.Dimensions {
 			fillRounded(gtx, sc.SurfaceContainerHigh, image.Pt(btn, btn), btn/2)

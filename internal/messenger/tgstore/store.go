@@ -12,6 +12,7 @@ package tgstore
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -73,6 +74,11 @@ type Store struct {
 	bots          botState
 	// dialogsLoading: loadDialogs runs.
 	dialogsLoading atomic.Bool
+
+	// entries is what the folders' rules ask of the chats beyond them, and
+	// filters the folders as Telegram tells them: see folderList.
+	entries map[int64]entry
+	filters []tg.DialogFilterClass
 }
 
 // New returns an empty store that calls changed whenever Load has read more.
@@ -181,20 +187,40 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) err
 		}
 		s.rememberPeers(dialogs.GetUsers(), dialogs.GetChats())
 		s.history.mu.Lock()
-		tops := map[int64]int{}
+		tops, pts := map[int64]int{}, map[int64]int{}
 		for _, d := range dialogs.GetDialogs() {
 			if d, ok := d.(*tg.Dialog); ok {
 				s.history.top[peerID(d.Peer)] = max(s.history.top[peerID(d.Peer)], d.TopMessage)
 				tops[peerID(d.Peer)] = d.TopMessage
+				if p, ok := d.Peer.(*tg.PeerChannel); ok {
+					if n, ok := d.GetPts(); ok {
+						pts[p.ChannelID] = n
+					}
+				}
 			}
 		}
 		s.history.mu.Unlock()
+		if err := s.keepChannelPts(ctx, self, pts); err != nil {
+			return err
+		}
 		if err := s.liveFromDialogs(ctx, tops, liveEpoch); err != nil {
 			return err
 		}
+		read := len(l.chats)
 		added := l.add(dialogs)
-		chats, folders := l.snapshot(filters.Filters)
-		s.publish(func() { s.chats, s.folders = chats, folders })
+		page := l.chats[read:]
+		// The pages after one that tells nothing new are of chats that
+		// changed no more: see dialogs_kept.go.
+		unchanged := false
+		s.publish(func() {
+			unchanged = s.pageUnchanged(page, l)
+			chats, entries := s.withKept(l)
+			s.chats, s.entries, s.filters = s.keepReads(chats), entries, filters.Filters
+			s.folders = folderList(self, filters.Filters, entries)
+		})
+		if unchanged {
+			break
+		}
 
 		// A complete list comes as messages.dialogs; only a slice has more,
 		// and it says how many dialogs there are in all.
@@ -218,6 +244,46 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) err
 	}
 	s.resync(0)
 	return nil
+}
+
+// keepChannelPts keeps the channels' pts the dialogs tell (pts, by channel
+// id), as Telegram Desktop takes them: a channel the updates manager starts
+// when an update of it comes asks for its difference from there, not from
+// where it stood when the client last ran. What happened before is in the
+// dialogs, and in the pages of the histories opened. Only channels kept
+// already are: the manager starts any other from its first update.
+func (s *Store) keepChannelPts(ctx context.Context, self int64, pts map[int64]int) error {
+	cache := s.Cache()
+	if cache == nil || len(pts) == 0 {
+		return nil
+	}
+	return cache.RaiseChannelPts(ctx, self, pts)
+}
+
+// keepReads keeps in chats, the dialogs read so far, the reads this client
+// told Telegram since: a dialog read before Telegram had the read, its
+// ReadInbox older than it, counts the messages read since as unread. The
+// pages of a long load, each with every dialog read until then, brought a
+// chat read meanwhile its unread count back, and the read, told already,
+// was not told again to take it away. The caller holds s.mu.
+func (s *Store) keepReads(chats []model.Chat) []model.Chat {
+	now := make(map[int64]model.Chat, len(s.chats))
+	for _, c := range s.chats {
+		now[c.ID] = c
+	}
+	s.ghost.mu.Lock()
+	defer s.ghost.mu.Unlock()
+	for i, c := range chats {
+		told := s.ghost.read[c.ID]
+		if told <= c.ReadInbox {
+			continue
+		}
+		chats[i].ReadInbox = told
+		if kept, ok := now[c.ID]; ok {
+			chats[i].Unread = kept.Unread
+		}
+	}
+	return chats
 }
 
 func (s *Store) publish(update func()) {
@@ -369,6 +435,7 @@ func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 		Unread:     d.UnreadCount,
 		Pinned:     d.Pinned,
 		ReadOutbox: model.MessageID(d.ReadOutboxMaxID),
+		ReadInbox:  model.MessageID(d.ReadInboxMaxID),
 	}
 	chat.Muted = mutedNow(d.NotifySettings)
 	if d.Pinned {
@@ -589,16 +656,7 @@ func (l *list) inputPeer(p tg.PeerClass) (tg.InputPeerClass, bool) {
 // slices are fresh: the store hands them to the UI as they are.
 func (l *list) snapshot(filters []tg.DialogFilterClass) ([]model.Chat, []model.Folder) {
 	chats := append([]model.Chat(nil), l.chats...)
-	entries := make(map[int64]entry, len(l.entries))
-	for id, e := range l.entries {
-		entries[id] = e
-	}
-	var folders []model.Folder
-	for _, f := range filters {
-		if folder, ok := l.folder(f, entries); ok {
-			folders = append(folders, folder)
-		}
-	}
+	folders := folderList(l.self, filters, maps.Clone(l.entries))
 	return chats, folders
 }
 

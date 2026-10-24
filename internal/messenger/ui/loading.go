@@ -10,6 +10,7 @@ import (
 
 	"gioui.org/io/semantic"
 	"gioui.org/layout"
+	"gioui.org/op/clip"
 	"gioui.org/unit"
 )
 
@@ -23,10 +24,12 @@ func (s *loadingIndicator) Layout(gtx layout.Context, l localization.Catalog) la
 	return s.circle.Layout(gtx)
 }
 
-// sized draws the ring d wide and tall.
+// sized draws the ring d wide and tall, in an area of its own: what tells
+// it, as a screen reader, finds it where it is drawn.
 func (s *loadingIndicator) sized(gtx layout.Context, l localization.Catalog, d unit.Dp) layout.Dimensions {
 	n := gtx.Dp(d)
 	gtx.Constraints = layout.Exact(image.Pt(n, n))
+	defer clip.Rect{Max: image.Pt(n, n)}.Push(gtx.Ops).Pop()
 	return s.Layout(gtx, l)
 }
 

@@ -122,6 +122,10 @@ func ErrorClass(err error) string {
 		if len(kind) > 64 {
 			kind = kind[:64]
 		}
+		if rpc.Argument != 0 {
+			// The number of FLOOD_WAIT_X and its kind: how long to wait.
+			return fmt.Sprintf("RPC %d %s %d", rpc.Code, kind, rpc.Argument)
+		}
 		return fmt.Sprintf("RPC %d %s", rpc.Code, kind)
 	}
 	return fmt.Sprintf("%T", err)

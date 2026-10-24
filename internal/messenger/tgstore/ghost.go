@@ -20,13 +20,24 @@ const (
 	// onlineEvery keeps the account online: Telegram shows it offline a
 	// few minutes after the last status.
 	onlineEvery = 2 * time.Minute
+	// readRetry is how long a read Telegram was not told waits to be told
+	// again.
+	readRetry = 5 * time.Second
+	// readAgain is how often a chat read to its end whose unread count
+	// came back is told again that it is read.
+	readAgain = 10 * time.Second
 )
 
 // ghostState is what the account may tell, and what it told last.
 type ghostState struct {
-	mu     sync.Mutex
-	ghost  model.Ghost
+	mu    sync.Mutex
+	ghost model.Ghost
+	// read is what each chat was told, or is being told, it is read up
+	// to; retry, until when a read that failed waits; again, until when
+	// a read told already is not told again (see MarkRead).
 	read   map[int64]model.MessageID
+	retry  map[int64]time.Time
+	again  map[int64]time.Time
 	typed  map[int64]time.Time
 	online bool
 	// told is when the status was sent last; toldOnline, which one.
@@ -73,29 +84,79 @@ func (s *Store) MarkRead(chat int64, id model.MessageID, asked bool) {
 		s.markTopicRead(chat, id, asked)
 		return
 	}
-	gs := &s.ghost
-	gs.mu.Lock()
-	if !asked && !gs.ghost.SendRead || gs.read[chat] >= id {
-		gs.mu.Unlock()
-		return
+	// The messages read before: those after them up to id are read now.
+	prev, unread := s.readUpTo(chat), 0
+	for _, ch := range s.Chats() {
+		if ch.ID == chat {
+			prev, unread = max(prev, ch.ReadInbox), ch.Unread
+		}
 	}
-	if gs.read == nil {
-		gs.read = map[int64]model.MessageID{}
-	}
-	gs.read[chat] = id
-	gs.mu.Unlock()
 	c := s.history
 	c.mu.Lock()
 	peer, top := c.peers[chat], c.top[chat]
+	// What is left unread is counted from the history when it runs to the
+	// chat's newest message; read up to the newest, nothing is. Short of
+	// it, the count goes down by the messages read now that the history
+	// has: Telegram tells this session nothing of its own reads.
+	left, read := -1, 0
+	if int(id) >= top {
+		left = 0
+	} else if h := c.histories[chat]; h != nil && !h.HasNewer && len(h.Messages) > 0 && int(h.Messages[len(h.Messages)-1].Key.MessageID) >= top {
+		left = 0
+		for _, m := range h.Messages {
+			if m.Key.MessageID > id && !m.Outgoing && !m.Local() {
+				left++
+			}
+		}
+	} else if h != nil {
+		for _, m := range h.Messages {
+			if m.Key.MessageID > prev && m.Key.MessageID <= id && !m.Outgoing && !m.Local() {
+				read++
+			}
+		}
+	}
 	c.mu.Unlock()
 	if peer.ID == 0 {
+		// Not marked as read: it is told once the peer is known.
 		return
 	}
-	if int(id) >= top {
-		s.setUnread(chat, 0)
+	// Read to its end, the chat has nothing unread, whatever brought its
+	// count back after the read was told: the count goes, and the read is
+	// told again, at most every readAgain.
+	stuck := left == 0 && unread > 0
+	gs := &s.ghost
+	gs.mu.Lock()
+	allowed := asked || gs.ghost.SendRead
+	back := allowed && stuck && gs.read[chat] >= id
+	tell := gs.mayRead(chat, id, asked)
+	if !tell && back && !time.Now().Before(gs.again[chat]) {
+		tell = true
+		if gs.again == nil {
+			gs.again = map[int64]time.Time{}
+		}
+		gs.again[chat] = time.Now().Add(readAgain)
+	}
+	if tell {
+		if gs.read == nil {
+			gs.read = map[int64]model.MessageID{}
+		}
+		gs.read[chat] = max(gs.read[chat], id)
+	}
+	gs.mu.Unlock()
+	if !tell && !(allowed && stuck) {
+		return
+	}
+	if s.markInbox(chat, id, left, read) {
+		if back {
+			// Seen in -profile: what came back is worth finding.
+			s.profileHistory("read.count-came-back", chat, 0, int(id), unread, time.Time{}, nil)
+		}
 		s.changed()
 	}
-	s.goSend("read", func(ctx context.Context, api *tg.Client) error {
+	if !tell {
+		return
+	}
+	s.tellRead(chat, id, func(ctx context.Context, api *tg.Client) error {
 		if peer.Kind == "channel" {
 			_, err := api.ChannelsReadHistory(ctx, &tg.ChannelsReadHistoryRequest{Channel: &tg.InputChannel{ChannelID: peer.ID, AccessHash: peer.Hash}, MaxID: int(id)})
 			return err
@@ -103,6 +164,49 @@ func (s *Store) MarkRead(chat int64, id model.MessageID, asked bool) {
 		_, err := api.MessagesReadHistory(ctx, &tg.MessagesReadHistoryRequest{Peer: peer.input(), MaxID: int(id)})
 		return err
 	})
+}
+
+// mayRead reports whether chat is to be told it is read up to id: Ghost
+// allows it or the user asked, it was not told that already, and no read
+// that failed waits. The caller holds gs.mu.
+func (gs *ghostState) mayRead(chat int64, id model.MessageID, asked bool) bool {
+	return (asked || gs.ghost.SendRead) && gs.read[chat] < id && !time.Now().Before(gs.retry[chat])
+}
+
+// tellRead tells Telegram with send that chat is read up to id. A read not
+// told, without a connection or on an error, is forgotten for the history
+// to tell again, after readRetry on an error: kept as told, it never would
+// be, and the dialogs loaded next would bring the chat's unread count back
+// for good.
+func (s *Store) tellRead(chat int64, id model.MessageID, send func(context.Context, *tg.Client) error) {
+	forget := func(failed bool) {
+		gs := &s.ghost
+		gs.mu.Lock()
+		if gs.read[chat] == id {
+			delete(gs.read, chat)
+		}
+		if failed {
+			if gs.retry == nil {
+				gs.retry = map[int64]time.Time{}
+			}
+			gs.retry[chat] = time.Now().Add(readRetry)
+		}
+		gs.mu.Unlock()
+	}
+	sent := s.goSend("read", func(ctx context.Context, api *tg.Client) error {
+		err := send(ctx, api)
+		if err != nil {
+			forget(true)
+			// Drawn again then, the history tells it again.
+			time.AfterFunc(readRetry, s.changed)
+		}
+		return err
+	})
+	// Without a connection yet the history tells it again once there is
+	// one: the dialogs it loads draw it again.
+	if !sent {
+		forget(false)
+	}
 }
 
 // readOnInteract marks chat read up to its last message after the account
@@ -172,15 +276,16 @@ func (s *Store) Typing(chat int64) {
 	})
 }
 
-// goSend runs send with the API off the frame; what it tells is not worth
-// a retry.
-func (s *Store) goSend(what string, send func(context.Context, *tg.Client) error) {
+// goSend runs send with the API off the frame, and reports whether it did:
+// not without a connection. What it tells is not worth a retry, but reads
+// (tellRead).
+func (s *Store) goSend(what string, send func(context.Context, *tg.Client) error) bool {
 	c := s.history
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	api, ctx := c.api, c.ctx
 	if api == nil || c.closing {
-		return
+		return false
 	}
 	c.wg.Go(func() {
 		defer crash.Recover(what, nil)
@@ -188,4 +293,5 @@ func (s *Store) goSend(what string, send func(context.Context, *tg.Client) error
 		defer cancel()
 		_ = send(ctx, api)
 	})
+	return true
 }

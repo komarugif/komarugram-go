@@ -127,15 +127,13 @@ func TestListRecordsBackdropForBlurringOverlays(t *testing.T) {
 	if h.list.bd == nil || h.list.menuBackdrop() == nil {
 		t.Fatal("the rows were not recorded for a menu that blurs them")
 	}
+	// The list's toast shows in the chat or over the window, not over the
+	// rows: toasts that blur leave them unrecorded.
 	h.list.overlays = func() overlayPrefs { return overlayPrefs{toasts: true, opacity: 0.5} }
-	h.frames(2)
-	if h.list.bd == nil || h.list.menuBackdrop() != nil {
-		t.Fatalf("toasts only: recorded %t, menus blur %t", h.list.bd != nil, h.list.menuBackdrop() != nil)
-	}
 	h.list.toast.Show("hello")
 	h.frames(2)
-	if h.list.toast.bd == nil {
-		t.Fatal("the toast does not blur")
+	if h.list.bd != nil || h.list.menuBackdrop() != nil {
+		t.Fatalf("toasts only: recorded %t, menus blur %t", h.list.bd != nil, h.list.menuBackdrop() != nil)
 	}
 	// The menu of a chat opens and draws over the blurred rows.
 	h.list.overlays = func() overlayPrefs { return overlayPrefs{menus: true, toasts: true, opacity: 0.5} }

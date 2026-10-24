@@ -94,6 +94,8 @@ type conversation struct {
 	mediaDir      string
 	persist       sync.Mutex
 	avatars       map[int64]avatarSnapshot
+	goneAvatars   map[int64]bool        // photos Telegram no longer has: avatarGone
+	floodUntil    map[string]floodState // media Telegram refused: noteFloodWait
 	top           map[int64]int
 	globalDeleted map[int]bool
 	mu            sync.Mutex
@@ -205,12 +207,16 @@ func (s *Store) Configure(ctx context.Context, account, path string, p *security
 	if _, e = cache.Get(ctx, recentKey, &recent); e != nil {
 		return e
 	}
+	var entries map[int64]keptEntry
+	if _, e = cache.Get(ctx, "dialog-entries", &entries); e != nil {
+		return e
+	}
 	s.recent.mu.Lock()
 	s.recent.list = recent
 	s.recent.mu.Unlock()
 	s.mu.Lock()
 	if s.chats == nil {
-		s.chats = chats
+		s.chats, s.entries = chats, readEntries(entries)
 	}
 	s.mu.Unlock()
 	return nil
@@ -264,8 +270,25 @@ func (s *Store) Attach(client *telegram.Client) {
 	}
 	c.mu.Unlock()
 }
+
+// lazyChannels is the updates manager's storage, which names it no channel
+// when it starts. The manager asks for the difference of each channel it
+// is named at once, and of each every 15 minutes after: one request for
+// every channel the account ever had an update of, which an account with
+// many met with FLOOD_WAIT, its dialogs among them, on every start.
+// Telegram Desktop asks for a channel's difference on a gap in its pts, on
+// updateChannelTooLong, and for the channel open; the manager starts a
+// channel when an update of it comes, from the pts kept for it, which the
+// dialogs keep current (keepChannelPts).
+type lazyChannels struct{ *historycache.Cache }
+
+// ForEachChannels names no channel: see lazyChannels.
+func (lazyChannels) ForEachChannels(context.Context, int64, func(context.Context, int64, int) error) error {
+	return nil
+}
+
 func (s *Store) Updates() *updates.Manager {
-	return updates.New(updates.Config{Handler: telegram.UpdateHandlerFunc(s.Handle), Storage: s.Cache(), AccessHasher: s.Cache(), MaxChannelDifferenceConcurrency: 2,
+	return updates.New(updates.Config{Handler: telegram.UpdateHandlerFunc(s.Handle), Storage: lazyChannels{s.Cache()}, AccessHasher: s.Cache(), MaxChannelDifferenceConcurrency: 2,
 		OnTooLong: func() {
 			s.endLive(0)
 			s.reloadDialogs()
@@ -420,7 +443,12 @@ func (s *Store) persistDialogs(ctx context.Context) error {
 	if cache == nil {
 		return nil
 	}
-	chats := s.Chats()
+	s.mu.RLock()
+	chats, entries := s.chats, keepEntries(s.entries)
+	s.mu.RUnlock()
+	if e := cache.Put(ctx, "dialog-entries", entries); e != nil {
+		return e
+	}
 	if e := cache.Put(ctx, "peers", peers); e != nil {
 		return e
 	}
@@ -448,6 +476,7 @@ func (s *Store) OpenChat(chat int64) {
 	c.wg.Go(func() {
 		start := diagnostics.Start()
 		var v model.Viewport
+		unread := false
 		found, e := c.cache.Get(c.ctx, fmt.Sprintf("viewport/%d", chat), &v)
 		if e != nil {
 			s.finishPageAt(epoch, chat, 0, nil, false, e)
@@ -456,6 +485,11 @@ func (s *Store) OpenChat(chat int64) {
 		if revealing {
 			v = model.Viewport{AccountID: c.account, ChatID: chat, AnchorMessageID: reveal, AtEnd: reveal == 0, UpdatedAt: time.Now()}
 			found = true
+		} else if !found || v.AtEnd {
+			// Not opened here, or left at its end: at its first unread.
+			if u, ok := s.unreadView(chat, true); ok {
+				v, found, unread = u, true, true
+			}
 		}
 		anchor := 0
 		if found && !v.AtEnd {
@@ -463,9 +497,14 @@ func (s *Store) OpenChat(chat int64) {
 		}
 		msgs, e := c.cache.Around(c.ctx, chat, anchor, 200)
 		s.profileHistory("cache.open-around", chat, 0, anchor, len(msgs), start, e)
-		if revealing && reveal != 0 && !slices.ContainsFunc(msgs, func(m model.Message) bool { return m.Key.MessageID == reveal }) {
+		c.mu.Lock()
+		online := c.api != nil
+		c.mu.Unlock()
+		// Offline the cache is all there is to show.
+		if (revealing && reveal != 0 || unread && online) && !slices.ContainsFunc(msgs, func(m model.Message) bool { return m.Key.MessageID == model.MessageID(anchor) }) {
 			// The cache does not have the message, so what it has around
-			// it is from elsewhere in the history: wait for Telegram's page.
+			// it is from elsewhere in the history, as the last message
+			// alone of a chat never opened: wait for Telegram's page.
 			msgs = nil
 		}
 		c.mu.Lock()
@@ -488,6 +527,98 @@ func (s *Store) OpenChat(chat int64) {
 		}
 		s.fetchAt(epoch, chat, 0, anchor)
 	})
+}
+
+// unreadView is where a chat not opened here before opens: at its first
+// message not read, when it has any. Opened at its end, it would be read
+// whole, and the account's other devices would lose where it stopped
+// reading.
+func (s *Store) unreadView(chat int64, ask bool) (model.Viewport, bool) {
+	var read model.MessageID
+	unread := false
+	for _, ch := range s.Chats() {
+		if ch.ID == chat && ch.Unread > 0 {
+			read, unread = ch.ReadInbox, true
+		}
+	}
+	if unread && read == 0 && ask {
+		// Dialogs kept before they had it, or not loaded yet, lack it.
+		read = s.readInbox(chat)
+	}
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Without what was read nothing tells where the unread messages begin.
+	if read <= 0 || int(read) >= c.top[chat] {
+		return model.Viewport{}, false
+	}
+	return model.Viewport{AccountID: c.account, ChatID: chat, AnchorMessageID: read + 1, UpdatedAt: time.Now()}, true
+}
+
+// OpenUnread implements model.UnreadOpener for a history kept from before:
+// OpenChat opens one not loaded at its first unread itself. Left at its end,
+// it opens at its first unread message; elsewhere it stays where it was.
+func (s *Store) OpenUnread(chat int64) {
+	if isThread(chat) {
+		return
+	}
+	c := s.history
+	c.mu.Lock()
+	h := c.histories[chat]
+	v, ok := c.views[chat]
+	c.mu.Unlock()
+	if h == nil || ok && !v.AtEnd {
+		return
+	}
+	u, ok := s.unreadView(chat, false)
+	if !ok {
+		return
+	}
+	c.mu.Lock()
+	if c.histories[chat] == h && slices.ContainsFunc(h.Messages, func(m model.Message) bool { return m.Key.MessageID == u.AnchorMessageID }) {
+		c.views[chat] = u
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
+	s.reveal(chat, u.AnchorMessageID, false)
+}
+
+// readInbox asks Telegram what chat was read up to, which it keeps in the
+// chat's dialog; 0 without a connection or on an error.
+func (s *Store) readInbox(chat int64) model.MessageID {
+	c := s.history
+	c.mu.Lock()
+	api, ctx, peer := c.api, c.ctx, c.peers[chat]
+	c.mu.Unlock()
+	if api == nil || peer.ID == 0 {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	res, err := api.MessagesGetPeerDialogs(ctx, []tg.InputDialogPeerClass{&tg.InputDialogPeer{Peer: peer.input()}})
+	if err != nil {
+		return 0
+	}
+	var read model.MessageID
+	for _, d := range res.Dialogs {
+		if d, ok := d.(*tg.Dialog); ok && peerID(d.Peer) == chat {
+			read = model.MessageID(d.ReadInboxMaxID)
+		}
+	}
+	if read == 0 {
+		return 0
+	}
+	s.mu.Lock()
+	chats := append([]model.Chat(nil), s.chats...)
+	for i := range chats {
+		if chats[i].ID == chat {
+			chats[i].ReadInbox = max(chats[i].ReadInbox, read)
+		}
+	}
+	s.chats = chats
+	s.mu.Unlock()
+	return read
 }
 
 // Reveal implements model.MessageRevealer. The chat's history is dropped
@@ -706,7 +837,7 @@ func (s *Store) fetchAt(epoch uint64, chat int64, dir, anchor int) {
 	}
 	c := s.history
 	c.mu.Lock()
-	api, peer, start, liveEpoch := c.api, c.peers[chat], c.generation, c.liveEpoch
+	api, peer, start, liveEpoch, top := c.api, c.peers[chat], c.generation, c.liveEpoch, c.top[chat]
 	if h := c.histories[chat]; h != nil {
 		h.Offline = api == nil
 	}
@@ -757,6 +888,7 @@ func (s *Store) fetchAt(epoch uint64, chat int64, dir, anchor int) {
 		s.finishPageAt(epoch, chat, dir, nil, false, e)
 		return
 	}
+	s.endTop(chat, modified.GetMessages(), dir, anchor, req.Limit, top)
 	msgs, e := s.ingest(ctx, modified.GetMessages(), false, start)
 	if e == nil {
 		e = s.persistDialogs(ctx)
@@ -777,6 +909,35 @@ func (s *Store) fetchAt(epoch uint64, chat int64, dir, anchor int) {
 		}
 	}
 	s.finishPageAt(epoch, chat, dir, msgs, len(modified.GetMessages()) >= req.Limit, e, start)
+}
+
+// endTop lowers the chat's newest message to the newest of a page that
+// reaches the chat's end, when the one known, top, is newer. That one is
+// gone: deleted while the client was closed, it stays the newest the
+// dialogs know of, which keep the newest they saw. A history waiting for it
+// never ends, and read to its end it never read the chat: its unread count
+// stayed until a message came after. A message that came while the page
+// was asked for is newer still, and stays.
+func (s *Store) endTop(chat int64, page []tg.MessageClass, dir, anchor, limit, top int) {
+	ids := make([]int, 0, len(page))
+	newest := 0
+	for _, m := range page {
+		ids = append(ids, m.GetID())
+		newest = max(newest, m.GetID())
+	}
+	if dir > 0 {
+		// The page is of what follows anchor, the newest message kept.
+		newest = max(newest, anchor)
+	}
+	if _, _, end, ok := pageSpan(ids, dir, anchor, limit); !ok || !end || newest == 0 {
+		return
+	}
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.top[chat] == top && newest < top {
+		c.top[chat] = newest
+	}
 }
 
 // learnTop learns the newest message of a chat opened at a message
@@ -1201,15 +1362,28 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 				s.setMuted(peerID(p.Peer), u.NotifySettings)
 			}
 		case *tg.UpdateReadHistoryInbox:
-			s.setUnread(peerID(u.Peer), u.StillUnreadCount)
+			s.setUnread(peerID(u.Peer), u.StillUnreadCount, u.MaxID)
 		case *tg.UpdateReadChannelInbox:
-			s.setUnread(peerID(&tg.PeerChannel{ChannelID: u.ChannelID}), u.StillUnreadCount)
+			s.setUnread(peerID(&tg.PeerChannel{ChannelID: u.ChannelID}), u.StillUnreadCount, u.MaxID)
 		case *tg.UpdateReadHistoryOutbox:
 			s.setReadOutbox(peerID(u.Peer), u.MaxID)
 		case *tg.UpdateReadChannelOutbox:
 			s.setReadOutbox(peerID(&tg.PeerChannel{ChannelID: u.ChannelID}), u.MaxID)
 		case *tg.UpdateUserStatus:
 			s.setPresence(u.UserID, u.Status)
+		// The picker's catalogues are asked for again, with their hashes.
+		case *tg.UpdateStickerSets:
+			s.picker.expire(stickerTab(u.Emojis))
+		case *tg.UpdateStickerSetsOrder:
+			s.picker.expire(stickerTab(u.Emojis))
+		case *tg.UpdateMoveStickerSetToTop:
+			s.picker.expire(stickerTab(u.Emojis))
+		case *tg.UpdateNewStickerSet:
+			s.picker.expire(model.PickerStickers, model.PickerEmoji)
+		case *tg.UpdateRecentStickers:
+			s.picker.expire(model.PickerStickers)
+		case *tg.UpdateSavedGifs:
+			s.picker.expire(model.PickerGIF)
 		case *tg.UpdateNewMessage:
 			msg, fresh = u.Message, true
 		case *tg.UpdateNewChannelMessage:
@@ -1233,6 +1407,10 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			s.applyBlocked(u)
 		case *tg.UpdateDialogPinned:
 			s.applyPin(u)
+		case *tg.UpdateDialogUnreadMark:
+			s.applyUnreadMark(u)
+		case *tg.UpdateFolderPeers:
+			s.applyFolderPeers(u)
 		case *tg.UpdatePinnedDialogs:
 			s.applyPinOrder(ctx, u)
 		case *tg.UpdatePinnedMessages:
@@ -1333,7 +1511,10 @@ func (s *Store) mergeUpdate(m model.Message) (chat model.Chat, isNew bool) {
 	for i := range chats {
 		if chats[i].ID == m.Key.ChatID {
 			chats[i] = p.withMetadata(chats[i])
-			if isNew && !m.Outgoing {
+			// A message the history showed and marked read in the meantime,
+			// between the newest message and its count here, is read: it is
+			// looked up under s.mu, which MarkRead takes after it marks.
+			if isNew && !m.Outgoing && m.Key.MessageID > s.readUpTo(m.Key.ChatID) {
 				chats[i].Unread++
 			}
 			if !m.Date.Before(chats[i].LastTime) {
@@ -1616,16 +1797,57 @@ func (s *Store) setReadOutbox(id int64, upTo int) {
 	s.chats = chats
 }
 
-func (s *Store) setUnread(id int64, n int) {
+// setUnread sets the chat's unread count to n, which Telegram counts after
+// a read up to upTo. A read older than the one this client told, which
+// comes after it, from another device or a difference, is passed over: its
+// count is of messages read here since.
+func (s *Store) setUnread(id int64, n, upTo int) {
+	if model.MessageID(upTo) < s.readUpTo(id) {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	chats := append([]model.Chat(nil), s.chats...)
 	for i := range chats {
 		if chats[i].ID == id {
 			chats[i].Unread = max(n, 0)
+			chats[i].ReadInbox = max(chats[i].ReadInbox, model.MessageID(upTo))
 		}
 	}
 	s.chats = chats
+}
+
+// markInbox keeps the chat read up to upTo here, and lowers its unread
+// count to left, or by read when what is left is not known (left < 0). It
+// reports whether the count changed.
+func (s *Store) markInbox(id int64, upTo model.MessageID, left, read int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, ch := range s.chats {
+		if ch.ID != id {
+			continue
+		}
+		if left < 0 {
+			left = ch.Unread - read
+		}
+		n := min(ch.Unread, max(left, 0))
+		if n == ch.Unread && upTo <= ch.ReadInbox {
+			return false
+		}
+		chats := append([]model.Chat(nil), s.chats...)
+		chats[i].Unread = n
+		chats[i].ReadInbox = max(ch.ReadInbox, upTo)
+		s.chats = chats
+		return n != ch.Unread
+	}
+	return false
+}
+
+// readUpTo is the message the chat was marked read up to here.
+func (s *Store) readUpTo(chat int64) model.MessageID {
+	s.ghost.mu.Lock()
+	defer s.ghost.mu.Unlock()
+	return s.ghost.read[chat]
 }
 
 func (s *Store) reconcile(ctx context.Context, chat int64, raw []tg.MessageClass, start uint64, dir, anchor, limit int) error {

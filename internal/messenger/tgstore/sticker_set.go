@@ -129,10 +129,7 @@ func (s *Store) SetStickerSetInstalled(ctx context.Context, ref model.StickerSet
 		}
 	}
 	if err == nil {
-		s.picker.mu.Lock()
-		delete(s.picker.at, model.PickerStickers)
-		delete(s.picker.at, model.PickerEmoji)
-		s.picker.mu.Unlock()
+		s.picker.expire(model.PickerStickers, model.PickerEmoji)
 		if set, ok := s.CachedStickerSet(ctx, ref); ok {
 			set.Installed = installed
 			s.cacheStickerSet(ctx, ref, set)

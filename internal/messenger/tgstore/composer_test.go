@@ -85,6 +85,45 @@ func TestSendToSelfWithoutDialog(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// In Saved Messages Telegram does not mark the user's messages as outgoing,
+// nor tell who sent them: the message on its way, and the one its
+// acknowledgement makes, stand on the side Telegram's will, not on the other
+// first, and show no name; in a chat with somebody they are outgoing.
+func TestSentMessageSideAsTelegrams(t *testing.T) {
+	for _, saved := range []bool{true, false} {
+		s := testStore(t)
+		s.rememberPeers([]tg.UserClass{&tg.User{ID: 5, Self: true, FirstName: "Me"}, &tg.User{ID: 6, AccessHash: 66, FirstName: "Ann"}}, nil)
+		s.mu.Lock()
+		s.me = model.Profile{ID: 5, FirstName: "Me"}
+		s.mu.Unlock()
+		chat := int64(6)
+		if saved {
+			chat = 5
+		}
+		s.history.histories[chat] = &model.History{}
+		var pending []model.Message
+		s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
+			if _, ok := in.(*tg.MessagesSendMessageRequest); !ok {
+				return nil, fmt.Errorf("unexpected %T", in)
+			}
+			pending = s.History(chat).Messages
+			return &tg.UpdateShortSentMessage{ID: 9, Date: 10, Out: !saved}, nil
+		})
+		if err := s.Send(context.Background(), chat, model.OutgoingMessage{RandomID: 1, Text: "note"}); err != nil {
+			t.Fatal(err)
+		}
+		// Not outgoing, a message with a name shows it over its text.
+		if len(pending) != 1 || !pending[0].Sending || pending[0].Outgoing == saved || saved && pending[0].SenderName != "" {
+			t.Fatalf("saved %v: the message on its way %+v", saved, pending)
+		}
+		got := s.History(chat).Messages
+		if len(got) != 1 || got[0].Key.MessageID != 9 || got[0].Outgoing == saved || saved && got[0].SenderName != "" {
+			t.Fatalf("saved %v: the message sent %+v", saved, got)
+		}
+	}
+}
+
 func TestSendChecklistAndRender(t *testing.T) {
 	s := testStore(t)
 	s.history.peers[5] = peerRecord{Kind: "user", ID: 5}

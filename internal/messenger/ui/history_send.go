@@ -113,15 +113,29 @@ func (p *chatPage) startFlights(gtx layout.Context, prev []model.Message, animat
 			prevLast = m.Key.MessageID
 		}
 	}
-	// The flights of messages on their way that are gone, which the
-	// messages that took their places go on with.
-	var orphans []*sendFlight
-	for id, f := range p.flights {
-		if id < 0 && !p.hasMessage(id) {
-			orphans = append(orphans, f)
-			delete(p.flights, id)
+	// The user's messages on their way that are gone, oldest first: the
+	// messages Telegram made of them took their places, and go on with
+	// their flights, or stand where they are once those ended. waiting
+	// counts those still there, which a message of Telegram's may come
+	// before.
+	var gone []model.MessageID
+	waiting := 0
+	for _, m := range prev {
+		if m.Sending && p.sentByUser(m) {
+			if p.hasMessage(m.Key.MessageID) {
+				waiting++
+			} else {
+				gone = append(gone, m.Key.MessageID)
+			}
 		}
 	}
+	defer func() {
+		for id := range p.flights {
+			if id < 0 && !p.hasMessage(id) {
+				delete(p.flights, id)
+			}
+		}
+	}()
 	for _, m := range p.messages {
 		// What was on its way and is still there, though taken, as the
 		// demo keeps it, came before.
@@ -132,8 +146,18 @@ func (p *chatPage) startFlights(gtx layout.Context, prev []model.Message, animat
 		mine := p.sentByUser(m)
 		var f *sendFlight
 		switch {
-		case mine && !m.Sending && len(orphans) > 0:
-			f, orphans = orphans[0], orphans[1:]
+		case mine && !m.Sending && len(gone) > 0:
+			// The flight of the message it was; none, once it landed.
+			f = p.flights[gone[0]]
+			gone = gone[1:]
+			if f == nil {
+				continue
+			}
+		case mine && !m.Sending && waiting > 0:
+			// It came before the message on its way went: it is where that
+			// one stands.
+			waiting--
+			continue
 		case mine && p.composer.takeSent(p.chat):
 			f = newFlight(gtx, false)
 		case gtx.Now.Sub(m.Date) < arrivalAge:
@@ -148,12 +172,13 @@ func (p *chatPage) startFlights(gtx layout.Context, prev []model.Message, animat
 	}
 }
 
-// flyingRow draws a row with draw, which is a message that flies from the
-// composer, or came, if it does: it rises to its place while it fades in.
-// from is how far below the row's middle the composer's is, in px; a
-// message that came rises arrivalRise.
-func (p *chatPage) flyingRow(gtx layout.Context, id model.MessageID, from int, draw func(layout.Context) layout.Dimensions) layout.Dimensions {
-	f := p.flights[id]
+// flyingRow draws row i with draw, a message that flies from the composer,
+// or came, if it does: it rises to its place while it fades in. composer is
+// where the composer's middle is, down from the top of the history's view,
+// and end the room after the row, the history's tail after its last, in
+// px; a message that came rises arrivalRise.
+func (p *chatPage) flyingRow(gtx layout.Context, i, composer, end int, draw func(layout.Context) layout.Dimensions) layout.Dimensions {
+	f := p.flights[p.messages[i].Key.MessageID]
 	if f == nil {
 		return draw(gtx)
 	}
@@ -162,17 +187,31 @@ func (p *chatPage) flyingRow(gtx layout.Context, id model.MessageID, from int, d
 	call := record.Stop()
 	t := f.tween.Animate(gtx, 1)
 	if t >= 1 {
-		delete(p.flights, id)
+		delete(p.flights, p.messages[i].Key.MessageID)
 		call.Add(gtx.Ops)
 		return dims
 	}
-	rise := from + dims.Size.Y/2
-	if f.arrival {
-		rise = gtx.Dp(arrivalRise)
+	rise := gtx.Dp(arrivalRise)
+	if !f.arrival {
+		rise = composer - (p.endTop(i, dims.Size.Y+end) + dims.Size.Y/2)
 	}
 	shift := int(float32(rise) * (1 - t))
 	defer op.Offset(image.Pt(0, shift)).Push(gtx.Ops).Pop()
 	defer paint.PushOpacity(gtx.Ops, t).Pop()
 	call.Add(gtx.Ops)
 	return dims
+}
+
+// endTop is where row i, h high, lies down from the top of the history's
+// view at its end: the rows end at the view's bottom, or, too few to fill
+// it, begin at its top, as a short history, a new Saved Messages', does.
+// Its own height is h, which its measure may not be yet.
+func (p *chatPage) endTop(i, h int) int {
+	if p.heights == nil || p.list.Position.BeforeEnd {
+		// As the last row at the bottom of the view.
+		return p.viewHeight - h
+	}
+	before := int(p.heights.Prefix(i))
+	after := int(p.heights.Total() - p.heights.Prefix(i+1))
+	return before - max(0, before+h+after-p.viewHeight)
 }

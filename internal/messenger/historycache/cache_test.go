@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gotd/td/telegram/updates"
 )
@@ -356,6 +357,50 @@ func TestGIFsPageAroundAnchorWithIndex(t *testing.T) {
 	rows.Close()
 	if !strings.Contains(plan, "gifs") {
 		t.Fatalf("GIF query does not use the GIF index:\n%s", plan)
+	}
+}
+
+// Media read are used: the eviction goes by use, and an avatar read every
+// day stays though it was written long before what came since. Marked used
+// only when written, it went first, to be downloaded again.
+func TestMediaReadIsKept(t *testing.T) {
+	ctx := context.Background()
+	c, e := Open(filepath.Join(t.TempDir(), "history"), "a", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer c.Close()
+	c.mediaBudget = 1 << 20
+	blob := make([]byte, smallMedia-1)
+	for _, key := range []string{"avatar", "m/0", "m/1", "m/2", "m/3", "m/4", "m/5", "m/6", "m/7", "m/8", "m/9"} {
+		if e := c.SaveMedia(ctx, key, blob); e != nil {
+			t.Fatal(e)
+		}
+	}
+	// Written days ago, the avatar first.
+	c.mu.Lock()
+	_, e = c.db.Exec(`UPDATE media SET used=?`, time.Now().Add(-24*time.Hour).UnixNano())
+	if e == nil {
+		_, e = c.db.Exec(`UPDATE media SET used=? WHERE key=?`, time.Now().Add(-48*time.Hour).UnixNano(), "avatar")
+	}
+	c.mu.Unlock()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if b, e := c.Media(ctx, "avatar"); e != nil || len(b) == 0 {
+		t.Fatalf("the avatar is not there (%v)", e)
+	}
+	// What comes now evicts what was used longest ago.
+	for i := 10; i < 20; i++ {
+		if e := c.SaveMedia(ctx, fmt.Sprintf("m/%d", i), blob); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if b, e := c.Media(ctx, "avatar"); e != nil || len(b) == 0 {
+		t.Fatalf("the avatar read is gone (%v)", e)
+	}
+	if b, _ := c.Media(ctx, "m/0"); len(b) != 0 {
+		t.Fatal("nothing was evicted: the budget did not fill")
 	}
 }
 

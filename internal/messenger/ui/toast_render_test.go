@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"komarugram/internal/appwindow"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
@@ -24,6 +25,7 @@ import (
 	"gio-mw/exp/appearance"
 	"gio-mw/wdk"
 
+	"gioui.org/app"
 	"gioui.org/gpu/headless"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -113,13 +115,23 @@ func TestRenderToasts(t *testing.T) {
 		}
 		p.Close()
 
-		// The chat list.
+		// What the chat list tells: over the window with no chat open, and
+		// in the chat open.
 		store := mockstore.New(time.Now(), 0)
-		list := newChatList()
-		list.toast.Show("Поиск не удался: нет соединения")
-		renderToast(t, name("chat-list"), image.Pt(420, 640), dark, func(gtx layout.Context) {
-			list.Layout(gtx, section{kind: sectionAll}, store.Folders(), store.Chats(), 0, false, l)
-		})
+		for _, scene := range []string{"window", "window-chat"} {
+			w := &appwindow.Window{Window: new(app.Window), Motion: motion.New(func() {})}
+			a := New(w, store, Services{})
+			if scene == "window-chat" {
+				a.open(chatPick{ID: 2})
+			}
+			a.chats.toast.Show("Не удалось закрепить чат: превышен лимит закреплённых чатов, открепите какой-нибудь из них")
+			renderToast(t, name(scene), image.Pt(1100, 640), dark, func(gtx layout.Context) {
+				a.Update(gtx)
+				a.Layout(gtx)
+			})
+			a.Close()
+			w.Motion.Close()
+		}
 
 		// A settings page, and the profile, which share scrollPage.
 		settings := newSettingsPage(motion.New(func() {}), miniappprefs.New(miniapp.Ephemeral), nil, func() {}, nil,

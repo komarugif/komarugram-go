@@ -340,6 +340,9 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 			m.load(ctx, e, loading)
 		})
 	}
+	// asked is whether the view plays it: one that asked for its still
+	// gets the still, whatever another view of it plays.
+	asked := animate
 	hold := m.paused || m.holding || m.stopped[key]
 	if hold {
 		animate = false
@@ -372,7 +375,7 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 		}
 	}
 	// A paused animation stays on the frame it reached.
-	if !animate && e.still != nil && (!hold || e.frame == nil) {
+	if !animate && e.still != nil && (!hold || !asked || e.frame == nil) {
 		return e.still, e.err
 	}
 	return e.frame, e.err
