@@ -141,6 +141,9 @@ type Message struct {
 	// NoForwards is set when the message protects its content: it cannot
 	// be forwarded or saved.
 	NoForwards bool `json:",omitempty"`
+	// MediaSpoiler marks media its sender hid under a spoiler, or one that
+	// destructs itself once seen.
+	MediaSpoiler bool `json:",omitempty"`
 	// Post is set for a message a channel posted.
 	Post bool `json:",omitempty"`
 	// ForwardName is who the forwarded message came from, as a name.

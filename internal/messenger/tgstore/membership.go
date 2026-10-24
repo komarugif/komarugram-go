@@ -137,8 +137,10 @@ func (s *Store) setMembership(ctx context.Context, chat int64, left bool) {
 	peer.Rights.Muted = left || peer.Rights.Broadcast && !peer.Rights.Post
 	s.history.peers[chat] = peer
 	added := peer.withMetadata(model.Chat{ID: chat})
-	if h := s.history.histories[chat]; h != nil && !h.HasNewer && len(h.Messages) > 0 {
-		setPreview(&added, h.Messages[len(h.Messages)-1])
+	if h := s.history.histories[chat]; h != nil && !h.HasNewer {
+		if items := lastAlbum(h.Messages); items != nil {
+			added.Last, added.LastTime = albumPreview(items, added.Kind == model.KindGroup), items[len(items)-1].Date
+		}
 	}
 	s.history.mu.Unlock()
 	s.publish(func() {

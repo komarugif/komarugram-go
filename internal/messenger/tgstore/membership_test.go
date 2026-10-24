@@ -5,6 +5,7 @@ package tgstore
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -331,7 +332,7 @@ func TestMembershipRefreshPreservesDialogState(t *testing.T) {
 	original.Members = 15
 	original.Verified = true
 	original.Channel = ch.ID
-	if updated != original {
+	if !reflect.DeepEqual(updated, original) {
 		t.Fatalf("dialog state or metadata lost:\nwant %+v\ngot  %+v", original, updated)
 	}
 }

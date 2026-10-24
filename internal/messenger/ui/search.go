@@ -368,7 +368,7 @@ func foundText(m model.Message, l localization.Catalog) string {
 func (l *chatList) layoutFound(gtx layout.Context, p *searchPanel, f model.FoundMessage, selected bool, now time.Time, catalog localization.Catalog) layout.Dimensions {
 	c := f.Chat
 	c.Last, c.LastTime, c.Unread = model.Preview{Text: foundText(f.Message, catalog)}, f.Message.Date, 0
-	return l.layoutRowWith(gtx, p.foundRow(f.Message.Key), c, selected, false, now, catalog)
+	return l.layoutRowWith(gtx, p.foundRow(f.Message.Key), nil, c, selected, false, now, catalog)
 }
 
 // failure is why the search failed, to be told in the list's toast, when

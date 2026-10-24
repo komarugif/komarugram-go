@@ -262,7 +262,7 @@ func (f *forumPage) layoutResults(gtx layout.Context, c model.Chat, searcher mod
 		if row.Clicked(gtx) && f.openAt != nil {
 			f.openAt(c, found.Topic, found.Message.Key.MessageID)
 		}
-		return f.layoutTopic(gtx, row, foundTopicRow(found, l), now, l)
+		return f.layoutTopic(gtx, row, nil, foundTopicRow(found, l), now, l)
 	})
 	if s.next != "" && !s.loading && !s.failed && s.list.Position.First+s.list.Position.Count >= len(s.found)-3 {
 		s.fetch(searcher, invalidate)

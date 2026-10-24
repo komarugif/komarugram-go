@@ -1518,7 +1518,7 @@ func (s *Store) mergeUpdate(m model.Message) (chat model.Chat, isNew bool) {
 				chats[i].Unread++
 			}
 			if !m.Date.Before(chats[i].LastTime) {
-				setPreview(&chats[i], m)
+				updatePreview(&chats[i], m)
 			}
 			chat = chats[i]
 			found = true
@@ -1610,25 +1610,17 @@ func (s *Store) replaceDeletedPreviews(ctx context.Context, tops map[int64]int) 
 	c := s.history
 	for chat, top := range tops {
 		c.mu.Lock()
-		var last *model.Message
-		if h := c.histories[chat]; h != nil && !h.HasNewer && len(h.Messages) > 0 {
-			// A message kept deleted is not the chat's last one.
-			for i := len(h.Messages) - 1; i >= 0 && last == nil; i-- {
-				if m := h.Messages[i]; !m.Deleted {
-					last = &m
-				}
-			}
+		// A message kept deleted is not the chat's last one.
+		var last []model.Message
+		if h := c.histories[chat]; h != nil && !h.HasNewer {
+			last = lastAlbum(h.Messages)
 		}
 		cache, api, peer, start := c.cache, c.api, c.peers[chat], c.generation
 		c.mu.Unlock()
 		exact := last != nil
 		if last == nil && cache != nil {
 			if ms, e := cache.Page(ctx, chat, top, -1, 20); e == nil {
-				for i := len(ms) - 1; i >= 0 && last == nil; i-- {
-					if !ms[i].Deleted {
-						last = &ms[i]
-					}
-				}
+				last = lastAlbum(ms)
 			}
 		}
 		top = s.replacePreview(chat, top, last)
@@ -1658,21 +1650,18 @@ func (s *Store) replaceDeletedPreviews(ctx context.Context, tops map[int64]int) 
 			if e != nil {
 				return
 			}
-			var last *model.Message
-			if len(msgs) > 0 {
-				last = &msgs[len(msgs)-1]
-			}
-			s.replacePreview(chat, top, last)
+			s.replacePreview(chat, top, lastAlbum(msgs))
 			s.changed()
 			s.persistDialogs(ctx)
 		})
 	}
 }
 
-// replacePreview sets the chat's last message to m, or clears the preview
-// when m is nil. It does nothing when a message newer than top has arrived
-// in the meantime, and returns the chat's top message ID.
-func (s *Store) replacePreview(chat int64, top int, m *model.Message) int {
+// replacePreview sets the chat's last message to the last of items, the
+// messages of its album with it, or clears the preview when there are
+// none. It does nothing when a message newer than top has arrived in the
+// meantime, and returns the chat's top message ID.
+func (s *Store) replacePreview(chat int64, top int, items []model.Message) int {
 	c := s.history
 	c.mu.Lock()
 	if c.top[chat] != top {
@@ -1680,8 +1669,8 @@ func (s *Store) replacePreview(chat int64, top int, m *model.Message) int {
 		c.mu.Unlock()
 		return top
 	}
-	if m != nil {
-		top = int(m.Key.MessageID)
+	if len(items) > 0 {
+		top = int(items[len(items)-1].Key.MessageID)
 		c.top[chat] = top
 	}
 	c.mu.Unlock()
@@ -1692,8 +1681,8 @@ func (s *Store) replacePreview(chat int64, top int, m *model.Message) int {
 		if chats[i].ID != chat {
 			continue
 		}
-		if m != nil {
-			setPreview(&chats[i], *m)
+		if len(items) > 0 {
+			chats[i].Last, chats[i].LastTime = albumPreview(items, chats[i].Kind == model.KindGroup), items[len(items)-1].Date
 		} else {
 			// The time keeps the chat's place in the list.
 			chats[i].Last = model.Preview{}
@@ -1716,7 +1705,7 @@ func cachedDialogs(ctx context.Context, cache *historycache.Cache) ([]model.Chat
 	}
 	var chats []model.Chat
 	for _, c := range kept {
-		if c.Last == (model.Preview{}) && c.LastMessage != "" {
+		if c.Last.IsZero() && c.LastMessage != "" {
 			c.Last = model.Preview{Text: c.LastMessage, Sender: c.LastSender}
 		}
 		chats = append(chats, c.Chat)
@@ -1734,11 +1723,12 @@ func setPreview(chat *model.Chat, m model.Message) {
 func messagePreview(m model.Message, group bool) model.Preview {
 	if m.Kind == model.MessageService {
 		if m.Service == nil {
-			return model.Preview{Media: "preview.service"}
+			return model.Preview{Media: "preview.service", ID: m.Key.MessageID}
 		}
-		return model.Preview{Service: &m}
+		return model.Preview{Service: &m, ID: m.Key.MessageID}
 	}
-	p := model.Preview{Text: strings.Join(strings.Fields(m.Text), " "), Media: messageKindKey(m), ID: m.Key.MessageID, Sent: m.Outgoing}
+	p := model.Preview{Media: messageKindKey(m), ID: m.Key.MessageID, Sent: m.Outgoing, Forwarded: !m.ForwardDate.IsZero()}
+	previewContent(&p, m)
 	if group {
 		p.Sender, p.Outgoing = m.SenderName, m.Outgoing
 		if m.Outgoing {

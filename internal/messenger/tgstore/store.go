@@ -211,12 +211,17 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) err
 		read := len(l.chats)
 		added := l.add(dialogs)
 		page := l.chats[read:]
+		// Without them the thumbnails stay blank: the list is shown all the
+		// same.
+		_ = s.keepPreviewRefs(ctx, l.refs)
+		l.refs = nil
 		// The pages after one that tells nothing new are of chats that
 		// changed no more: see dialogs_kept.go.
 		unchanged := false
 		s.publish(func() {
 			unchanged = s.pageUnchanged(page, l)
 			chats, entries := s.withKept(l)
+			chats = keepAlbums(chats, s.chats)
 			s.chats, s.entries, s.filters = s.keepReads(chats), entries, filters.Filters
 			s.folders = folderList(self, filters.Filters, entries)
 		})
@@ -359,6 +364,9 @@ type list struct {
 	chats   []model.Chat
 	entries map[int64]entry
 	seen    map[int64]bool
+	// refs are where the thumbnails of the chats' last messages download
+	// from, by their media, until the store keeps them.
+	refs map[string]fileLocation
 	// pins counts the pinned dialogs seen; they come first, in pin order.
 	pins int
 }
@@ -490,6 +498,7 @@ func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 		chat.Last.ID = model.MessageID(d.TopMessage)
 		if msg, ok := m.(*tg.Message); ok {
 			chat.Last.Sent = msg.Out
+			l.previewContent(&chat.Last, msg)
 		}
 		if chat.Kind == model.KindGroup {
 			chat.Last.Sender, chat.Last.Outgoing = l.sender(m)

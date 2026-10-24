@@ -171,6 +171,7 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 				meta, thumb := photoMedia(p)
 				out.Kind = model.MessagePhoto
 				out.Media = meta
+				out.MediaSpoiler = media.Spoiler || media.TTLSeconds > 0
 				loc = &fileLocation{ID: p.ID, Hash: p.AccessHash, Reference: p.FileReference, DC: p.DCID, Photo: true, Thumb: thumb}
 			}
 		case *tg.MessageMediaWebPage:
@@ -215,6 +216,7 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 		case *tg.MessageMediaDocument:
 			if d, ok := media.Document.(*tg.Document); ok {
 				out.Kind, out.Media, loc = documentMedia(d)
+				out.MediaSpoiler = media.Spoiler || media.TTLSeconds > 0
 			}
 		}
 		switch markup := m.ReplyMarkup.(type) {

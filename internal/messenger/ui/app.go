@@ -606,6 +606,8 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.info.drawAvatar = a.layoutAvatar
 		a.avatars = newAvatarImages(source, w.Invalidate)
 		a.chats.avatar = a.layoutAvatar
+		a.chats.previews = &previewMedia{media: chatmedia.NewPreviews(source, w.Invalidate), images: &a.images}
+		a.chats.animate = func() bool { return a.window.Motion.AnimationsEnabled() }
 		a.chats.presence, _ = source.(model.PresenceSource)
 		a.viewer = newMediaViewer(source, &a.images, w.Invalidate)
 		a.viewer.shortcuts = a.shortcutPrefs
@@ -653,6 +655,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			a.forum.open = a.openTopic
 			a.forum.openAt = a.openTopicAt
 			a.forum.emoji = a.layoutCustomEmoji
+			a.forum.previews, a.forum.animate = a.chats.previews, a.chats.animate
 			if a.comments == nil {
 				a.comments = a.newChatPage(source, store, w)
 				a.comments.thread = true
@@ -788,6 +791,9 @@ func (a *App) Close() {
 	a.articleWindows.closeAll()
 	if a.avatars != nil {
 		a.avatars.media.Close()
+	}
+	if a.chats != nil && a.chats.previews != nil {
+		a.chats.previews.media.Close()
 	}
 	if a.info != nil {
 		a.info.Destroy()
@@ -1206,6 +1212,10 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 		configureMedia(a.avatars.media)
 		defer mediaFrame(gtx, a.avatars.media)()
 	}
+	if a.chats != nil && a.chats.previews != nil {
+		configureMedia(a.chats.previews.media)
+		defer mediaFrame(gtx, a.chats.previews.media)()
+	}
 	if a.history != nil {
 		configureMedia(a.history.media)
 		defer mediaFrame(gtx, a.history.media)()
@@ -1564,6 +1574,9 @@ func (a *App) SetSuspended(hidden bool) {
 	}
 	if a.avatars != nil {
 		a.avatars.media.Release()
+	}
+	if a.chats != nil && a.chats.previews != nil {
+		a.chats.previews.media.Release()
 	}
 	if a.downloads != nil && a.downloads.media != nil {
 		a.downloads.media.Release()

@@ -1172,12 +1172,20 @@
 "preview.album" = "Album";
 "preview.attachment" = "Attachment";
 "preview.audio" = "Audio file";
+"preview.audios" = "{count} audio";
+"preview.audios#one" = "{count} audio";
 "preview.contact" = "Contact";
 "preview.file" = "File";
+"preview.files" = "{count} files";
+"preview.files#one" = "{count} file";
 "preview.gif" = "GIF";
 "preview.location" = "Location";
+"preview.media_count" = "{count} media";
+"preview.media_count#one" = "{count} media";
 "preview.music" = "Music";
 "preview.photo" = "Photo";
+"preview.photos" = "{count} photos";
+"preview.photos#one" = "{count} photo";
 "preview.poll" = "Poll";
 "preview.round" = "Video message";
 "preview.service" = "Service message";
@@ -1185,6 +1193,8 @@
 "preview.sticker_emoji" = "{emoji} Sticker";
 "preview.table" = "Table";
 "preview.video" = "Video";
+"preview.videos" = "{count} videos";
+"preview.videos#one" = "{count} video";
 "preview.voice" = "Voice message";
 
 "privacy.streamer" = "Streamer Mode";

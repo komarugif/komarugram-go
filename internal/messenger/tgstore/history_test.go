@@ -305,10 +305,10 @@ func TestCachedDialogsOfOlderClient(t *testing.T) {
 	if err != nil || len(chats) != 2 {
 		t.Fatal(chats, err)
 	}
-	if chats[0].Last != (model.Preview{Text: "Фото, hi", Sender: "Anna"}) || chats[0].Title != "Group" {
+	if !chats[0].Last.Equal(model.Preview{Text: "Фото, hi", Sender: "Anna"}) || chats[0].Title != "Group" {
 		t.Errorf("old chat %+v", chats[0])
 	}
-	if chats[1].Last != (model.Preview{Media: "preview.photo"}) {
+	if !chats[1].Last.Equal(model.Preview{Media: "preview.photo"}) {
 		t.Errorf("new chat %+v", chats[1])
 	}
 }

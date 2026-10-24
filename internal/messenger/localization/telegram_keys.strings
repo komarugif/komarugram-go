@@ -355,16 +355,21 @@
 
 "preview.album" = "lng_in_dlg_album";
 "preview.audio" = "lng_in_dlg_audio_file";
+"preview.audios" = "lng_in_dlg_audio_count";
 "preview.contact" = "lng_in_dlg_contact";
 "preview.file" = "lng_in_dlg_file";
+"preview.files" = "lng_in_dlg_file_count";
 "preview.location" = "lng_maps_point";
+"preview.media_count" = "lng_in_dlg_media_count";
 "preview.photo" = "lng_in_dlg_photo";
+"preview.photos" = "lng_in_dlg_photo_count";
 "preview.poll" = "lng_in_dlg_poll";
 "preview.round" = "lng_in_dlg_video_message";
 "preview.sticker" = "lng_in_dlg_sticker";
 "preview.sticker_emoji" = "lng_in_dlg_sticker_emoji";
 "preview.table" = "lng_in_dlg_table";
 "preview.video" = "lng_in_dlg_video";
+"preview.videos" = "lng_in_dlg_video_count";
 "preview.voice" = "lng_in_dlg_audio";
 
 "reacted.title" = "lng_manage_peer_reactions";

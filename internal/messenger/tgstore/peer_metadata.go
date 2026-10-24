@@ -89,7 +89,9 @@ func (s *Store) refreshDialogMetadata(chat int64) {
 			continue
 		}
 		next := peer.withMetadata(c)
-		if next != c {
+		// It changes the peer's facts alone, not the last message.
+		if next.Title != c.Title || next.Kind != c.Kind || next.DirectMessages != c.DirectMessages ||
+			next.Badges != c.Badges || next.Forum != c.Forum || next.Members != c.Members {
 			s.chats = slices.Clone(s.chats)
 			s.chats[i] = next
 		}
