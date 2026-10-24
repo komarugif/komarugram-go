@@ -22,6 +22,8 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
+	"github.com/gotd/td/telegram/thumbnail"
+
 	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
@@ -88,10 +90,12 @@ type previewLine struct {
 	words int
 	// emoji are the custom emoji of runs, the zero Message for the others.
 	emoji []model.Message
-	// thumbs are the media of the thumbnails, and blurred the pictures of
-	// those only blurred, decoded once.
+	// thumbs are the media of the thumbnails, and blurred their blurred
+	// pictures, decoded once when first drawn, decoded set then: those
+	// whose media has loaded never are.
 	thumbs  []model.Message
 	blurred []image.Image
+	decoded []bool
 	// shown is when the message was first drawn, from when its custom emoji
 	// play.
 	shown time.Time
@@ -145,15 +149,30 @@ func (p *previewLine) update(c model.Chat, title string, catalog localization.Ca
 			p.emoji[i] = model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d@%d", r.Emoji, emojiPx), MIMEType: "application/x-custom-emoji"}}
 		}
 	}
-	p.thumbs, p.blurred = p.thumbs[:0], p.blurred[:0]
+	p.thumbs = p.thumbs[:0]
 	for _, t := range thumbs {
-		m := model.Message{Key: model.MessageKey{ChatID: c.ID, MessageID: t.Message}, Kind: model.MessagePhoto, Media: &model.MessageMedia{ID: t.ID, MIMEType: "image/jpeg"}}
-		var blurred image.Image
-		if t.Spoiler || t.ID == "" {
-			blurred, _, _ = image.Decode(bytes.NewReader(t.Blurred))
-		}
-		p.thumbs, p.blurred = append(p.thumbs, m), append(p.blurred, blurred)
+		p.thumbs = append(p.thumbs, model.Message{Key: model.MessageKey{ChatID: c.ID, MessageID: t.Message}, Kind: model.MessagePhoto, Media: &model.MessageMedia{ID: t.ID, MIMEType: "image/jpeg"}})
 	}
+	p.blurred, p.decoded = zeroed(p.blurred, len(p.thumbs)), zeroed(p.decoded, len(p.thumbs))
+}
+
+// decodeBlurred is the picture of b, a preview's blurred one: a stripped
+// thumbnail, as Telegram sends it, or a JPEG. It is nil for none.
+func decodeBlurred(b []byte) image.Image {
+	if len(b) > 0 && b[0] == 1 {
+		var err error
+		if b, err = thumbnail.Expand(b); err != nil {
+			return nil
+		}
+	}
+	if len(b) == 0 {
+		return nil
+	}
+	im, _, err := image.Decode(bytes.NewReader(b))
+	if err != nil {
+		return nil
+	}
+	return im
 }
 
 // layout draws the line in the width of the constraints, from their top
@@ -215,7 +234,7 @@ func (p *previewLine) layout(gtx layout.Context, pm *previewMedia, fg, accent, d
 // message's round, a video's with a play mark.
 func (p *previewLine) layoutThumb(gtx layout.Context, pm *previewMedia, i, px int, fg token.MatColor) layout.Dimensions {
 	size := image.Pt(px, px)
-	m, t := p.thumbs[i], p.made.Thumbs[i]
+	t := p.made.Thumbs[i]
 	var shape clip.Op
 	if t.Round {
 		shape = clip.Ellipse{Max: size}.Op(gtx.Ops)
@@ -223,10 +242,7 @@ func (p *previewLine) layoutThumb(gtx layout.Context, pm *previewMedia, i, px in
 		shape = clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(3)).Op(gtx.Ops)
 	}
 	defer shape.Push(gtx.Ops).Pop()
-	im := p.blurred[i]
-	if im == nil && pm != nil && !t.Spoiler && t.ID != "" {
-		im = pm.thumb(gtx, m, size)
-	}
+	im := p.thumbImage(gtx, pm, i, size)
 	if im == nil {
 		paint.Fill(gtx.Ops, fg.SetOpacity(.12).AsNRGBA())
 	} else {
@@ -242,6 +258,23 @@ func (p *previewLine) layoutThumb(gtx layout.Context, pm *previewMedia, i, px in
 		drawMiniPlay(gtx, size)
 	}
 	return layout.Dimensions{Size: size}
+}
+
+// thumbImage is the picture of thumbnail i in size: its media once loaded,
+// its blurred picture until then, as Telegram Desktop's list draws the
+// inline one while the thumbnail downloads, and after it failed. Media
+// under a spoiler is never loaded.
+func (p *previewLine) thumbImage(gtx layout.Context, pm *previewMedia, i int, size image.Point) image.Image {
+	t := p.made.Thumbs[i]
+	if pm != nil && !t.Spoiler && t.ID != "" {
+		if im := pm.thumb(gtx, p.thumbs[i], size); im != nil {
+			return im
+		}
+	}
+	if !p.decoded[i] {
+		p.blurred[i], p.decoded[i] = decodeBlurred(t.Blurred), true
+	}
+	return p.blurred[i]
 }
 
 // thumb is the picture of m in size, nil until it has loaded. One that

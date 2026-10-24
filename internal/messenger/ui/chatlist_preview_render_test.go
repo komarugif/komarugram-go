@@ -39,6 +39,11 @@ func (s previewSource) Media(ctx context.Context, m model.Message) ([]byte, erro
 	if _, err := fmt.Sscanf(m.Media.ID, "test/emoji/%d", &n); err == nil {
 		return previewEmojiPNG(n)
 	}
+	if strings.HasPrefix(m.Media.ID, "test/loading/") {
+		// A download that has not come: its blurred picture is drawn.
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	return s.demo.Media(ctx, m)
 }
 
@@ -118,6 +123,7 @@ func previewChats(now time.Time) []model.Chat {
 		{ID: 33, Kind: model.KindGroup, Title: "Запись голосового", Last: text("Не видно"), LastTime: ago(17 * time.Minute)},
 		{ID: 34, Kind: model.KindUser, Title: "Отправка фото", Last: text("Не видно"), LastTime: ago(17 * time.Minute)},
 		{ID: 35, Kind: model.KindGroup, Title: "Выбор стикера", Last: text("Не видно"), LastTime: ago(17 * time.Minute), Unread: 2},
+		{ID: 36, Kind: model.KindUser, Title: "Фото ещё загружается", Last: model.Preview{Text: "Размытое, пока не загрузилось", Media: "preview.photo", Thumbs: []model.PreviewThumb{{ID: "test/loading/1", Message: 1, Blurred: mockstoreBlurred()}}}, LastTime: ago(18 * time.Minute)},
 		{ID: 5, Kind: model.KindUser, Title: "Фото с подписью", Last: caption, LastTime: ago(20 * time.Minute)},
 		{ID: 6, Kind: model.KindUser, Title: "Фото без подписи", Last: model.Preview{Media: "preview.photo", Thumbs: []model.PreviewThumb{photo(10)}}, LastTime: ago(25 * time.Minute)},
 		{ID: 7, Kind: model.KindUser, Title: "Видео", Last: model.Preview{Text: "Смотри, что снял", Media: "preview.video", Thumbs: []model.PreviewThumb{video}}, LastTime: ago(30 * time.Minute)},

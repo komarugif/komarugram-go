@@ -11,6 +11,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
+	"github.com/gotd/td/telegram/thumbnail"
 	"github.com/gotd/td/tg"
 
 	"komarugram/internal/messenger/model"
@@ -123,12 +124,38 @@ func previewThumb(m model.Message) (model.PreviewThumb, bool) {
 		t.Spoiler = true
 	}
 	t.ID = media.ID
-	if !t.Spoiler {
-		// The picture downloads, and is kept with the media: its blurred
-		// one would only make the dialogs the cache keeps larger.
-		t.Blurred = nil
-	}
+	// Drawn until the picture has downloaded, as Telegram Desktop's list
+	// draws the inline one; kept stripped, as Telegram sends it, for the
+	// dialogs the cache keeps.
+	t.Blurred = stripThumb(t.Blurred)
 	return t, true
+}
+
+// previewBlurredMost is the size of the most of a blurred picture a preview
+// keeps that is not a stripped one: Telegram's cached sizes are full JPEGs.
+const previewBlurredMost = 2 << 10
+
+// strippedJPEG is what Telegram's stripped thumbnails are expanded with
+// around their bytes, its two of the size zero.
+var strippedJPEG, _ = thumbnail.Expand([]byte{1, 0, 0})
+
+// stripThumb is jpeg, a stripped thumbnail expanded, stripped again: the
+// bytes Telegram sent, three bytes and the scan, without the six hundred
+// of the header every one of them shares. Another JPEG stays as it is, or
+// is left out over previewBlurredMost.
+func stripThumb(jpeg []byte) []byte {
+	const height, width = 164, 166 // where Expand writes the size
+	head, foot := strippedJPEG[:len(strippedJPEG)-2], strippedJPEG[len(strippedJPEG)-2:]
+	if len(jpeg) < len(strippedJPEG) || !bytes.HasSuffix(jpeg, foot) ||
+		!bytes.Equal(jpeg[:height], head[:height]) || jpeg[height+1] != head[height+1] || !bytes.Equal(jpeg[width+1:len(head)], head[width+1:]) {
+		if len(jpeg) > previewBlurredMost {
+			return nil
+		}
+		return jpeg
+	}
+	out := make([]byte, 0, 3+len(jpeg)-len(strippedJPEG))
+	out = append(out, 1, jpeg[height], jpeg[width])
+	return append(out, jpeg[len(head):len(jpeg)-len(foot)]...)
 }
 
 // albumCounts counts m in an album as Telegram Desktop's does.

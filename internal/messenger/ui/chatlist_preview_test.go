@@ -3,9 +3,12 @@
 package ui
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"image"
+	"image/color"
+	"image/jpeg"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -114,5 +117,62 @@ func TestPreviewLineSameMessage(t *testing.T) {
 	p.update(c, "x", l, 17)
 	if p.runs[1].Text != "c" || !p.runs[1].Italic || !p.shown.IsZero() {
 		t.Fatalf("not made again for another message: %+v", p.runs)
+	}
+}
+
+// waitingSource never gives a picture, as a download that has not come.
+type waitingSource struct{}
+
+func (waitingSource) Media(ctx context.Context, _ model.Message) ([]byte, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// strippedThumb is a picture as Telegram strips its inline ones: the size
+// and the scan of a JPEG whose header is the one they all share, which Go's
+// encoder writes but for the tables of its quality.
+func strippedThumb(t *testing.T) []byte {
+	t.Helper()
+	im := image.NewRGBA(image.Rect(0, 0, 40, 30))
+	for y := range 30 {
+		for x := range 40 {
+			im.Set(x, y, color.RGBA{200, uint8(4 * x), 60, 0xff})
+		}
+	}
+	var b bytes.Buffer
+	if err := jpeg.Encode(&b, im, nil); err != nil {
+		t.Fatal(err)
+	}
+	sos := []byte{0xff, 0xda, 0, 12}
+	at := bytes.Index(b.Bytes(), sos)
+	if at < 0 {
+		t.Fatal("no scan")
+	}
+	scan := b.Bytes()[at+len(sos)+10 : b.Len()-2]
+	return append([]byte{1, 30, 40}, scan...)
+}
+
+// Until the thumbnail has downloaded, and when it failed, the blurred
+// picture Telegram sent with the message is drawn, as Telegram Desktop's
+// list draws it, not an empty square.
+func TestPreviewThumbBlurredFirst(t *testing.T) {
+	for _, source := range []chatmedia.Source{waitingSource{}, new(refusingSource)} {
+		pm := &previewMedia{media: chatmedia.NewPreviews(source, func() {}), images: new(imageOps)}
+		var p previewLine
+		c := model.Chat{ID: 1, Last: model.Preview{Media: "preview.photo", Thumbs: []model.PreviewThumb{{ID: "photo/1/s", Message: 1, Blurred: strippedThumb(t)}}}}
+		p.update(c, "x", localization.For("en"), 17)
+		var ops op.Ops
+		gtx := layout.Context{Ops: &ops, Now: time.Now(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}
+		// Drawn a while, as the download goes on or after it failed.
+		for range 20 {
+			pm.media.BeginFrame()
+			im := p.thumbImage(gtx, pm, 0, image.Pt(18, 18))
+			pm.media.EndFrame()
+			if im == nil || im.Bounds().Dx() != 40 {
+				t.Fatalf("%T: drawn %v", source, im)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		pm.media.Close()
 	}
 }

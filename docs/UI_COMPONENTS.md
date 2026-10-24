@@ -284,8 +284,10 @@ size-stability fixes remain in place.
   code, covered spoilers and custom emoji, which play twice and stand. It
   is made from `model.Preview` once a message, each run a label of its own,
   so a frame of the list allocates no more than plain text did; its
-  pictures come from `previewMedia` (`chatmedia.NewPreviews`), and a
-  thumbnail that failed is asked again only after a wait that doubles.
+  pictures come from `previewMedia` (`chatmedia.NewPreviews`), Telegram's
+  blurred inline picture drawn until a thumbnail has loaded or when it
+  failed, and a thumbnail that failed is asked again only after a wait
+  that doubles.
   A chat's draft takes the message's place, its mark in the error colour,
   unless messages are unread, and what someone does in the chat now takes
   both's (`activityLine`, `activity.go`): a mark stepping a few times a

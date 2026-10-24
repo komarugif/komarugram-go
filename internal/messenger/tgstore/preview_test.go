@@ -3,11 +3,13 @@
 package tgstore
 
 import (
+	"bytes"
 	"context"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/gotd/td/telegram/thumbnail"
 	"github.com/gotd/td/tg"
 
 	"komarugram/internal/messenger/model"
@@ -54,13 +56,13 @@ func photoMessage(id model.MessageID, group int64, text string) model.Message {
 	return model.Message{Key: model.MessageKey{ChatID: 5, MessageID: id}, Kind: model.MessagePhoto, Media: media, GroupedID: group, Text: text, Date: time.Unix(1000, 0)}
 }
 
-// A thumbnail downloads the smallest size that covers the list's square;
-// the blurred picture is kept only for media under a spoiler, which is
-// not downloaded.
+// A thumbnail downloads the smallest size that covers the list's square,
+// its blurred picture drawn until then; media under a spoiler is not
+// downloaded.
 func TestPreviewThumb(t *testing.T) {
 	m := photoMessage(1, 0, "")
 	th, ok := previewThumb(m)
-	if !ok || th.ID != "photo/1/s" || th.Blurred != nil || th.Spoiler || th.Message != 1 {
+	if !ok || th.ID != "photo/1/s" || th.Blurred == nil || th.Spoiler || th.Message != 1 {
 		t.Fatalf("photo: %+v", th)
 	}
 	m.MediaSpoiler = true
@@ -170,5 +172,31 @@ func TestDialogPreviewContent(t *testing.T) {
 	}
 	if _, _ = s.history.cache.Get(ctx, "ref/photo/42/s", &kept); kept.Thumb != "marked" {
 		t.Fatal("the same reference was written again")
+	}
+}
+
+// A blurred picture is kept as Telegram sent it, stripped of the header
+// its expanding added; a cached size, a JPEG of its own, as it is, unless
+// it is large.
+func TestStripThumb(t *testing.T) {
+	stripped := []byte{1, 30, 40, 0xf1, 0xf2, 0xf3}
+	jpeg, err := thumbnail.Expand(stripped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stripThumb(jpeg); !bytes.Equal(got, stripped) {
+		t.Fatalf("stripped % x, want % x", got, stripped)
+	}
+	m := photoMessage(1, 0, "")
+	m.Media.Preview = jpeg
+	if th, _ := previewThumb(m); !bytes.Equal(th.Blurred, stripped) {
+		t.Fatalf("kept % x", th.Blurred)
+	}
+	cached := append([]byte{0xff, 0xd8}, bytes.Repeat([]byte{7}, 700)...)
+	if got := stripThumb(cached); !bytes.Equal(got, cached) {
+		t.Fatal("a cached size changed")
+	}
+	if got := stripThumb(make([]byte, previewBlurredMost+1)); got != nil {
+		t.Fatal("a large picture kept")
 	}
 }
