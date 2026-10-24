@@ -45,6 +45,8 @@ type Store struct {
 	editLimit      atomic.Int64
 	editLimitAsked atomic.Bool
 	history        *conversation
+	// emoji gathers the custom emoji to ask Telegram for together.
+	emoji emojiBatch
 
 	themeRevisions map[int64]uint64
 	// appearances are the states of the chats' cached appearances.

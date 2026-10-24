@@ -266,6 +266,8 @@ func (s *Store) refreshReference(ctx context.Context, m model.Message) error {
 	return e
 }
 
+// CustomEmoji is the document of custom emoji id: kept, or asked of
+// Telegram with the others asked for meanwhile (custom_emoji.go).
 func (s *Store) CustomEmoji(ctx context.Context, id int64) (model.Message, error) {
 	c := s.history
 	c.mu.Lock()
@@ -275,33 +277,13 @@ func (s *Store) CustomEmoji(ctx context.Context, id int64) (model.Message, error
 	if cache == nil {
 		return m, errors.New("emoji: connection not ready")
 	}
-	// The second version of the key: the first kept no TextColor.
-	key := fmt.Sprintf("emoji/v2/%d", id)
-	if ok, e := cache.Get(ctx, key, &m); e != nil || ok {
+	if ok, e := cache.Get(ctx, emojiKey(id), &m); e != nil || ok {
 		return m, e
 	}
 	if api == nil {
 		return m, errors.New("emoji unavailable offline")
 	}
-	docs, e := api.MessagesGetCustomEmojiDocuments(ctx, []int64{id})
-	if e != nil {
-		return m, e
-	}
-	for _, doc := range docs {
-		if d, ok := doc.(*tg.Document); ok {
-			kind, meta, ref := documentMedia(d)
-			m = model.Message{Kind: kind, Media: meta}
-			c.mu.Lock()
-			c.refs[meta.ID] = *ref
-			c.mu.Unlock()
-			if e = cache.Put(ctx, "ref/"+meta.ID, ref); e != nil {
-				return m, e
-			}
-			e = cache.Put(ctx, key, m)
-			return m, e
-		}
-	}
-	return m, errors.New("emoji unavailable")
+	return s.askEmoji(ctx, id)
 }
 
 // cappedFile is a bounded random-access destination for parallel DC downloads.
