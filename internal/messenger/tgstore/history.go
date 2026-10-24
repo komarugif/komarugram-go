@@ -1201,9 +1201,9 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 				s.setMuted(peerID(p.Peer), u.NotifySettings)
 			}
 		case *tg.UpdateReadHistoryInbox:
-			s.setUnread(peerID(u.Peer), u.StillUnreadCount)
+			s.setUnread(peerID(u.Peer), u.StillUnreadCount, u.MaxID)
 		case *tg.UpdateReadChannelInbox:
-			s.setUnread(peerID(&tg.PeerChannel{ChannelID: u.ChannelID}), u.StillUnreadCount)
+			s.setUnread(peerID(&tg.PeerChannel{ChannelID: u.ChannelID}), u.StillUnreadCount, u.MaxID)
 		case *tg.UpdateReadHistoryOutbox:
 			s.setReadOutbox(peerID(u.Peer), u.MaxID)
 		case *tg.UpdateReadChannelOutbox:
@@ -1632,7 +1632,14 @@ func (s *Store) setReadOutbox(id int64, upTo int) {
 	s.chats = chats
 }
 
-func (s *Store) setUnread(id int64, n int) {
+// setUnread sets the chat's unread count to n, which Telegram counts after
+// a read up to upTo. A read older than the one this client told, which
+// comes after it, from another device or a difference, is passed over: its
+// count is of messages read here since.
+func (s *Store) setUnread(id int64, n, upTo int) {
+	if model.MessageID(upTo) < s.readUpTo(id) {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	chats := append([]model.Chat(nil), s.chats...)

@@ -347,7 +347,7 @@ func (c *conversation) isTopic(chat int64) bool {
 func (s *Store) markTopicRead(chat int64, id model.MessageID, asked bool) {
 	gs := &s.ghost
 	gs.mu.Lock()
-	if !asked && !gs.ghost.SendRead || gs.read[chat] >= id {
+	if !gs.mayRead(chat, id, asked) {
 		gs.mu.Unlock()
 		return
 	}
@@ -371,7 +371,7 @@ func (s *Store) markTopicRead(chat int64, id model.MessageID, asked bool) {
 	if group.ID == 0 {
 		return
 	}
-	s.goSend("read", func(ctx context.Context, api *tg.Client) error {
+	s.tellRead(chat, id, func(ctx context.Context, api *tg.Client) error {
 		_, err := api.MessagesReadDiscussion(ctx, &tg.MessagesReadDiscussionRequest{Peer: group.input(), MsgID: top, ReadMaxID: int(id)})
 		return err
 	})

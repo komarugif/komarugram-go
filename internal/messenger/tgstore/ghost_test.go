@@ -19,6 +19,8 @@ import (
 type ghostAPI struct {
 	mu   sync.Mutex
 	told []string
+	// fail is how many reads fail before they are told.
+	fail int
 }
 
 func (g *ghostAPI) client() *tg.Client {
@@ -28,6 +30,10 @@ func (g *ghostAPI) client() *tg.Client {
 		switch r := in.(type) {
 		case *tg.MessagesReadHistoryRequest:
 			g.told = append(g.told, fmt.Sprint("read ", r.MaxID))
+			if g.fail > 0 {
+				g.fail--
+				return nil, fmt.Errorf("no connection")
+			}
 			return &tg.MessagesAffectedMessages{}, nil
 		case *tg.AccountUpdateStatusRequest:
 			g.told = append(g.told, fmt.Sprint("offline ", r.Offline))
@@ -147,6 +153,75 @@ func TestMarkReadUnread(t *testing.T) {
 	s.mergeUpdate(in(14))
 	if n := unread(); n != 1 {
 		t.Fatalf("unread %d after a message not read", n)
+	}
+}
+
+// A read Telegram was not told, before the connection or on an error, is
+// told again: kept as told, the dialogs loaded next brought the unread count
+// back, and the history read to the end never took it away.
+func TestMarkReadUntoldIsToldAgain(t *testing.T) {
+	s := testStore(t)
+	chat := int64(5)
+	s.SetGhost(model.Ghost{SendRead: true})
+	s.history.peers[chat] = peerRecord{Kind: "user", ID: 5, Hash: 55}
+	s.history.top[chat] = 12
+
+	// Drawn from the cache before the connection.
+	s.MarkRead(chat, 12, false)
+	api := &ghostAPI{fail: 1}
+	s.history.api = api.client()
+	s.MarkRead(chat, 12, false)
+	if told := api.wait(t, 1); told[0] != "read 12" {
+		t.Fatalf("told %q", told)
+	}
+	// That one failed; it waits, and is told again after.
+	deadline := time.Now().Add(5 * time.Second)
+	for s.readUpTo(chat) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("a read that failed is kept as told")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	s.MarkRead(chat, 12, false)
+	s.ghost.mu.Lock()
+	waits := s.ghost.retry[chat].After(time.Now())
+	s.ghost.retry[chat] = time.Time{}
+	s.ghost.mu.Unlock()
+	if !waits {
+		t.Fatal("a read that failed does not wait")
+	}
+	s.MarkRead(chat, 12, false)
+	if told := api.wait(t, 2); len(told) != 2 || told[1] != "read 12" {
+		t.Fatalf("told %q", told)
+	}
+}
+
+// A read older than the one told here, which comes after it, leaves the
+// unread count as that one made it.
+func TestOlderReadKeepsUnread(t *testing.T) {
+	s := testStore(t)
+	chat := peerID(&tg.PeerUser{UserID: 5})
+	s.history.peers[chat] = peerRecord{Kind: "user", ID: 5, Hash: 55}
+	s.history.api = (&ghostAPI{}).client()
+	s.SetGhost(model.Ghost{SendRead: true})
+	s.chats = []model.Chat{{ID: chat, Unread: 3}}
+	s.history.top[chat] = 12
+	s.MarkRead(chat, 12, false)
+	unread := func() int {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.chats[0].Unread
+	}
+	if n := unread(); n != 0 {
+		t.Fatalf("unread %d after the newest was read", n)
+	}
+	s.Handle(context.Background(), &tg.Updates{Updates: []tg.UpdateClass{&tg.UpdateReadHistoryInbox{Peer: &tg.PeerUser{UserID: 5}, MaxID: 10, StillUnreadCount: 2}}})
+	if n := unread(); n != 0 {
+		t.Fatalf("unread %d after an older read", n)
+	}
+	s.Handle(context.Background(), &tg.Updates{Updates: []tg.UpdateClass{&tg.UpdateReadHistoryInbox{Peer: &tg.PeerUser{UserID: 5}, MaxID: 12, StillUnreadCount: 1}}})
+	if n := unread(); n != 1 {
+		t.Fatalf("unread %d, want Telegram's count of the read told", n)
 	}
 }
 
