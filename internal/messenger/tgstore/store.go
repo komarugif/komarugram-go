@@ -12,6 +12,7 @@ package tgstore
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -73,6 +74,11 @@ type Store struct {
 	bots          botState
 	// dialogsLoading: loadDialogs runs.
 	dialogsLoading atomic.Bool
+
+	// entries is what the folders' rules ask of the chats beyond them, and
+	// filters the folders as Telegram tells them: see folderList.
+	entries map[int64]entry
+	filters []tg.DialogFilterClass
 }
 
 // New returns an empty store that calls changed whenever Load has read more.
@@ -200,9 +206,21 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) err
 		if err := s.liveFromDialogs(ctx, tops, liveEpoch); err != nil {
 			return err
 		}
+		read := len(l.chats)
 		added := l.add(dialogs)
-		chats, folders := l.snapshot(filters.Filters)
-		s.publish(func() { s.chats, s.folders = s.keepReads(chats), folders })
+		page := l.chats[read:]
+		// The pages after one that tells nothing new are of chats that
+		// changed no more: see dialogs_kept.go.
+		unchanged := false
+		s.publish(func() {
+			unchanged = s.pageUnchanged(page, l)
+			chats, entries := s.withKept(l)
+			s.chats, s.entries, s.filters = s.keepReads(chats), entries, filters.Filters
+			s.folders = folderList(self, filters.Filters, entries)
+		})
+		if unchanged {
+			break
+		}
 
 		// A complete list comes as messages.dialogs; only a slice has more,
 		// and it says how many dialogs there are in all.
@@ -638,16 +656,7 @@ func (l *list) inputPeer(p tg.PeerClass) (tg.InputPeerClass, bool) {
 // slices are fresh: the store hands them to the UI as they are.
 func (l *list) snapshot(filters []tg.DialogFilterClass) ([]model.Chat, []model.Folder) {
 	chats := append([]model.Chat(nil), l.chats...)
-	entries := make(map[int64]entry, len(l.entries))
-	for id, e := range l.entries {
-		entries[id] = e
-	}
-	var folders []model.Folder
-	for _, f := range filters {
-		if folder, ok := l.folder(f, entries); ok {
-			folders = append(folders, folder)
-		}
-	}
+	folders := folderList(l.self, filters, maps.Clone(l.entries))
 	return chats, folders
 }
 

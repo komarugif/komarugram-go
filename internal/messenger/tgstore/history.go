@@ -205,12 +205,16 @@ func (s *Store) Configure(ctx context.Context, account, path string, p *security
 	if _, e = cache.Get(ctx, recentKey, &recent); e != nil {
 		return e
 	}
+	var entries map[int64]keptEntry
+	if _, e = cache.Get(ctx, "dialog-entries", &entries); e != nil {
+		return e
+	}
 	s.recent.mu.Lock()
 	s.recent.list = recent
 	s.recent.mu.Unlock()
 	s.mu.Lock()
 	if s.chats == nil {
-		s.chats = chats
+		s.chats, s.entries = chats, readEntries(entries)
 	}
 	s.mu.Unlock()
 	return nil
@@ -437,7 +441,12 @@ func (s *Store) persistDialogs(ctx context.Context) error {
 	if cache == nil {
 		return nil
 	}
-	chats := s.Chats()
+	s.mu.RLock()
+	chats, entries := s.chats, keepEntries(s.entries)
+	s.mu.RUnlock()
+	if e := cache.Put(ctx, "dialog-entries", entries); e != nil {
+		return e
+	}
 	if e := cache.Put(ctx, "peers", peers); e != nil {
 		return e
 	}
@@ -1396,6 +1405,10 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			s.applyBlocked(u)
 		case *tg.UpdateDialogPinned:
 			s.applyPin(u)
+		case *tg.UpdateDialogUnreadMark:
+			s.applyUnreadMark(u)
+		case *tg.UpdateFolderPeers:
+			s.applyFolderPeers(u)
 		case *tg.UpdatePinnedDialogs:
 			s.applyPinOrder(ctx, u)
 		case *tg.UpdatePinnedMessages:
