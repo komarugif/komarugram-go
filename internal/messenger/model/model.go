@@ -59,7 +59,10 @@ type Chat struct {
 	// ReadOutbox is the newest of the account's messages the other side
 	// read; those before it are read too.
 	ReadOutbox MessageID `json:",omitempty"`
-	Muted      bool
+	// ReadInbox is the newest of the others' messages the account read, on
+	// any of its devices: a chat not opened here opens after it.
+	ReadInbox MessageID `json:",omitempty"`
+	Muted     bool
 	// Pinned chats stay at the top of the list, in the order PinRank gives:
 	// 1 for the first, 0 for a chat that is not pinned.
 	Pinned  bool

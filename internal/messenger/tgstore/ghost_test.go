@@ -156,6 +156,37 @@ func TestMarkReadUnread(t *testing.T) {
 	}
 }
 
+// Reading a history opened short of its end, at its first unread message,
+// lowers the unread count by the messages read: Telegram tells this session
+// nothing of its own reads, and the count stood until the end came in sight.
+func TestMarkReadShortOfTheEnd(t *testing.T) {
+	s := testStore(t)
+	chat := int64(5)
+	s.history.api = (&ghostAPI{}).client()
+	s.SetGhost(model.Ghost{SendRead: true})
+	s.history.peers[chat] = peerRecord{Kind: "user", ID: 5, Hash: 55}
+	s.history.top[chat] = 100
+	s.chats = []model.Chat{{ID: chat, Unread: 90, ReadInbox: 10}}
+	var msgs []model.Message
+	for id := model.MessageID(1); id <= 40; id++ {
+		msgs = append(msgs, model.Message{Key: model.MessageKey{ChatID: chat, MessageID: id}, Outgoing: id == 13})
+	}
+	s.history.histories[chat] = &model.History{Messages: msgs, HasNewer: true}
+	unread := func() model.Chat {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.chats[0]
+	}
+	s.MarkRead(chat, 15, false)
+	if c := unread(); c.Unread != 86 || c.ReadInbox != 15 {
+		t.Fatalf("unread %d read to %d, want 86 (the account's 13 is not one) to 15", c.Unread, c.ReadInbox)
+	}
+	s.MarkRead(chat, 20, false)
+	if c := unread(); c.Unread != 81 {
+		t.Fatalf("unread %d, want 81", c.Unread)
+	}
+}
+
 // A read Telegram was not told, before the connection or on an error, is
 // told again: kept as told, the dialogs loaded next brought the unread count
 // back, and the history read to the end never took it away.

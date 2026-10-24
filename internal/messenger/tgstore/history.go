@@ -448,6 +448,7 @@ func (s *Store) OpenChat(chat int64) {
 	c.wg.Go(func() {
 		start := diagnostics.Start()
 		var v model.Viewport
+		unread := false
 		found, e := c.cache.Get(c.ctx, fmt.Sprintf("viewport/%d", chat), &v)
 		if e != nil {
 			s.finishPageAt(epoch, chat, 0, nil, false, e)
@@ -456,6 +457,11 @@ func (s *Store) OpenChat(chat int64) {
 		if revealing {
 			v = model.Viewport{AccountID: c.account, ChatID: chat, AnchorMessageID: reveal, AtEnd: reveal == 0, UpdatedAt: time.Now()}
 			found = true
+		} else if !found || v.AtEnd {
+			// Not opened here, or left at its end: at its first unread.
+			if u, ok := s.unreadView(chat, true); ok {
+				v, found, unread = u, true, true
+			}
 		}
 		anchor := 0
 		if found && !v.AtEnd {
@@ -463,9 +469,14 @@ func (s *Store) OpenChat(chat int64) {
 		}
 		msgs, e := c.cache.Around(c.ctx, chat, anchor, 200)
 		s.profileHistory("cache.open-around", chat, 0, anchor, len(msgs), start, e)
-		if revealing && reveal != 0 && !slices.ContainsFunc(msgs, func(m model.Message) bool { return m.Key.MessageID == reveal }) {
+		c.mu.Lock()
+		online := c.api != nil
+		c.mu.Unlock()
+		// Offline the cache is all there is to show.
+		if (revealing && reveal != 0 || unread && online) && !slices.ContainsFunc(msgs, func(m model.Message) bool { return m.Key.MessageID == model.MessageID(anchor) }) {
 			// The cache does not have the message, so what it has around
-			// it is from elsewhere in the history: wait for Telegram's page.
+			// it is from elsewhere in the history, as the last message
+			// alone of a chat never opened: wait for Telegram's page.
 			msgs = nil
 		}
 		c.mu.Lock()
@@ -488,6 +499,98 @@ func (s *Store) OpenChat(chat int64) {
 		}
 		s.fetchAt(epoch, chat, 0, anchor)
 	})
+}
+
+// unreadView is where a chat not opened here before opens: at its first
+// message not read, when it has any. Opened at its end, it would be read
+// whole, and the account's other devices would lose where it stopped
+// reading.
+func (s *Store) unreadView(chat int64, ask bool) (model.Viewport, bool) {
+	var read model.MessageID
+	unread := false
+	for _, ch := range s.Chats() {
+		if ch.ID == chat && ch.Unread > 0 {
+			read, unread = ch.ReadInbox, true
+		}
+	}
+	if unread && read == 0 && ask {
+		// Dialogs kept before they had it, or not loaded yet, lack it.
+		read = s.readInbox(chat)
+	}
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Without what was read nothing tells where the unread messages begin.
+	if read <= 0 || int(read) >= c.top[chat] {
+		return model.Viewport{}, false
+	}
+	return model.Viewport{AccountID: c.account, ChatID: chat, AnchorMessageID: read + 1, UpdatedAt: time.Now()}, true
+}
+
+// OpenUnread implements model.UnreadOpener for a history kept from before:
+// OpenChat opens one not loaded at its first unread itself. Left at its end,
+// it opens at its first unread message; elsewhere it stays where it was.
+func (s *Store) OpenUnread(chat int64) {
+	if isThread(chat) {
+		return
+	}
+	c := s.history
+	c.mu.Lock()
+	h := c.histories[chat]
+	v, ok := c.views[chat]
+	c.mu.Unlock()
+	if h == nil || ok && !v.AtEnd {
+		return
+	}
+	u, ok := s.unreadView(chat, false)
+	if !ok {
+		return
+	}
+	c.mu.Lock()
+	if c.histories[chat] == h && slices.ContainsFunc(h.Messages, func(m model.Message) bool { return m.Key.MessageID == u.AnchorMessageID }) {
+		c.views[chat] = u
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
+	s.reveal(chat, u.AnchorMessageID, false)
+}
+
+// readInbox asks Telegram what chat was read up to, which it keeps in the
+// chat's dialog; 0 without a connection or on an error.
+func (s *Store) readInbox(chat int64) model.MessageID {
+	c := s.history
+	c.mu.Lock()
+	api, ctx, peer := c.api, c.ctx, c.peers[chat]
+	c.mu.Unlock()
+	if api == nil || peer.ID == 0 {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	res, err := api.MessagesGetPeerDialogs(ctx, []tg.InputDialogPeerClass{&tg.InputDialogPeer{Peer: peer.input()}})
+	if err != nil {
+		return 0
+	}
+	var read model.MessageID
+	for _, d := range res.Dialogs {
+		if d, ok := d.(*tg.Dialog); ok && peerID(d.Peer) == chat {
+			read = model.MessageID(d.ReadInboxMaxID)
+		}
+	}
+	if read == 0 {
+		return 0
+	}
+	s.mu.Lock()
+	chats := append([]model.Chat(nil), s.chats...)
+	for i := range chats {
+		if chats[i].ID == chat {
+			chats[i].ReadInbox = max(chats[i].ReadInbox, read)
+		}
+	}
+	s.chats = chats
+	s.mu.Unlock()
+	return read
 }
 
 // Reveal implements model.MessageRevealer. The chat's history is dropped
@@ -1646,23 +1749,34 @@ func (s *Store) setUnread(id int64, n, upTo int) {
 	for i := range chats {
 		if chats[i].ID == id {
 			chats[i].Unread = max(n, 0)
+			chats[i].ReadInbox = max(chats[i].ReadInbox, model.MessageID(upTo))
 		}
 	}
 	s.chats = chats
 }
 
-// lowerUnread lowers the chat's unread count to n, and reports whether it
-// did.
-func (s *Store) lowerUnread(id int64, n int) bool {
+// markInbox keeps the chat read up to upTo here, and lowers its unread
+// count to left, or by read when what is left is not known (left < 0). It
+// reports whether the count changed.
+func (s *Store) markInbox(id int64, upTo model.MessageID, left, read int) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i := range s.chats {
-		if s.chats[i].ID == id && s.chats[i].Unread > n {
-			chats := append([]model.Chat(nil), s.chats...)
-			chats[i].Unread = max(n, 0)
-			s.chats = chats
-			return true
+	for i, ch := range s.chats {
+		if ch.ID != id {
+			continue
 		}
+		if left < 0 {
+			left = ch.Unread - read
+		}
+		n := min(ch.Unread, max(left, 0))
+		if n == ch.Unread && upTo <= ch.ReadInbox {
+			return false
+		}
+		chats := append([]model.Chat(nil), s.chats...)
+		chats[i].Unread = n
+		chats[i].ReadInbox = max(ch.ReadInbox, upTo)
+		s.chats = chats
+		return n != ch.Unread
 	}
 	return false
 }

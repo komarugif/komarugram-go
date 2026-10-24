@@ -369,6 +369,7 @@ func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 		Unread:     d.UnreadCount,
 		Pinned:     d.Pinned,
 		ReadOutbox: model.MessageID(d.ReadOutboxMaxID),
+		ReadInbox:  model.MessageID(d.ReadInboxMaxID),
 	}
 	chat.Muted = mutedNow(d.NotifySettings)
 	if d.Pinned {

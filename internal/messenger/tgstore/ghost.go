@@ -79,12 +79,21 @@ func (s *Store) MarkRead(chat int64, id model.MessageID, asked bool) {
 		s.markTopicRead(chat, id, asked)
 		return
 	}
+	// The messages read before: those after them up to id are read now.
+	prev := s.readUpTo(chat)
+	for _, ch := range s.Chats() {
+		if ch.ID == chat {
+			prev = max(prev, ch.ReadInbox)
+		}
+	}
 	c := s.history
 	c.mu.Lock()
 	peer, top := c.peers[chat], c.top[chat]
 	// What is left unread is counted from the history when it runs to the
-	// chat's newest message; read up to the newest, nothing is.
-	left := -1
+	// chat's newest message; read up to the newest, nothing is. Short of
+	// it, the count goes down by the messages read now that the history
+	// has: Telegram tells this session nothing of its own reads.
+	left, read := -1, 0
 	if int(id) >= top {
 		left = 0
 	} else if h := c.histories[chat]; h != nil && !h.HasNewer && len(h.Messages) > 0 && int(h.Messages[len(h.Messages)-1].Key.MessageID) >= top {
@@ -92,6 +101,12 @@ func (s *Store) MarkRead(chat int64, id model.MessageID, asked bool) {
 		for _, m := range h.Messages {
 			if m.Key.MessageID > id && !m.Outgoing && !m.Local() {
 				left++
+			}
+		}
+	} else if h != nil {
+		for _, m := range h.Messages {
+			if m.Key.MessageID > prev && m.Key.MessageID <= id && !m.Outgoing && !m.Local() {
+				read++
 			}
 		}
 	}
@@ -111,7 +126,7 @@ func (s *Store) MarkRead(chat int64, id model.MessageID, asked bool) {
 	}
 	gs.read[chat] = id
 	gs.mu.Unlock()
-	if left >= 0 && s.lowerUnread(chat, left) {
+	if s.markInbox(chat, id, left, read) {
 		s.changed()
 	}
 	s.tellRead(chat, id, func(ctx context.Context, api *tg.Client) error {

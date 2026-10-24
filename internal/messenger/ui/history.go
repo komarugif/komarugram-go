@@ -487,7 +487,9 @@ func (p *chatPage) abandon() {
 }
 
 func (p *chatPage) save(force bool) {
-	if len(p.messages) == 0 || p.chat == 0 {
+	// Before it is restored the list is at its end, not where the chat
+	// opens: saved, that would take the place of the anchor on its way.
+	if len(p.messages) == 0 || p.chat == 0 || !p.restored {
 		return
 	}
 	pos := p.list.Position
@@ -608,6 +610,9 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.save(true)
 		p.activeText = nil
 		p.chat = c.ID
+		if o, ok := p.source.(model.UnreadOpener); ok {
+			o.OpenUnread(c.ID)
+		}
 		p.revision = 0
 		p.list = scroll.List{List: layout.List{Axis: layout.Vertical, ScrollToEnd: true}}
 		p.messages = nil

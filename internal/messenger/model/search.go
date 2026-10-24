@@ -117,6 +117,14 @@ type MessageRevealer interface {
 	Reveal(chat int64, id MessageID)
 }
 
+// UnreadOpener is a Store that opens a chat at its first message not read
+// when the chat comes back with such messages: left at its end, it would
+// open there and read them all at once.
+type UnreadOpener interface {
+	// OpenUnread is told each time the history shows chat anew.
+	OpenUnread(chat int64)
+}
+
 // HistoryEnds is a Store that can open a chat at either end of its history,
 // as the buttons that scroll to the start and to the end do when the loaded
 // part of the history is somewhere in the middle.
