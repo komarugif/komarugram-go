@@ -90,9 +90,9 @@ type previewLine struct {
 	words int
 	// emoji are the custom emoji of runs, the zero Message for the others.
 	emoji []model.Message
-	// thumbs are the media of the thumbnails, and blurred their blurred
-	// pictures, decoded once when first drawn, decoded set then: those
-	// whose media has loaded never are.
+	// thumbs are the media of the thumbnails, downloaded only for those
+	// without an inline picture, and blurred their inline pictures,
+	// decoded once when first drawn, decoded set then.
 	thumbs  []model.Message
 	blurred []image.Image
 	decoded []bool
@@ -260,21 +260,21 @@ func (p *previewLine) layoutThumb(gtx layout.Context, pm *previewMedia, i, px in
 	return layout.Dimensions{Size: size}
 }
 
-// thumbImage is the picture of thumbnail i in size: its media once loaded,
-// its blurred picture until then, as Telegram Desktop's list draws the
-// inline one while the thumbnail downloads, and after it failed. Media
-// under a spoiler is never loaded.
+// thumbImage is the picture of thumbnail i in size: Telegram's inline
+// picture of the media, which comes with the message, and its media only
+// for one that has none, once loaded. At the size of a list's thumbnail
+// the inline picture, a few dozen pixels, is as much as the media shows,
+// and a list of new chats does not cost a download a row. Media under a
+// spoiler is never loaded.
 func (p *previewLine) thumbImage(gtx layout.Context, pm *previewMedia, i int, size image.Point) image.Image {
 	t := p.made.Thumbs[i]
-	if pm != nil && !t.Spoiler && t.ID != "" {
-		if im := pm.thumb(gtx, p.thumbs[i], size); im != nil {
-			return im
-		}
-	}
 	if !p.decoded[i] {
 		p.blurred[i], p.decoded[i] = decodeBlurred(t.Blurred), true
 	}
-	return p.blurred[i]
+	if p.blurred[i] != nil || pm == nil || t.Spoiler || t.ID == "" {
+		return p.blurred[i]
+	}
+	return pm.thumb(gtx, p.thumbs[i], size)
 }
 
 // thumb is the picture of m in size, nil until it has loaded. One that

@@ -91,9 +91,9 @@ type PreviewThumb struct {
 	// Spoiler marks media under a spoiler, or one that destructs itself:
 	// only Blurred is drawn, and the media is not downloaded.
 	Spoiler bool `json:",omitempty"`
-	// Blurred is Telegram's inline picture of the media, drawn until it has
-	// downloaded: a stripped thumbnail, as Telegram sends it (its first
-	// byte 1), or a small JPEG.
+	// Blurred is Telegram's inline picture of the media, drawn in its place:
+	// the media downloads only without it. It is a stripped thumbnail, as
+	// Telegram sends it (its first byte 1), or a small JPEG.
 	Blurred []byte `json:",omitempty"`
 }
 

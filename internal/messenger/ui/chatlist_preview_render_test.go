@@ -24,6 +24,8 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
+	xdraw "golang.org/x/image/draw"
+
 	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
@@ -38,11 +40,6 @@ func (s previewSource) Media(ctx context.Context, m model.Message) ([]byte, erro
 	var n int
 	if _, err := fmt.Sscanf(m.Media.ID, "test/emoji/%d", &n); err == nil {
 		return previewEmojiPNG(n)
-	}
-	if strings.HasPrefix(m.Media.ID, "test/loading/") {
-		// A download that has not come: its blurred picture is drawn.
-		<-ctx.Done()
-		return nil, ctx.Err()
 	}
 	return s.demo.Media(ctx, m)
 }
@@ -80,10 +77,16 @@ func previewEmojiPNG(n int) ([]byte, error) {
 	return b.Bytes(), err
 }
 
-// previewChats are a chat of each kind of last message the list draws.
-func previewChats(now time.Time) []model.Chat {
+// previewChats are a chat of each kind of last message the list draws, the
+// photos with the inline pictures of inline, when not nil, as Telegram
+// sends them; without, they are downloaded.
+func previewChats(now time.Time, inline func(n int) []byte) []model.Chat {
 	photo := func(n int) model.PreviewThumb {
-		return model.PreviewThumb{ID: mockstoreThumb(n), Message: model.MessageID(n)}
+		t := model.PreviewThumb{ID: mockstoreThumb(n), Message: model.MessageID(n)}
+		if inline != nil {
+			t.Blurred = inline(n)
+		}
+		return t
 	}
 	video := model.PreviewThumb{ID: "demo/portrait", Message: 50, Video: true}
 	ago := func(d time.Duration) time.Time { return now.Add(-d) }
@@ -123,7 +126,6 @@ func previewChats(now time.Time) []model.Chat {
 		{ID: 33, Kind: model.KindGroup, Title: "Запись голосового", Last: text("Не видно"), LastTime: ago(17 * time.Minute)},
 		{ID: 34, Kind: model.KindUser, Title: "Отправка фото", Last: text("Не видно"), LastTime: ago(17 * time.Minute)},
 		{ID: 35, Kind: model.KindGroup, Title: "Выбор стикера", Last: text("Не видно"), LastTime: ago(17 * time.Minute), Unread: 2},
-		{ID: 36, Kind: model.KindUser, Title: "Фото ещё загружается", Last: model.Preview{Text: "Размытое, пока не загрузилось", Media: "preview.photo", Thumbs: []model.PreviewThumb{{ID: "test/loading/1", Message: 1, Blurred: mockstoreBlurred()}}}, LastTime: ago(18 * time.Minute)},
 		{ID: 5, Kind: model.KindUser, Title: "Фото с подписью", Last: caption, LastTime: ago(20 * time.Minute)},
 		{ID: 6, Kind: model.KindUser, Title: "Фото без подписи", Last: model.Preview{Media: "preview.photo", Thumbs: []model.PreviewThumb{photo(10)}}, LastTime: ago(25 * time.Minute)},
 		{ID: 7, Kind: model.KindUser, Title: "Видео", Last: model.Preview{Text: "Смотри, что снял", Media: "preview.video", Thumbs: []model.PreviewThumb{video}}, LastTime: ago(30 * time.Minute)},
@@ -183,9 +185,34 @@ func mockstoreBlurred() []byte {
 	return b.Bytes()
 }
 
+// mockstoreInline is the demo's photo n as Telegram's inline picture of a
+// photo is: 40 pixels on its longer side, a JPEG of the quality of the
+// tables its stripped thumbnails share.
+func mockstoreInline(t *testing.T, demo *mockstore.Store, n int) []byte {
+	data, err := demo.Media(context.Background(), model.Message{Kind: model.MessagePhoto, Media: &model.MessageMedia{ID: mockstoreThumb(n), MIMEType: "image/jpeg"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	im, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := im.Bounds()
+	side := max(b.Dx(), b.Dy())
+	small := image.NewRGBA(image.Rect(0, 0, max(1, b.Dx()*40/side), max(1, b.Dy()*40/side)))
+	xdraw.ApproxBiLinear.Scale(small, small.Bounds(), im, b, xdraw.Src, nil)
+	var out bytes.Buffer
+	if err := jpeg.Encode(&out, small, &jpeg.Options{Quality: 20}); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
+}
+
 // TestRenderChatPreviews draws the chat list with a chat of each kind of
 // last message, for looking at it: CHAT_PREVIEW_PNG=/tmp/previews.png,
-// with -dark and -narrow beside it.
+// with -dark and -narrow beside it, -2x at twice the pixels, and -files
+// and -2x-files with the photos' thumbnails downloaded, not Telegram's
+// inline pictures, to compare.
 func TestRenderChatPreviews(t *testing.T) {
 	path := os.Getenv("CHAT_PREVIEW_PNG")
 	if path == "" {
@@ -193,17 +220,25 @@ func TestRenderChatPreviews(t *testing.T) {
 	}
 	base := strings.TrimSuffix(path, ".png")
 	now := time.Now()
-	chats := previewChats(now)
+	demo := mockstore.New(now, 0)
+	inline := previewChats(now, func(n int) []byte { return mockstoreInline(t, demo, n) })
+	files := previewChats(now, nil)
 	for _, v := range []struct {
 		suffix string
 		width  int
+		scale  float32
 		dark   bool
-	}{{"", 600, false}, {"-dark", 600, true}, {"-narrow", 400, false}} {
-		renderChatPreviews(t, base+v.suffix+".png", image.Pt(v.width, len(chats)*96+16), v.dark, chats)
+		chats  []model.Chat
+	}{
+		{"", 600, 1.5, false, inline}, {"-dark", 600, 1.5, true, inline}, {"-narrow", 400, 1.5, false, inline},
+		{"-files", 600, 1.5, false, files}, {"-2x", 800, 2, false, inline}, {"-2x-files", 800, 2, false, files},
+	} {
+		size := image.Pt(v.width, int(float32(len(v.chats)*64+11)*v.scale))
+		renderChatPreviews(t, base+v.suffix+".png", size, v.scale, v.dark, v.chats)
 	}
 }
 
-func renderChatPreviews(t *testing.T, path string, size image.Point, dark bool, chats []model.Chat) {
+func renderChatPreviews(t *testing.T, path string, size image.Point, scale float32, dark bool, chats []model.Chat) {
 	t.Helper()
 	l := newChatList()
 	source := previewSource{mockstore.New(time.Now(), 0)}
@@ -225,7 +260,7 @@ func renderChatPreviews(t *testing.T, path string, size image.Point, dark bool, 
 	// The pictures load meanwhile.
 	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		ops.Reset()
-		gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1.5, PxPerSp: 1.5}, Values: map[string]any{}}
+		gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: scale, PxPerSp: scale}, Values: map[string]any{}}
 		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, sc))
 		images.BeginFrame()
 		l.previews.media.BeginFrame()

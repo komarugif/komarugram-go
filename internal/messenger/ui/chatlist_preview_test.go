@@ -120,14 +120,6 @@ func TestPreviewLineSameMessage(t *testing.T) {
 	}
 }
 
-// waitingSource never gives a picture, as a download that has not come.
-type waitingSource struct{}
-
-func (waitingSource) Media(ctx context.Context, _ model.Message) ([]byte, error) {
-	<-ctx.Done()
-	return nil, ctx.Err()
-}
-
 // strippedThumb is a picture as Telegram strips its inline ones: the size
 // and the scan of a JPEG whose header is the one they all share, which Go's
 // encoder writes but for the tables of its quality.
@@ -152,27 +144,35 @@ func strippedThumb(t *testing.T) []byte {
 	return append([]byte{1, 30, 40}, scan...)
 }
 
-// Until the thumbnail has downloaded, and when it failed, the blurred
-// picture Telegram sent with the message is drawn, as Telegram Desktop's
-// list draws it, not an empty square.
-func TestPreviewThumbBlurredFirst(t *testing.T) {
-	for _, source := range []chatmedia.Source{waitingSource{}, new(refusingSource)} {
-		pm := &previewMedia{media: chatmedia.NewPreviews(source, func() {}), images: new(imageOps)}
-		var p previewLine
-		c := model.Chat{ID: 1, Last: model.Preview{Media: "preview.photo", Thumbs: []model.PreviewThumb{{ID: "photo/1/s", Message: 1, Blurred: strippedThumb(t)}}}}
-		p.update(c, "x", localization.For("en"), 17)
-		var ops op.Ops
-		gtx := layout.Context{Ops: &ops, Now: time.Now(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}
-		// Drawn a while, as the download goes on or after it failed.
-		for range 20 {
-			pm.media.BeginFrame()
-			im := p.thumbImage(gtx, pm, 0, image.Pt(18, 18))
-			pm.media.EndFrame()
-			if im == nil || im.Bounds().Dx() != 40 {
-				t.Fatalf("%T: drawn %v", source, im)
-			}
-			time.Sleep(5 * time.Millisecond)
+// The inline picture Telegram sends with the message is drawn in the
+// thumbnail's place, and the thumbnail is not downloaded: only one without
+// it is.
+func TestPreviewThumbInlineOnly(t *testing.T) {
+	source := new(refusingSource)
+	pm := &previewMedia{media: chatmedia.NewPreviews(source, func() {}), images: new(imageOps)}
+	defer pm.media.Close()
+	var p previewLine
+	c := model.Chat{ID: 1, Last: model.Preview{Media: "preview.photo", Thumbs: []model.PreviewThumb{
+		{ID: "photo/1/s", Message: 1, Blurred: strippedThumb(t)},
+		{ID: "photo/2/s", Message: 2},
+	}}}
+	p.update(c, "x", localization.For("en"), 17)
+	var ops op.Ops
+	gtx := layout.Context{Ops: &ops, Now: time.Now(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}
+	for deadline := time.Now().Add(5 * time.Second); source.asked.Load() == 0; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the thumbnail without an inline picture was not asked for")
 		}
-		pm.media.Close()
+		pm.media.BeginFrame()
+		im := p.thumbImage(gtx, pm, 0, image.Pt(18, 18))
+		p.thumbImage(gtx, pm, 1, image.Pt(18, 18))
+		pm.media.EndFrame()
+		if im == nil || im.Bounds().Dx() != 40 {
+			t.Fatalf("drawn %v", im)
+		}
+	}
+	time.Sleep(50 * time.Millisecond)
+	if n := source.asked.Load(); n != 1 {
+		t.Fatalf("asked %d times, the inline picture's thumbnail too", n)
 	}
 }

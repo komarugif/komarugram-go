@@ -173,6 +173,16 @@ func TestDialogPreviewContent(t *testing.T) {
 	if _, _ = s.history.cache.Get(ctx, "ref/photo/42/s", &kept); kept.Thumb != "marked" {
 		t.Fatal("the same reference was written again")
 	}
+	// With an inline picture, drawn in its place, the thumbnail is not
+	// downloaded: where from is not kept.
+	inline := newList(1)
+	photo := msg.Media.(*tg.MessageMediaPhoto).Photo.(*tg.Photo)
+	photo.Sizes = append(photo.Sizes, &tg.PhotoStrippedSize{Type: "i", Bytes: []byte{1, 30, 40, 0xf1}})
+	p = model.Preview{}
+	inline.previewContent(&p, msg)
+	if len(p.Thumbs) != 1 || p.Thumbs[0].Blurred == nil || len(inline.refs) != 0 {
+		t.Fatalf("with an inline picture: %+v, refs %+v", p.Thumbs, inline.refs)
+	}
 }
 
 // A blurred picture is kept as Telegram sent it, stripped of the header

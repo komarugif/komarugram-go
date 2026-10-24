@@ -124,9 +124,8 @@ func previewThumb(m model.Message) (model.PreviewThumb, bool) {
 		t.Spoiler = true
 	}
 	t.ID = media.ID
-	// Drawn until the picture has downloaded, as Telegram Desktop's list
-	// draws the inline one; kept stripped, as Telegram sends it, for the
-	// dialogs the cache keeps.
+	// Drawn in the picture's place, which downloads only without it; kept
+	// stripped, as Telegram sends it, for the dialogs the cache keeps.
 	t.Blurred = stripThumb(t.Blurred)
 	return t, true
 }
@@ -314,12 +313,13 @@ func previewContent(p *model.Preview, m model.Message) {
 
 // previewContent gives p, the preview of msg, the last message of a dialog,
 // what a list draws of it beyond its words, and keeps in l where its
-// thumbnail downloads from: the message is in no history.
+// thumbnail downloads from, for one without an inline picture: the message
+// is in no history.
 func (l *list) previewContent(p *model.Preview, msg *tg.Message) {
 	m, loc := convertMessage("", msg, nil)
 	p.Forwarded = !m.ForwardDate.IsZero()
 	previewContent(p, m)
-	if len(p.Thumbs) == 0 || p.Thumbs[0].Spoiler || loc == nil {
+	if len(p.Thumbs) == 0 || p.Thumbs[0].Spoiler || p.Thumbs[0].Blurred != nil || loc == nil {
 		return
 	}
 	media := m.Media
