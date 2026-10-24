@@ -50,7 +50,7 @@ func TestRecorderAndRPC(t *testing.T) {
 		t.Fatal("error replaced")
 	}
 	row = r.Snapshot().RPCs[1]
-	if row.Error != "RPC 420 FLOOD_WAIT" || row.ResponseBytes != -1 {
+	if row.Error != "RPC 420 FLOOD_WAIT 10" || row.ResponseBytes != -1 {
 		t.Fatal(row)
 	}
 	path, err := r.Capture(t.TempDir(), "snapshot")

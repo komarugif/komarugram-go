@@ -94,7 +94,8 @@ type conversation struct {
 	mediaDir      string
 	persist       sync.Mutex
 	avatars       map[int64]avatarSnapshot
-	goneAvatars   map[int64]bool // photos Telegram no longer has: avatarGone
+	goneAvatars   map[int64]bool        // photos Telegram no longer has: avatarGone
+	floodUntil    map[string]floodState // media Telegram refused: noteFloodWait
 	top           map[int64]int
 	globalDeleted map[int]bool
 	mu            sync.Mutex

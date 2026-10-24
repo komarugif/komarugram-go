@@ -5,11 +5,15 @@ package tgstore
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/gotd/td/bin"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/tg"
+
+	"komarugram/internal/messenger/model"
 )
 
 // A profile video whose file reference expired is renewed from the
@@ -106,5 +110,49 @@ func TestAvatarGoneAsksForThePeer(t *testing.T) {
 	s.avatarGone(ctx, "avatar/5/88/video/u")
 	if asked != 2 {
 		t.Fatalf("%d requests, want 2", asked)
+	}
+}
+
+// A file Telegram said to wait for (FLOOD_WAIT) is not asked for again
+// before the wait is over: it was on every show of what draws it, and was
+// told to wait again. Other files are asked for meanwhile.
+func TestMediaWaitsAsTelegramSaid(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	waited := model.Message{Media: &model.MessageMedia{ID: "avatar/5/77"}}
+	other := model.Message{Media: &model.MessageMedia{ID: "avatar/6/78"}}
+	s.noteFloodWait(waited.Media.ID, 30*time.Second)
+	_, err := s.Media(ctx, waited)
+	if err == nil || !strings.Contains(err.Error(), "wait") {
+		t.Fatalf("asked again during the wait: %v", err)
+	}
+	// Without a connection, the other is only not there.
+	if _, err := s.Media(ctx, other); err == nil || strings.Contains(err.Error(), "wait") {
+		t.Fatalf("another file waits too: %v", err)
+	}
+}
+
+// A file refused again waits longer each time: Telegram may name a few
+// seconds every time, and refuse it still.
+func TestMediaRefusedAgainWaitsLonger(t *testing.T) {
+	s := testStore(t)
+	const key = "avatar/5/77"
+	wait := func() time.Duration {
+		s.history.mu.Lock()
+		defer s.history.mu.Unlock()
+		return time.Until(s.history.floodUntil[key].until)
+	}
+	s.noteFloodWait(key, 3*time.Second)
+	first := wait()
+	s.noteFloodWait(key, 3*time.Second)
+	second := wait()
+	if first < floodBackoff-time.Second || second < 2*floodBackoff-time.Second {
+		t.Fatalf("waits %v, then %v; want %v, then twice that", first, second, floodBackoff)
+	}
+	for range 20 {
+		s.noteFloodWait(key, 3*time.Second)
+	}
+	if w := wait(); w > floodBackoffMost {
+		t.Fatalf("waits %v, more than %v", w, floodBackoffMost)
 	}
 }

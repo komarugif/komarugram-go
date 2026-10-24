@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/gotd/td/telegram/downloader"
 	"github.com/gotd/td/tg"
 
 	"komarugram/pkg/dcpool"
@@ -71,7 +70,7 @@ func (s *Store) ChannelFile(ctx context.Context, username string, post int, prog
 			}
 		}}
 		location := &tg.InputDocumentFileLocation{ID: doc.ID, AccessHash: doc.AccessHash, FileReference: doc.FileReference}
-		if _, err := downloader.NewDownloader().WithAllowCDN(true).Download(withDownloadSize(dcpool.DownloadClient(pool, ctx, doc.DCID), doc.Size), location).WithThreads(4).Parallel(ctx, out); err != nil {
+		if err := downloadFile(ctx, dcpool.DownloadClient(pool, ctx, doc.DCID), location, doc.Size, out, nil); err != nil {
 			return nil, err
 		}
 		if int64(len(out.data)) != doc.Size {

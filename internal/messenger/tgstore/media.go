@@ -14,8 +14,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
-	"github.com/gotd/td/telegram/downloader"
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
 )
@@ -67,6 +67,14 @@ func (s *Store) MediaProgress(ctx context.Context, m model.Message, progress fun
 		// The user's download of it, every chunk as it was tagged.
 		return b, cache.SaveMedia(ctx, m.Media.ID, b)
 	}
+	// Telegram said to wait before this file again: asked meanwhile, it
+	// says so again, on every show of what draws it.
+	c.mu.Lock()
+	until := c.floodUntil[m.Media.ID].until
+	c.mu.Unlock()
+	if wait := time.Until(until); wait > 0 {
+		return nil, fmt.Errorf("media: Telegram asked to wait %v before asking for it again", wait.Round(time.Second))
+	}
 	if pool == nil {
 		return nil, errors.New("media unavailable offline")
 	}
@@ -88,7 +96,9 @@ func (s *Store) MediaProgress(ctx context.Context, m model.Message, progress fun
 				progress(n, m.Media.Size)
 			}
 		}}
-		_, err := downloader.NewDownloader().WithAllowCDN(true).Download(withDownloadSize(dcpool.DownloadClient(pool, ctx, ref.DC), m.Media.Size), ref.input()).WithThreads(4).Parallel(ctx, out)
+		err := downloadFile(ctx, dcpool.DownloadClient(pool, ctx, ref.DC), ref.input(), m.Media.Size, out, func(wait time.Duration) {
+			s.noteFloodWait(m.Media.ID, wait)
+		})
 		return out.data, err
 	}
 	start = diagnostics.Start()
@@ -122,6 +132,41 @@ func (s *Store) MediaProgress(ctx context.Context, m model.Message, progress fun
 	}
 	return b, nil
 }
+
+// floodBackoff is the least a file refused with FLOOD_WAIT waits before it
+// is asked for again, doubled each time it is refused again, up to
+// floodBackoffMost.
+const (
+	floodBackoff     = 10 * time.Second
+	floodBackoffMost = 30 * time.Minute
+)
+
+// floodState is how long a file Telegram refused waits, and how many times
+// it was refused.
+type floodState struct {
+	until time.Time
+	times int
+}
+
+// noteFloodWait keeps how long the media of key waits, refused with a
+// FLOOD_WAIT of wait, before it is asked for again: as long as Telegram
+// said, and more each time it is refused again. Telegram may refuse a file
+// every time, a few seconds named each: asked again as soon as said, it was
+// all along.
+func (s *Store) noteFloodWait(key string, wait time.Duration) {
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.floodUntil == nil {
+		c.floodUntil = map[string]floodState{}
+	}
+	f := c.floodUntil[key]
+	backoff := floodBackoff << min(f.times, 10)
+	f.times++
+	f.until = time.Now().Add(max(wait, min(backoff, floodBackoffMost)))
+	c.floodUntil[key] = f
+}
+
 func (s *Store) refreshReference(ctx context.Context, m model.Message) error {
 	c := s.history
 	c.mu.Lock()
