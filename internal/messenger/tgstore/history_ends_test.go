@@ -355,3 +355,41 @@ func TestUnreadChatLeftAtEndOpensAtFirstUnread(t *testing.T) {
 		t.Fatalf("opened at %+v, the history %d..%d", v, h.Messages[0].Key.MessageID, h.Messages[len(h.Messages)-1].Key.MessageID)
 	}
 }
+
+// A chat whose newest message was deleted while the client was closed, the
+// newest its dialogs still tell, ends at the newest there is once a page
+// reaches it: waiting for the one gone, its history never ended, and read
+// to its end it never read the chat. A message that comes while the page
+// is asked for stays the newest.
+func TestGoneTopEndsTheHistory(t *testing.T) {
+	s := testStore(t)
+	chat := int64(5)
+	s.history.peers[chat] = peerRecord{ID: 5, Hash: 1, Kind: "user"}
+	s.history.top[chat] = 505
+	s.history.api = tg.NewClient(telegram.InvokeFunc(serveHistory(101, 500)))
+	s.OpenChat(chat)
+	h := waitHistory(t, s, chat)
+	if h.HasNewer || s.history.top[chat] != 500 {
+		t.Fatalf("opened at its end: HasNewer %v, the newest %d, want 500", h.HasNewer, s.history.top[chat])
+	}
+
+	// Opened in its past, and read down to its end.
+	s.history.top[chat] = 505
+	s.reveal(chat, 300, false)
+	s.OpenChat(chat)
+	waitHistory(t, s, chat)
+	for i := 0; i < 10 && s.History(chat).HasNewer; i++ {
+		s.LoadNewer(chat)
+		waitHistory(t, s, chat)
+	}
+	if h := s.History(chat); h.HasNewer || h.Messages[len(h.Messages)-1].Key.MessageID != 500 {
+		t.Fatalf("read down: HasNewer %v, the last %d", h.HasNewer, h.Messages[len(h.Messages)-1].Key.MessageID)
+	}
+
+	// The page was asked for before 506 came.
+	s.history.top[chat] = 505
+	s.endTop(chat, nil, 1, 500, 80, 504)
+	if s.history.top[chat] != 505 {
+		t.Fatalf("a message newer than the page asked for was dropped: the newest %d", s.history.top[chat])
+	}
+}

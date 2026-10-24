@@ -809,7 +809,7 @@ func (s *Store) fetchAt(epoch uint64, chat int64, dir, anchor int) {
 	}
 	c := s.history
 	c.mu.Lock()
-	api, peer, start, liveEpoch := c.api, c.peers[chat], c.generation, c.liveEpoch
+	api, peer, start, liveEpoch, top := c.api, c.peers[chat], c.generation, c.liveEpoch, c.top[chat]
 	if h := c.histories[chat]; h != nil {
 		h.Offline = api == nil
 	}
@@ -860,6 +860,7 @@ func (s *Store) fetchAt(epoch uint64, chat int64, dir, anchor int) {
 		s.finishPageAt(epoch, chat, dir, nil, false, e)
 		return
 	}
+	s.endTop(chat, modified.GetMessages(), dir, anchor, req.Limit, top)
 	msgs, e := s.ingest(ctx, modified.GetMessages(), false, start)
 	if e == nil {
 		e = s.persistDialogs(ctx)
@@ -880,6 +881,35 @@ func (s *Store) fetchAt(epoch uint64, chat int64, dir, anchor int) {
 		}
 	}
 	s.finishPageAt(epoch, chat, dir, msgs, len(modified.GetMessages()) >= req.Limit, e, start)
+}
+
+// endTop lowers the chat's newest message to the newest of a page that
+// reaches the chat's end, when the one known, top, is newer. That one is
+// gone: deleted while the client was closed, it stays the newest the
+// dialogs know of, which keep the newest they saw. A history waiting for it
+// never ends, and read to its end it never read the chat: its unread count
+// stayed until a message came after. A message that came while the page
+// was asked for is newer still, and stays.
+func (s *Store) endTop(chat int64, page []tg.MessageClass, dir, anchor, limit, top int) {
+	ids := make([]int, 0, len(page))
+	newest := 0
+	for _, m := range page {
+		ids = append(ids, m.GetID())
+		newest = max(newest, m.GetID())
+	}
+	if dir > 0 {
+		// The page is of what follows anchor, the newest message kept.
+		newest = max(newest, anchor)
+	}
+	if _, _, end, ok := pageSpan(ids, dir, anchor, limit); !ok || !end || newest == 0 {
+		return
+	}
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.top[chat] == top && newest < top {
+		c.top[chat] = newest
+	}
 }
 
 // learnTop learns the newest message of a chat opened at a message
