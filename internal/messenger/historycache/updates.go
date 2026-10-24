@@ -56,6 +56,23 @@ func (c *Cache) GetChannelPts(ctx context.Context, u, ch int64) (v int, found bo
 func (c *Cache) SetChannelPts(ctx context.Context, u, ch int64, v int) error {
 	return c.Put(ctx, fmt.Sprintf("pts/%d/%d", u, ch), v)
 }
+
+// RaiseChannelPts sets the pts of the channels kept to those of pts, by
+// channel id, which are newer, in one transaction; channels not kept stay
+// so.
+func (c *Cache) RaiseChannelPts(ctx context.Context, u int64, pts map[int64]int) error {
+	newer := map[string]any{}
+	for ch, n := range pts {
+		kept, found, err := c.GetChannelPts(ctx, u, ch)
+		if err != nil {
+			return err
+		}
+		if found && kept < n {
+			newer[fmt.Sprintf("pts/%d/%d", u, ch)] = n
+		}
+	}
+	return c.PutAll(ctx, newer)
+}
 func (c *Cache) SetChannelAccessHash(ctx context.Context, u, ch, h int64) error {
 	return c.Put(ctx, fmt.Sprintf("hash/%d/%d", u, ch), h)
 }

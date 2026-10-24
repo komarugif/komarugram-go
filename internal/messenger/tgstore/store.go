@@ -181,14 +181,22 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) err
 		}
 		s.rememberPeers(dialogs.GetUsers(), dialogs.GetChats())
 		s.history.mu.Lock()
-		tops := map[int64]int{}
+		tops, pts := map[int64]int{}, map[int64]int{}
 		for _, d := range dialogs.GetDialogs() {
 			if d, ok := d.(*tg.Dialog); ok {
 				s.history.top[peerID(d.Peer)] = max(s.history.top[peerID(d.Peer)], d.TopMessage)
 				tops[peerID(d.Peer)] = d.TopMessage
+				if p, ok := d.Peer.(*tg.PeerChannel); ok {
+					if n, ok := d.GetPts(); ok {
+						pts[p.ChannelID] = n
+					}
+				}
 			}
 		}
 		s.history.mu.Unlock()
+		if err := s.keepChannelPts(ctx, self, pts); err != nil {
+			return err
+		}
 		if err := s.liveFromDialogs(ctx, tops, liveEpoch); err != nil {
 			return err
 		}
@@ -218,6 +226,20 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) err
 	}
 	s.resync(0)
 	return nil
+}
+
+// keepChannelPts keeps the channels' pts the dialogs tell (pts, by channel
+// id), as Telegram Desktop takes them: a channel the updates manager starts
+// when an update of it comes asks for its difference from there, not from
+// where it stood when the client last ran. What happened before is in the
+// dialogs, and in the pages of the histories opened. Only channels kept
+// already are: the manager starts any other from its first update.
+func (s *Store) keepChannelPts(ctx context.Context, self int64, pts map[int64]int) error {
+	cache := s.Cache()
+	if cache == nil || len(pts) == 0 {
+		return nil
+	}
+	return cache.RaiseChannelPts(ctx, self, pts)
 }
 
 // keepReads keeps in chats, the dialogs read so far, the reads this client

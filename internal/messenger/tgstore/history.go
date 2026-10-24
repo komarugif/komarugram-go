@@ -264,8 +264,25 @@ func (s *Store) Attach(client *telegram.Client) {
 	}
 	c.mu.Unlock()
 }
+
+// lazyChannels is the updates manager's storage, which names it no channel
+// when it starts. The manager asks for the difference of each channel it
+// is named at once, and of each every 15 minutes after: one request for
+// every channel the account ever had an update of, which an account with
+// many met with FLOOD_WAIT, its dialogs among them, on every start.
+// Telegram Desktop asks for a channel's difference on a gap in its pts, on
+// updateChannelTooLong, and for the channel open; the manager starts a
+// channel when an update of it comes, from the pts kept for it, which the
+// dialogs keep current (keepChannelPts).
+type lazyChannels struct{ *historycache.Cache }
+
+// ForEachChannels names no channel: see lazyChannels.
+func (lazyChannels) ForEachChannels(context.Context, int64, func(context.Context, int64, int) error) error {
+	return nil
+}
+
 func (s *Store) Updates() *updates.Manager {
-	return updates.New(updates.Config{Handler: telegram.UpdateHandlerFunc(s.Handle), Storage: s.Cache(), AccessHasher: s.Cache(), MaxChannelDifferenceConcurrency: 2,
+	return updates.New(updates.Config{Handler: telegram.UpdateHandlerFunc(s.Handle), Storage: lazyChannels{s.Cache()}, AccessHasher: s.Cache(), MaxChannelDifferenceConcurrency: 2,
 		OnTooLong: func() {
 			s.endLive(0)
 			s.reloadDialogs()
