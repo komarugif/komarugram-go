@@ -23,6 +23,9 @@ const (
 	// readRetry is how long a read Telegram was not told waits to be told
 	// again.
 	readRetry = 5 * time.Second
+	// readAgain is how often a chat read to its end whose unread count
+	// came back is told again that it is read.
+	readAgain = 10 * time.Second
 )
 
 // ghostState is what the account may tell, and what it told last.
@@ -30,9 +33,11 @@ type ghostState struct {
 	mu    sync.Mutex
 	ghost model.Ghost
 	// read is what each chat was told, or is being told, it is read up
-	// to; retry, until when a read that failed waits.
+	// to; retry, until when a read that failed waits; again, until when
+	// a read told already is not told again (see MarkRead).
 	read   map[int64]model.MessageID
 	retry  map[int64]time.Time
+	again  map[int64]time.Time
 	typed  map[int64]time.Time
 	online bool
 	// told is when the status was sent last; toldOnline, which one.
@@ -80,10 +85,10 @@ func (s *Store) MarkRead(chat int64, id model.MessageID, asked bool) {
 		return
 	}
 	// The messages read before: those after them up to id are read now.
-	prev := s.readUpTo(chat)
+	prev, unread := s.readUpTo(chat), 0
 	for _, ch := range s.Chats() {
 		if ch.ID == chat {
-			prev = max(prev, ch.ReadInbox)
+			prev, unread = max(prev, ch.ReadInbox), ch.Unread
 		}
 	}
 	c := s.history
@@ -115,19 +120,41 @@ func (s *Store) MarkRead(chat int64, id model.MessageID, asked bool) {
 		// Not marked as read: it is told once the peer is known.
 		return
 	}
+	// Read to its end, the chat has nothing unread, whatever brought its
+	// count back after the read was told: the count goes, and the read is
+	// told again, at most every readAgain.
+	stuck := left == 0 && unread > 0
 	gs := &s.ghost
 	gs.mu.Lock()
-	if !gs.mayRead(chat, id, asked) {
-		gs.mu.Unlock()
+	allowed := asked || gs.ghost.SendRead
+	back := allowed && stuck && gs.read[chat] >= id
+	tell := gs.mayRead(chat, id, asked)
+	if !tell && back && !time.Now().Before(gs.again[chat]) {
+		tell = true
+		if gs.again == nil {
+			gs.again = map[int64]time.Time{}
+		}
+		gs.again[chat] = time.Now().Add(readAgain)
+	}
+	if tell {
+		if gs.read == nil {
+			gs.read = map[int64]model.MessageID{}
+		}
+		gs.read[chat] = max(gs.read[chat], id)
+	}
+	gs.mu.Unlock()
+	if !tell && !(allowed && stuck) {
 		return
 	}
-	if gs.read == nil {
-		gs.read = map[int64]model.MessageID{}
-	}
-	gs.read[chat] = id
-	gs.mu.Unlock()
 	if s.markInbox(chat, id, left, read) {
+		if back {
+			// Seen in -profile: what came back is worth finding.
+			s.profileHistory("read.count-came-back", chat, 0, int(id), unread, time.Time{}, nil)
+		}
 		s.changed()
+	}
+	if !tell {
+		return
 	}
 	s.tellRead(chat, id, func(ctx context.Context, api *tg.Client) error {
 		if peer.Kind == "channel" {

@@ -236,6 +236,63 @@ func TestDialogsKeepReadsTold(t *testing.T) {
 	}
 }
 
+// A chat read to its end has nothing unread, whatever brings its count
+// back after the read was told: the count goes, and the read is told again,
+// not on every frame. Without Ghost's leave nothing changes.
+func TestReadToTheEndHasNothingUnread(t *testing.T) {
+	s := testStore(t)
+	chat := int64(5)
+	api := &ghostAPI{}
+	s.history.api = api.client()
+	s.history.peers[chat] = peerRecord{Kind: "user", ID: 5, Hash: 55}
+	s.history.top[chat] = 12
+	s.chats = []model.Chat{{ID: chat, Unread: 2, ReadInbox: 10}}
+	unread := func() int {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.chats[0].Unread
+	}
+
+	s.MarkRead(chat, 12, false)
+	if n := unread(); n != 2 {
+		t.Fatalf("unread %d without Ghost's leave", n)
+	}
+	s.SetGhost(model.Ghost{SendRead: true})
+	s.MarkRead(chat, 12, false)
+	api.wait(t, 1)
+	// Something brings the count back.
+	s.setUnreadCount(chat, 3)
+	for range 5 {
+		s.MarkRead(chat, 12, false)
+	}
+	if n := unread(); n != 0 {
+		t.Fatalf("unread %d at the end of the history", n)
+	}
+	if told := api.wait(t, 2); len(told) != 2 || told[1] != "read 12" {
+		t.Fatalf("told %q, want the read told once more", told)
+	}
+	// Within readAgain it goes again, and is not told again.
+	s.setUnreadCount(chat, 1)
+	s.MarkRead(chat, 12, false)
+	time.Sleep(50 * time.Millisecond)
+	if n, told := unread(), api.wait(t, 2); n != 0 || len(told) != 2 {
+		t.Fatalf("unread %d, told %q", n, told)
+	}
+}
+
+// setUnreadCount sets the chat's count as a page of dialogs does.
+func (s *Store) setUnreadCount(chat int64, n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	chats := append([]model.Chat(nil), s.chats...)
+	for i := range chats {
+		if chats[i].ID == chat {
+			chats[i].Unread = n
+		}
+	}
+	s.chats = chats
+}
+
 // A read Telegram was not told, before the connection or on an error, is
 // told again: kept as told, the dialogs loaded next brought the unread count
 // back, and the history read to the end never took it away.
