@@ -47,6 +47,8 @@ type Store struct {
 	history        *conversation
 	// emoji gathers the custom emoji to ask Telegram for together.
 	emoji emojiBatch
+	// activity is what others do in chats now.
+	activity activities
 
 	themeRevisions map[int64]uint64
 	// appearances are the states of the chats' cached appearances.
@@ -448,6 +450,7 @@ func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 		ReadInbox:  model.MessageID(d.ReadInboxMaxID),
 	}
 	chat.Muted = mutedNow(d.NotifySettings)
+	chat.Draft = draftOf(d.Draft)
 	if d.Pinned {
 		l.pins++
 		chat.PinRank = l.pins

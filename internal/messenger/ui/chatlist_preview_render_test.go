@@ -111,6 +111,13 @@ func previewChats(now time.Time) []model.Chat {
 		{ID: 3, Kind: model.KindGroup, Title: "Спойлер, свой", Last: spoiler, LastTime: ago(9 * time.Minute)},
 		{ID: 4, Kind: model.KindUser, Title: "Custom emoji", Last: emoji, LastTime: ago(12 * time.Minute)},
 		{ID: 777000, Kind: model.KindUser, Title: "Telegram", Last: login, LastTime: ago(15 * time.Minute), Unread: 1, Badges: model.Badges{Verified: true}},
+		{ID: 30, Kind: model.KindUser, Title: "Черновик", Last: text("Последнее сообщение"), LastTime: ago(16 * time.Minute),
+			Draft: &model.Draft{Text: "Не забыть купить\nмолоко и хлеб", Entities: []model.Entity{{Kind: "italic", Offset: 17, Length: 6}}}},
+		{ID: 31, Kind: model.KindUser, Title: "Печатает", Last: text("Не видно, пока печатает"), LastTime: ago(17 * time.Minute)},
+		{ID: 32, Kind: model.KindGroup, Title: "Двое печатают", Last: text("Не видно"), LastTime: ago(17 * time.Minute)},
+		{ID: 33, Kind: model.KindGroup, Title: "Запись голосового", Last: text("Не видно"), LastTime: ago(17 * time.Minute)},
+		{ID: 34, Kind: model.KindUser, Title: "Отправка фото", Last: text("Не видно"), LastTime: ago(17 * time.Minute)},
+		{ID: 35, Kind: model.KindGroup, Title: "Выбор стикера", Last: text("Не видно"), LastTime: ago(17 * time.Minute), Unread: 2},
 		{ID: 5, Kind: model.KindUser, Title: "Фото с подписью", Last: caption, LastTime: ago(20 * time.Minute)},
 		{ID: 6, Kind: model.KindUser, Title: "Фото без подписи", Last: model.Preview{Media: "preview.photo", Thumbs: []model.PreviewThumb{photo(10)}}, LastTime: ago(25 * time.Minute)},
 		{ID: 7, Kind: model.KindUser, Title: "Видео", Last: model.Preview{Text: "Смотри, что снял", Media: "preview.video", Thumbs: []model.PreviewThumb{video}}, LastTime: ago(30 * time.Minute)},
@@ -128,6 +135,25 @@ func previewChats(now time.Time) []model.Chat {
 		{ID: 19, Kind: model.KindUser, Title: "Стикер", Last: model.Preview{Media: "preview.sticker", Emoji: "😀"}, LastTime: ago(7 * time.Hour)},
 		{ID: 20, Kind: model.KindUser, Title: "Голосовое", Last: model.Preview{Media: "preview.voice", Sent: true, ID: 3}, ReadOutbox: 3, LastTime: ago(26 * time.Hour)},
 		{ID: 21, Kind: model.KindUser, Title: "Выбранный чат", Last: model.Preview{Text: "Выделен: курсив и фото", Entities: []model.Entity{{Kind: "italic", Offset: 9, Length: 6}}, Thumbs: []model.PreviewThumb{photo(11)}, Media: "preview.photo"}, LastTime: ago(30 * time.Hour)},
+	}
+}
+
+// previewActivities are what others do in the chats of previewChats.
+type previewActivities map[int64][]model.Activity
+
+func (a previewActivities) Activities(chat int64) []model.Activity { return a[chat] }
+
+func newPreviewActivities(now time.Time) previewActivities {
+	until := now.Add(time.Hour)
+	act := func(name string, action model.ChatAction) model.Activity {
+		return model.Activity{Name: name, Action: action, Until: until}
+	}
+	return previewActivities{
+		31: {act("Анна", model.ActionTyping)},
+		32: {act("Игорь", model.ActionTyping), act("Ольга", model.ActionTyping)},
+		33: {act("Павел", model.ActionRecordVoice)},
+		34: {act("Мария", model.ActionUploadPhoto)},
+		35: {act("Сергей", model.ActionChooseSticker)},
 	}
 }
 
@@ -177,6 +203,7 @@ func renderChatPreviews(t *testing.T, path string, size image.Point, dark bool, 
 	source := previewSource{mockstore.New(time.Now(), 0)}
 	images := new(imageOps)
 	l.previews = &previewMedia{media: chatmedia.NewPreviews(source, func() {}), images: images}
+	l.activity = newPreviewActivities(time.Now())
 	defer l.previews.media.Close()
 	catalog := localization.For("ru")
 	win, err := headless.NewWindow(size.X, size.Y)

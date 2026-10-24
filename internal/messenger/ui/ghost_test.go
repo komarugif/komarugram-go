@@ -18,10 +18,10 @@ type ghostStore struct {
 	asked []bool
 }
 
-func (s *ghostStore) SetGhost(g model.Ghost) { s.ghost = g }
-func (s *ghostStore) Ghost() model.Ghost     { return s.ghost }
-func (s *ghostStore) SetOnline(bool)         {}
-func (s *ghostStore) Typing(int64)           {}
+func (s *ghostStore) SetGhost(g model.Ghost)             { s.ghost = g }
+func (s *ghostStore) Ghost() model.Ghost                 { return s.ghost }
+func (s *ghostStore) SetOnline(bool)                     {}
+func (s *ghostStore) SendAction(int64, model.ChatAction) {}
 func (s *ghostStore) MarkRead(_ int64, id model.MessageID, asked bool) {
 	s.read, s.asked = append(s.read, id), append(s.asked, asked)
 }
@@ -57,10 +57,14 @@ func TestGhostRead(t *testing.T) {
 	}
 }
 
-func TestGhostOptions(t *testing.T) {
-	for _, g := range []preferences.Ghost{{}, {SendRead: true, ReadOnInteract: true}, {SendOnline: true, SendTyping: true}} {
-		if got := ghostFromOptions(ghostToOptions(g)); got != g {
+// The boxes say what Ghost Mode hides: what they leave it keeps telling.
+func TestGhostBoxes(t *testing.T) {
+	for _, g := range []preferences.Ghost{{On: true}, {On: true, KeepRead: true, ReadOnInteract: true}, {KeepOnline: true, KeepTyping: true, KeepStickers: true}} {
+		if got := ghostWithHidden(g, ghostHiddenOf(g)); got != g {
 			t.Errorf("%+v came back as %+v", g, got)
 		}
+	}
+	if got := ghostHiddenOf(preferences.Ghost{KeepUploads: true}); slices.Contains(got, "uploads") || !slices.Contains(got, "read") {
+		t.Errorf("hidden %v", got)
 	}
 }

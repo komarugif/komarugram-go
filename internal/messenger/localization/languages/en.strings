@@ -17,6 +17,35 @@
 "account.logout_hint" = "End the session and delete the data from this computer";
 "account.logout_offline" = "If Telegram cannot be reached, the session stays in the account's list of devices: end it there.";
 
+"action.choose_sticker" = "choosing a sticker";
+"action.game" = "playing a game";
+"action.many_game" = "{count} people are playing a game";
+"action.many_game#one" = "{count} person is playing a game";
+"action.many_typing" = "{count} people are typing";
+"action.many_typing#one" = "{count} person is typing";
+"action.record_round" = "recording a video message";
+"action.record_video" = "recording a video";
+"action.record_voice" = "recording a voice message";
+"action.typing" = "typing";
+"action.upload_file" = "sending a file";
+"action.upload_photo" = "sending a photo";
+"action.upload_round" = "sending a video message";
+"action.upload_video" = "sending a video";
+"action.upload_voice" = "sending a voice message";
+"action.user_choose_sticker" = "{user} is choosing a sticker";
+"action.user_game" = "{user} is playing a game";
+"action.user_record_round" = "{user} is recording a video message";
+"action.user_record_video" = "{user} is recording a video";
+"action.user_record_voice" = "{user} is recording a voice message";
+"action.user_typing" = "{user} is typing";
+"action.user_upload_file" = "{user} is sending a file";
+"action.user_upload_photo" = "{user} is sending a photo";
+"action.user_upload_round" = "{user} is sending a video message";
+"action.user_upload_video" = "{user} is sending a video";
+"action.user_upload_voice" = "{user} is sending a voice message";
+"action.users_game" = "{user} and {second_user} are playing a game";
+"action.users_typing" = "{user} and {second_user} are typing";
+
 "album_save.all" = "Whole album";
 "album_save.cancel" = "Cancel";
 "album_save.one" = "This one";
@@ -699,13 +728,16 @@
 "frozen.text3" = "Appeal via {link} before {date}, or your account will be deleted.";
 "frozen.title" = "Your Account is Frozen";
 
-"ghost.body" = "What the accounts tell about themselves. With nothing checked, nobody sees that you read, are online or type.";
-"ghost.interact" = "Read on interact";
-"ghost.interact_body" = "Marks a chat read when you send a message to it or react in it.";
-"ghost.online" = "Show online";
-"ghost.read" = "Send read receipts";
+"ghost.body" = "Hides what you check below: others do not learn that you read their messages, were online, or write and send something.";
+"ghost.interact" = "Read a chat when you act in it";
+"ghost.interact_body" = "Even with reading hidden, marks a chat read when you send a message to it or react in it.";
+"ghost.online" = "Online status";
+"ghost.read" = "Reading messages";
+"ghost.recording" = "Recording a voice message";
+"ghost.stickers" = "Choosing a sticker";
 "ghost.title" = "Ghost Mode";
-"ghost.typing" = "Send typing";
+"ghost.typing" = "Typing";
+"ghost.uploads" = "Sending photos, videos, files and voice messages";
 
 "gif_fallback.both" = "It can play here with FFmpeg, outside the sandbox, or open in the external player.";
 "gif_fallback.cancel" = "Cancel";
@@ -1175,6 +1207,7 @@
 "preview.audios" = "{count} audio";
 "preview.audios#one" = "{count} audio";
 "preview.contact" = "Contact";
+"preview.draft" = "Draft";
 "preview.file" = "File";
 "preview.files" = "{count} files";
 "preview.files#one" = "{count} file";

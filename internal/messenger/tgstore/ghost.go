@@ -14,9 +14,12 @@ import (
 )
 
 const (
-	// typingEvery is how often typing is told again while it goes on, as
-	// Telegram Desktop does.
-	typingEvery = 5 * time.Second
+	// actionEvery is how often an action, typing or an upload, is told
+	// again while it goes on, as Telegram Desktop's kSendMyTypingInterval.
+	actionEvery = 5 * time.Second
+	// actionOfflineFor is how long a user may be offline and still be told
+	// what the account does, as Telegram Desktop's kSendTypingsToOfflineFor.
+	actionOfflineFor = 30 * time.Second
 	// onlineEvery keeps the account online: Telegram shows it offline a
 	// few minutes after the last status.
 	onlineEvery = 2 * time.Minute
@@ -28,6 +31,12 @@ const (
 	readAgain = 10 * time.Second
 )
 
+// actionKey is an action in a chat.
+type actionKey struct {
+	chat   int64
+	action model.ChatAction
+}
+
 // ghostState is what the account may tell, and what it told last.
 type ghostState struct {
 	mu    sync.Mutex
@@ -35,10 +44,11 @@ type ghostState struct {
 	// read is what each chat was told, or is being told, it is read up
 	// to; retry, until when a read that failed waits; again, until when
 	// a read told already is not told again (see MarkRead).
-	read   map[int64]model.MessageID
-	retry  map[int64]time.Time
-	again  map[int64]time.Time
-	typed  map[int64]time.Time
+	read  map[int64]model.MessageID
+	retry map[int64]time.Time
+	again map[int64]time.Time
+	// acted is when each action was told last in each chat.
+	acted  map[actionKey]time.Time
 	online bool
 	// told is when the status was sent last; toldOnline, which one.
 	told       time.Time
@@ -244,36 +254,108 @@ func (s *Store) SetOnline(online bool) {
 	}
 }
 
-// Typing implements model.GhostStore with messages.setTyping, told at most
-// every typingEvery.
-func (s *Store) Typing(chat int64) {
+// SendAction implements model.GhostStore with messages.setTyping, told at
+// most every actionEvery.
+func (s *Store) SendAction(chat int64, action model.ChatAction) {
+	s.sendAction(chat, action, 0)
+}
+
+// sendAction tells chat what the account does in it, an upload with how
+// much of it is done, in percent, when Ghost allows, at most every
+// actionEvery, and only where someone may see it: as Telegram Desktop, not
+// in Saved Messages, a channel, a bot's chat, nor to a user offline for
+// longer than actionOfflineFor.
+func (s *Store) sendAction(chat int64, action model.ChatAction, progress int) {
 	gs := &s.ghost
+	now := time.Now()
+	key := actionKey{chat, action}
 	gs.mu.Lock()
-	if !gs.ghost.SendTyping || time.Since(gs.typed[chat]) < typingEvery {
+	if !gs.ghost.Sends(action) || now.Sub(gs.acted[key]) < actionEvery {
 		gs.mu.Unlock()
 		return
 	}
-	if gs.typed == nil {
-		gs.typed = map[int64]time.Time{}
+	if gs.acted == nil {
+		gs.acted = map[actionKey]time.Time{}
 	}
-	gs.typed[chat] = time.Now()
+	gs.acted[key] = now
 	gs.mu.Unlock()
 	c := s.history
 	c.mu.Lock()
 	real, top := c.threadChat(chat)
 	peer := c.peers[real]
 	c.mu.Unlock()
-	if peer.ID == 0 {
+	if peer.ID == 0 || !s.seesActions(real, peer, now) {
 		return
 	}
-	s.goSend("typing", func(ctx context.Context, api *tg.Client) error {
-		req := &tg.MessagesSetTypingRequest{Peer: peer.input(), Action: &tg.SendMessageTypingAction{}}
+	input := inputAction(action, progress)
+	if input == nil {
+		return
+	}
+	s.goSend("action", func(ctx context.Context, api *tg.Client) error {
+		req := &tg.MessagesSetTypingRequest{Peer: peer.input(), Action: input}
 		if top != 0 {
 			req.SetTopMsgID(top)
 		}
 		_, err := api.MessagesSetTyping(ctx, req)
 		return err
 	})
+}
+
+// seesActions reports whether peer, chat, would see what the account does
+// in it, as Telegram Desktop's SendProgressManager decides: a user online
+// a moment ago, or who hides when, but not oneself or a bot; a group, but
+// not a channel.
+func (s *Store) seesActions(chat int64, peer peerRecord, now time.Time) bool {
+	switch {
+	case peer.Rights.Self, peer.Rights.Bot:
+		return false
+	case peer.Kind == "channel":
+		return !peer.Rights.Broadcast
+	case peer.Kind != "user":
+		return true
+	}
+	p, known := s.Presence(chat)
+	switch {
+	case !known, p.Seen == model.SeenRecently:
+		return true
+	case p.Seen == model.SeenAt:
+		return !p.At.Before(now.Add(-actionOfflineFor))
+	}
+	return false
+}
+
+// inputAction is action as Telegram's, an upload with its progress; nil for
+// none.
+func inputAction(action model.ChatAction, progress int) tg.SendMessageActionClass {
+	switch action {
+	case model.ActionTyping:
+		return &tg.SendMessageTypingAction{}
+	case model.ActionRecordVoice:
+		return &tg.SendMessageRecordAudioAction{}
+	case model.ActionUploadVoice:
+		return &tg.SendMessageUploadAudioAction{Progress: progress}
+	case model.ActionRecordVideo:
+		return &tg.SendMessageRecordVideoAction{}
+	case model.ActionUploadVideo:
+		return &tg.SendMessageUploadVideoAction{Progress: progress}
+	case model.ActionRecordRound:
+		return &tg.SendMessageRecordRoundAction{}
+	case model.ActionUploadRound:
+		return &tg.SendMessageUploadRoundAction{Progress: progress}
+	case model.ActionUploadPhoto:
+		return &tg.SendMessageUploadPhotoAction{Progress: progress}
+	case model.ActionUploadFile:
+		return &tg.SendMessageUploadDocumentAction{Progress: progress}
+	case model.ActionChooseLocation:
+		return &tg.SendMessageGeoLocationAction{}
+	case model.ActionChooseContact:
+		return &tg.SendMessageChooseContactAction{}
+	case model.ActionChooseSticker:
+		return &tg.SendMessageChooseStickerAction{}
+	case model.ActionPlayGame:
+		return &tg.SendMessageGamePlayAction{}
+	}
+	return nil
 }
 
 // goSend runs send with the API off the frame, and reports whether it did:

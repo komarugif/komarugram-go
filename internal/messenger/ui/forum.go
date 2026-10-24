@@ -54,6 +54,8 @@ type forumPage struct {
 	lines    map[int]*previewLine
 	previews *previewMedia
 	animate  func() bool
+	// activity tells what others do in the topics.
+	activity model.ActivitySource
 	// open shows a topic; openAt shows it at a message.
 	open   func(forum model.Chat, topic model.Topic)
 	openAt func(forum model.Chat, topic model.Topic, at model.MessageID)
@@ -351,8 +353,18 @@ func (f *forumPage) layoutTopicText(gtx layout.Context, t model.Topic, line *pre
 		offset(lineGtx, image.Pt(x, lineY), func(gtx layout.Context) layout.Dimensions {
 			// The forum's chat, which the thumbnails' file references are
 			// renewed by.
+			animate := f.animate != nil && f.animate()
+			// What someone does in the topic now takes its place; the
+			// General topic's has no thread.
+			top := t.ID
+			if t.General {
+				top = 0
+			}
+			if f.activity != nil && line.act.update(gtx, f.activity.Activities(f.chat), top, false, l) {
+				return line.act.layout(gtx, token.TypestyleBodyMedium, accent, animate)
+			}
 			line.update(model.Chat{ID: f.chat, Kind: model.KindGroup, Last: t.Last}, f.group, l, previewEmojiPx(gtx))
-			return line.layout(gtx, f.previews, text, accent, f.animate != nil && f.animate())
+			return line.layout(gtx, f.previews, text, accent, accent, animate)
 		})
 		return
 	}

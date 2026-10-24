@@ -103,61 +103,7 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 			out.Reactions = convertReactions(reactions)
 			out.ReactionsListed = reactions.CanSeeList && len(out.Reactions) > 0
 		}
-		for _, e := range m.Entities {
-			entity := model.Entity{Offset: e.GetOffset(), Length: e.GetLength()}
-			switch e := e.(type) {
-			case *tg.MessageEntityBold:
-				entity.Kind = "bold"
-			case *tg.MessageEntityItalic:
-				entity.Kind = "italic"
-			case *tg.MessageEntityUnderline:
-				entity.Kind = "underline"
-			case *tg.MessageEntityStrike:
-				entity.Kind = "strike"
-			case *tg.MessageEntityCode:
-				entity.Kind = "code"
-			case *tg.MessageEntityPre:
-				entity.Kind = "pre"
-				entity.Language = e.Language
-			case *tg.MessageEntityBlockquote:
-				entity.Kind = "quote"
-				entity.Collapsed = e.Collapsed
-			case *tg.MessageEntitySpoiler:
-				entity.Kind = "spoiler"
-			case *tg.MessageEntityURL:
-				entity.Kind = "url"
-			case *tg.MessageEntityTextURL:
-				entity.Kind = "url"
-				entity.URL = e.URL
-			case *tg.MessageEntityMention:
-				entity.Kind = "mention"
-			case *tg.MessageEntityMentionName:
-				entity.Kind = "url"
-				entity.URL = fmt.Sprintf("tg://user?id=%d", e.UserID)
-			case *tg.MessageEntityCustomEmoji:
-				entity.Kind = "emoji"
-				entity.DocumentID = e.DocumentID
-			case *tg.MessageEntityHashtag:
-				entity.Kind = "hashtag"
-			case *tg.MessageEntityCashtag:
-				entity.Kind = "cashtag"
-			case *tg.MessageEntityBotCommand:
-				entity.Kind = "bot_command"
-			case *tg.MessageEntityEmail:
-				entity.Kind = "email"
-			case *tg.MessageEntityPhone:
-				entity.Kind = "phone"
-			case *tg.MessageEntityBankCard:
-				entity.Kind = "bank_card"
-			case *tg.MessageEntityFormattedDate:
-				entity.Kind = "date"
-				entity.Date = int64(e.Date)
-				entity.DateFormat = dateFlags(e.Relative, e.ShortTime, e.LongTime, e.ShortDate, e.LongDate, e.DayOfWeek)
-			default:
-				entity.Kind = "unsupported"
-			}
-			out.Entities = append(out.Entities, entity)
-		}
+		out.Entities = convertEntities(m.Entities)
 		if rich, ok := m.GetRichMessage(); ok {
 			// Telegram sends a rich message's text empty: it shows the
 			// article's summary, as Telegram Desktop does.
@@ -253,6 +199,67 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 	h.Write(b)
 	out.ContentRevision = h.Sum64() & ((1 << 63) - 1)
 	return out, loc
+}
+
+// convertEntities are Telegram's entities as the model's.
+func convertEntities(entities []tg.MessageEntityClass) []model.Entity {
+	var out []model.Entity
+	for _, e := range entities {
+		entity := model.Entity{Offset: e.GetOffset(), Length: e.GetLength()}
+		switch e := e.(type) {
+		case *tg.MessageEntityBold:
+			entity.Kind = "bold"
+		case *tg.MessageEntityItalic:
+			entity.Kind = "italic"
+		case *tg.MessageEntityUnderline:
+			entity.Kind = "underline"
+		case *tg.MessageEntityStrike:
+			entity.Kind = "strike"
+		case *tg.MessageEntityCode:
+			entity.Kind = "code"
+		case *tg.MessageEntityPre:
+			entity.Kind = "pre"
+			entity.Language = e.Language
+		case *tg.MessageEntityBlockquote:
+			entity.Kind = "quote"
+			entity.Collapsed = e.Collapsed
+		case *tg.MessageEntitySpoiler:
+			entity.Kind = "spoiler"
+		case *tg.MessageEntityURL:
+			entity.Kind = "url"
+		case *tg.MessageEntityTextURL:
+			entity.Kind = "url"
+			entity.URL = e.URL
+		case *tg.MessageEntityMention:
+			entity.Kind = "mention"
+		case *tg.MessageEntityMentionName:
+			entity.Kind = "url"
+			entity.URL = fmt.Sprintf("tg://user?id=%d", e.UserID)
+		case *tg.MessageEntityCustomEmoji:
+			entity.Kind = "emoji"
+			entity.DocumentID = e.DocumentID
+		case *tg.MessageEntityHashtag:
+			entity.Kind = "hashtag"
+		case *tg.MessageEntityCashtag:
+			entity.Kind = "cashtag"
+		case *tg.MessageEntityBotCommand:
+			entity.Kind = "bot_command"
+		case *tg.MessageEntityEmail:
+			entity.Kind = "email"
+		case *tg.MessageEntityPhone:
+			entity.Kind = "phone"
+		case *tg.MessageEntityBankCard:
+			entity.Kind = "bank_card"
+		case *tg.MessageEntityFormattedDate:
+			entity.Kind = "date"
+			entity.Date = int64(e.Date)
+			entity.DateFormat = dateFlags(e.Relative, e.ShortTime, e.LongTime, e.ShortDate, e.LongDate, e.DayOfWeek)
+		default:
+			entity.Kind = "unsupported"
+		}
+		out = append(out, entity)
+	}
+	return out
 }
 
 // photoMedia describes the largest size of a photo and keeps the others as

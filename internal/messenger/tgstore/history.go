@@ -31,7 +31,10 @@ type peerRecord struct {
 	ID, Hash int64
 	Kind     string
 	Name     string
-	Photo    *avatarRecord
+	// First is a user's first name, which an action in a group is told
+	// with; Name where there is none.
+	First string `json:",omitempty"`
+	Photo *avatarRecord
 	// Rights is what the account may do in a group or channel.
 	Rights   peerRights   `json:",omitempty"`
 	Metadata peerMetadata `json:",omitempty"`
@@ -384,6 +387,7 @@ func (s *Store) rememberPeers(users []tg.UserClass, chats []tg.ChatClass) {
 				s.setPresence(u.ID, u.Status)
 			}
 			p := c.peers[key]
+			p.First = strings.TrimSpace(u.FirstName)
 			if photo, ok := u.Photo.(*tg.UserProfilePhoto); ok {
 				p.Photo = &avatarRecord{photo.PhotoID, photo.DCID, photo.HasVideo, photo.StrippedThumb}
 			} else if !u.Min {
@@ -1409,6 +1413,8 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			s.applyPin(u)
 		case *tg.UpdateDialogUnreadMark:
 			s.applyUnreadMark(u)
+		case *tg.UpdateDraftMessage:
+			s.applyDraft(u)
 		case *tg.UpdateFolderPeers:
 			s.applyFolderPeers(u)
 		case *tg.UpdatePinnedDialogs:
@@ -1426,10 +1432,13 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 		case *tg.UpdateUserTyping:
 			peer := &tg.PeerUser{UserID: u.UserID}
 			s.applyDraftAction(peer, u.TopMsgID, peer, u.Action)
+			s.noteAction(peer, u.TopMsgID, peer, u.Action)
 		case *tg.UpdateChatUserTyping:
 			s.applyDraftAction(&tg.PeerChat{ChatID: u.ChatID}, 0, u.FromID, u.Action)
+			s.noteAction(&tg.PeerChat{ChatID: u.ChatID}, 0, u.FromID, u.Action)
 		case *tg.UpdateChannelUserTyping:
 			s.applyDraftAction(&tg.PeerChannel{ChannelID: u.ChannelID}, u.TopMsgID, u.FromID, u.Action)
+			s.noteAction(&tg.PeerChannel{ChannelID: u.ChannelID}, u.TopMsgID, u.FromID, u.Action)
 		}
 		if msg != nil {
 			if service, ok := msg.(*tg.MessageService); ok {
@@ -1450,6 +1459,14 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			for _, m := range ms {
 				if fresh {
 					s.adoptDraft(m)
+					if !m.Outgoing {
+						// Their message ends what they did to write it.
+						sender := m.SenderID
+						if sender == 0 {
+							sender = m.Key.ChatID
+						}
+						s.endActivity(m.Key.ChatID, sender)
+					}
 				}
 				if chat, isNew := s.mergeUpdate(m); fresh && isNew {
 					s.notice(m, chat, msg)

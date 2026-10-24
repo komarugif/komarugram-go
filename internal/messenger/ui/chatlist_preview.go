@@ -75,8 +75,13 @@ type previewLine struct {
 	channel bool
 	emojiPx int
 	ok      bool
+	// draft is the draft shown in place of the message, nil for none.
+	draft *model.Draft
 
-	sender string
+	// sender is who wrote the message, or the mark of a draft, drafted
+	// set then, as its line begins; forwarded marks a forward.
+	sender             string
+	drafted, forwarded bool
 	// runs are the line's text: the media words first, words runs of
 	// them, then the message's text.
 	runs  []model.TextRun
@@ -90,20 +95,34 @@ type previewLine struct {
 	// shown is when the message was first drawn, from when its custom emoji
 	// play.
 	shown time.Time
+	// act is what someone does in the chat now, drawn in the line's place.
+	act activityLine
 }
 
 // update makes the line again when c's last message, or what it is worded
 // with, changed since it was made.
 func (p *previewLine) update(c model.Chat, title string, catalog localization.Catalog, emojiPx int) {
 	channel := c.Kind == model.KindChannel
-	if p.ok && p.made.Equal(c.Last) && p.catalog == catalog && p.chat == title && p.channel == channel && p.emojiPx == emojiPx {
+	// A draft takes the message's place, as Telegram Desktop's list shows
+	// it, unless there are messages unread; a forum's are its topics'.
+	draft := c.Draft
+	if c.Unread > 0 || c.Forum {
+		draft = nil
+	}
+	if p.ok && p.made.Equal(c.Last) && p.draft.Equal(draft) && p.catalog == catalog && p.chat == title && p.channel == channel && p.emojiPx == emojiPx {
 		return
 	}
-	if !p.ok || !p.made.Equal(c.Last) {
+	if !p.ok || !p.made.Equal(c.Last) || !p.draft.Equal(draft) {
 		p.shown = time.Time{}
 	}
-	p.made, p.catalog, p.chat, p.channel, p.emojiPx, p.ok = c.Last, catalog, title, channel, emojiPx, true
+	p.made, p.draft, p.catalog, p.chat, p.channel, p.emojiPx, p.ok = c.Last, draft, catalog, title, channel, emojiPx, true
 	sender, words, text := catalog.PreviewLine(c.Last, title, channel)
+	entities, thumbs := c.Last.Entities, c.Last.Thumbs
+	p.drafted, p.forwarded = draft != nil, c.Last.Forwarded
+	if draft != nil {
+		sender, words, thumbs, p.forwarded = catalog.T("preview.draft"), "", nil, false
+		text, entities = model.PreviewText(draft.Text, draft.Entities)
+	}
 	p.sender = ""
 	if sender != "" {
 		p.sender = sender + ": "
@@ -117,7 +136,7 @@ func (p *previewLine) update(c model.Chat, title string, catalog localization.Ca
 	}
 	p.words = len(p.runs)
 	if text != "" {
-		p.runs = append(p.runs, model.TextRuns(text, c.Last.Entities)...)
+		p.runs = append(p.runs, model.TextRuns(text, entities)...)
 	}
 	p.emoji = zeroed(p.emoji, len(p.runs))
 	for i, r := range p.runs {
@@ -127,7 +146,7 @@ func (p *previewLine) update(c model.Chat, title string, catalog localization.Ca
 		}
 	}
 	p.thumbs, p.blurred = p.thumbs[:0], p.blurred[:0]
-	for _, t := range c.Last.Thumbs {
+	for _, t := range thumbs {
 		m := model.Message{Key: model.MessageKey{ChatID: c.ID, MessageID: t.Message}, Kind: model.MessagePhoto, Media: &model.MessageMedia{ID: t.ID, MIMEType: "image/jpeg"}}
 		var blurred image.Image
 		if t.Spoiler || t.ID == "" {
@@ -138,17 +157,22 @@ func (p *previewLine) update(c model.Chat, title string, catalog localization.Ca
 }
 
 // layout draws the line in the width of the constraints, from their top
-// left: the sender and the media words in accent, the text in fg.
-func (p *previewLine) layout(gtx layout.Context, pm *previewMedia, fg, accent token.MatColor, animate bool) layout.Dimensions {
+// left: the sender and the media words in accent, the mark of a draft in
+// drafted, the text in fg.
+func (p *previewLine) layout(gtx layout.Context, pm *previewMedia, fg, accent, drafted token.MatColor, animate bool) layout.Dimensions {
 	width := gtx.Constraints.Max.X
 	gtx.Constraints.Min = image.Point{}
 	x := 0
 	if p.sender != "" {
 		senderGtx := gtx
 		senderGtx.Constraints.Max.X = max(width/2, 0)
-		x += label(senderGtx, p.sender, token.TypestyleBodyMedium, accent, 1).Size.X
+		col := accent
+		if p.drafted {
+			col = drafted
+		}
+		x += label(senderGtx, p.sender, token.TypestyleBodyMedium, col, 1).Size.X
 	}
-	if p.made.Forwarded {
+	if p.forwarded {
 		// As Telegram Desktop marks a forward before the text.
 		px := gtx.Dp(16)
 		if x+px <= width {

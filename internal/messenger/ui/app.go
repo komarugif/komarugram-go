@@ -608,6 +608,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.chats.avatar = a.layoutAvatar
 		a.chats.previews = &previewMedia{media: chatmedia.NewPreviews(source, w.Invalidate), images: &a.images}
 		a.chats.animate = func() bool { return a.window.Motion.AnimationsEnabled() }
+		a.chats.activity, _ = source.(model.ActivitySource)
 		a.chats.presence, _ = source.(model.PresenceSource)
 		a.viewer = newMediaViewer(source, &a.images, w.Invalidate)
 		a.viewer.shortcuts = a.shortcutPrefs
@@ -655,7 +656,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			a.forum.open = a.openTopic
 			a.forum.openAt = a.openTopicAt
 			a.forum.emoji = a.layoutCustomEmoji
-			a.forum.previews, a.forum.animate = a.chats.previews, a.chats.animate
+			a.forum.previews, a.forum.animate, a.forum.activity = a.chats.previews, a.chats.animate, a.chats.activity
 			if a.comments == nil {
 				a.comments = a.newChatPage(source, store, w)
 				a.comments.thread = true
@@ -789,6 +790,9 @@ func (a *App) Close() {
 	a.closeMiniApps()
 	a.viewerWindows.closeAll()
 	a.articleWindows.closeAll()
+	if a.history != nil {
+		a.history.composer.keepDraft(a.history.chat)
+	}
 	if a.avatars != nil {
 		a.avatars.media.Close()
 	}
@@ -1555,6 +1559,9 @@ func (a *App) SetSuspended(hidden bool) {
 	a.SetMinimized(true)
 	if a.history != nil {
 		a.history.save(true)
+		// Hidden, the window may be closed for good: the field's text is
+		// the chat's draft on the other devices meanwhile.
+		a.history.composer.keepDraft(a.history.chat)
 		a.history.media.Release()
 	}
 	if a.comments != nil {
@@ -1636,7 +1643,8 @@ func (a *App) tellGhost() {
 		return
 	}
 	p := a.preferences.Global().Ghost
-	g.SetGhost(model.Ghost{SendRead: p.SendRead, SendOnline: p.SendOnline, SendTyping: p.SendTyping, ReadOnInteract: p.ReadOnInteract})
+	read, online, typing, uploads, recording, stickers := p.Tells()
+	g.SetGhost(model.Ghost{SendRead: read, SendOnline: online, SendTyping: typing, SendUploads: uploads, SendRecording: recording, SendStickers: stickers, ReadOnInteract: p.ReadOnInteract})
 	g.SetOnline(a.focused)
 	if k, ok := a.store.(model.KeepStore); ok {
 		keep := a.preferences.Global().Keep

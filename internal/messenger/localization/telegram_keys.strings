@@ -2,6 +2,33 @@
 // its texts from when Telegram's pack for the language is loaded: only keys
 // whose placeholders the client fills as Telegram Desktop does.
 
+"action.choose_sticker" = "lng_send_action_choose_sticker";
+"action.game" = "lng_playing_game";
+"action.many_game" = "lng_many_playing_game";
+"action.many_typing" = "lng_many_typing";
+"action.record_round" = "lng_send_action_record_round";
+"action.record_video" = "lng_send_action_record_video";
+"action.record_voice" = "lng_send_action_record_audio";
+"action.typing" = "lng_typing";
+"action.upload_file" = "lng_send_action_upload_file";
+"action.upload_photo" = "lng_send_action_upload_photo";
+"action.upload_round" = "lng_send_action_upload_round";
+"action.upload_video" = "lng_send_action_upload_video";
+"action.upload_voice" = "lng_send_action_upload_audio";
+"action.user_choose_sticker" = "lng_user_action_choose_sticker";
+"action.user_game" = "lng_user_playing_game";
+"action.user_record_round" = "lng_user_action_record_round";
+"action.user_record_video" = "lng_user_action_record_video";
+"action.user_record_voice" = "lng_user_action_record_audio";
+"action.user_typing" = "lng_user_typing";
+"action.user_upload_file" = "lng_user_action_upload_file";
+"action.user_upload_photo" = "lng_user_action_upload_photo";
+"action.user_upload_round" = "lng_user_action_upload_round";
+"action.user_upload_video" = "lng_user_action_upload_video";
+"action.user_upload_voice" = "lng_user_action_upload_audio";
+"action.users_game" = "lng_users_playing_game";
+"action.users_typing" = "lng_users_typing";
+
 "audio.close" = "lng_close";
 "audio.date" = "lng_player_message_date";
 "audio.next" = "lng_shortcuts_media_next";
@@ -357,6 +384,7 @@
 "preview.audio" = "lng_in_dlg_audio_file";
 "preview.audios" = "lng_in_dlg_audio_count";
 "preview.contact" = "lng_in_dlg_contact";
+"preview.draft" = "lng_from_draft";
 "preview.file" = "lng_in_dlg_file";
 "preview.files" = "lng_in_dlg_file_count";
 "preview.location" = "lng_maps_point";

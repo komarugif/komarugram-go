@@ -286,6 +286,11 @@ size-stability fixes remain in place.
   so a frame of the list allocates no more than plain text did; its
   pictures come from `previewMedia` (`chatmedia.NewPreviews`), and a
   thumbnail that failed is asked again only after a wait that doubles.
+  A chat's draft takes the message's place, its mark in the error colour,
+  unless messages are unread, and what someone does in the chat now takes
+  both's (`activityLine`, `activity.go`): a mark stepping a few times a
+  second, dots or a swelling dot for a recording, and the words, in the
+  accent; the chat's header shows it in place of the status.
   `CHAT_PREVIEW_PNG` saves a list of every kind, light, dark and narrow.
 - **Devices** (`sessions.go`): the settings section of the account's
   sessions, grouped as Telegram Desktop's Active Sessions, with a dialog of a

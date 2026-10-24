@@ -143,8 +143,46 @@ type Chat struct {
 	// (DirectMessagesSource), a group of Telegram's that the account reads
 	// as a private chat with the channel: without avatars.
 	DirectMessages bool `json:",omitempty"`
+	// Draft is the message the account began in the chat and did not
+	// send, as Telegram keeps it for all of its devices; nil for none.
+	Draft *Draft `json:",omitempty"`
 	// Badges are the marks beside the chat's name.
 	Badges
+}
+
+// Draft is a message begun and not sent.
+type Draft struct {
+	Text     string
+	Entities []Entity `json:",omitempty"`
+	// ReplyTo is the message it replies to, 0 for none.
+	ReplyTo MessageID `json:",omitempty"`
+	// Date is when it was saved last.
+	Date time.Time
+}
+
+// Equal reports whether d and o are the same draft, but for when they were
+// saved; nil is no draft.
+func (d *Draft) Equal(o *Draft) bool {
+	if d == nil || o == nil {
+		return d == o
+	}
+	return d.Text == o.Text && d.ReplyTo == o.ReplyTo && slices.Equal(d.Entities, o.Entities)
+}
+
+// DraftStore keeps the drafts of chats for all of the account's devices.
+type DraftStore interface {
+	// SaveDraft makes d chat's draft, nil none, Chat.Draft showing it at
+	// once; it does nothing when chat has that draft already.
+	SaveDraft(chat int64, d *Draft)
+}
+
+// SortTime is when the chat changed last, as a list orders it: its last
+// message, or its draft when saved since, as Telegram Desktop orders them.
+func (c Chat) SortTime() time.Time {
+	if c.Draft != nil && c.Draft.Date.After(c.LastTime) {
+		return c.Draft.Date
+	}
+	return c.LastTime
 }
 
 // Badges are the marks Telegram shows around a name.

@@ -69,6 +69,9 @@ type chatList struct {
 	// nil draws neither. animate tells whether the emoji may play.
 	previews *previewMedia
 	animate  func() bool
+	// activity tells what others do in the chats, drawn in place of their
+	// last messages; nil for nothing.
+	activity model.ActivitySource
 }
 
 // overlayPrefs is how the list's overlays are drawn.
@@ -404,8 +407,12 @@ func (l *chatList) layoutRowWith(gtx layout.Context, r *surface, line *previewLi
 		} else {
 			textX := avatarX + avatarPx + pad
 			textWidth := size.X - margin - pad - textX
+			drafted := sc.Error.Color
+			if selected {
+				drafted = sc.Primary.OnColor
+			}
 			l.layoutRowText(gtx, c, line, image.Rect(textX, gtx.Dp(11), textX+textWidth, size.Y-gtx.Dp(11)),
-				titleColor, textColor, accent, badgeBackground, badgeText, now, catalog)
+				titleColor, textColor, accent, drafted, badgeBackground, badgeText, now, catalog)
 		}
 		return layout.Dimensions{Size: size}
 	})
@@ -413,7 +420,7 @@ func (l *chatList) layoutRowWith(gtx layout.Context, r *surface, line *previewLi
 
 // layoutRowText draws the title, time, last message and unread counter in
 // area.
-func (l *chatList) layoutRowText(gtx layout.Context, c model.Chat, line *previewLine, area image.Rectangle, titleColor, textColor, accent, badgeBackground, badgeText token.MatColor, now time.Time, catalog localization.Catalog) {
+func (l *chatList) layoutRowText(gtx layout.Context, c model.Chat, line *previewLine, area image.Rectangle, titleColor, textColor, accent, drafted, badgeBackground, badgeText token.MatColor, now time.Time, catalog localization.Catalog) {
 	measure := func(w layout.Widget) (layout.Dimensions, op.CallOp) {
 		macro := op.Record(gtx.Ops)
 		dims := w(gtx)
@@ -499,7 +506,7 @@ func (l *chatList) layoutRowText(gtx layout.Context, c model.Chat, line *preview
 		lineGtx := gtx
 		lineGtx.Constraints.Max.X = max(messageWidth, 0)
 		offset(lineGtx, image.Pt(x, lineY), func(gtx layout.Context) layout.Dimensions {
-			return l.layoutLine(gtx, line, c, textColor, accent, catalog)
+			return l.layoutLine(gtx, line, c, textColor, accent, drafted, catalog)
 		})
 		return
 	}
@@ -520,11 +527,21 @@ func (l *chatList) layoutRowText(gtx layout.Context, c model.Chat, line *preview
 	})
 }
 
-// layoutLine draws line, the last message of c, in the width of the
-// constraints.
-func (l *chatList) layoutLine(gtx layout.Context, line *previewLine, c model.Chat, fg, accent token.MatColor, catalog localization.Catalog) layout.Dimensions {
+// layoutLine draws line, the last message of c or its draft, in the width
+// of the constraints; what someone does in the chat now takes its place.
+func (l *chatList) layoutLine(gtx layout.Context, line *previewLine, c model.Chat, fg, accent, drafted token.MatColor, catalog localization.Catalog) layout.Dimensions {
+	animate := l.animate != nil && l.animate()
+	if l.activity != nil && !c.Forum && line.act.update(gtx, l.activity.Activities(c.ID), 0, privateChat(c), catalog) {
+		return line.act.layout(gtx, token.TypestyleBodyMedium, accent, animate)
+	}
 	line.update(c, catalog.ChatTitle(c), catalog, previewEmojiPx(gtx))
-	return line.layout(gtx, l.previews, fg, accent, l.animate != nil && l.animate())
+	return line.layout(gtx, l.previews, fg, accent, drafted, animate)
+}
+
+// privateChat reports whether c is a chat with one person, where what they
+// do is told without their name.
+func privateChat(c model.Chat) bool {
+	return c.Kind == model.KindUser || c.Kind == model.KindBot || c.Kind == model.KindSaved
 }
 
 // online reports whether the row of c marks its user online, and has the

@@ -54,6 +54,8 @@ type Store struct {
 	changed func()
 	// presence is when the demo's users were online.
 	presence map[int64]model.Presence
+	// activities are what others do in the demo's chats now.
+	activities map[int64][]model.Activity
 }
 
 // New returns a store with demo chats whose times are relative to now, and
@@ -66,7 +68,8 @@ func New(now time.Time, extra int) *Store {
 		{ID: 2, Kind: model.KindUser, Title: "Анна Смирнова", Last: model.Preview{Text: "До встречи в субботу!", Entities: []model.Entity{{Kind: "italic", Offset: 13, Length: 7}}}, LastTime: ago(5 * time.Minute), Unread: 2, ReadOutbox: demoReadOutbox, Badges: model.Badges{Premium: true}},
 		{ID: 3, Kind: model.KindGroup, Title: "Команда разработки", Last: model.Preview{Sender: "Игорь", Text: "Сборка прошла, можно выкатывать"}, LastTime: ago(20 * time.Minute), Unread: 14, Members: 12},
 		{ID: 4, Kind: model.KindChannel, Title: "Новости Go", Last: model.Preview{Text: "Вышел Go 1.27: что нового в стандартной библиотеке"}, LastTime: ago(3 * time.Hour), Unread: 5, Muted: true, Members: 48210, Badges: model.Badges{Verified: true}},
-		{ID: 5, Kind: model.KindUser, Title: "Мама", Last: model.Preview{Text: "Позвони, как освободишься"}, LastTime: ago(26 * time.Hour), ReadOutbox: 1 << 20},
+		{ID: 5, Kind: model.KindUser, Title: "Мама", Last: model.Preview{Text: "Позвони, как освободишься"}, LastTime: ago(26 * time.Hour), ReadOutbox: 1 << 20,
+			Draft: &model.Draft{Text: "Перезвоню вечером, сейчас на встрече", Date: ago(27 * time.Hour)}},
 		{ID: 6, Kind: model.KindBot, Title: "Погодный бот", Last: model.Preview{Text: "Завтра +18° ☀ без осадков", Entities: []model.Entity{{Kind: "emoji", Offset: 12, Length: 1, DocumentID: 1}}}, LastTime: ago(9 * time.Hour), Unread: 1},
 		{ID: 7, Kind: model.KindGroup, Title: "Соседи по дому", Last: demoAlbumPreview(), LastTime: ago(2 * day), Unread: 37, Muted: true, Members: 86},
 		{ID: 8, Kind: model.KindChannel, Title: "Material Design", Last: model.Preview{Text: "Expressive motion: новые токены пружинных анимаций"}, LastTime: ago(3 * day), Members: 15320, Badges: model.Badges{Verified: true}},
