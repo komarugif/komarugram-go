@@ -12,6 +12,7 @@ import (
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/dcpool"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/gotd/td/telegram/downloader"
@@ -95,6 +96,9 @@ func (s *Store) MediaProgress(ctx context.Context, m model.Message, progress fun
 	if !start.IsZero() {
 		s.profileHistory("media.download", m.Key.ChatID, 0, 0, len(b), start, e)
 	}
+	if tgerr.Is(e, "FILE_ID_INVALID") {
+		s.avatarGone(ctx, m.Media.ID)
+	}
 	if tgerr.Is(e, "FILE_REFERENCE_EXPIRED", "FILE_REFERENCE_EMPTY", "FILE_REFERENCE_INVALID") {
 		if e = s.refreshReference(ctx, m); e != nil {
 			return nil, e
@@ -145,6 +149,13 @@ func (s *Store) refreshReference(ctx context.Context, m model.Message) error {
 	if model.IsProfilePhoto(m.Key.MessageID) {
 		return s.refreshProfilePhoto(ctx, api, peer, ref)
 	}
+	if key, ok := strings.CutSuffix(m.Media.ID, "/"+ref.Thumb); ok && ref.Thumb != "" && strings.HasPrefix(key, "avatar/") && strings.HasSuffix(key, "/video") {
+		// A profile video, of no message: the profile's full info renews
+		// it. It was asked of messages.getMessages for message 0, which
+		// renewed nothing, on every show of the avatar.
+		_, e := s.avatarVideo(ctx, key, true)
+		return e
+	}
 	if m.Key.MessageID == 0 && ref.StickerSet != 0 {
 		// A sticker or an emoji of the picker, perhaps from its cache: its
 		// set renews it.
@@ -187,6 +198,9 @@ func (s *Store) refreshReference(ctx context.Context, m model.Message) error {
 			}
 		}
 		return errors.New("story no longer available")
+	}
+	if m.Key.MessageID == 0 || peer.ID == 0 {
+		return errors.New("media reference of no message")
 	}
 	ids := []tg.InputMessageClass{&tg.InputMessageID{ID: int(m.Key.MessageID)}}
 	var res tg.MessagesMessagesClass

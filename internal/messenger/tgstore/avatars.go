@@ -46,6 +46,9 @@ func (s *Store) Avatar(id int64) (model.Message, bool) {
 		return model.Message{}, false
 	}
 	p := peer.Photo
+	if c.goneAvatars[p.ID] {
+		return model.Message{}, false
+	}
 	if old, ok := c.avatars[id]; ok && old.photo == p.ID && old.hash == peer.Hash && old.dc == p.DC && old.video == p.Video {
 		return old.message, true
 	}
@@ -66,9 +69,64 @@ func (s *Store) Avatar(id int64) (model.Message, bool) {
 	return msg, true
 }
 
+// avatarGone asks Telegram for the peer of the avatar of key, whose photo
+// Telegram no longer has (FILE_ID_INVALID): changed or removed since the
+// peer was read, as one deep in the list, which the dialogs read now no
+// longer reach (dialogs_kept.go). Its avatar is then the new one, or none.
+// Still the same, the photo is not asked for again this session: it was on
+// every show of the avatar.
+func (s *Store) avatarGone(ctx context.Context, key string) {
+	var id, photoID int64
+	if n, _ := fmt.Sscanf(key, "avatar/%d/%d", &id, &photoID); n != 2 || key != fmt.Sprintf("avatar/%d/%d", id, photoID) {
+		return
+	}
+	c := s.history
+	c.mu.Lock()
+	api, peer := c.api, c.peers[id]
+	c.mu.Unlock()
+	if api != nil && peer.ID != 0 {
+		var users []tg.UserClass
+		var chats []tg.ChatClass
+		var err error
+		switch peer.Kind {
+		case "user":
+			users, err = api.UsersGetUsers(ctx, []tg.InputUserClass{peer.inputUser()})
+		case "chat":
+			var res tg.MessagesChatsClass
+			if res, err = api.MessagesGetChats(ctx, []int64{peer.ID}); err == nil {
+				chats = res.GetChats()
+			}
+		case "channel":
+			var res tg.MessagesChatsClass
+			if res, err = api.ChannelsGetChannels(ctx, []tg.InputChannelClass{&tg.InputChannel{ChannelID: peer.ID, AccessHash: peer.Hash}}); err == nil {
+				chats = res.GetChats()
+			}
+		}
+		if err == nil {
+			s.rememberPeers(users, chats)
+		}
+	}
+	c.mu.Lock()
+	if p := c.peers[id].Photo; p != nil && p.ID == photoID {
+		if c.goneAvatars == nil {
+			c.goneAvatars = map[int64]bool{}
+		}
+		c.goneAvatars[photoID] = true
+	}
+	c.mu.Unlock()
+	s.changed()
+	s.goPersistDialogs()
+}
+
 // AvatarVideo resolves the current profile video lazily. Static pictures remain
 // visible while it loads, and no video RPC/download runs with animations off.
 func (s *Store) AvatarVideo(parent context.Context, key string) (model.Message, error) {
+	return s.avatarVideo(parent, key, false)
+}
+
+// avatarVideo is AvatarVideo, asked of Telegram again when fresh, for a file
+// reference of now: the one kept expires.
+func (s *Store) avatarVideo(parent context.Context, key string, fresh bool) (model.Message, error) {
 	var id, photoID int64
 	if _, e := fmt.Sscanf(key, "avatar/%d/%d/video", &id, &photoID); e != nil {
 		return model.Message{}, e
@@ -84,8 +142,10 @@ func (s *Store) AvatarVideo(parent context.Context, key string) (model.Message, 
 	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
 	defer cancel()
 	var message model.Message
-	if found, e := cache.Get(ctx, key, &message); e != nil || found {
-		return message, e
+	if !fresh {
+		if found, e := cache.Get(ctx, key, &message); e != nil || found {
+			return message, e
+		}
 	}
 	if api == nil {
 		return message, errors.New("avatar video unavailable offline")
