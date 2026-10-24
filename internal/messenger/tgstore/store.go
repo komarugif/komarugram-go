@@ -194,7 +194,7 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) err
 		}
 		added := l.add(dialogs)
 		chats, folders := l.snapshot(filters.Filters)
-		s.publish(func() { s.chats, s.folders = chats, folders })
+		s.publish(func() { s.chats, s.folders = s.keepReads(chats), folders })
 
 		// A complete list comes as messages.dialogs; only a slice has more,
 		// and it says how many dialogs there are in all.
@@ -218,6 +218,32 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) err
 	}
 	s.resync(0)
 	return nil
+}
+
+// keepReads keeps in chats, the dialogs read so far, the reads this client
+// told Telegram since: a dialog read before Telegram had the read, its
+// ReadInbox older than it, counts the messages read since as unread. The
+// pages of a long load, each with every dialog read until then, brought a
+// chat read meanwhile its unread count back, and the read, told already,
+// was not told again to take it away. The caller holds s.mu.
+func (s *Store) keepReads(chats []model.Chat) []model.Chat {
+	now := make(map[int64]model.Chat, len(s.chats))
+	for _, c := range s.chats {
+		now[c.ID] = c
+	}
+	s.ghost.mu.Lock()
+	defer s.ghost.mu.Unlock()
+	for i, c := range chats {
+		told := s.ghost.read[c.ID]
+		if told <= c.ReadInbox {
+			continue
+		}
+		chats[i].ReadInbox = told
+		if kept, ok := now[c.ID]; ok {
+			chats[i].Unread = kept.Unread
+		}
+	}
+	return chats
 }
 
 func (s *Store) publish(update func()) {

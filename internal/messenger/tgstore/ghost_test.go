@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gotd/td/bin"
+	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/tg"
 
 	"komarugram/internal/messenger/model"
@@ -184,6 +185,54 @@ func TestMarkReadShortOfTheEnd(t *testing.T) {
 	s.MarkRead(chat, 20, false)
 	if c := unread(); c.Unread != 81 {
 		t.Fatalf("unread %d, want 81", c.Unread)
+	}
+}
+
+// A page of dialogs read before Telegram had a read this client told counts
+// the messages read as unread: it leaves the count the read made. One read
+// after it, on another device, is Telegram's to tell.
+func TestDialogsKeepReadsTold(t *testing.T) {
+	s := testStore(t)
+	ann, bob := peerID(&tg.PeerUser{UserID: 5}), peerID(&tg.PeerUser{UserID: 6})
+	s.history.peers[ann] = peerRecord{Kind: "user", ID: 5, Hash: 55}
+	s.SetGhost(model.Ghost{SendRead: true})
+	s.history.top[ann], s.history.top[bob] = 100, 120
+	s.chats = []model.Chat{{ID: ann, Unread: 5, ReadInbox: 95}, {ID: bob, Unread: 4, ReadInbox: 116}}
+	api := tg.NewClient(telegram.InvokeFunc(func(ctx context.Context, in bin.Encoder, out bin.Decoder) error {
+		switch in.(type) {
+		case *tg.MessagesReadHistoryRequest:
+			*out.(*tg.MessagesAffectedMessages) = tg.MessagesAffectedMessages{}
+		case *tg.MessagesGetDialogFiltersRequest:
+			*out.(*tg.MessagesDialogFilters) = tg.MessagesDialogFilters{}
+		case *tg.MessagesGetDialogsRequest:
+			// Read before Telegram had ann's read; bob was read further on
+			// the phone.
+			out.(*tg.MessagesDialogsBox).Dialogs = &tg.MessagesDialogs{
+				Dialogs: []tg.DialogClass{
+					&tg.Dialog{Peer: &tg.PeerUser{UserID: 5}, TopMessage: 100, ReadInboxMaxID: 95, UnreadCount: 5, NotifySettings: tg.PeerNotifySettings{}},
+					&tg.Dialog{Peer: &tg.PeerUser{UserID: 6}, TopMessage: 120, ReadInboxMaxID: 119, UnreadCount: 1, NotifySettings: tg.PeerNotifySettings{}},
+				},
+				Users: []tg.UserClass{&tg.User{ID: 5, AccessHash: 55, FirstName: "Ann"}, &tg.User{ID: 6, AccessHash: 66, FirstName: "Bob"}},
+			}
+		default:
+			return fmt.Errorf("unexpected %T", in)
+		}
+		return nil
+	}))
+	s.history.api = api
+	s.MarkRead(ann, 100, false)
+	if err := s.loadDialogs(context.Background(), api, 1); err != nil {
+		t.Fatal(err)
+	}
+	got := map[int64]model.Chat{}
+	for _, c := range s.Chats() {
+		got[c.ID] = c
+	}
+	if c := got[ann]; c.Unread != 0 || c.ReadInbox != 100 {
+		t.Fatalf("the chat read here came back with %d unread, read to %d", c.Unread, c.ReadInbox)
+	}
+	if c := got[bob]; c.Unread != 1 || c.ReadInbox != 119 {
+		t.Fatalf("the chat read on the phone has %d unread, read to %d; want Telegram's 1 to 119", c.Unread, c.ReadInbox)
 	}
 }
 
