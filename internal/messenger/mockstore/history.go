@@ -254,7 +254,12 @@ func (s *Store) media(ctx context.Context, m model.Message) ([]byte, error) {
 	if ok {
 		return sent, nil
 	}
-	switch m.Media.ID {
+	id := m.Media.ID
+	if strings.HasPrefix(id, demoSavedGIF) {
+		// The picker's saved GIFs, each of its own ID, are all the one.
+		id = "demo/gif"
+	}
+	switch id {
 	case "demo/markdown":
 		return []byte(demoMarkdown), nil
 	case "demo/voice", "demo/voice-bare":

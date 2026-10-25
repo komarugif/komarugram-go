@@ -88,6 +88,7 @@ var (
 	iconPlace         = wdk.RequireIconWidget(icons.MapsPlace)
 	iconForward       = wdk.RequireIconWidget(icons.ContentForward)
 	iconDelete        = wdk.RequireIconWidget(icons.ActionDelete)
+	iconGIF           = wdk.RequireIconWidget(icons.ActionGIF)
 	iconSelect        = wdk.RequireIconWidget(icons.ActionCheckCircle)
 	iconReacted       = wdk.RequireIconWidget(icons.ActionFavoriteBorder)
 	iconLiked         = wdk.RequireIconWidget(icons.ActionFavorite)

@@ -100,6 +100,7 @@
 "comments.none" = "lng_comments_open_none";
 "comments.open" = "lng_comments_open_count";
 
+"composer.delete_gif" = "lng_context_delete_gif";
 "composer.direct_messages" = "lng_profile_direct_messages";
 "composer.discussion" = "lng_profile_view_discussion";
 "composer.edit_cancel" = "lng_cancel";
@@ -115,10 +116,15 @@
 "composer.emoji_category6" = "lng_emoji_category6";
 "composer.emoji_category7" = "lng_emoji_category7";
 "composer.featured" = "lng_stickers_featured_tab";
+"composer.gif_limit" = "lng_saved_gif_limit_title";
+"composer.gif_limit_link" = "lng_saved_gif_limit_link";
+"composer.gif_limit_more" = "lng_saved_gif_limit_more";
 "composer.gift" = "lng_gift_channel_title";
+"composer.recent_remove" = "lng_recent_stickers_remove";
 "composer.reply_remove" = "lng_reply_remove";
 "composer.reply_to" = "lng_preview_reply_to";
 "composer.save" = "lng_settings_save";
+"composer.save_gif" = "lng_context_save_gif";
 
 "date.calendar" = "lng_context_add_to_calendar";
 "date.copied" = "lng_date_copied";

@@ -47,6 +47,10 @@ type holdPreview struct {
 	// swallow is set in the frame of the release that closed it: the
 	// click of the tile under it chooses nothing.
 	swallow bool
+	// menu is the tile right-clicked in this frame, at menuAt, -1 for
+	// none: the grid opens its menu.
+	menu   int
+	menuAt f32.Point
 	// item is what it shows.
 	item model.PickerItem
 	gif  bool
@@ -69,6 +73,7 @@ type holdTile struct {
 // the grid's layout, before the tiles take their clicks.
 func (h *holdPreview) Update(gtx layout.Context) {
 	h.swallow = false
+	h.menu = -1
 	for {
 		ev, ok := gtx.Event(pointer.Filter{Target: h, Kinds: pointer.Press | pointer.Drag | pointer.Release | pointer.Cancel})
 		if !ok {
@@ -83,6 +88,9 @@ func (h *holdPreview) Update(gtx layout.Context) {
 			if e.Source == pointer.Mouse && e.Buttons == pointer.ButtonPrimary {
 				h.pressed, h.active, h.since, h.at = true, false, gtx.Now, e.Position
 				gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(holdPreviewDelay)})
+			}
+			if e.Source == pointer.Mouse && e.Buttons == pointer.ButtonSecondary && !h.pressed {
+				h.menu, h.menuAt = h.tileAt(e.Position), e.Position
 			}
 		case pointer.Drag:
 			if h.pressed {
@@ -106,14 +114,26 @@ func (h *holdPreview) Update(gtx layout.Context) {
 }
 
 // under is the tile under the pointer, -1 for none.
-func (h *holdPreview) under() int {
-	p := image.Pt(int(h.at.X), int(h.at.Y))
+func (h *holdPreview) under() int { return h.tileAt(h.at) }
+
+// tileAt is the tile at pos, -1 for none.
+func (h *holdPreview) tileAt(pos f32.Point) int {
+	p := image.Pt(int(pos.X), int(pos.Y))
 	for i, t := range h.tiles {
 		if p.In(t.rect) {
 			return i
 		}
 	}
 	return -1
+}
+
+// Menu is the tile right-clicked in this frame, where it was in the area's
+// coordinates, if any.
+func (h *holdPreview) Menu() (holdTile, image.Point, bool) {
+	if h.menu < 0 || h.menu >= len(h.tiles) {
+		return holdTile{}, image.Point{}, false
+	}
+	return h.tiles[h.menu], image.Pt(int(h.menuAt.X), int(h.menuAt.Y)), true
 }
 
 // Swallow reports whether a click of this frame closed the preview, which

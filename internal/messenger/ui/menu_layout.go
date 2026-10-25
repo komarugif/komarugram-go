@@ -19,6 +19,7 @@ const (
 	menuAttachment = "attachment"
 	menuRecent     = "recent_search"
 	menuStickerSet = "sticker_set"
+	menuPicker     = "picker"
 )
 
 type menuPreferences func() preferences.Menus
@@ -67,7 +68,7 @@ func navigationID(k drawerKey, account string) string {
 	return ""
 }
 
-var messageActionIDs = [...]string{"reply", "edit", "copy", "copy", "copy_link", "forward", "forward", "delete", "delete", "select", "select", "emoji_packs", "reacted", "read", "edits", "filter", "translate", "repeat", "save_html", "save"}
+var messageActionIDs = [...]string{"reply", "edit", "copy", "copy", "copy_link", "forward", "forward", "delete", "delete", "select", "select", "emoji_packs", "reacted", "read", "edits", "filter", "translate", "repeat", "save_html", "save", "save_gif"}
 
 func (p *chatPage) messageActionID(a menuAction) string {
 	return messageActionIDs[a]
@@ -133,6 +134,11 @@ func menuCatalogs(folders []model.Folder, account string, l localization.Catalog
 	out = append(out, header)
 	out = append(out, menuCatalog{menuAttachment, l.T("menus.attachment"), []menuChoice{{"photo", l.T("composer.photo"), iconAttachPhoto}, {"file", l.T("composer.file"), iconAttachFile}, {"tasks", l.T("composer.tasks"), iconAttachTasks}}})
 	out = append(out, menuCatalog{menuRecent, l.T("menus.recent"), []menuChoice{{"remove", l.T("search.recent_remove"), iconClear}, {"all", l.T("search.recent_clear_all"), iconDelete}}})
+	var picker []menuChoice
+	for a := pickerAction(0); a < pickerActions; a++ {
+		picker = append(picker, menuChoice{a.id(), a.label(l), a.icon()})
+	}
+	out = append(out, menuCatalog{menuPicker, l.T("menus.picker"), picker})
 	out = append(out, menuCatalog{menuStickerSet, l.T("menus.stickers"), []menuChoice{{"download", l.T("stickers.download_zip"), iconDownload}, {"author", l.T("stickers.author"), iconPersonal}}})
 	for _, kind := range []string{"phone", "bank_card", "date"} {
 		c := menuCatalog{"entity_" + kind, l.T("menus." + kind), nil}

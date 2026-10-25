@@ -197,6 +197,7 @@
 "composer.browse" = "Выбрать…";
 "composer.cancel" = "Отмена";
 "composer.close" = "Закрыть";
+"composer.delete_gif" = "Удалить";
 "composer.direct_messages" = "Личные сообщения";
 "composer.discussion" = "Обсуждение";
 "composer.edit_cancel" = "Отмена";
@@ -219,6 +220,9 @@
 "composer.featured" = "Популярные";
 "composer.file" = "Файл";
 "composer.gif" = "GIF";
+"composer.gif_limit" = "Достигнут лимит в {count} GIF";
+"composer.gif_limit_link" = "увеличить лимит";
+"composer.gif_limit_more" = "Самая старая GIF заменена новой.\nВы можете {link} до {count} GIF.";
 "composer.gift" = "Отправить подарок";
 "composer.gift_stub" = "Подарки каналам пока не реализованы";
 "composer.items" = "Задачи — по одной в строке";
@@ -230,11 +234,13 @@
 "composer.path" = "Путь к файлу";
 "composer.photo" = "Фото или видео";
 "composer.recent" = "Недавние";
+"composer.recent_remove" = "Удалить из недавних";
 "composer.reply_remove" = "Не отвечать";
 "composer.reply_to" = "Ответ {name}";
 "composer.results" = "Результаты поиска";
 "composer.retry" = "Повторить";
 "composer.save" = "Сохранить";
+"composer.save_gif" = "Сохранить в GIF";
 "composer.saving" = "Сохранение…";
 "composer.search" = "Поиск…";
 "composer.send" = "Отправить";
@@ -1111,6 +1117,7 @@
 "menus.leave" = "Выйти из группы или канала";
 "menus.message" = "Меню сообщения";
 "menus.phone" = "Меню номера телефона";
+"menus.picker" = "Меню стикера или GIF в панели";
 "menus.reactions" = "Кто поставил реакции";
 "menus.recent" = "Меню недавних поисков";
 "menus.reset" = "Сбросить";

@@ -54,6 +54,7 @@ func renders() []render {
 		render{"sticker-set", "TestRenderStickerSet", []string{"STICKER_SET_PNG_DIR={out}"}},
 		render{"message-menu", "TestRenderMessageMenu", []string{"MENU_PNG={out}/menu.png"}},
 		render{"reaction-menu", "TestRenderReactionMenu", []string{"MENU_PNG={out}/menu.png"}},
+		render{"picker-menu", "TestRenderPickerMenu", []string{"MENU_PNG={out}/menu.png"}},
 		render{"reacted", "TestRenderReacted", []string{"REACTED_PNG={out}/reacted.png"}},
 		render{"viewer", "TestRenderMediaViewer", []string{"VIEWER_PNG={out}/viewer.png"}},
 		render{"viewer-zoom", "TestRenderMediaViewer", []string{"VIEWER_ZOOM=2", "VIEWER_PNG={out}/viewer-zoom.png"}},

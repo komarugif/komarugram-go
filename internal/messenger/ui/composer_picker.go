@@ -288,6 +288,10 @@ func (c *messageComposer) pickerLayout(gtx layout.Context, l localization.Catalo
 	// Emoji the theme's fonts do not draw are left out.
 	c.drawn.use(wdk.GetMaterialTheme(gtx))
 	rows := c.pickerRows(max(0, body.Dx()), cell, l)
+	if tile, at, ok := c.preview.Menu(); ok {
+		c.openItemMenu(gtx, tile, at.Add(body.Min), rows)
+	}
+	c.itemMenuUpdate(gtx, l)
 	sliding(body, func(gtx layout.Context) layout.Dimensions {
 		if c.searching() && len(rows) == 0 {
 			// The first page loads in the middle of the empty picker.
@@ -309,6 +313,7 @@ func (c *messageComposer) pickerLayout(gtx layout.Context, l localization.Catalo
 		return layout.Dimensions{}
 	})
 	c.pickerFooter(gtx, rows, size, footer, body, cell, l, p, animate)
+	c.itemMenuLayout(gtx, l, p, origin)
 	return layout.Dimensions{Size: size}
 }
 

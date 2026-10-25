@@ -59,6 +59,12 @@ type Store struct {
 
 	// stories are the demo's stories, by peer, made when first asked for.
 	stories map[int64]*demoStories
+
+	// gifs are the saved GIFs, once one was saved or deleted; recentGone,
+	// the recent stickers taken off the list (composer.go).
+	gifs       []model.PickerItem
+	gifsKept   bool
+	recentGone map[string]bool
 }
 
 // New returns a store with demo chats whose times are relative to now, and

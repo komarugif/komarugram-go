@@ -184,6 +184,7 @@
 "composer.browse" = "Browse…";
 "composer.cancel" = "Cancel";
 "composer.close" = "Close";
+"composer.delete_gif" = "Delete";
 "composer.direct_messages" = "Direct messages";
 "composer.discussion" = "Discussion";
 "composer.edit_cancel" = "Cancel";
@@ -204,6 +205,11 @@
 "composer.featured" = "Trending";
 "composer.file" = "File";
 "composer.gif" = "GIF";
+"composer.gif_limit#one" = "Limit of {count} GIF Reached";
+"composer.gif_limit#other" = "Limit of {count} GIFs Reached";
+"composer.gif_limit_link" = "increase the limit";
+"composer.gif_limit_more#one" = "An older GIF was replaced with this one.\nYou can {link} to {count} GIF.";
+"composer.gif_limit_more#other" = "An older GIF was replaced with this one.\nYou can {link} to {count} GIFs.";
 "composer.gift" = "Send a gift";
 "composer.gift_stub" = "Gifts to channels are not implemented yet";
 "composer.items" = "Tasks — one per line";
@@ -215,11 +221,13 @@
 "composer.path" = "File path";
 "composer.photo" = "Photo or video";
 "composer.recent" = "Recent";
+"composer.recent_remove" = "Remove from Recent";
 "composer.reply_remove" = "Do Not Reply";
 "composer.reply_to" = "Reply to {name}";
 "composer.results" = "Search results";
 "composer.retry" = "Retry";
 "composer.save" = "Save";
+"composer.save_gif" = "Add to GIFs";
 "composer.saving" = "Saving…";
 "composer.search" = "Search…";
 "composer.send" = "Send";
@@ -1057,6 +1065,7 @@
 "menus.leave" = "Leave group or channel";
 "menus.message" = "Message menu";
 "menus.phone" = "Phone number menu";
+"menus.picker" = "Menu of a sticker or GIF in the panel";
 "menus.reactions" = "Who reacted";
 "menus.recent" = "Recent searches menu";
 "menus.reset" = "Reset";

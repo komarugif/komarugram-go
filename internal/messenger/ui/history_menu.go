@@ -55,6 +55,7 @@ const (
 	actionRepeat
 	actionSaveHTML
 	actionSave
+	actionSaveGIF
 	menuActions
 )
 
@@ -261,6 +262,11 @@ func (p *chatPage) menuActions(m model.Message) []menuAction {
 	if !selected && p.canSave(m) {
 		out = append(out, actionSave)
 	}
+	// As Telegram Desktop's document actions add it, after Save As, unless
+	// the chat keeps its media from being copied.
+	if _, ok := p.source.(model.SavedGIFStore); ok && !selected && !protected && m.Kind == model.MessageGIF && m.Media != nil && len(m.Attachments) < 2 {
+		out = append(out, actionSaveGIF)
+	}
 	if p.messageMenu.packs.id == m.Key.MessageID && len(p.messageMenu.packs.found.refs) > 0 {
 		out = append(out, actionEmojiPacks)
 	}
@@ -390,6 +396,8 @@ func (p *chatPage) menuDo(gtx layout.Context, a menuAction, m model.Message, l l
 		default:
 			p.saveMessage(m, p.saveWayOf(m), l)
 		}
+	case actionSaveGIF:
+		p.saveGIF(m, l)
 	case actionFilter:
 		// A filter of the words selected, in every chat, as AyuGram's
 		// quick filter.
@@ -451,6 +459,8 @@ func (p *chatPage) menuLabel(a menuAction, l localization.Catalog) string {
 		return l.T("menu.repeat")
 	case actionSaveHTML:
 		return l.T("rich.save_html")
+	case actionSaveGIF:
+		return l.T("composer.save_gif")
 	case actionSave:
 		if m, ok := p.menuMessage(); ok {
 			if _, ok := p.menuPart(m); ok {
@@ -515,6 +525,8 @@ func menuIcon(a menuAction) wdk.IconWidget {
 		return iconRepeat
 	case actionSaveHTML, actionSave:
 		return iconDownload
+	case actionSaveGIF:
+		return iconGIF
 	}
 	return iconEmoji
 }
@@ -606,26 +618,7 @@ func (p *chatPage) menuLayout(gtx layout.Context, l localization.Catalog) {
 				height = gtx.Dp(menuPackHeight)
 			}
 			inRect(gtx, image.Rect(0, y, menuSize.X, y+height), func(gtx layout.Context) layout.Dimensions {
-				row := gtx.Constraints.Max
-				text := p.menuLabel(a, l)
-				style := surfaceStyle{background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor, button: text}
-				return m.item(a).Layout(gtx, row, style, func(gtx layout.Context) layout.Dimensions {
-					return layout.Inset{Left: 16, Right: 16}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions { return menuIcon(a)(gtx, sc.SurfaceVariant.OnColor) }),
-							layout.Rigid(layout.Spacer{Width: 12}.Layout),
-							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-								return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									gtx.Constraints.Min = image.Point{}
-									if a == actionEmojiPacks {
-										return label(gtx, text, token.TypestyleBodySmall, sc.Surface.OnColor, 2)
-									}
-									return label(gtx, text, token.TypestyleBodyMedium, sc.Surface.OnColor, 1)
-								})
-							}),
-						)
-					})
-				})
+				return menuRow(gtx, m.item(a), menuIcon(a), p.menuLabel(a, l), a == actionEmojiPacks)
 			})
 			y += height
 			return layout.Dimensions{Size: image.Pt(menuSize.X, y)}
@@ -637,6 +630,32 @@ func (p *chatPage) menuLayout(gtx layout.Context, l localization.Catalog) {
 			return m.list.Layout(gtx, len(shown), func(gtx layout.Context, i int) layout.Dimensions { return draw(gtx, shown[i]) })
 		})
 		return layout.Dimensions{Size: menuSize}
+	})
+}
+
+// menuRow draws an item of a context menu as the message menu's are: its
+// icon, then its text, small on two lines when long, on s, which takes its
+// clicks, filling the constraints.
+func menuRow(gtx layout.Context, s *surface, icon wdk.IconWidget, text string, long bool) layout.Dimensions {
+	sc := scheme(gtx)
+	row := gtx.Constraints.Max
+	style := surfaceStyle{background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor, button: text}
+	return s.Layout(gtx, row, style, func(gtx layout.Context) layout.Dimensions {
+		return layout.Inset{Left: 16, Right: 16}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return icon(gtx, sc.SurfaceVariant.OnColor) }),
+				layout.Rigid(layout.Spacer{Width: 12}.Layout),
+				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						gtx.Constraints.Min = image.Point{}
+						if long {
+							return label(gtx, text, token.TypestyleBodySmall, sc.Surface.OnColor, 2)
+						}
+						return label(gtx, text, token.TypestyleBodyMedium, sc.Surface.OnColor, 1)
+					})
+				}),
+			)
+		})
 	})
 }
 

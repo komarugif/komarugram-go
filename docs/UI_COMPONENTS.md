@@ -327,7 +327,16 @@ size-stability fixes remain in place.
   nothing. It takes no pointer: a pass-through area over the grid reads
   it, and the grid tells its rows' heights and its items' places, Gio
   telling no item of the pointer over it while the button is held on
-  another. A grid that uses it calls `Update`, `row`, `tile` and `area`.
+  another. A grid that uses it calls `Update`, `row`, `tile` and `area`;
+  `Menu` tells the tile right-clicked, by the same places.
+- **Menu of an item of the picker** (`composer_picker_menu.go`): a right
+  click on a GIF or a recent sticker of the panel opens a `contextMenu`
+  over the panel, its items drawn by the message menu's `menuRow`: a saved
+  GIF is deleted, one a search found added to the saved ones, a recent
+  sticker taken off the recent, as Telegram Desktop's panel offers
+  (`model.SavedGIFStore`, `model.RecentStickerStore`). The list changes at
+  once; a failure is told and the list asked for again. The message menu
+  adds a GIF to the saved ones too (`actionSaveGIF`).
 - **Forwarding** (`forward_picker.go`): `forwardPicker` is the dialog that
   picks the chat to forward to, Saved Messages first, with a search:
   the history's selected messages and its message menu use it, and so does
@@ -771,7 +780,8 @@ new piece sits next to its neighbours.
   animations, and the switch that pauses them in an inactive window.
   `SETTINGS_SECTION=integrations` with `SETTINGS_PNG` shows the choice of the
   external player; `PLAYER_PNG`, the dialog that asks for it. `MENU_PNG` also
-  saves the menu with reactions (`-reactions*.png`); `COMMENTS_PNG`, the
+  saves the menu with reactions (`-reactions*.png`), and the menu of a
+  recent sticker and of a saved GIF over the picker (`-picker*.png`); `COMMENTS_PNG`, the
   header of the comments page; `UNWRAPPED_PNG`, stickers and lone emoji; `SERVICE_PNG`, service messages
   and calls.
 - **The app itself.** `go run ./cmd/messenger -demo` runs without an account.

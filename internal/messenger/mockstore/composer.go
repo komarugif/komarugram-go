@@ -2,14 +2,86 @@ package mockstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/voice"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
+
+// demoSavedGIF starts the media IDs of the GIFs of the demo's picker, each
+// its own, all drawn as the demo's GIF.
+const demoSavedGIF = "demo/gif/"
+
+var (
+	_ model.SavedGIFStore      = (*Store)(nil)
+	_ model.RecentStickerStore = (*Store)(nil)
+)
+
+// demoGIF is a GIF of the picker of media id, w wide.
+func demoGIF(id string, w int) model.PickerItem {
+	return model.PickerItem{ID: id, Media: model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: id, MIMEType: "image/gif", Width: w, Height: 160}}}
+}
+
+// savedGIFs are the demo's saved GIFs; s.mu is held.
+func (s *Store) savedGIFs() []model.PickerItem {
+	if !s.gifsKept {
+		s.gifsKept = true
+		for i := 0; i < 12; i++ {
+			s.gifs = append(s.gifs, demoGIF(fmt.Sprintf("%s%d", demoSavedGIF, i), 180+i%4*70))
+		}
+	}
+	return s.gifs
+}
+
+// SavedGIF implements model.SavedGIFStore.
+func (s *Store) SavedGIF(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.ContainsFunc(s.savedGIFs(), func(item model.PickerItem) bool { return item.ID == id })
+}
+
+// SaveGIF implements model.SavedGIFStore in memory, with the limit of the
+// demo's account.
+func (s *Store) SaveGIF(ctx context.Context, m model.Message, unsave bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if m.Media == nil {
+		return errors.New("no GIF to save")
+	}
+	limit := model.SavedGIFLimit(s.Premium())
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	gifs := model.WithoutItem(s.savedGIFs(), m.Media.ID)
+	if !unsave {
+		gifs = append([]model.PickerItem{model.PickerItemOf(m)}, gifs...)
+	}
+	s.gifs = gifs
+	if limit > 0 && len(s.gifs) > limit {
+		s.gifs = s.gifs[:limit]
+		return model.ErrSavedGIFLimit
+	}
+	return nil
+}
+
+// RemoveRecentSticker implements model.RecentStickerStore in memory.
+func (s *Store) RemoveRecentSticker(ctx context.Context, item model.PickerItem) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.recentGone == nil {
+		s.recentGone = map[string]bool{}
+	}
+	s.recentGone[item.ID] = true
+	return nil
+}
 
 func (s *Store) Picker(ctx context.Context, r model.PickerRequest) (model.PickerPage, error) {
 	if err := ctx.Err(); err != nil {
@@ -20,9 +92,19 @@ func (s *Store) Picker(ctx context.Context, r model.PickerRequest) (model.Picker
 	}
 	page := model.PickerPage{}
 	if r.Tab == model.PickerGIF {
-		for i := 0; i < 12; i++ {
-			page.Items = append(page.Items, model.PickerItem{ID: fmt.Sprintf("demo/gif/%d", i), Media: model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "demo/gif", MIMEType: "image/gif", Width: 180 + i%4*70, Height: 160}}})
+		if r.Query != "" {
+			// What a search finds: GIFs not saved, which can be.
+			for i := 0; i < 6; i++ {
+				item := demoGIF(fmt.Sprintf("%sfound/%d", demoSavedGIF, i), 140+i%3*60)
+				// Of a document, as the GIFs Telegram's bot finds are.
+				item.DocumentID = int64(1000 + i)
+				page.Items = append(page.Items, item)
+			}
+			return page, nil
 		}
+		s.mu.Lock()
+		page.Items = slices.Clone(s.savedGIFs())
+		s.mu.Unlock()
 		return page, nil
 	}
 	if r.Tab == model.PickerEmoji {
@@ -37,7 +119,13 @@ func (s *Store) Picker(ctx context.Context, r model.PickerRequest) (model.Picker
 		}
 		page.Packs = append(page.Packs, p)
 	}
-	page.Recent = page.Packs[0].Items[:5]
+	s.mu.Lock()
+	for _, item := range page.Packs[0].Items[:5] {
+		if !s.recentGone[item.ID] {
+			page.Recent = append(page.Recent, item)
+		}
+	}
+	s.mu.Unlock()
 	if r.Query != "" {
 		for _, p := range page.Packs {
 			if strings.Contains(strings.ToLower(p.Title), strings.ToLower(r.Query)) {
