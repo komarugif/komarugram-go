@@ -910,6 +910,8 @@ func (p *chatInfo) layoutMediaRows(gtx layout.Context, l localization.Catalog, a
 				if m.Media == nil {
 					return layout.Dimensions{Size: gtx.Constraints.Max}
 				}
+				// Videos alone need not say they are.
+				p.renderer.videoTimeOnly = p.section == model.SharedVideos
 				return p.renderer.mediaTile(gtx, r, m, image.Pt(w, height), true, l, animate)
 			})
 			x += w + gap

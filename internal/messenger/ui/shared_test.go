@@ -256,6 +256,9 @@ func TestRenderSharedMediaAndThemes(t *testing.T) {
 	info.selectSection(model.SharedPhotos)
 	awaitShared(t, info)
 	render("photos")
+	info.selectSection(model.SharedVideos)
+	awaitShared(t, info)
+	render("videos")
 	info.selectSection(model.SharedGIFs)
 	awaitShared(t, info)
 	render("gifs")
@@ -495,5 +498,49 @@ func TestOwnUsernameFollowsCollectibles(t *testing.T) {
 	p.layoutCollectibles(gtx)
 	if p.plainNames["anna_smirnova"] != nil {
 		t.Fatal("the username of the card is shown again")
+	}
+}
+
+// A video's plate tells its time as a GIF's and a video message's do, and
+// that it is a video, unless all around are, as the info's section of them.
+func TestVideoPlateText(t *testing.T) {
+	l := localization.For("en")
+	m := model.Message{Kind: model.MessageVideo, Media: &model.MessageMedia{Duration: 96 * time.Second}}
+	for _, c := range []struct {
+		gif, only bool
+		want      string
+	}{{false, false, "1:36 · Video"}, {false, true, "1:36"}, {true, false, "GIF"}} {
+		if got := videoPlateText(m, c.gif, c.only, l); got != c.want {
+			t.Errorf("gif %v, time only %v: %q, want %q", c.gif, c.only, got, c.want)
+		}
+	}
+}
+
+// The info's section of videos tells each one's time alone; the others
+// say what it is too.
+func TestSharedVideosTellTimeOnly(t *testing.T) {
+	store := mockstore.New(time.Now(), 0)
+	var images imageOps
+	info := newChatInfo(store, &images, func() {})
+	defer info.Destroy()
+	info.drawAvatar = avatar
+	info.Open(model.Chat{ID: 2, Title: "Анна Смирнова", Kind: model.KindUser})
+	awaitShared(t, info)
+	for _, c := range []struct {
+		kind model.SharedKind
+		want bool
+	}{{model.SharedVideos, true}, {model.SharedPhotos, false}} {
+		info.selectSection(c.kind)
+		awaitShared(t, info)
+		ops := new(op.Ops)
+		for range 3 {
+			ops.Reset()
+			images.BeginFrame()
+			info.Layout(sharedContext(ops, image.Pt(1000, 800)), localization.For("en"), false)
+			images.EndFrame()
+		}
+		if info.renderer.videoTimeOnly != c.want {
+			t.Errorf("%v: time only %v", c.kind, info.renderer.videoTimeOnly)
+		}
 	}
 }

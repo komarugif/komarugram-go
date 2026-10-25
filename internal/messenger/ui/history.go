@@ -292,6 +292,9 @@ type chatPage struct {
 	// of this page's, in place of the chat's history: the section of the
 	// info that is open.
 	audioList func() []model.Message
+	// videoTimeOnly marks a page of videos alone, as the info's section of
+	// them: the plate of a video tells its time, not that it is one.
+	videoTimeOnly bool
 	// openPhoto shows a photo in the viewer; nil leaves photos inline.
 	openPhoto func(model.Message)
 	openAlone func(model.Message)
