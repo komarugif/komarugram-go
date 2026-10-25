@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Start here. This file is for AI agents working in this repository: what to
-read, what to run, and what not to break. `README.md` is the human
+read, what to run, and what not to break. `docs/README_FULL.md` is the human
 documentation of the same things at length; read its sections only when a
 task needs them.
 
@@ -74,6 +74,9 @@ go build -tags nowayland ./cmd/messenger       # also nox11, novulkan
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /dev/null ./cmd/messenger ./cmd/kitchen
 GOOS=windows GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/messenger
 ```
+
+On Windows systems that do not support cgo, build only the Windows version of the application;
+it does not require cgo, whereas the other builds do—though they are not mandatory.
 
 Render tests save PNGs when their variable is set, and are skipped
 otherwise, so `go test` never runs them: `COMPOSER_PNG` (with
