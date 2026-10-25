@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
 
@@ -108,5 +109,47 @@ func TestViewerSharedSection(t *testing.T) {
 	}
 	if !kinds[model.MessagePhoto] || !kinds[model.MessageVideo] {
 		t.Fatalf("the chat's have %v", kinds)
+	}
+}
+
+// The bar words where an item is by what the gallery goes through: the
+// chat's photos and videos together are attachments, a section's videos
+// videos, its photos photos, GIFs GIFs, and stories stories.
+func TestViewerTitle(t *testing.T) {
+	h := newViewerHarness(t)
+	v := h.viewer
+	l := localization.For("en")
+	photo := model.Message{Kind: model.MessagePhoto, Media: &model.MessageMedia{}}
+	video := model.Message{Kind: model.MessageVideo, Media: &model.MessageMedia{}}
+	gif := model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{}}
+	story := photo
+	story.StoryOf = &model.StoryRef{}
+	for _, c := range []struct {
+		gallery viewerGallery
+		m       model.Message
+		want    string
+	}{
+		{galleryPhotos, video, "Attachment 2 of 3"},
+		{galleryPhotos, photo, "Attachment 2 of 3"},
+		{galleryShared, video, "Video 2 of 3"},
+		{galleryShared, photo, "Photo 2 of 3"},
+		{galleryProfile, photo, "Photo 2 of 3"},
+		{galleryGIFs, gif, "GIF 2 of 3"},
+		{galleryChatStories, story, "Story 2 of 3"},
+	} {
+		v.mu.Lock()
+		v.gallery, v.total, v.ended = c.gallery, 0, [2]bool{true, true}
+		v.mu.Unlock()
+		items := []model.Message{c.m, c.m, c.m}
+		if got := v.title(c.m, items, 1, l); got != c.want {
+			t.Errorf("%v: %q, want %q", c.gallery, got, c.want)
+		}
+	}
+	// Where it is not known, what it is.
+	v.mu.Lock()
+	v.gallery, v.ended = galleryPhotos, [2]bool{}
+	v.mu.Unlock()
+	if got := v.title(video, []model.Message{video}, 0, l); got != "Video" {
+		t.Errorf("unplaced: %q", got)
 	}
 }

@@ -663,6 +663,7 @@
 "translate.title" = "lng_context_translate";
 
 "viewer.close" = "lng_close";
+"viewer.file_position" = "lng_mediaview_file_n_of_amount";
 "viewer.photo" = "lng_mediaview_single_photo";
 "viewer.position" = "lng_mediaview_n_of_amount";
 "viewer.story" = "lng_in_dlg_story";

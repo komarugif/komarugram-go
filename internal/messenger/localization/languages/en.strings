@@ -1811,15 +1811,17 @@
 "uninstall.uninstall" = "Uninstall";
 "uninstall.uninstalling" = "Uninstalling…";
 
+"viewer.attachment" = "Attachment";
 "viewer.close" = "Close";
 "viewer.copied" = "Photo copied to clipboard.";
+"viewer.file_position" = "{file} {n} of {amount}";
 "viewer.recovered" = "Could not display the photo. The viewer was closed.";
 "viewer.counter" = "%d of %d";
 "viewer.failed" = "Could not load the photo · click to retry";
 "viewer.keep_failed" = "Could not keep the photo";
 "viewer.loading_more" = "Loading photos…";
 "viewer.photo" = "Photo";
-"viewer.position" = "{n} of {amount}";
+"viewer.position" = "Photo {n} of {amount}";
 "viewer.saved" = "Photo saved: {path}";
 "viewer.story" = "Story";
 "viewer.video" = "Video";

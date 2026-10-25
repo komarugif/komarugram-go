@@ -1138,19 +1138,7 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 					gtx.Constraints.Min = image.Point{}
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							title := l.T("viewer.photo")
-							switch {
-							case v.isStory(m) || m.StoryOf != nil:
-								title = l.T("viewer.story")
-							case m.Kind == model.MessageVideo:
-								title = l.T("viewer.video")
-							case m.Kind == model.MessageGIF:
-								title = "GIF"
-							}
-							if n, amount, ok := v.place(items, i); ok && m.Kind != model.MessageGIF {
-								title = l.Format("viewer.position", map[string]string{"n": fmt.Sprint(n), "amount": fmt.Sprint(amount)})
-							}
-							return label(gtx, title, token.TypestyleTitleSmall, white, 1)
+							return label(gtx, v.title(m, items, i, l), token.TypestyleTitleSmall, white, 1)
 						}),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							// A profile photo known only locally has no date yet.
@@ -1213,6 +1201,35 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return viewerButton(gtx, &v.close, iconClear, d) }),
 		)
 	})
+}
+
+// title is the bar's title over item i of items, m: what it is, and where
+// it is among the gallery's when that is known, worded by what the
+// gallery goes through, as Telegram Desktop words its viewer's: "Photo 3
+// of 10" where all are photos, "Video 3 of 10", "GIF 3 of 10", "Story 3 of
+// 10", and the chat's photos and videos together an "Attachment 3 of 10".
+func (v *mediaViewer) title(m model.Message, items []model.Message, i int, l localization.Catalog) string {
+	what := l.T("viewer.photo")
+	switch {
+	case v.isStory(m) || m.StoryOf != nil:
+		what = l.T("viewer.story")
+	case m.Kind == model.MessageVideo:
+		what = l.T("viewer.video")
+	case m.Kind == model.MessageGIF:
+		what = "GIF"
+	}
+	n, amount, ok := v.place(items, i)
+	if !ok {
+		return what
+	}
+	switch {
+	case v.gallery == galleryPhotos && !v.alone && !v.isStory(m) && m.StoryOf == nil:
+		// The chat's photos and videos, one after the other.
+		what = l.T("viewer.attachment")
+	case what == l.T("viewer.photo"):
+		return l.Format("viewer.position", map[string]string{"n": fmt.Sprint(n), "amount": fmt.Sprint(amount)})
+	}
+	return l.Format("viewer.file_position", map[string]string{"file": what, "n": fmt.Sprint(n), "amount": fmt.Sprint(amount)})
 }
 
 // variant returns m showing variant, with the original's blurred preview.

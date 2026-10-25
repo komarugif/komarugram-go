@@ -1894,15 +1894,17 @@
 "uninstall.uninstall" = "Удалить";
 "uninstall.uninstalling" = "Удаляем…";
 
+"viewer.attachment" = "Вложение";
 "viewer.close" = "Закрыть";
 "viewer.copied" = "Фото скопировано в буфер обмена.";
+"viewer.file_position" = "{file} {n} из {amount}";
 "viewer.recovered" = "Не удалось показать фото. Просмотрщик закрыт.";
 "viewer.counter" = "%d из %d";
 "viewer.failed" = "Не удалось загрузить фото · нажмите, чтобы повторить";
 "viewer.keep_failed" = "Не удалось сохранить фото";
 "viewer.loading_more" = "Загрузка фотографий…";
 "viewer.photo" = "Фотография";
-"viewer.position" = "{n} из {amount}";
+"viewer.position" = "Фотография {n} из {amount}";
 "viewer.saved" = "Фото сохранено: {path}";
 "viewer.story" = "История";
 "viewer.video" = "Видео";
