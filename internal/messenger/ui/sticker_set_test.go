@@ -11,7 +11,9 @@ import (
 
 	"komarugram/internal/messenger/model"
 
+	"gioui.org/f32"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 )
 
 // openStickerSet shows pack in the harness's chat, fully faded in.
@@ -97,4 +99,35 @@ func TestStickerSetMenuDownloadsArchive(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("menu did not download the set: open=%t busy=%t toast=%q", h.p.stickers.menuOpen, h.p.stickers.busy, h.p.stickers.modal.toast.Text())
+}
+
+// A sticker of a set held shows large, the one under the pointer as it
+// moves; released, it closes and sends nothing, the dialog staying open.
+func TestStickerSetHoldPreview(t *testing.T) {
+	h := newComposerHarness(t)
+	openStickerSet(h, model.StickerSet{Title: "Cats", Count: 2, Items: []model.PickerItem{
+		{ID: "sticker/1", Emoji: "🐈"}, {ID: "sticker/2", Emoji: "🐕"},
+	}})
+	h.router.Queue(pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: f32.Pt(175, 350)})
+	h.frame()
+	h.now = h.now.Add(holdPreviewDelay + 50*time.Millisecond)
+	h.frame()
+	d := &h.p.stickers
+	if !d.preview.Shown() || d.preview.item.ID != "sticker/1" {
+		t.Fatalf("held: shown %v, %q", d.preview.Shown(), d.preview.item.ID)
+	}
+	h.router.Queue(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: f32.Pt(245, 350)})
+	h.frame()
+	if !d.preview.Shown() || d.preview.item.ID != "sticker/2" {
+		t.Fatalf("moved: shown %v, %q", d.preview.Shown(), d.preview.item.ID)
+	}
+	// Back over the one pressed, whose click the release would be.
+	h.router.Queue(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: f32.Pt(175, 350)})
+	h.frame()
+	h.router.Queue(pointer.Event{Kind: pointer.Release, Source: pointer.Mouse, Position: f32.Pt(175, 350)})
+	h.frame()
+	h.frame()
+	if d.preview.Shown() || len(h.p.composer.recent[model.PickerStickers]) != 0 || d.modal.closing {
+		t.Fatalf("released: shown %v, sent %+v, closing %v", d.preview.Shown(), h.p.composer.recent[model.PickerStickers], d.modal.closing)
+	}
 }

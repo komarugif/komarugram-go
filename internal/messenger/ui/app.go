@@ -1407,6 +1407,11 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	if a.viewer != nil {
 		a.viewer.Layout(overlayGtx, a.catalog(), a.window.Motion.AnimationsEnabled())
 	}
+	// An emoji, a sticker or a GIF held, over everything, taking nothing.
+	a.history.layoutHoldPreview(overlayGtx)
+	if a.comments != nil {
+		a.comments.layoutHoldPreview(overlayGtx)
+	}
 	if a.chats.panel != nil {
 		a.chats.panel.recent.layoutConfirm(overlayGtx, a.catalog())
 	}

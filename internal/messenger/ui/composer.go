@@ -155,6 +155,8 @@ type messageComposer struct {
 	loader             loadingIndicator
 	strip              layout.List
 	hover              hoverPlay
+	// preview shows an item of the picker held large.
+	preview holdPreview
 	// pickerDrawn is whether the picker was drawn in the last frame.
 	pickerDrawn bool
 	stripDrag   stripDrag

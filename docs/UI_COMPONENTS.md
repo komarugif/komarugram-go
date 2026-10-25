@@ -319,6 +319,15 @@ size-stability fixes remain in place.
   (`model.ChatStoryGallery`), not the profile's; a reply's opens the story
   alone (`OpenStory`). The store asks for those Telegram left out of the
   messages once, a peer's together (`tgstore/chat_stories.go`).
+- **Held preview** (`hold_preview.go`): an emoji, a sticker or a GIF of the
+  composer's panel or of the box of a set, held half a second, shows large
+  over the whole window on the viewer's backdrop, as Telegram Desktop's
+  MediaPreviewWidget; moved over the grid with the button held, it shows
+  the item under the pointer, and the release closes it and chooses
+  nothing. It takes no pointer: a pass-through area over the grid reads
+  it, and the grid tells its rows' heights and its items' places, Gio
+  telling no item of the pointer over it while the button is held on
+  another. A grid that uses it calls `Update`, `row`, `tile` and `area`.
 - **Forwarding** (`forward_picker.go`): `forwardPicker` is the dialog that
   picks the chat to forward to, Saved Messages first, with a search:
   the history's selected messages and its message menu use it, and so does
