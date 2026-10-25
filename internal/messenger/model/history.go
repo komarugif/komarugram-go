@@ -65,6 +65,9 @@ type MessageMedia struct {
 	// TextColor marks a custom emoji drawn in the color of the text around
 	// it, as Telegram marks some: its shape, not its own colors.
 	TextColor bool `json:",omitempty"`
+	// Emoji is the emoji a sticker stands for, which a list shows before
+	// the word, as Telegram's clients do.
+	Emoji     string `json:",omitempty"`
 	ID        string
 	FileName  string
 	MIMEType  string

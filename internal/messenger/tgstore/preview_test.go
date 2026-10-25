@@ -210,3 +210,17 @@ func TestStripThumb(t *testing.T) {
 		t.Fatal("a large picture kept")
 	}
 }
+
+// A sticker's preview has the emoji it stands for, which the list shows
+// before the word, as Telegram Desktop's does.
+func TestStickerPreviewEmoji(t *testing.T) {
+	doc := &tg.Document{ID: 7, AccessHash: 1, MimeType: "image/webp", Attributes: []tg.DocumentAttributeClass{
+		&tg.DocumentAttributeSticker{Alt: "😀", Stickerset: &tg.InputStickerSetEmpty{}}, &tg.DocumentAttributeImageSize{W: 512, H: 512}}}
+	m, _ := convertMessage("", &tg.Message{ID: 1, PeerID: &tg.PeerUser{UserID: 5}, Date: 10, Media: &tg.MessageMediaDocument{Document: doc}}, nil)
+	if m.Kind != model.MessageSticker || m.Media.Emoji != "😀" {
+		t.Fatalf("sticker %v %+v", m.Kind, m.Media)
+	}
+	if p := messagePreview(m, false); p.Media != "preview.sticker" || p.Emoji != "😀" {
+		t.Fatalf("previewed %+v", p)
+	}
+}

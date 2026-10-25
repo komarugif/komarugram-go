@@ -1291,7 +1291,6 @@
 "preview.round" = "Видеосообщение";
 "preview.service" = "Служебное сообщение";
 "preview.sticker" = "Стикер";
-"preview.sticker_emoji" = "{emoji} Стикер";
 "preview.story" = "История";
 "preview.story_expired" = "Истёкшая история";
 "preview.table" = "Таблица";

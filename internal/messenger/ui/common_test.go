@@ -9,6 +9,7 @@ import (
 	"gioui.org/unit"
 
 	"komarugram/internal/messenger/localization"
+	"komarugram/internal/messenger/model"
 )
 
 func TestAvatarColorIndex(t *testing.T) {
@@ -74,5 +75,13 @@ func TestListWidth(t *testing.T) {
 		if float32(got) != c.want || narrow != c.narrow {
 			t.Errorf("listWidth(%v, %v) = %v %v, want %v %v", c.requested, c.available, got, narrow, c.want, c.narrow)
 		}
+	}
+}
+
+// A quote of a sticker says the emoji it stands for before the word.
+func TestStickerQuoteEmoji(t *testing.T) {
+	m := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{Emoji: "😀"}}
+	if got := foundText(m, localization.For("en")); got != "😀 Sticker" {
+		t.Fatalf("%q", got)
 	}
 }

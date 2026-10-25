@@ -1772,6 +1772,10 @@ func messagePreview(m model.Message, group bool) model.Preview {
 		return model.Preview{Service: &m, ID: m.Key.MessageID}
 	}
 	p := model.Preview{Media: messageKindKey(m), ID: m.Key.MessageID, Sent: m.Outgoing, Forwarded: !m.ForwardDate.IsZero()}
+	if m.Kind == model.MessageSticker && m.Media != nil {
+		// "😀 Sticker", as Telegram Desktop's list words it.
+		p.Emoji = m.Media.Emoji
+	}
 	previewContent(&p, m)
 	if group {
 		p.Sender, p.Outgoing = m.SenderName, m.Outgoing

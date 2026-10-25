@@ -61,10 +61,9 @@ func (c Catalog) PreviewLine(p model.Preview, chat string, channel bool) (sender
 		return sender, "", p.Text
 	}
 	media = p.Emoji
-	switch {
-	case p.Media == "preview.sticker" && p.Emoji != "":
-		media = c.Format("preview.sticker_emoji", map[string]string{"emoji": p.Emoji})
-	case p.Media != "":
+	if p.Media != "" {
+		// A sticker's emoji before the word, as the official clients show
+		// it, whatever a pack's lng_in_dlg_sticker_emoji puts first.
 		media = strings.TrimSpace(p.Emoji + " " + c.T(p.Media))
 	}
 	return sender, media, p.Text

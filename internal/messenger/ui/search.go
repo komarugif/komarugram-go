@@ -337,6 +337,10 @@ func foundText(m model.Message, l localization.Catalog) string {
 		media = l.T("preview.round")
 	case model.MessageSticker:
 		media = l.T("history.sticker")
+		if m.Media != nil && m.Media.Emoji != "" {
+			// Before the word, as in the list (Catalog.PreviewLine).
+			media = m.Media.Emoji + " " + media
+		}
 	case model.MessageFile, model.MessageMusic, model.MessageVoice:
 		media = l.T("history.file")
 		if m.Media != nil {

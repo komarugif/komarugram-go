@@ -352,7 +352,7 @@ func documentMedia(d *tg.Document) (model.MessageKind, *model.MessageMedia, *fil
 			animated = true
 		case *tg.DocumentAttributeSticker:
 			sticker = true
-			m.StickerSet = stickerSetRef(a.Stickerset)
+			m.StickerSet, m.Emoji = stickerSetRef(a.Stickerset), a.Alt
 		case *tg.DocumentAttributeCustomEmoji:
 			sticker = true
 			m.StickerSet = stickerSetRef(a.Stickerset)
