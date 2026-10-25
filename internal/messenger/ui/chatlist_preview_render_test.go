@@ -245,6 +245,8 @@ func renderChatPreviews(t *testing.T, path string, size image.Point, scale float
 	images := new(imageOps)
 	l.previews = &previewMedia{media: chatmedia.NewPreviews(source, func() {}), images: images}
 	l.activity = newPreviewActivities(time.Now())
+	// The demo's stories, over the chats.
+	l.stories = source.demo
 	defer l.previews.media.Close()
 	catalog := localization.For("ru")
 	win, err := headless.NewWindow(size.X, size.Y)

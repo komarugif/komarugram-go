@@ -174,7 +174,7 @@ func TestGhostDefaultsToTelling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if read, online, typing, uploads, recording, stickers := s.Global().Ghost.Tells(); !read || !online || !typing || !uploads || !recording || !stickers {
+	if told := s.Global().Ghost.Tells(); told != (Told{true, true, true, true, true, true, true}) {
 		t.Fatalf("by default %+v, want everything told", s.Global().Ghost)
 	}
 	if err := s.SetGhost(Ghost{On: true, KeepTyping: true}); err != nil {
@@ -207,8 +207,8 @@ func TestGhostFromSwitchesOfTelling(t *testing.T) {
 		if g != c.want {
 			t.Errorf("%s: %+v, want %+v", c.saved, g, c.want)
 		}
-		if read, _, _, _, _, _ := g.Tells(); read != (c.want.KeepRead || !c.want.On) {
-			t.Errorf("%s: reads told %v", c.saved, read)
+		if told := g.Tells(); told.Read != (c.want.KeepRead || !c.want.On) || told.Stories != !c.want.On {
+			t.Errorf("%s: told %+v", c.saved, told)
 		}
 	}
 }

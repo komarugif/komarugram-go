@@ -49,6 +49,8 @@ type Store struct {
 	emoji emojiBatch
 	// activity is what others do in chats now.
 	activity activities
+	// stories are the stories over the list of chats.
+	stories storyState
 
 	themeRevisions map[int64]uint64
 	// appearances are the states of the chats' cached appearances.
@@ -133,7 +135,25 @@ func (s *Store) Load(ctx context.Context, api *tg.Client) error {
 		s.me.DC = s.dc
 	})
 	s.loadAppConfig(ctx, api, self.Premium)
-	return s.loadDialogs(ctx, api, self.ID)
+	if err := s.loadDialogs(ctx, api, self.ID); err != nil {
+		return err
+	}
+	s.goLoadStories(ctx, api)
+	return nil
+}
+
+// goLoadStories asks for the stories over the list in the background.
+func (s *Store) goLoadStories(ctx context.Context, api *tg.Client) {
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closing {
+		return
+	}
+	c.wg.Go(func() {
+		defer crash.Recover("stories", nil)
+		_ = s.loadStories(ctx, api)
+	})
 }
 
 // reloadDialogs reads the folders and dialogs again, after updates were
@@ -154,6 +174,8 @@ func (s *Store) reloadDialogs() {
 		defer crash.Recover("dialogs reload", nil)
 		_ = s.loadDialogs(ctx, api, self)
 	}()
+	// What changed of the stories meanwhile.
+	s.goLoadStories(ctx, api)
 }
 
 // loadDialogs reads the folders and every dialog of the main list, and

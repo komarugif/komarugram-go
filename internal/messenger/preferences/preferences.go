@@ -342,22 +342,28 @@ type Ghost struct {
 	// account is online; KeepTyping, that it types, chooses a place or a
 	// contact; KeepUploads, that it sends a file, a photo, a video or a
 	// voice message; KeepRecording, that it records one; KeepStickers,
-	// that it chooses a sticker.
+	// that it chooses a sticker; KeepStories, the stories it saw.
 	KeepRead      bool `json:"keep_read,omitempty"`
 	KeepOnline    bool `json:"keep_online,omitempty"`
 	KeepTyping    bool `json:"keep_typing,omitempty"`
 	KeepUploads   bool `json:"keep_uploads,omitempty"`
 	KeepRecording bool `json:"keep_recording,omitempty"`
 	KeepStickers  bool `json:"keep_stickers,omitempty"`
+	KeepStories   bool `json:"keep_stories,omitempty"`
 	// ReadOnInteract marks a chat read on sending to it or reacting in
 	// it, while reads are hidden.
 	ReadOnInteract bool `json:"read_on_interact"`
 }
 
-// Tells reports what the accounts tell with g: read, online, typing,
-// uploads, recording and stickers.
-func (g Ghost) Tells() (read, online, typing, uploads, recording, stickers bool) {
-	return !g.On || g.KeepRead, !g.On || g.KeepOnline, !g.On || g.KeepTyping, !g.On || g.KeepUploads, !g.On || g.KeepRecording, !g.On || g.KeepStickers
+// Told is what the accounts tell others: see Ghost's Keep switches.
+type Told struct {
+	Read, Online, Typing, Uploads, Recording, Stickers, Stories bool
+}
+
+// Tells reports what the accounts tell with g.
+func (g Ghost) Tells() Told {
+	tells := func(keep bool) bool { return !g.On || keep }
+	return Told{tells(g.KeepRead), tells(g.KeepOnline), tells(g.KeepTyping), tells(g.KeepUploads), tells(g.KeepRecording), tells(g.KeepStickers), tells(g.KeepStories)}
 }
 
 // UnmarshalJSON reads g, and the settings saved before Ghost Mode was one

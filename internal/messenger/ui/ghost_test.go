@@ -59,12 +59,15 @@ func TestGhostRead(t *testing.T) {
 
 // The boxes say what Ghost Mode hides: what they leave it keeps telling.
 func TestGhostBoxes(t *testing.T) {
-	for _, g := range []preferences.Ghost{{On: true}, {On: true, KeepRead: true, ReadOnInteract: true}, {KeepOnline: true, KeepTyping: true, KeepStickers: true}} {
+	for _, g := range []preferences.Ghost{{On: true}, {On: true, KeepRead: true, ReadOnInteract: true}, {KeepOnline: true, KeepTyping: true, KeepStickers: true, KeepStories: true}} {
 		if got := ghostWithHidden(g, ghostHiddenOf(g)); got != g {
 			t.Errorf("%+v came back as %+v", g, got)
 		}
 	}
-	if got := ghostHiddenOf(preferences.Ghost{KeepUploads: true}); slices.Contains(got, "uploads") || !slices.Contains(got, "read") {
+	if got := ghostHiddenOf(preferences.Ghost{KeepUploads: true}); slices.Contains(got, "uploads") || !slices.Contains(got, "read") || !slices.Contains(got, "stories") {
 		t.Errorf("hidden %v", got)
+	}
+	if got := ghostWithHidden(preferences.Ghost{On: true}, []string{"stories"}); got.KeepStories || !got.KeepRead {
+		t.Errorf("stories hidden alone: %+v", got)
 	}
 }

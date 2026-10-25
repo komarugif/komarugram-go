@@ -15,11 +15,11 @@ import (
 
 // ghostHidden are the boxes of what Ghost Mode hides, as AyuGram's Ghost
 // Mode has them, an action of the account's to a box.
-var ghostHidden = []string{"read", "online", "typing", "uploads", "recording", "stickers"}
+var ghostHidden = []string{"read", "online", "typing", "uploads", "recording", "stickers", "stories"}
 
 // ghostKeeps are the Keep switches of g, in the order of ghostHidden.
 func ghostKeeps(g *preferences.Ghost) []*bool {
-	return []*bool{&g.KeepRead, &g.KeepOnline, &g.KeepTyping, &g.KeepUploads, &g.KeepRecording, &g.KeepStickers}
+	return []*bool{&g.KeepRead, &g.KeepOnline, &g.KeepTyping, &g.KeepUploads, &g.KeepRecording, &g.KeepStickers, &g.KeepStories}
 }
 
 // ghostWithHidden is g hiding what values name.
@@ -82,6 +82,7 @@ func (p *settingsPage) layoutGhost(gtx layout.Context, l localization.Catalog) l
 				"uploads":   l.T("ghost.uploads"),
 				"recording": l.T("ghost.recording"),
 				"stickers":  l.T("ghost.stickers"),
+				"stories":   l.T("ghost.stories"),
 			})
 		}),
 		vspace(8),

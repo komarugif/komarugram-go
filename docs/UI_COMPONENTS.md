@@ -295,6 +295,27 @@ size-stability fixes remain in place.
   second, dots or a swelling dot for a recording, and the words, in the
   accent; the chat's header shows it in place of the status.
   `CHAT_PREVIEW_PNG` saves a list of every kind, light, dark and narrow.
+- **Row of stories** (`stories_row.go`): `storiesRow` is the first row of
+  all chats, as Telegram Desktop's `Dialogs::Stories::List`: who has
+  stories now (`model.StorySource`), each an avatar in a ring of a
+  segment a story, the unread ones thick in the accent's gradient and the
+  seen ones thin and dim, the name under it. It scrolls sideways, and a
+  mouse drags it (`dragOnlyHorizontalStrip`, which leaves the wheel to the
+  list), and goes up with the chats rather than staying over them; the
+  chats in view stay where they are as it comes or goes. A click opens
+  the stories in the media viewer (`mediaViewer.OpenStories`), from the
+  first unread: the stories of the whole row are one gallery, each one's
+  oldest first, the arrows and the strip going on from one's to the
+  next one's (`viewer_stories.go`, which keys them apart and asks for a
+  neighbour's as the strip nears it); each shown is told seen, as Ghost
+  Mode allows. `CHAT_PREVIEW_PNG` draws
+  it, `VIEWER_STORIES` the viewer on them.
+- **Forwarding** (`forward_picker.go`): `forwardPicker` is the dialog that
+  picks the chat to forward to, Saved Messages first, with a search:
+  the history's selected messages and its message menu use it, and so does
+  the media viewer, whose button beside copy forwards what it shows, a
+  message or a story (`viewer_share.go`), unless it protects its content;
+  a story has its heart there too, red once put, with how many put theirs.
 - **Devices** (`sessions.go`): the settings section of the account's
   sessions, grouped as Telegram Desktop's Active Sessions, with a dialog of a
   session's details; it asks again every minute while it is open.

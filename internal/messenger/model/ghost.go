@@ -13,6 +13,9 @@ type Ghost struct {
 	// a voice message; SendRecording, that it records a voice message;
 	// SendStickers, that it chooses a sticker.
 	SendTyping, SendUploads, SendRecording, SendStickers bool
+	// SendStories tells Telegram the stories the account has seen, which
+	// their posters see in the list of who viewed them.
+	SendStories bool
 	// ReadOnInteract marks a chat read, without SendRead, when the account
 	// sends to it or reacts in it.
 	ReadOnInteract bool

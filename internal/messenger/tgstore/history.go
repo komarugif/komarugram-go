@@ -40,6 +40,9 @@ type peerRecord struct {
 	Metadata peerMetadata `json:",omitempty"`
 	// Username is a public channel's or supergroup's, for links.
 	Username string `json:",omitempty"`
+	// StoriesHidden: the account moved the peer's stories to the archive,
+	// out of the list over the chats.
+	StoriesHidden bool `json:",omitempty"`
 }
 
 // peerRights are what MessageRights and CanSend need of a peer.
@@ -214,6 +217,16 @@ func (s *Store) Configure(ctx context.Context, account, path string, p *security
 	if _, e = cache.Get(ctx, "dialog-entries", &entries); e != nil {
 		return e
 	}
+	var stories keptStoryState
+	if _, e = cache.Get(ctx, storiesKey, &stories); e != nil {
+		return e
+	}
+	s.stories.mu.Lock()
+	if s.stories.peers == nil {
+		s.stories.state, s.stories.peers = stories.State, stories.Peers
+		s.stories.changedLocked()
+	}
+	s.stories.mu.Unlock()
 	s.recent.mu.Lock()
 	s.recent.list = recent
 	s.recent.mu.Unlock()
@@ -388,6 +401,9 @@ func (s *Store) rememberPeers(users []tg.UserClass, chats []tg.ChatClass) {
 			}
 			p := c.peers[key]
 			p.First = strings.TrimSpace(u.FirstName)
+			if !u.Min {
+				p.StoriesHidden = u.StoriesHidden
+			}
 			if photo, ok := u.Photo.(*tg.UserProfilePhoto); ok {
 				p.Photo = &avatarRecord{photo.PhotoID, photo.DCID, photo.HasVideo, photo.StrippedThumb}
 			} else if !u.Min {
@@ -419,6 +435,9 @@ func (s *Store) rememberPeers(users []tg.UserClass, chats []tg.ChatClass) {
 			}
 			p := c.peers[key]
 			p.rememberChannelMetadata(ch)
+			if !ch.Min && !ch.StoriesHiddenMin {
+				p.StoriesHidden = ch.StoriesHidden
+			}
 			if ch.Min && p.Rights.Known {
 				p.Rights.Default = bannedKinds(ch.DefaultBannedRights)
 				p.Rights.JoinToSend = ch.JoinToSend
@@ -1415,6 +1434,12 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			s.applyUnreadMark(u)
 		case *tg.UpdateDraftMessage:
 			s.applyDraft(u)
+		case *tg.UpdateStory:
+			s.applyStory(u)
+		case *tg.UpdateReadStories:
+			s.applyReadStories(u)
+		case *tg.UpdateSentStoryReaction:
+			s.applyStoryReaction(u)
 		case *tg.UpdateFolderPeers:
 			s.applyFolderPeers(u)
 		case *tg.UpdatePinnedDialogs:

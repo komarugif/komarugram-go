@@ -170,6 +170,8 @@ type Message struct {
 	ForumTopic bool `json:",omitempty"`
 	// Rich is a rich message's article; Text is its summary then.
 	Rich *RichPage `json:",omitempty"`
+	// Story is what a story has beyond a message: see StoryMessage.
+	Story *Story `json:",omitempty"`
 	// MediaUnread is Telegram's mark of a voice message nobody listened to
 	// yet: the account, for one that came, or who it was sent to. Telegram
 	// sets it on an unread mention as well; only voice messages show it.

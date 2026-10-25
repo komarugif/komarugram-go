@@ -43,7 +43,18 @@ func benchChats(n int) []model.Chat {
 }
 
 func BenchmarkChatListFrame(b *testing.B) {
+	b.Run("chats", func(b *testing.B) { benchChatList(b, nil) })
+	// With the row of stories over them.
+	stories := newStoryGallery()
+	for id := int64(100); id < 112; id++ {
+		stories.peers = append(stories.peers, model.StoryPeer{ID: id, Title: fmt.Sprint("Peer ", id), Count: 3, Unread: int(id % 3)})
+	}
+	b.Run("stories", func(b *testing.B) { benchChatList(b, stories) })
+}
+
+func benchChatList(b *testing.B, stories model.StorySource) {
 	l := newChatList()
+	l.stories = stories
 	var images imageOps
 	chats := benchChats(40)
 	var ops op.Ops

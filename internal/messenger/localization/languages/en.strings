@@ -728,13 +728,14 @@
 "frozen.text3" = "Appeal via {link} before {date}, or your account will be deleted.";
 "frozen.title" = "Your Account is Frozen";
 
-"ghost.body" = "Hides what you check below: others do not learn that you read their messages, were online, or write and send something.";
+"ghost.body" = "Hides what you check below: others do not learn that you read their messages, viewed their stories, were online, or write and send something.";
 "ghost.interact" = "Read a chat when you act in it";
 "ghost.interact_body" = "Even with reading hidden, marks a chat read when you send a message to it or react in it.";
 "ghost.online" = "Online status";
 "ghost.read" = "Reading messages";
 "ghost.recording" = "Recording a voice message";
 "ghost.stickers" = "Choosing a sticker";
+"ghost.stories" = "Viewing stories";
 "ghost.title" = "Ghost Mode";
 "ghost.typing" = "Typing";
 "ghost.uploads" = "Sending photos, videos, files and voice messages";
@@ -1770,6 +1771,8 @@
 "stickers.saved" = "Archive saved: {path}";
 "stickers.title" = "Sticker set";
 
+"stories.my" = "My Story";
+
 "text.collapse_quote" = "Collapse quote";
 "text.copied" = "Text copied";
 "text.copy_code" = "Copy";
@@ -1809,7 +1812,10 @@
 "viewer.photo" = "Photo";
 "viewer.position" = "{n} of {amount}";
 "viewer.saved" = "Photo saved: {path}";
+"viewer.story" = "Story";
 "viewer.video" = "Video";
+"viewer.views" = "{count} views";
+"viewer.views#one" = "{count} view";
 "viewer.window" = "Photo";
 
 "visibility.calm" = "Hide events that distract attention";

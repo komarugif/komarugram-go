@@ -41,6 +41,11 @@ type fileLocation struct {
 	StickerSet     int64 `json:",omitempty"`
 	StickerSetHash int64 `json:",omitempty"`
 	SavedGIF       bool  `json:",omitempty"`
+	// Story is the story of peer StoryPeer the media is of, by which its
+	// file reference is renewed whatever message shows it: the viewer
+	// keys the stories of a row apart.
+	StoryPeer int64 `json:",omitempty"`
+	Story     int   `json:",omitempty"`
 }
 
 func (l fileLocation) input() tg.InputFileLocationClass {

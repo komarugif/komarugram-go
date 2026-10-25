@@ -610,6 +610,9 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.chats.animate = func() bool { return a.window.Motion.AnimationsEnabled() }
 		a.chats.activity, _ = source.(model.ActivitySource)
 		a.chats.presence, _ = source.(model.PresenceSource)
+		a.chats.stories, _ = source.(model.StorySource)
+		a.chats.invalidate = w.Invalidate
+		a.chats.openStories = func(p model.StoryPeer) { a.viewer.OpenStories(p.ID, p.Open) }
 		a.viewer = newMediaViewer(source, &a.images, w.Invalidate)
 		a.viewer.shortcuts = a.shortcutPrefs
 		a.history = a.newChatPage(source, store, w)
@@ -623,6 +626,9 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			a.history.playFrom(gtx, m, start, a.viewer.reportPlay, l)
 		}
 		a.configureViewer(a.viewer)
+		// A window of the viewer's own draws the chats' avatars plainly:
+		// these are of this window's.
+		a.viewer.share.avatar = a.layoutAvatar
 		if links, ok := source.(model.TelegramLinkSource); ok {
 			a.usernames = make(chan usernameResult, 1)
 			a.settings.about.openCommunity = func() { a.openUsername(links, community) }
@@ -1643,8 +1649,8 @@ func (a *App) tellGhost() {
 		return
 	}
 	p := a.preferences.Global().Ghost
-	read, online, typing, uploads, recording, stickers := p.Tells()
-	g.SetGhost(model.Ghost{SendRead: read, SendOnline: online, SendTyping: typing, SendUploads: uploads, SendRecording: recording, SendStickers: stickers, ReadOnInteract: p.ReadOnInteract})
+	t := p.Tells()
+	g.SetGhost(model.Ghost{SendRead: t.Read, SendOnline: t.Online, SendTyping: t.Typing, SendUploads: t.Uploads, SendRecording: t.Recording, SendStickers: t.Stickers, SendStories: t.Stories, ReadOnInteract: p.ReadOnInteract})
 	g.SetOnline(a.focused)
 	if k, ok := a.store.(model.KeepStore); ok {
 		keep := a.preferences.Global().Keep

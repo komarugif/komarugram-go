@@ -72,6 +72,15 @@ type chatList struct {
 	// activity tells what others do in the chats, drawn in place of their
 	// last messages; nil for nothing.
 	activity model.ActivitySource
+	// stories are those with stories now, drawn as the first row of all
+	// chats, nil for none; openStories opens a peer's. storiesShown tells
+	// whether the last frame had the row.
+	stories      model.StorySource
+	storiesRow   storiesRow
+	openStories  func(model.StoryPeer)
+	storiesShown bool
+	// invalidate draws the list again, as its row of stories scrolls.
+	invalidate func()
 }
 
 // overlayPrefs is how the list's overlays are drawn.
@@ -203,7 +212,20 @@ func (l *chatList) Update(gtx layout.Context, sec section, catalog localization.
 			return chatPick{ID: id}, true
 		}
 	}
+	if p, ok := l.storiesRow.clicked(gtx); ok && l.openStories != nil {
+		l.openStories(p)
+	}
 	return chatPick{}, false
+}
+
+// storyPeers are the peers of the row of stories the section shows: all
+// chats have it, as Telegram Desktop's main list does, unless the list is
+// too narrow for names.
+func (l *chatList) storyPeers(sec section, narrow bool) []model.StoryPeer {
+	if l.stories == nil || sec.kind != sectionAll || narrow {
+		return nil
+	}
+	return l.stories.StoryPeers()
 }
 
 // Layout draws the list in the exact size of the constraints.
@@ -264,8 +286,35 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 		}
 		now := time.Now()
 		l.shown = l.shown[:0]
-		return l.list.Layout(gtx, len(visible), func(gtx layout.Context, i int) layout.Dimensions {
-			c := visible[i]
+		// The row of stories is the list's first: it scrolls away with the
+		// chats. The chats in view stay where they are as it comes or goes.
+		peers := l.storyPeers(sec, narrow)
+		row := len(peers) > 0
+		if row != l.storiesShown {
+			if l.list.Position.First > 0 || l.list.Position.Offset > 0 {
+				if row {
+					l.list.Position.First++
+				} else {
+					l.list.Position.First = max(l.list.Position.First-1, 0)
+				}
+			}
+			l.storiesShown = row
+		}
+		first := 0
+		if row {
+			first = 1
+		} else {
+			l.storiesRow.shown = l.storiesRow.shown[:0]
+		}
+		return l.list.Layout(gtx, len(visible)+first, func(gtx layout.Context, i int) layout.Dimensions {
+			if i < first {
+				invalidate := l.invalidate
+				if invalidate == nil {
+					invalidate = func() {}
+				}
+				return l.storiesRow.layout(gtx, peers, l.avatar, catalog, invalidate)
+			}
+			c := visible[i-first]
 			l.shown = append(l.shown, c.ID)
 			dims := l.layoutRow(gtx, c, c.ID == selected, narrow, now, catalog)
 			l.menu.rowOp(gtx, c.ID, dims.Size)

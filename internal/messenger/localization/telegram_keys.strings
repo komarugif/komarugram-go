@@ -645,6 +645,8 @@
 "stickers.emoji_count" = "lng_custom_emoji_count";
 "stickers.remove" = "lng_stickers_remove_pack_confirm";
 
+"stories.my" = "lng_stories_my_name";
+
 "text.copied" = "lng_text_copied";
 "text.copy_code" = "lng_code_block_header_copy";
 
@@ -654,4 +656,6 @@
 "viewer.close" = "lng_close";
 "viewer.photo" = "lng_mediaview_single_photo";
 "viewer.position" = "lng_mediaview_n_of_amount";
+"viewer.story" = "lng_in_dlg_story";
 "viewer.video" = "lng_in_dlg_video";
+"viewer.views" = "lng_stories_views";

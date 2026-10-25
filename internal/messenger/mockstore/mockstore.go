@@ -56,6 +56,9 @@ type Store struct {
 	presence map[int64]model.Presence
 	// activities are what others do in the demo's chats now.
 	activities map[int64][]model.Activity
+
+	// stories are the demo's stories, by peer, made when first asked for.
+	stories map[int64]*demoStories
 }
 
 // New returns a store with demo chats whose times are relative to now, and

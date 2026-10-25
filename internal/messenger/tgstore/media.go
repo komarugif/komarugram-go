@@ -231,6 +231,25 @@ func (s *Store) refreshReference(ctx context.Context, m model.Message) error {
 		_, err := s.SharedCollection(ctx, chat, model.SharedGifts, ref.GiftOffset, 60)
 		return err
 	}
+	if ref.Story != 0 {
+		// A story of those over the list, whatever the viewer keys it by.
+		c.mu.Lock()
+		owner, ok := c.peers[ref.StoryPeer]
+		c.mu.Unlock()
+		if !ok {
+			return errors.New("story of an unknown peer")
+		}
+		stories, e := api.StoriesGetStoriesByID(ctx, &tg.StoriesGetStoriesByIDRequest{Peer: owner.input(), ID: []int{ref.Story}})
+		if e != nil {
+			return e
+		}
+		s.rememberPeers(stories.Users, stories.Chats)
+		for _, raw := range stories.Stories {
+			s.applyStory(&tg.UpdateStory{Peer: owner.output(), Story: raw})
+		}
+		// The renewed reference is kept for the next start.
+		return s.keepStoryRefs(ctx, s.knownStories(ref.StoryPeer))
+	}
 	if m.Key.MessageID < 0 {
 		stories, e := api.StoriesGetStoriesByID(ctx, &tg.StoriesGetStoriesByIDRequest{Peer: peer.input(), ID: []int{-int(m.Key.MessageID)}})
 		if e != nil {
