@@ -260,6 +260,8 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	a.chats.menu.store, _ = store.(model.ChatListActions)
 	a.chats.menu.premium, _ = store.(model.PremiumSource)
 	a.chats.menu.invalidate = w.Invalidate
+	a.chats.reorder.store, _ = store.(model.PinReorderer)
+	a.chats.reorder.invalidate = w.Invalidate
 	if searcher, ok := store.(model.Searcher); ok {
 		a.chats.panel = newSearchPanel(searcher)
 	}

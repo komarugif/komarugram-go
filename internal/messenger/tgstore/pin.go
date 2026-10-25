@@ -37,6 +37,50 @@ func (s *Store) PinChat(ctx context.Context, chat int64, pin bool) error {
 	return nil
 }
 
+// ReorderPinned implements model.PinReorderer with
+// messages.reorderPinnedDialogs, as Telegram Desktop saves the order of the
+// main list (forced: a chat pinned elsewhere meanwhile and not in order is
+// unpinned). The list has the order before Telegram answers, and the one it
+// had back when Telegram refuses it.
+func (s *Store) ReorderPinned(ctx context.Context, order []int64) error {
+	c := s.history
+	c.mu.Lock()
+	api := c.api
+	peers := make([]tg.InputDialogPeerClass, 0, len(order))
+	for _, id := range order {
+		if peer := c.peers[id]; peer.ID != 0 {
+			peers = append(peers, &tg.InputDialogPeer{Peer: peer.input()})
+		}
+	}
+	c.mu.Unlock()
+	if api == nil || len(peers) != len(order) {
+		return errNotConnected
+	}
+	s.mu.Lock()
+	was := model.PinnedOrder(s.chats)
+	same := model.SamePinned(s.chats, order)
+	if same {
+		s.chats = model.WithPinOrder(s.chats, order)
+	}
+	s.mu.Unlock()
+	if !same {
+		return model.ErrPinnedChanged
+	}
+	s.changed()
+	if _, err := api.MessagesReorderPinnedDialogs(ctx, &tg.MessagesReorderPinnedDialogsRequest{Force: true, Order: peers}); err != nil {
+		s.publish(func() {
+			// Unless the pinned chats changed meanwhile, as an update
+			// tells: their order is then the update's.
+			if model.SamePinned(s.chats, was) {
+				s.chats = model.WithPinOrder(s.chats, was)
+			}
+		})
+		return err
+	}
+	_ = s.persistDialogs(ctx)
+	return nil
+}
+
 // applyPin puts a pin or unpin that an update tells of in the list.
 func (s *Store) applyPin(u *tg.UpdateDialogPinned) {
 	if folder, ok := u.GetFolderID(); ok && folder != 0 {

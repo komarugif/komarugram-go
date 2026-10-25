@@ -4,6 +4,7 @@ package ui
 
 import (
 	"image"
+	"math"
 	"strings"
 	"time"
 
@@ -60,6 +61,8 @@ type chatList struct {
 	items []searchItem
 	// menu is the menu of a chat right-clicked.
 	menu chatRowMenu
+	// reorder drags the pinned chats into another order.
+	reorder pinReorder
 	// overlays says how the menus are drawn; nil draws them opaque. bd is
 	// the recording of the rows behind them in the frame drawn last, nil
 	// when nothing blurs it.
@@ -79,6 +82,8 @@ type chatList struct {
 	storiesRow   storiesRow
 	openStories  func(model.StoryPeer)
 	storiesShown bool
+	// storiesHeight is how tall the row of stories was last laid out.
+	storiesHeight int
 	// invalidate draws the list again, as its row of stories scrolls.
 	invalidate func()
 }
@@ -267,6 +272,7 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 	}
 	l.items = l.items[:0]
 
+	chats = l.reorder.update(gtx, sec, chats, l.shown, &l.toast, catalog)
 	visible := l.visible(sec, folders, chats, catalog)
 	l.menu.update(gtx, sec, chats, l.shown, &l.toast, catalog)
 	listGtx := gtx
@@ -306,20 +312,41 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 		} else {
 			l.storiesRow.shown = l.storiesRow.shown[:0]
 		}
-		return l.list.Layout(gtx, len(visible)+first, func(gtx layout.Context, i int) layout.Dimensions {
+		dims := l.list.Layout(gtx, len(visible)+first, func(gtx layout.Context, i int) layout.Dimensions {
 			if i < first {
 				invalidate := l.invalidate
 				if invalidate == nil {
 					invalidate = func() {}
 				}
-				return l.storiesRow.layout(gtx, peers, l.avatar, catalog, invalidate)
+				dims := l.storiesRow.layout(gtx, peers, l.avatar, catalog, invalidate)
+				l.storiesHeight = dims.Size.Y
+				return dims
 			}
 			c := visible[i-first]
+			if c.Pinned && c.ID == l.reorder.lifted {
+				// The lifted row is drawn over the others, after them.
+				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(chatRowHeight))}
+			}
 			l.shown = append(l.shown, c.ID)
+			if slide := l.reorder.offset(c.ID, gtx.Now); slide != 0 {
+				defer op.Offset(image.Pt(0, int(math.Round(float64(slide))))).Push(gtx.Ops).Pop()
+			}
 			dims := l.layoutRow(gtx, c, c.ID == selected, narrow, now, catalog)
 			l.menu.rowOp(gtx, c.ID, dims.Size)
+			if c.Pinned && sec.kind == sectionAll {
+				l.reorder.rowOp(gtx, c.ID, dims.Size)
+			}
 			return dims
 		})
+		l.reorder.drawn = 0
+		if i := chatIndex(visible, l.reorder.lifted); l.reorder.lifted != 0 && i >= 0 {
+			c := visible[i]
+			l.reorder.layoutLifted(gtx, l.slotTop(gtx, i+first, first), func(gtx layout.Context) layout.Dimensions {
+				return l.layoutRow(gtx, c, c.ID == selected, narrow, now, catalog)
+			})
+		}
+		l.reorder.animate(gtx)
+		return dims
 	}
 	offset(listGtx, image.Pt(0, headerHeight), func(gtx layout.Context) layout.Dimensions {
 		if !recording {
@@ -335,11 +362,42 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 	// Over the rows, which would keep the press from anything under them.
 	menuGtx := listGtx
 	offset(menuGtx, image.Pt(0, headerHeight), func(gtx layout.Context) layout.Dimensions {
+		l.reorder.areaOp(gtx)
 		l.menu.areaOp(gtx)
 		l.menu.layout(gtx, l.menuBackdrop(), catalog)
 		return layout.Dimensions{}
 	})
 	return layout.Dimensions{Size: size}
+}
+
+// chatIndex is where the chat of id is in chats, -1 for nowhere.
+func chatIndex(chats []model.Chat, id int64) int {
+	for i, c := range chats {
+		if c.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// slotTop is where the list's element k is, by the position the list was
+// laid out at; the first of them are the row of stories.
+func (l *chatList) slotTop(gtx layout.Context, k, first int) int {
+	height := func(j int) int {
+		if j < first {
+			return l.storiesHeight
+		}
+		return gtx.Dp(chatRowHeight)
+	}
+	pos := l.list.Position
+	y := -pos.Offset
+	for j := pos.First; j < k; j++ {
+		y += height(j)
+	}
+	for j := k; j < pos.First; j++ {
+		y -= height(j)
+	}
+	return y
 }
 
 // withMembersLine gives c, a chat found by a search or remembered from one,

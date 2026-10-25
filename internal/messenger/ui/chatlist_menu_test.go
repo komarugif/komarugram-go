@@ -32,6 +32,8 @@ type pinStore struct {
 	read    []int64
 	fail    error
 	premium model.Premium
+	// orders are the orders of the pinned chats saved.
+	orders [][]int64
 }
 
 func (s *pinStore) PinChat(_ context.Context, chat int64, pin bool) error {
@@ -69,6 +71,11 @@ type listHarness struct {
 	sec    section
 	now    time.Time
 	l      localization.Catalog
+	// picks are the chats picked in the list.
+	picks []int64
+	// wake is when the list asked for its next frame, if wakes.
+	wake  time.Time
+	wakes bool
 }
 
 func newListHarness(t *testing.T, chats []model.Chat) *listHarness {
@@ -84,6 +91,9 @@ func (h *listHarness) frames(n int) {
 	for range n {
 		gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(320, 700)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
 		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		if p, ok := h.list.Update(gtx, h.sec, h.l); ok {
+			h.picks = append(h.picks, p.ID)
+		}
 		h.list.Layout(gtx, h.sec, nil, h.chats, 0, false, h.l)
 		h.router.Frame(gtx.Ops)
 		h.now = h.now.Add(16 * time.Millisecond)

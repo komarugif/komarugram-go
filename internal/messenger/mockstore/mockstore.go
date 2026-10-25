@@ -186,6 +186,23 @@ func (s *Store) PinChat(ctx context.Context, chat int64, pin bool) error {
 	return nil
 }
 
+// ReorderPinned implements model.PinReorderer in memory, after as long as a
+// round trip.
+func (s *Store) ReorderPinned(ctx context.Context, order []int64) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(200 * time.Millisecond):
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !model.SamePinned(s.chats, order) {
+		return model.ErrPinnedChanged
+	}
+	s.chats = model.WithPinOrder(s.chats, order)
+	return nil
+}
+
 // MarkChatRead implements model.ChatListActions.
 func (s *Store) MarkChatRead(chat int64) {
 	s.mu.Lock()
