@@ -33,6 +33,10 @@ func TestInitials(t *testing.T) {
 			t.Errorf("initials(%q) = %q, want %q", in, got, want)
 		}
 	}
+	// An avatar draws them every frame: once made, they cost nothing.
+	if n := testing.AllocsPerRun(100, func() { initials("Анна Смирнова") }); n != 0 {
+		t.Errorf("initials allocate %v times a call", n)
+	}
 }
 
 func TestChatTime(t *testing.T) {
