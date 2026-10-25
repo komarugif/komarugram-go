@@ -606,7 +606,13 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.info.drawAvatar = a.layoutAvatar
 		a.avatars = newAvatarImages(source, w.Invalidate)
 		a.chats.avatar = a.layoutAvatar
+		a.chats.previews = &previewMedia{media: chatmedia.NewPreviews(source, w.Invalidate), images: &a.images}
+		a.chats.animate = func() bool { return a.window.Motion.AnimationsEnabled() }
+		a.chats.activity, _ = source.(model.ActivitySource)
 		a.chats.presence, _ = source.(model.PresenceSource)
+		a.chats.stories, _ = source.(model.StorySource)
+		a.chats.invalidate = w.Invalidate
+		a.chats.openStories = func(p model.StoryPeer) { a.viewer.OpenStories(p.ID, p.Open) }
 		a.viewer = newMediaViewer(source, &a.images, w.Invalidate)
 		a.viewer.shortcuts = a.shortcutPrefs
 		a.history = a.newChatPage(source, store, w)
@@ -620,6 +626,9 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			a.history.playFrom(gtx, m, start, a.viewer.reportPlay, l)
 		}
 		a.configureViewer(a.viewer)
+		// A window of the viewer's own draws the chats' avatars plainly:
+		// these are of this window's.
+		a.viewer.share.avatar = a.layoutAvatar
 		if links, ok := source.(model.TelegramLinkSource); ok {
 			a.usernames = make(chan usernameResult, 1)
 			a.settings.about.openCommunity = func() { a.openUsername(links, community) }
@@ -653,6 +662,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			a.forum.open = a.openTopic
 			a.forum.openAt = a.openTopicAt
 			a.forum.emoji = a.layoutCustomEmoji
+			a.forum.previews, a.forum.animate, a.forum.activity = a.chats.previews, a.chats.animate, a.chats.activity
 			if a.comments == nil {
 				a.comments = a.newChatPage(source, store, w)
 				a.comments.thread = true
@@ -683,8 +693,17 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		// The audio of the info's sections plays in the same player, under
 		// the same bar, as the chat's.
 		a.info.renderer.audio = a.history.audio
-		a.info.renderer.openPhoto = func(m model.Message) { a.viewer.Open(m.Key.ChatID, m, a.info.messages) }
+		// A section's photo or video goes through the section's kind alone.
+		a.info.renderer.openPhoto = func(m model.Message) {
+			a.viewer.OpenShared(m.Key.ChatID, m, a.info.messages, a.info.section, -1)
+		}
 		a.info.renderer.openGIF = func(m model.Message) { a.viewer.OpenGIF(m.Key.ChatID, m, a.info.messages) }
+		// A video of the section plays where one of the chat does: in the
+		// viewer, when the settings choose it.
+		a.info.renderer.openVideo = func(m model.Message, at time.Duration) {
+			a.viewer.OpenShared(m.Key.ChatID, m, a.info.messages, a.info.section, at)
+		}
+		a.info.renderer.videoEngine = a.videoEngine
 		a.info.openAvatar = func(chat int64) { a.viewer.OpenProfile(chat) }
 		if services.OpenWindow != nil {
 			a.openWindow = services.OpenWindow
@@ -739,6 +758,8 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 	p.openVideo = func(m model.Message, at time.Duration) { a.viewer.OpenVideo(p.chat, m, p.viewerItems(), at) }
 	p.videoEngine = a.videoEngine
 	p.openAlone = func(m model.Message) { a.viewer.OpenAlone(p.chat, m) }
+	p.openStory = func(m model.Message) { a.viewer.OpenChatStories(p.chat, m, p.viewerItems()) }
+	p.openStoryOf = func(story model.StoryRef) { a.viewer.OpenStory(story.Peer, story.ID) }
 	p.openGIF = func(m model.Message) { a.viewer.OpenGIF(p.chat, m, p.viewerItems()) }
 	p.releaseMemory, p.keepMemory = w.ReleaseMemoryLater, w.KeepMemory
 	formula.SetRelease(w.MemoryReleaser())
@@ -786,8 +807,14 @@ func (a *App) Close() {
 	a.closeMiniApps()
 	a.viewerWindows.closeAll()
 	a.articleWindows.closeAll()
+	if a.history != nil {
+		a.history.composer.keepDraft(a.history.chat)
+	}
 	if a.avatars != nil {
 		a.avatars.media.Close()
+	}
+	if a.chats != nil && a.chats.previews != nil {
+		a.chats.previews.media.Close()
 	}
 	if a.info != nil {
 		a.info.Destroy()
@@ -1206,6 +1233,10 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 		configureMedia(a.avatars.media)
 		defer mediaFrame(gtx, a.avatars.media)()
 	}
+	if a.chats != nil && a.chats.previews != nil {
+		configureMedia(a.chats.previews.media)
+		defer mediaFrame(gtx, a.chats.previews.media)()
+	}
 	if a.history != nil {
 		configureMedia(a.history.media)
 		defer mediaFrame(gtx, a.history.media)()
@@ -1376,6 +1407,11 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	if a.viewer != nil {
 		a.viewer.Layout(overlayGtx, a.catalog(), a.window.Motion.AnimationsEnabled())
 	}
+	// An emoji, a sticker or a GIF held, over everything, taking nothing.
+	a.history.layoutHoldPreview(overlayGtx)
+	if a.comments != nil {
+		a.comments.layoutHoldPreview(overlayGtx)
+	}
 	if a.chats.panel != nil {
 		a.chats.panel.recent.layoutConfirm(overlayGtx, a.catalog())
 	}
@@ -1545,6 +1581,9 @@ func (a *App) SetSuspended(hidden bool) {
 	a.SetMinimized(true)
 	if a.history != nil {
 		a.history.save(true)
+		// Hidden, the window may be closed for good: the field's text is
+		// the chat's draft on the other devices meanwhile.
+		a.history.composer.keepDraft(a.history.chat)
 		a.history.media.Release()
 	}
 	if a.comments != nil {
@@ -1564,6 +1603,9 @@ func (a *App) SetSuspended(hidden bool) {
 	}
 	if a.avatars != nil {
 		a.avatars.media.Release()
+	}
+	if a.chats != nil && a.chats.previews != nil {
+		a.chats.previews.media.Release()
 	}
 	if a.downloads != nil && a.downloads.media != nil {
 		a.downloads.media.Release()
@@ -1623,7 +1665,8 @@ func (a *App) tellGhost() {
 		return
 	}
 	p := a.preferences.Global().Ghost
-	g.SetGhost(model.Ghost{SendRead: p.SendRead, SendOnline: p.SendOnline, SendTyping: p.SendTyping, ReadOnInteract: p.ReadOnInteract})
+	t := p.Tells()
+	g.SetGhost(model.Ghost{SendRead: t.Read, SendOnline: t.Online, SendTyping: t.Typing, SendUploads: t.Uploads, SendRecording: t.Recording, SendStickers: t.Stickers, SendStories: t.Stories, ReadOnInteract: p.ReadOnInteract})
 	g.SetOnline(a.focused)
 	if k, ok := a.store.(model.KeepStore); ok {
 		keep := a.preferences.Global().Keep

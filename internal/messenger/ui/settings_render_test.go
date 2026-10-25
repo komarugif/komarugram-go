@@ -247,7 +247,7 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		p.setHidePeerBadges = func(on bool) { hideBadges = on }
 		p.keepPeerBadges = func() (bool, bool) { return keepArrows, keepFaces }
 		p.setKeepPeerBadges = func(arrows, faces bool) { keepArrows, keepFaces = arrows, faces }
-		ghost := preferences.Ghost{ReadOnInteract: true}
+		ghost := preferences.Ghost{On: true, KeepOnline: true, ReadOnInteract: true}
 		p.ghost = func() preferences.Ghost { return ghost }
 		p.setGhost = func(g preferences.Ghost) { ghost = g }
 		keep := preferences.Keep{Deleted: true, Edits: true}

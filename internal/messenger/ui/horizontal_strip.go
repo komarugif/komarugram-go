@@ -17,18 +17,32 @@ import (
 // dragHorizontalStrip shares mouse dragging and wheel scrolling between the
 // media viewer and composer pack strip. Touch scrolling remains in layout.List.
 func dragHorizontalStrip(gtx layout.Context, width int, drag *stripDrag, list *layout.List, invalidate func()) {
+	horizontalStripInput(gtx, width, drag, list, invalidate, true)
+}
+
+// dragOnlyHorizontalStrip lets a mouse drag the strip, as
+// dragHorizontalStrip, and leaves the wheel to what holds it, as the list
+// of chats the row of stories goes up with.
+func dragOnlyHorizontalStrip(gtx layout.Context, width int, drag *stripDrag, list *layout.List, invalidate func()) {
+	horizontalStripInput(gtx, width, drag, list, invalidate, false)
+}
+
+// horizontalStripInput drags the strip, and scrolls it with the wheel when
+// wheel is set.
+func horizontalStripInput(gtx layout.Context, width int, drag *stripDrag, list *layout.List, invalidate func(), wheel bool) {
 	area := clip.Rect{Max: image.Pt(width, gtx.Constraints.Max.Y)}.Push(gtx.Ops)
 	pass := pointer.PassOp{}.Push(gtx.Ops)
 	event.Op(gtx.Ops, drag)
 	pass.Pop()
 	area.Pop()
 	slop := float32(gtx.Dp(6))
+	filter := pointer.Filter{Target: drag, Kinds: pointer.Press | pointer.Drag | pointer.Release | pointer.Cancel}
+	if wheel {
+		filter.Kinds |= pointer.Scroll
+		filter.ScrollY = pointer.ScrollRange{Min: math.MinInt32, Max: math.MaxInt32}
+	}
 	for {
-		ev, ok := gtx.Event(pointer.Filter{
-			Target:  drag,
-			Kinds:   pointer.Press | pointer.Drag | pointer.Release | pointer.Cancel | pointer.Scroll,
-			ScrollY: pointer.ScrollRange{Min: math.MinInt32, Max: math.MaxInt32},
-		})
+		ev, ok := gtx.Event(filter)
 		if !ok {
 			break
 		}

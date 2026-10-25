@@ -17,6 +17,35 @@
 "account.logout_hint" = "End the session and delete the data from this computer";
 "account.logout_offline" = "If Telegram cannot be reached, the session stays in the account's list of devices: end it there.";
 
+"action.choose_sticker" = "choosing a sticker";
+"action.game" = "playing a game";
+"action.many_game" = "{count} people are playing a game";
+"action.many_game#one" = "{count} person is playing a game";
+"action.many_typing" = "{count} people are typing";
+"action.many_typing#one" = "{count} person is typing";
+"action.record_round" = "recording a video message";
+"action.record_video" = "recording a video";
+"action.record_voice" = "recording a voice message";
+"action.typing" = "typing";
+"action.upload_file" = "sending a file";
+"action.upload_photo" = "sending a photo";
+"action.upload_round" = "sending a video message";
+"action.upload_video" = "sending a video";
+"action.upload_voice" = "sending a voice message";
+"action.user_choose_sticker" = "{user} is choosing a sticker";
+"action.user_game" = "{user} is playing a game";
+"action.user_record_round" = "{user} is recording a video message";
+"action.user_record_video" = "{user} is recording a video";
+"action.user_record_voice" = "{user} is recording a voice message";
+"action.user_typing" = "{user} is typing";
+"action.user_upload_file" = "{user} is sending a file";
+"action.user_upload_photo" = "{user} is sending a photo";
+"action.user_upload_round" = "{user} is sending a video message";
+"action.user_upload_video" = "{user} is sending a video";
+"action.user_upload_voice" = "{user} is sending a voice message";
+"action.users_game" = "{user} and {second_user} are playing a game";
+"action.users_typing" = "{user} and {second_user} are typing";
+
 "album_save.all" = "Whole album";
 "album_save.cancel" = "Cancel";
 "album_save.one" = "This one";
@@ -699,13 +728,17 @@
 "frozen.text3" = "Appeal via {link} before {date}, or your account will be deleted.";
 "frozen.title" = "Your Account is Frozen";
 
-"ghost.body" = "What the accounts tell about themselves. With nothing checked, nobody sees that you read, are online or type.";
-"ghost.interact" = "Read on interact";
-"ghost.interact_body" = "Marks a chat read when you send a message to it or react in it.";
-"ghost.online" = "Show online";
-"ghost.read" = "Send read receipts";
+"ghost.body" = "Hides what you check below: others do not learn that you read their messages, viewed their stories, were online, or write and send something.";
+"ghost.interact" = "Read a chat when you act in it";
+"ghost.interact_body" = "Even with reading hidden, marks a chat read when you send a message to it or react in it.";
+"ghost.online" = "Online status";
+"ghost.read" = "Reading messages";
+"ghost.recording" = "Recording a voice message";
+"ghost.stickers" = "Choosing a sticker";
+"ghost.stories" = "Viewing stories";
 "ghost.title" = "Ghost Mode";
-"ghost.typing" = "Send typing";
+"ghost.typing" = "Typing";
+"ghost.uploads" = "Sending photos, videos, files and voice messages";
 
 "gif_fallback.both" = "It can play here with FFmpeg, outside the sandbox, or open in the external player.";
 "gif_fallback.cancel" = "Cancel";
@@ -770,6 +803,9 @@
 "history.snapshot_saved" = "Snapshot saved: {path}";
 "history.snapshot_too_tall" = "Too many messages for one snapshot";
 "history.sticker" = "Sticker";
+"history.story" = "Story";
+"history.story_expired" = "This story has expired.";
+"history.story_from" = "Story from {user}";
 "history.to_end" = "To the end of the chat";
 "history.to_top" = "To the start of the chat";
 "history.video" = "Video";
@@ -1172,19 +1208,31 @@
 "preview.album" = "Album";
 "preview.attachment" = "Attachment";
 "preview.audio" = "Audio file";
+"preview.audios" = "{count} audio";
+"preview.audios#one" = "{count} audio";
 "preview.contact" = "Contact";
+"preview.draft" = "Draft";
 "preview.file" = "File";
+"preview.files" = "{count} files";
+"preview.files#one" = "{count} file";
 "preview.gif" = "GIF";
 "preview.location" = "Location";
+"preview.media_count" = "{count} media";
+"preview.media_count#one" = "{count} media";
 "preview.music" = "Music";
 "preview.photo" = "Photo";
+"preview.photos" = "{count} photos";
+"preview.photos#one" = "{count} photo";
 "preview.poll" = "Poll";
 "preview.round" = "Video message";
 "preview.service" = "Service message";
 "preview.sticker" = "Sticker";
-"preview.sticker_emoji" = "{emoji} Sticker";
+"preview.story" = "Story";
+"preview.story_expired" = "Expired story";
 "preview.table" = "Table";
 "preview.video" = "Video";
+"preview.videos" = "{count} videos";
+"preview.videos#one" = "{count} video";
 "preview.voice" = "Voice message";
 
 "privacy.streamer" = "Streamer Mode";
@@ -1477,6 +1525,10 @@
 "service.set_wallpaper_both_me" = "You set a new wallpaper for {user} and you.";
 "service.set_wallpaper_me" = "You set a new wallpaper for this chat";
 "service.somebody" = "somebody";
+"service.story_mention" = "{user} mentioned you in a story";
+"service.story_mention_me" = "You mentioned {user} in a story";
+"service.story_mention_me_unavailable" = "The story where you mentioned {user} is no longer available.";
+"service.story_mention_unavailable" = "The story where {user} mentioned you is no longer available.";
 "service.suggested_photo" = "{user} suggests this photo for your Telegram profile.";
 "service.suggested_photo_me" = "You suggested this photo for {user}'s Telegram profile.";
 "service.theme_changed" = "{from} changed the chat theme to {emoji}";
@@ -1727,6 +1779,8 @@
 "stickers.saved" = "Archive saved: {path}";
 "stickers.title" = "Sticker set";
 
+"stories.my" = "My Story";
+
 "text.collapse_quote" = "Collapse quote";
 "text.copied" = "Text copied";
 "text.copy_code" = "Copy";
@@ -1756,17 +1810,22 @@
 "uninstall.uninstall" = "Uninstall";
 "uninstall.uninstalling" = "Uninstalling…";
 
+"viewer.attachment" = "Attachment";
 "viewer.close" = "Close";
 "viewer.copied" = "Photo copied to clipboard.";
+"viewer.file_position" = "{file} {n} of {amount}";
 "viewer.recovered" = "Could not display the photo. The viewer was closed.";
 "viewer.counter" = "%d of %d";
 "viewer.failed" = "Could not load the photo · click to retry";
 "viewer.keep_failed" = "Could not keep the photo";
 "viewer.loading_more" = "Loading photos…";
 "viewer.photo" = "Photo";
-"viewer.position" = "{n} of {amount}";
+"viewer.position" = "Photo {n} of {amount}";
 "viewer.saved" = "Photo saved: {path}";
+"viewer.story" = "Story";
 "viewer.video" = "Video";
+"viewer.views" = "{count} views";
+"viewer.views#one" = "{count} view";
 "viewer.window" = "Photo";
 
 "visibility.calm" = "Hide events that distract attention";

@@ -337,6 +337,10 @@ func foundText(m model.Message, l localization.Catalog) string {
 		media = l.T("preview.round")
 	case model.MessageSticker:
 		media = l.T("history.sticker")
+		if m.Media != nil && m.Media.Emoji != "" {
+			// Before the word, as in the list (Catalog.PreviewLine).
+			media = m.Media.Emoji + " " + media
+		}
 	case model.MessageFile, model.MessageMusic, model.MessageVoice:
 		media = l.T("history.file")
 		if m.Media != nil {
@@ -348,6 +352,13 @@ func foundText(m model.Message, l localization.Catalog) string {
 			case m.Media.FileName != "":
 				media = m.Media.FileName
 			}
+		}
+	}
+	if m.StoryOf != nil {
+		// A story's photo or video, as Telegram Desktop words it.
+		media = l.T("history.story")
+		if m.StoryOf.Expired {
+			media = l.T("preview.story_expired")
 		}
 	}
 	switch {
@@ -368,7 +379,7 @@ func foundText(m model.Message, l localization.Catalog) string {
 func (l *chatList) layoutFound(gtx layout.Context, p *searchPanel, f model.FoundMessage, selected bool, now time.Time, catalog localization.Catalog) layout.Dimensions {
 	c := f.Chat
 	c.Last, c.LastTime, c.Unread = model.Preview{Text: foundText(f.Message, catalog)}, f.Message.Date, 0
-	return l.layoutRowWith(gtx, p.foundRow(f.Message.Key), c, selected, false, now, catalog)
+	return l.layoutRowWith(gtx, p.foundRow(f.Message.Key), nil, c, selected, false, now, catalog)
 }
 
 // failure is why the search failed, to be told in the list's toast, when

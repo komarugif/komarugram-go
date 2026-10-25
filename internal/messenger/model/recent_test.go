@@ -11,7 +11,7 @@ func TestBumpChat(t *testing.T) {
 	if len(got) != 3 || got[0].ID != 3 || got[1].ID != 1 || got[2].ID != 2 {
 		t.Fatalf("got %+v", got)
 	}
-	if got[0].Last != (Preview{}) || got[0].Unread != 0 || !got[0].LastTime.IsZero() || got[0].Title != "c" {
+	if !got[0].Last.IsZero() || got[0].Unread != 0 || !got[0].LastTime.IsZero() || got[0].Title != "c" {
 		t.Errorf("kept %+v", got[0])
 	}
 	if got := BumpChat(list, Chat{ID: 9}, 3); len(got) != 3 || got[0].ID != 9 || got[2].ID != 2 {

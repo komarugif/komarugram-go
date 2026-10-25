@@ -47,7 +47,9 @@ func (s *Store) SharedMedia(ctx context.Context, chat int64, kind model.SharedKi
 				}
 			}
 		}
-		if match {
+		// A story's photo or video is no photo or video of the chat's, as
+		// Telegram's filters have them.
+		if match && m.StoryOf == nil {
 			page.Total++
 			if before == 0 || m.Key.MessageID < before {
 				page.Messages = append(page.Messages, m)

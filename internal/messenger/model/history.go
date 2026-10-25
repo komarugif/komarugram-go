@@ -65,6 +65,9 @@ type MessageMedia struct {
 	// TextColor marks a custom emoji drawn in the color of the text around
 	// it, as Telegram marks some: its shape, not its own colors.
 	TextColor bool `json:",omitempty"`
+	// Emoji is the emoji a sticker stands for, which a list shows before
+	// the word, as Telegram's clients do.
+	Emoji     string `json:",omitempty"`
 	ID        string
 	FileName  string
 	MIMEType  string
@@ -141,6 +144,9 @@ type Message struct {
 	// NoForwards is set when the message protects its content: it cannot
 	// be forwarded or saved.
 	NoForwards bool `json:",omitempty"`
+	// MediaSpoiler marks media its sender hid under a spoiler, or one that
+	// destructs itself once seen.
+	MediaSpoiler bool `json:",omitempty"`
 	// Post is set for a message a channel posted.
 	Post bool `json:",omitempty"`
 	// ForwardName is who the forwarded message came from, as a name.
@@ -167,6 +173,14 @@ type Message struct {
 	ForumTopic bool `json:",omitempty"`
 	// Rich is a rich message's article; Text is its summary then.
 	Rich *RichPage `json:",omitempty"`
+	// Story is what a story has beyond a message: see StoryMessage.
+	Story *Story `json:",omitempty"`
+	// StoryOf is the story a message of a chat carries, forwarded to it or
+	// one the account was mentioned in: its media is the story's, a photo
+	// or a video, its text the story's caption. ReplyToStory is the story
+	// a message replies to.
+	StoryOf      *StoryRef `json:",omitempty"`
+	ReplyToStory *StoryRef `json:",omitempty"`
 	// MediaUnread is Telegram's mark of a voice message nobody listened to
 	// yet: the account, for one that came, or who it was sent to. Telegram
 	// sets it on an unread mention as well; only voice messages show it.

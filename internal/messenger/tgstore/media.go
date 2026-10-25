@@ -231,6 +231,30 @@ func (s *Store) refreshReference(ctx context.Context, m model.Message) error {
 		_, err := s.SharedCollection(ctx, chat, model.SharedGifts, ref.GiftOffset, 60)
 		return err
 	}
+	if ref.Story != 0 {
+		// A story of those over the list, whatever the viewer keys it by.
+		c.mu.Lock()
+		owner, ok := c.peers[ref.StoryPeer]
+		c.mu.Unlock()
+		if !ok {
+			return errors.New("story of an unknown peer")
+		}
+		stories, e := api.StoriesGetStoriesByID(ctx, &tg.StoriesGetStoriesByIDRequest{Peer: owner.input(), ID: []int{ref.Story}})
+		if e != nil {
+			return e
+		}
+		s.rememberPeers(stories.Users, stories.Chats)
+		// Where it downloads from, kept for the next start: a story of
+		// a chat's message is not one of those over the list.
+		for _, raw := range stories.Stories {
+			if item, ok := raw.(*tg.StoryItem); ok {
+				if shown, ok := s.storyMessage(ref.StoryPeer, item); ok {
+					return s.keepStoryRefs(ctx, []model.Message{shown})
+				}
+			}
+		}
+		return errStoryGone
+	}
 	if m.Key.MessageID < 0 {
 		stories, e := api.StoriesGetStoriesByID(ctx, &tg.StoriesGetStoriesByIDRequest{Peer: peer.input(), ID: []int{-int(m.Key.MessageID)}})
 		if e != nil {
@@ -266,6 +290,8 @@ func (s *Store) refreshReference(ctx context.Context, m model.Message) error {
 	return e
 }
 
+// CustomEmoji is the document of custom emoji id: kept, or asked of
+// Telegram with the others asked for meanwhile (custom_emoji.go).
 func (s *Store) CustomEmoji(ctx context.Context, id int64) (model.Message, error) {
 	c := s.history
 	c.mu.Lock()
@@ -275,33 +301,13 @@ func (s *Store) CustomEmoji(ctx context.Context, id int64) (model.Message, error
 	if cache == nil {
 		return m, errors.New("emoji: connection not ready")
 	}
-	// The second version of the key: the first kept no TextColor.
-	key := fmt.Sprintf("emoji/v2/%d", id)
-	if ok, e := cache.Get(ctx, key, &m); e != nil || ok {
+	if ok, e := cache.Get(ctx, emojiKey(id), &m); e != nil || ok {
 		return m, e
 	}
 	if api == nil {
 		return m, errors.New("emoji unavailable offline")
 	}
-	docs, e := api.MessagesGetCustomEmojiDocuments(ctx, []int64{id})
-	if e != nil {
-		return m, e
-	}
-	for _, doc := range docs {
-		if d, ok := doc.(*tg.Document); ok {
-			kind, meta, ref := documentMedia(d)
-			m = model.Message{Kind: kind, Media: meta}
-			c.mu.Lock()
-			c.refs[meta.ID] = *ref
-			c.mu.Unlock()
-			if e = cache.Put(ctx, "ref/"+meta.ID, ref); e != nil {
-				return m, e
-			}
-			e = cache.Put(ctx, key, m)
-			return m, e
-		}
-	}
-	return m, errors.New("emoji unavailable")
+	return s.askEmoji(ctx, id)
 }
 
 // cappedFile is a bounded random-access destination for parallel DC downloads.

@@ -440,6 +440,7 @@ func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive
 			w.Invalidate()
 		}
 	})
+	store.StartActivities()
 	if receive > 0 {
 		go func() {
 			defer crash.Recover("demo receive", nil)

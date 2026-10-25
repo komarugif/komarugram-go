@@ -20,7 +20,6 @@ import (
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/voice"
 
-	"github.com/gotd/td/telegram/uploader"
 	"github.com/gotd/td/tg"
 	"golang.org/x/sync/errgroup"
 )
@@ -603,7 +602,7 @@ func (s *Store) Send(ctx context.Context, chat int64, msg model.OutgoingMessage)
 		replyTo = r
 	}
 	if msg.Files != nil {
-		return s.sendFiles(ctx, api, chat, peer, replyTo, msg)
+		return s.sendFiles(ctx, api, shown, peer, replyTo, msg)
 	}
 	if msg.Item != nil {
 		if msg.Item.ResultID != "" {
@@ -658,7 +657,16 @@ func (s *Store) Send(ctx context.Context, chat int64, msg model.OutgoingMessage)
 			}
 			attrs = []tg.DocumentAttributeClass{&tg.DocumentAttributeAudio{Voice: true, Duration: int(v.Duration.Round(time.Second) / time.Second), Waveform: v.Waveform}}
 		}
-		file, err := uploader.NewUploader(api).FromPath(ctx, msg.Path)
+		action := model.ActionUploadFile
+		switch {
+		case msg.Voice != nil:
+			action = model.ActionUploadVoice
+		case msg.AsMedia && (typ == "image/jpeg" || typ == "image/png"):
+			action = model.ActionUploadPhoto
+		case msg.AsMedia && strings.HasPrefix(typ, "video/"):
+			action = model.ActionUploadVideo
+		}
+		file, err := s.uploader(api, shown, action).FromPath(ctx, msg.Path)
 		if err != nil {
 			return err
 		}
@@ -671,6 +679,7 @@ func (s *Store) Send(ctx context.Context, chat int64, msg model.OutgoingMessage)
 	var res tg.UpdatesClass
 	var err error
 	var pending *pendingMessage
+	clearDraft := s.hasDraft(shown)
 	if pendingText(msg) {
 		pending = s.addPending(shown, msg)
 		defer s.dropPending(pending)
@@ -680,14 +689,18 @@ func (s *Store) Send(ctx context.Context, chat int64, msg model.OutgoingMessage)
 		if len(msg.Tasks) > 0 {
 			caption = ""
 		}
-		res, err = api.MessagesSendMedia(ctx, &tg.MessagesSendMediaRequest{Peer: peer.input(), RandomID: msg.RandomID, Message: caption, Media: media, ReplyTo: replyTo})
+		res, err = api.MessagesSendMedia(ctx, &tg.MessagesSendMediaRequest{Peer: peer.input(), RandomID: msg.RandomID, Message: caption, Media: media, ReplyTo: replyTo, ClearDraft: clearDraft})
 	} else {
-		req := &tg.MessagesSendMessageRequest{Peer: peer.input(), RandomID: msg.RandomID, Message: msg.Text, ReplyTo: replyTo, NoWebpage: !s.SendPermissions(chat).Allows(model.SendLinkPreview)}
+		req := &tg.MessagesSendMessageRequest{Peer: peer.input(), RandomID: msg.RandomID, Message: msg.Text, ReplyTo: replyTo, NoWebpage: !s.SendPermissions(chat).Allows(model.SendLinkPreview), ClearDraft: clearDraft}
 		req.Entities = inputEntities(msg.Entities)
 		res, err = api.MessagesSendMessage(ctx, req)
 	}
 	if err != nil {
 		return fmt.Errorf("send: %w", err)
+	}
+	if clearDraft {
+		// Telegram cleared it, and tells the other devices.
+		s.setDraft(chat, nil)
 	}
 	if id := sentID(res, msg.RandomID); pending != nil && id != 0 {
 		// It stands in for the message only until that is in the history:

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -120,8 +121,34 @@ func avatar(gtx layout.Context, id int64, kind model.ChatKind, title string, siz
 	return layout.Dimensions{Size: sz}
 }
 
+// initialsCache keeps the initials of titles: an avatar without a photo
+// draws them every frame, in every row of a list. Safe for the windows'
+// goroutines; it starts over once it is large.
+var initialsCache struct {
+	sync.RWMutex
+	of map[string]string
+}
+
 // initials returns up to two initial letters of a title.
 func initials(title string) string {
+	initialsCache.RLock()
+	out, ok := initialsCache.of[title]
+	initialsCache.RUnlock()
+	if ok {
+		return out
+	}
+	out = titleInitials(title)
+	initialsCache.Lock()
+	if initialsCache.of == nil || len(initialsCache.of) >= 4096 {
+		initialsCache.of = map[string]string{}
+	}
+	initialsCache.of[title] = out
+	initialsCache.Unlock()
+	return out
+}
+
+// titleInitials are the initials of title, made.
+func titleInitials(title string) string {
 	var out []rune
 	for _, word := range strings.Fields(title) {
 		for _, r := range word {

@@ -13,40 +13,61 @@ import (
 	"komarugram/internal/messenger/preferences"
 )
 
-// ghostOptions are the switches of what the accounts tell others, as
-// AyuGram's Ghost Mode has them.
-var ghostOptions = []string{"read", "online", "typing", "interact"}
+// ghostHidden are the boxes of what Ghost Mode hides, as AyuGram's Ghost
+// Mode has them, an action of the account's to a box.
+var ghostHidden = []string{"read", "online", "typing", "uploads", "recording", "stickers", "stories"}
 
-func ghostFromOptions(values []string) preferences.Ghost {
-	return preferences.Ghost{
-		SendRead:       slices.Contains(values, "read"),
-		SendOnline:     slices.Contains(values, "online"),
-		SendTyping:     slices.Contains(values, "typing"),
-		ReadOnInteract: slices.Contains(values, "interact"),
-	}
+// ghostKeeps are the Keep switches of g, in the order of ghostHidden.
+func ghostKeeps(g *preferences.Ghost) []*bool {
+	return []*bool{&g.KeepRead, &g.KeepOnline, &g.KeepTyping, &g.KeepUploads, &g.KeepRecording, &g.KeepStickers, &g.KeepStories}
 }
 
-func ghostToOptions(g preferences.Ghost) []string {
+// ghostWithHidden is g hiding what values name.
+func ghostWithHidden(g preferences.Ghost, values []string) preferences.Ghost {
+	for i, keep := range ghostKeeps(&g) {
+		*keep = !slices.Contains(values, ghostHidden[i])
+	}
+	return g
+}
+
+// ghostHiddenOf are the boxes of what g hides when on.
+func ghostHiddenOf(g preferences.Ghost) []string {
 	var out []string
-	for i, on := range []bool{g.SendRead, g.SendOnline, g.SendTyping, g.ReadOnInteract} {
-		if on {
-			out = append(out, ghostOptions[i])
+	for i, keep := range ghostKeeps(&g) {
+		if !*keep {
+			out = append(out, ghostHidden[i])
 		}
 	}
 	return out
 }
 
-// layoutGhost draws the switches of what the accounts tell others. The
-// settings may have changed in another window since the last frame; the
-// switches follow.
+// layoutGhost draws the switch of Ghost Mode, the boxes of what it hides,
+// and the box that still reads a chat on an action in it. The settings may
+// have changed in another window since the last frame; the switches
+// follow.
 func (p *settingsPage) layoutGhost(gtx layout.Context, l localization.Catalog) layout.Dimensions {
 	sc := scheme(gtx)
-	if want := ghostToOptions(p.ghost()); !slices.Equal(want, p.ghostOpts.GetValues()) {
-		p.ghostOpts.SetValues(want)
+	g := p.ghost()
+	if g.On != (len(p.ghostToggle.GetValues()) == 1) {
+		if g.On {
+			p.ghostToggle.SetValues([]string{"ghost"})
+		} else {
+			p.ghostToggle.SetValues(nil)
+		}
+	}
+	if want := ghostHiddenOf(g); !slices.Equal(want, p.ghostBoxes.GetValues()) {
+		p.ghostBoxes.SetValues(want)
+	}
+	if g.ReadOnInteract != (len(p.ghostInteract.GetValues()) == 1) {
+		if g.ReadOnInteract {
+			p.ghostInteract.SetValues([]string{"interact"})
+		} else {
+			p.ghostInteract.SetValues(nil)
+		}
 	}
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, l.T("ghost.title"), token.TypestyleTitleMedium, sc.Surface.OnColor, 1)
+			return p.ghostToggle.Layout(gtx, map[string]string{"ghost": l.T("ghost.title")})
 		}),
 		vspace(4),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -54,12 +75,19 @@ func (p *settingsPage) layoutGhost(gtx layout.Context, l localization.Catalog) l
 		}),
 		vspace(8),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return p.ghostOpts.Layout(gtx, map[string]string{
-				"read":     l.T("ghost.read"),
-				"online":   l.T("ghost.online"),
-				"typing":   l.T("ghost.typing"),
-				"interact": l.T("ghost.interact"),
+			return p.ghostBoxes.Layout(gtx, map[string]string{
+				"read":      l.T("ghost.read"),
+				"online":    l.T("ghost.online"),
+				"typing":    l.T("ghost.typing"),
+				"uploads":   l.T("ghost.uploads"),
+				"recording": l.T("ghost.recording"),
+				"stickers":  l.T("ghost.stickers"),
+				"stories":   l.T("ghost.stories"),
 			})
+		}),
+		vspace(8),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return p.ghostInteract.Layout(gtx, map[string]string{"interact": l.T("ghost.interact")})
 		}),
 		vspace(4),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {

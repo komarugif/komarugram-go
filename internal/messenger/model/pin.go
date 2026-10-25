@@ -34,7 +34,7 @@ func SortChats(chats []Chat) {
 		if a.Pinned {
 			return a.PinRank < b.PinRank
 		}
-		return a.LastTime.After(b.LastTime)
+		return a.SortTime().After(b.SortTime())
 	})
 }
 

@@ -78,19 +78,19 @@ func TestGhost(t *testing.T) {
 
 	s.MarkRead(chat, 10, false)
 	s.SetOnline(true)
-	s.Typing(chat)
+	s.SendAction(chat, model.ActionTyping)
 	s.MarkRead(chat, 10, true)
 	if told := api.wait(t, 1); len(told) != 1 || told[0] != "read 10" {
 		t.Fatalf("without Ghost's leave told %q", told)
 	}
 
-	s.SetGhost(model.Ghost{SendRead: true, SendOnline: true, SendTyping: true})
+	s.SetGhost(model.Ghost{SendRead: true, SendOnline: true, SendTyping: true, SendUploads: true})
 	s.MarkRead(chat, 10, false) // read already
 	s.MarkRead(chat, 12, false)
 	s.SetOnline(true)
 	s.SetOnline(true) // told already
-	s.Typing(chat)
-	s.Typing(chat) // too soon
+	s.SendAction(chat, model.ActionTyping)
+	s.SendAction(chat, model.ActionTyping) // too soon
 	told := api.wait(t, 4)
 	time.Sleep(20 * time.Millisecond)
 	told = api.wait(t, 4)

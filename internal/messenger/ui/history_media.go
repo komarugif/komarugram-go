@@ -4,7 +4,6 @@ package ui
 
 import (
 	"errors"
-	"fmt"
 	"image"
 	"image/color"
 	"math"
@@ -130,7 +129,10 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	}
 	r.mediaTold = err
 	if clicked {
-		if video {
+		if m.StoryOf != nil && p.openStory != nil && err == nil && !cancelled {
+			// The stories of the history go through the viewer apart.
+			p.openStory(m)
+		} else if video {
 			p.playVideo(gtx, m, -1, l)
 		} else if m.Kind == model.MessagePhoto && r.alone && p.openAlone != nil {
 			p.openAlone(m)
@@ -217,16 +219,12 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 		}
 		if shown > 0 {
 			defer paint.PushOpacity(gtx.Ops, shown).Pop()
-			// In the corner, as far from the bottom as from the left.
+			// In the corner, as far from the bottom as from the left, on
+			// the plate of a GIF's time.
 			macro := op.Record(gtx.Ops)
 			pgtx := gtx
 			pgtx.Constraints.Min = image.Point{}
-			var dims layout.Dimensions
-			if gif {
-				dims = pill(pgtx, l.T("history.gif"))
-			} else {
-				dims = pill(pgtx, fmt.Sprintf("%s · %s", m.Media.Duration.Round(time.Second), l.T("history.video")))
-			}
+			dims := mediaPlate(pgtx, videoPlateText(m, gif, p.videoTimeOnly, l))
 			call := macro.Stop()
 			inset := gtx.Dp(8)
 			offset(gtx, image.Pt(inset, max(0, size.Y-inset-dims.Size.Y)), func(gtx layout.Context) layout.Dimensions {
@@ -246,6 +244,35 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 		pointer.CursorPointer.Add(gtx.Ops)
 		return draw(gtx)
 	})
+}
+
+// videoPlateText is what the plate of m, a video or a GIF played as one,
+// tells: the time and the word, or the time alone where all are videos.
+func videoPlateText(m model.Message, gif, timeOnly bool, l localization.Catalog) string {
+	if gif {
+		return l.T("history.gif")
+	}
+	text := playTime(m.Media.Duration)
+	if !timeOnly {
+		text += " · " + l.T("history.video")
+	}
+	return text
+}
+
+// mediaPlate draws text on the plate of a tile's corner, small and
+// translucent over the picture, as a GIF's time and a video message's are:
+// a video's time and a GIF's mark too.
+func mediaPlate(gtx layout.Context, text string) layout.Dimensions {
+	sc := scheme(gtx)
+	gtx.Constraints.Min = image.Point{}
+	macro := op.Record(gtx.Ops)
+	plate := layout.Inset{Top: 2, Bottom: 2, Left: 7, Right: 7}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return label(gtx, text, token.TypestyleLabelMedium, sc.InverseSurface.OnColor, 1)
+	})
+	call := macro.Stop()
+	fillRounded(gtx, sc.InverseSurface.Color.SetOpacity(0.55), plate.Size, plate.Size.Y/2)
+	call.Add(gtx.Ops)
+	return plate
 }
 
 // tileMedia returns the message showing the smallest variant of a photo

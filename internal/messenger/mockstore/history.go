@@ -131,6 +131,15 @@ func (s *Store) History(chat int64) model.History {
 		add("Альбом: несколько вложений в одном сообщении", model.MessagePhoto, demoPhoto(len(demoPhotoSizes)-3+i), nil, nil)
 		messages[len(messages)-1].GroupedID = 99
 	}
+	// Stories in the history: forwarded, one gone, a mention of the
+	// account, and a reply to one; the viewer goes through those there.
+	for _, story := range s.demoChatStories() {
+		add("", model.MessageText, nil, nil, nil)
+		m := &messages[len(messages)-1]
+		key := m.Key
+		*m = story
+		m.Key, m.Date, m.ContentRevision = key, start.Add(4*24*time.Hour+time.Duration(len(messages))*time.Minute), 1
+	}
 	// A lone emoji is drawn large, without a bubble; two stay in one.
 	add("🔥", model.MessageText, nil, nil, nil)
 	add("❤", model.MessageText, nil, nil, nil)

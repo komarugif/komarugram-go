@@ -1782,6 +1782,19 @@ func NewAvatars(source Source, changed func()) *Manager {
 	return m
 }
 
+// NewPreviews keeps the pictures of a chat list's last messages, their
+// thumbnails and custom emoji: a few screens of small ones, decoded no
+// larger than they are drawn, their loops played on the UI's clock, as the
+// avatars' are.
+func NewPreviews(source Source, changed func()) *Manager {
+	m := New(source, changed)
+	m.limit = 96
+	m.imageSize = 64
+	m.uiClips = true
+	m.sem = make(chan struct{}, 2)
+	return m
+}
+
 func (m *Manager) PauseAnimations() {
 	for _, e := range m.entries {
 		e.mu.Lock()

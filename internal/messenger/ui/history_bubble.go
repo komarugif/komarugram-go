@@ -172,6 +172,12 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 		p.jumpPending = m.ReplyToMessageID
 		p.invalidate()
 	}
+	if story := m.ReplyToStory; story != nil && m.ReplyToMessageID == 0 && r.reply.Clicked(gtx) && p.openStoryOf != nil {
+		p.openStoryOf(*story)
+	}
+	if m.Service != nil && m.Service.Kind == model.ServiceStoryMention && r.reply.Clicked(gtx) && m.StoryShown() && p.openStory != nil {
+		p.openStory(m)
+	}
 	for {
 		e, ok := r.quick.Update(gtx.Source)
 		if !ok {
@@ -332,7 +338,14 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 			return label(gtx, msg.SenderName, token.TypestyleLabelLargeEmphasized, senderColor(gtx, msg.SenderID), 1)
 		}), vspace(3))
 	}
-	if !msg.ForwardDate.IsZero() {
+	if msg.StoryOf != nil && !msg.StoryOf.Mention {
+		// Whose story it is, as Telegram Desktop heads one: it drops the
+		// forward's own.
+		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			text := l.Format("history.story_from", map[string]string{"user": msg.StoryOf.From})
+			return label(gtx, text, token.TypestyleLabelMedium, sc.Primary.Color, 1)
+		}), vspace(4))
+	} else if !msg.ForwardDate.IsZero() {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			text := l.T("history.forward")
 			if msg.ForwardName != "" {
@@ -343,7 +356,7 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 	}
 	// In a thread, as the comments to a post, what replies to its root
 	// quotes nothing, as in Telegram Desktop: all of it does.
-	if msg.ReplyToMessageID != 0 && msg.ReplyToMessageID != p.threadRoot {
+	if msg.ReplyToMessageID != 0 && msg.ReplyToMessageID != p.threadRoot || msg.ReplyToStory != nil {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return p.replyQuote(gtx, r, *msg, l)
 		}), vspace(6))
@@ -390,6 +403,13 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 				return label(gtx, p.serviceText(*msg, l), token.TypestyleBodyMedium, sc.Surface.OnColor, 0)
 			}
 			text := l.T("history.empty_message")
+			if story := msg.StoryOf; story != nil {
+				// Gone, or not told yet: the store asks for it.
+				text = l.T("history.story")
+				if story.Expired {
+					text = l.T("history.story_expired")
+				}
+			}
 			if msg.Rich != nil {
 				if kind := msg.Rich.Fallback(); kind != "" {
 					text = l.T("rich." + kind)
@@ -700,6 +720,9 @@ func (p *chatPage) reactionIcon(gtx layout.Context, reaction model.Reaction, ani
 // replyQuote draws the message a message replies to, as a quote with a bar
 // in its sender's color; a click shows it.
 func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog) layout.Dimensions {
+	if m.ReplyToStory != nil && m.ReplyToMessageID == 0 {
+		return p.storyQuote(gtx, r, *m.ReplyToStory, l)
+	}
 	replied, state, known := p.referenced(m.Key.ChatID, m.ReplyToMessageID)
 	name, text := l.T("history.reply_missing"), ""
 	var runs []model.TextRun
@@ -753,6 +776,37 @@ func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message
 	})
 }
 
+// storyQuote draws the story a message replies to, as Telegram Desktop's
+// reply to one: whose it is and the word; a click opens it.
+func (p *chatPage) storyQuote(gtx layout.Context, r *messageRow, story model.StoryRef, l localization.Catalog) layout.Dimensions {
+	color := senderColor(gtx, story.Peer)
+	name := story.From
+	if name == "" {
+		name = l.T("history.story")
+	}
+	macro := op.Record(gtx.Ops)
+	dims := layout.Inset{Top: 5, Bottom: 5, Left: 11, Right: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, name, token.TypestyleLabelLargeEmphasized, color, 1)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, l.T("history.story"), token.TypestyleBodySmall, scheme(gtx).Surface.OnColor, 1)
+			}),
+		)
+	})
+	call := macro.Stop()
+	size := image.Pt(max(dims.Size.X, gtx.Dp(120)), dims.Size.Y)
+	radius := gtx.Dp(6)
+	style := surfaceStyle{radius: radius, background: color.SetOpacity(.12), content: color}
+	return r.reply.Layout(gtx, size, style, func(gtx layout.Context) layout.Dimensions {
+		defer clip.UniformRRect(image.Rectangle{Max: size}, radius).Push(gtx.Ops).Pop()
+		fillRect(gtx, color, image.Pt(gtx.Dp(3), size.Y))
+		call.Add(gtx.Ops)
+		return layout.Dimensions{Size: size}
+	})
+}
+
 // quoteRuns are the line a quote of m shows: what media it has and its
 // text, on one line, with its custom emoji, which Telegram Desktop's
 // quotes draw as they are: as plain text they would be their fallback
@@ -771,7 +825,7 @@ func quoteRuns(m model.Message, l localization.Catalog) []model.TextRun {
 	if len(runs) > 0 {
 		runs[0].Text = strings.TrimLeft(runs[0].Text, " ")
 	}
-	if media := foundText(model.Message{Kind: m.Kind, Media: m.Media}, l); media != "" {
+	if media := foundText(model.Message{Kind: m.Kind, Media: m.Media, StoryOf: m.StoryOf}, l); media != "" {
 		if len(runs) > 0 {
 			media += ", "
 		}

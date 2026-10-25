@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"context"
 	"image"
 	"image/png"
 	"os"
@@ -30,8 +31,9 @@ import (
 //
 //	VIEWER_PNG=/tmp/viewer.png go test ./internal/messenger/ui -run RenderPhotoViewer
 //
-// With VIEWER_PROFILE set it shows the photos of a chat's profile, and with
-// VIEWER_GIFS a GIF of the chat among its GIFs.
+// With VIEWER_PROFILE set it shows the photos of a chat's profile, with
+// VIEWER_GIFS a GIF of the chat among its GIFs, and with VIEWER_STORIES the
+// stories of someone of the list's.
 func TestRenderMediaViewer(t *testing.T) {
 	out := os.Getenv("VIEWER_PNG")
 	if out == "" {
@@ -58,7 +60,13 @@ func TestRenderMediaViewer(t *testing.T) {
 	})
 	defer v.Destroy()
 	v.popout = func(int64, model.Message, mediaList) {}
-	if os.Getenv("VIEWER_PROFILE") != "" {
+	v.share.chats = store.Chats
+	if os.Getenv("VIEWER_STORIES") != "" {
+		peer := store.StoryPeers()[1]
+		stories, _ := store.PeerStories(context.Background(), peer.ID)
+		start = stories[0]
+		v.OpenStories(peer.ID, start.Key.MessageID)
+	} else if os.Getenv("VIEWER_PROFILE") != "" {
 		// The photos of the chat's profile, as its avatar opens them.
 		start, _ = store.ProfilePhoto(2)
 		v.OpenProfile(2)

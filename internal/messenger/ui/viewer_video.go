@@ -739,6 +739,10 @@ func (a *App) videoEngine(m model.Message) string {
 // the client's sound has, pausing the window's audio player as one starts.
 func (a *App) configureViewer(v *mediaViewer) {
 	v.videoEngine = a.videoEngine
+	if store := a.store; store != nil {
+		// What the viewer forwards goes to the account's chats.
+		v.share.chats = store.Chats
+	}
 	v.ffmpeg = func() string { return a.preferences.Global().FFmpegPath }
 	if a.history != nil {
 		audio := a.history.audio

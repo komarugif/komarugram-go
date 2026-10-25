@@ -41,6 +41,11 @@ type fileLocation struct {
 	StickerSet     int64 `json:",omitempty"`
 	StickerSetHash int64 `json:",omitempty"`
 	SavedGIF       bool  `json:",omitempty"`
+	// Story is the story of peer StoryPeer the media is of, by which its
+	// file reference is renewed whatever message shows it: the viewer
+	// keys the stories of a row apart.
+	StoryPeer int64 `json:",omitempty"`
+	Story     int   `json:",omitempty"`
 }
 
 func (l fileLocation) input() tg.InputFileLocationClass {
@@ -74,12 +79,16 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 			out.SenderID = peerID(m.FromID)
 			out.SenderName = names[out.SenderID]
 		}
-		if r, ok := m.ReplyTo.(*tg.MessageReplyHeader); ok {
+		switch r := m.ReplyTo.(type) {
+		case *tg.MessageReplyHeader:
 			out.ReplyToMessageID = model.MessageID(r.ReplyToMsgID)
 			out.ForumTopic = r.ForumTopic
 			if top, ok := r.GetReplyToTopID(); ok {
 				out.ReplyToTopID = model.MessageID(top)
 			}
+		case *tg.MessageReplyStoryHeader:
+			story := peerID(r.Peer)
+			out.ReplyToStory = &model.StoryRef{Peer: story, ID: r.StoryID, From: names[story]}
 		}
 		if f, ok := m.GetFwdFrom(); ok {
 			if f.FromID != nil {
@@ -103,61 +112,7 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 			out.Reactions = convertReactions(reactions)
 			out.ReactionsListed = reactions.CanSeeList && len(out.Reactions) > 0
 		}
-		for _, e := range m.Entities {
-			entity := model.Entity{Offset: e.GetOffset(), Length: e.GetLength()}
-			switch e := e.(type) {
-			case *tg.MessageEntityBold:
-				entity.Kind = "bold"
-			case *tg.MessageEntityItalic:
-				entity.Kind = "italic"
-			case *tg.MessageEntityUnderline:
-				entity.Kind = "underline"
-			case *tg.MessageEntityStrike:
-				entity.Kind = "strike"
-			case *tg.MessageEntityCode:
-				entity.Kind = "code"
-			case *tg.MessageEntityPre:
-				entity.Kind = "pre"
-				entity.Language = e.Language
-			case *tg.MessageEntityBlockquote:
-				entity.Kind = "quote"
-				entity.Collapsed = e.Collapsed
-			case *tg.MessageEntitySpoiler:
-				entity.Kind = "spoiler"
-			case *tg.MessageEntityURL:
-				entity.Kind = "url"
-			case *tg.MessageEntityTextURL:
-				entity.Kind = "url"
-				entity.URL = e.URL
-			case *tg.MessageEntityMention:
-				entity.Kind = "mention"
-			case *tg.MessageEntityMentionName:
-				entity.Kind = "url"
-				entity.URL = fmt.Sprintf("tg://user?id=%d", e.UserID)
-			case *tg.MessageEntityCustomEmoji:
-				entity.Kind = "emoji"
-				entity.DocumentID = e.DocumentID
-			case *tg.MessageEntityHashtag:
-				entity.Kind = "hashtag"
-			case *tg.MessageEntityCashtag:
-				entity.Kind = "cashtag"
-			case *tg.MessageEntityBotCommand:
-				entity.Kind = "bot_command"
-			case *tg.MessageEntityEmail:
-				entity.Kind = "email"
-			case *tg.MessageEntityPhone:
-				entity.Kind = "phone"
-			case *tg.MessageEntityBankCard:
-				entity.Kind = "bank_card"
-			case *tg.MessageEntityFormattedDate:
-				entity.Kind = "date"
-				entity.Date = int64(e.Date)
-				entity.DateFormat = dateFlags(e.Relative, e.ShortTime, e.LongTime, e.ShortDate, e.LongDate, e.DayOfWeek)
-			default:
-				entity.Kind = "unsupported"
-			}
-			out.Entities = append(out.Entities, entity)
-		}
+		out.Entities = convertEntities(m.Entities)
 		if rich, ok := m.GetRichMessage(); ok {
 			// Telegram sends a rich message's text empty: it shows the
 			// article's summary, as Telegram Desktop does.
@@ -171,6 +126,7 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 				meta, thumb := photoMedia(p)
 				out.Kind = model.MessagePhoto
 				out.Media = meta
+				out.MediaSpoiler = media.Spoiler || media.TTLSeconds > 0
 				loc = &fileLocation{ID: p.ID, Hash: p.AccessHash, Reference: p.FileReference, DC: p.DCID, Photo: true, Thumb: thumb}
 			}
 		case *tg.MessageMediaWebPage:
@@ -215,7 +171,10 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 		case *tg.MessageMediaDocument:
 			if d, ok := media.Document.(*tg.Document); ok {
 				out.Kind, out.Media, loc = documentMedia(d)
+				out.MediaSpoiler = media.Spoiler || media.TTLSeconds > 0
 			}
+		case *tg.MessageMediaStory:
+			loc = storyInMessage(&out, media, names)
 		}
 		switch markup := m.ReplyMarkup.(type) {
 		case *tg.ReplyInlineMarkup:
@@ -251,6 +210,67 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 	h.Write(b)
 	out.ContentRevision = h.Sum64() & ((1 << 63) - 1)
 	return out, loc
+}
+
+// convertEntities are Telegram's entities as the model's.
+func convertEntities(entities []tg.MessageEntityClass) []model.Entity {
+	var out []model.Entity
+	for _, e := range entities {
+		entity := model.Entity{Offset: e.GetOffset(), Length: e.GetLength()}
+		switch e := e.(type) {
+		case *tg.MessageEntityBold:
+			entity.Kind = "bold"
+		case *tg.MessageEntityItalic:
+			entity.Kind = "italic"
+		case *tg.MessageEntityUnderline:
+			entity.Kind = "underline"
+		case *tg.MessageEntityStrike:
+			entity.Kind = "strike"
+		case *tg.MessageEntityCode:
+			entity.Kind = "code"
+		case *tg.MessageEntityPre:
+			entity.Kind = "pre"
+			entity.Language = e.Language
+		case *tg.MessageEntityBlockquote:
+			entity.Kind = "quote"
+			entity.Collapsed = e.Collapsed
+		case *tg.MessageEntitySpoiler:
+			entity.Kind = "spoiler"
+		case *tg.MessageEntityURL:
+			entity.Kind = "url"
+		case *tg.MessageEntityTextURL:
+			entity.Kind = "url"
+			entity.URL = e.URL
+		case *tg.MessageEntityMention:
+			entity.Kind = "mention"
+		case *tg.MessageEntityMentionName:
+			entity.Kind = "url"
+			entity.URL = fmt.Sprintf("tg://user?id=%d", e.UserID)
+		case *tg.MessageEntityCustomEmoji:
+			entity.Kind = "emoji"
+			entity.DocumentID = e.DocumentID
+		case *tg.MessageEntityHashtag:
+			entity.Kind = "hashtag"
+		case *tg.MessageEntityCashtag:
+			entity.Kind = "cashtag"
+		case *tg.MessageEntityBotCommand:
+			entity.Kind = "bot_command"
+		case *tg.MessageEntityEmail:
+			entity.Kind = "email"
+		case *tg.MessageEntityPhone:
+			entity.Kind = "phone"
+		case *tg.MessageEntityBankCard:
+			entity.Kind = "bank_card"
+		case *tg.MessageEntityFormattedDate:
+			entity.Kind = "date"
+			entity.Date = int64(e.Date)
+			entity.DateFormat = dateFlags(e.Relative, e.ShortTime, e.LongTime, e.ShortDate, e.LongDate, e.DayOfWeek)
+		default:
+			entity.Kind = "unsupported"
+		}
+		out = append(out, entity)
+	}
+	return out
 }
 
 // photoMedia describes the largest size of a photo and keeps the others as
@@ -332,7 +352,7 @@ func documentMedia(d *tg.Document) (model.MessageKind, *model.MessageMedia, *fil
 			animated = true
 		case *tg.DocumentAttributeSticker:
 			sticker = true
-			m.StickerSet = stickerSetRef(a.Stickerset)
+			m.StickerSet, m.Emoji = stickerSetRef(a.Stickerset), a.Alt
 		case *tg.DocumentAttributeCustomEmoji:
 			sticker = true
 			m.StickerSet = stickerSetRef(a.Stickerset)
@@ -477,4 +497,45 @@ func convertReplyKeyboard(rows []tg.KeyboardButtonRow) [][]model.MessageButton {
 		out = append(out, row)
 	}
 	return out
+}
+
+// storyInMessage gives out, a message, the story media carries, as
+// Telegram Desktop's MediaStory shows it: forwarded, its photo or video
+// with its caption; one the account was mentioned in, a line of the
+// history. The story Telegram leaves out is asked for later
+// (resolveChatStories); one deleted is expired. It returns where its
+// media downloads from, by the story itself.
+func storyInMessage(out *model.Message, media *tg.MessageMediaStory, names map[int64]string) *fileLocation {
+	peer := peerID(media.Peer)
+	ref := &model.StoryRef{Peer: peer, ID: media.ID, From: names[peer], Mention: media.ViaMention}
+	out.StoryOf = ref
+	// The message's own text, empty, is the story's caption.
+	out.Kind, out.Text, out.Entities = model.MessageText, "", nil
+	if media.ViaMention {
+		out.Kind, out.Service = model.MessageService, &model.ServiceAction{Kind: model.ServiceStoryMention}
+	}
+	switch item := media.Story.(type) {
+	case *tg.StoryItem:
+		return storyMedia(out, peer, item)
+	case *tg.StoryItemDeleted:
+		ref.Expired = true
+	}
+	return nil
+}
+
+// storyMedia gives out, a message carrying story item of peer, the
+// story's media and caption, and returns where the media downloads from.
+func storyMedia(out *model.Message, peer int64, item *tg.StoryItem) *fileLocation {
+	shown, loc := convertMessage("", &tg.Message{Media: item.Media}, nil)
+	if shown.Media == nil || loc == nil || shown.Kind != model.MessagePhoto && shown.Kind != model.MessageVideo {
+		// A story of another kind, as a live one, is not shown.
+		out.StoryOf.Expired = true
+		return nil
+	}
+	out.Media, out.StoryOf.Video, out.StoryOf.Expired = shown.Media, shown.Kind == model.MessageVideo, false
+	if !out.StoryOf.Mention {
+		out.Kind, out.Text, out.Entities = shown.Kind, item.Caption, convertEntities(item.Entities)
+	}
+	loc.StoryPeer, loc.Story = peer, item.ID
+	return loc
 }

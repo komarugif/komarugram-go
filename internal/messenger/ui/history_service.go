@@ -50,7 +50,10 @@ func (p *chatPage) servicePill(gtx layout.Context, r *messageRow, m model.Messag
 		call.Add(gtx.Ops)
 		return dims
 	}
-	if m.Service == nil || m.Service.Kind != model.ServicePin || m.ReplyToMessageID == 0 {
+	pin := m.Service != nil && m.Service.Kind == model.ServicePin && m.ReplyToMessageID != 0
+	// A mention in a story opens it, as Telegram Desktop's View Story.
+	story := m.Service != nil && m.Service.Kind == model.ServiceStoryMention && m.StoryShown()
+	if !pin && !story {
 		return plate(gtx)
 	}
 	style := surfaceStyle{radius: radius, content: sc.SecondaryContainer.OnColor}

@@ -64,6 +64,9 @@ type stickerSetDialog struct {
 	chooseArchive          func(context.Context, string) (string, error)
 	cells                  []surface
 	loader                 loadingIndicator
+
+	// preview shows an item of the set held large.
+	preview holdPreview
 }
 
 func (d *stickerSetDialog) stop() {
@@ -507,7 +510,8 @@ func (d *stickerSetDialog) grid(gtx layout.Context, p *chatPage) layout.Dimensio
 		tab = model.PickerEmoji
 	}
 	choose := d.canChoose(p)
-	if !d.modal.closing {
+	d.preview.Update(gtx)
+	if !d.modal.closing && !d.preview.Swallow() {
 		// A sticker is sent and an emoji goes into the draft, as the panel
 		// does, whether the set is added or not.
 		for i := range d.cells {
@@ -525,34 +529,46 @@ func (d *stickerSetDialog) grid(gtx layout.Context, p *chatPage) layout.Dimensio
 	columns := max(1, width/cell.X)
 	rows := (len(items) + columns - 1) / columns
 	d.list.Axis = layout.Vertical
-	return d.list.Layout(gtx, rows, func(gtx layout.Context, row int) layout.Dimensions {
-		width := gtx.Constraints.Max.X
-		cellWidth := width / columns
-		for col := 0; col < columns && row*columns+col < len(items); col++ {
-			index := row*columns + col
-			item := items[index]
-			left := col * cellWidth
-			if col == columns-1 {
-				cellWidth = width - left
-			}
-			inRect(gtx, image.Rect(left, 0, left+cellWidth, cell.Y), func(gtx layout.Context) layout.Dimensions {
-				draw := func(gtx layout.Context) layout.Dimensions {
-					return layout.UniformInset(4).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						hovered := d.cells[index].click.Hovered()
-						cheap := hovered && p.media.CheapToPlay(item.Media, gtx.Constraints.Max, false)
-						return d.item(gtx, p, item, p.animate || d.hover.Play(gtx, index, hovered, cheap))
-					})
-				}
-				if index >= len(d.cells) {
-					return draw(gtx)
-				}
-				sc := scheme(gtx)
-				style := surfaceStyle{radius: gtx.Dp(8), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor, button: item.Emoji}
-				return d.cells[index].Layout(gtx, gtx.Constraints.Max, style, draw)
-			})
-		}
-		return layout.Dimensions{Size: image.Pt(width, cell.Y)}
+	dims := d.list.Layout(gtx, rows, func(gtx layout.Context, row int) layout.Dimensions {
+		dims := d.gridRow(gtx, p, row, columns, cell)
+		d.preview.row(row, dims.Size.Y)
+		return dims
 	})
+	// Over the rows, to see the pointer held on them.
+	d.preview.area(gtx, gtx.Constraints.Max, &d.list.List, image.Point{})
+	return dims
+}
+
+// gridRow lays out row of the grid, of columns cells of cell.
+func (d *stickerSetDialog) gridRow(gtx layout.Context, p *chatPage, row, columns int, cell image.Point) layout.Dimensions {
+	items := d.pack.Items
+	width := gtx.Constraints.Max.X
+	cellWidth := width / columns
+	for col := 0; col < columns && row*columns+col < len(items); col++ {
+		index := row*columns + col
+		item := items[index]
+		left := col * cellWidth
+		if col == columns-1 {
+			cellWidth = width - left
+		}
+		d.preview.tile(row, image.Rect(left, 0, left+cellWidth, cell.Y), item, false)
+		inRect(gtx, image.Rect(left, 0, left+cellWidth, cell.Y), func(gtx layout.Context) layout.Dimensions {
+			draw := func(gtx layout.Context) layout.Dimensions {
+				return layout.UniformInset(4).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					hovered := d.cells[index].click.Hovered()
+					cheap := hovered && p.media.CheapToPlay(item.Media, gtx.Constraints.Max, false)
+					return d.item(gtx, p, item, p.animate || d.hover.Play(gtx, index, hovered, cheap))
+				})
+			}
+			if index >= len(d.cells) {
+				return draw(gtx)
+			}
+			sc := scheme(gtx)
+			style := surfaceStyle{radius: gtx.Dp(8), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor, button: item.Emoji}
+			return d.cells[index].Layout(gtx, gtx.Constraints.Max, style, draw)
+		})
+	}
+	return layout.Dimensions{Size: image.Pt(width, cell.Y)}
 }
 
 func (d *stickerSetDialog) item(gtx layout.Context, p *chatPage, item model.PickerItem, animate bool) layout.Dimensions {

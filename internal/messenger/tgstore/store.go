@@ -45,6 +45,12 @@ type Store struct {
 	editLimit      atomic.Int64
 	editLimitAsked atomic.Bool
 	history        *conversation
+	// emoji gathers the custom emoji to ask Telegram for together.
+	emoji emojiBatch
+	// activity is what others do in chats now.
+	activity activities
+	// stories are the stories over the list of chats.
+	stories storyState
 
 	themeRevisions map[int64]uint64
 	// appearances are the states of the chats' cached appearances.
@@ -129,7 +135,25 @@ func (s *Store) Load(ctx context.Context, api *tg.Client) error {
 		s.me.DC = s.dc
 	})
 	s.loadAppConfig(ctx, api, self.Premium)
-	return s.loadDialogs(ctx, api, self.ID)
+	if err := s.loadDialogs(ctx, api, self.ID); err != nil {
+		return err
+	}
+	s.goLoadStories(ctx, api)
+	return nil
+}
+
+// goLoadStories asks for the stories over the list in the background.
+func (s *Store) goLoadStories(ctx context.Context, api *tg.Client) {
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closing {
+		return
+	}
+	c.wg.Go(func() {
+		defer crash.Recover("stories", nil)
+		_ = s.loadStories(ctx, api)
+	})
 }
 
 // reloadDialogs reads the folders and dialogs again, after updates were
@@ -150,6 +174,8 @@ func (s *Store) reloadDialogs() {
 		defer crash.Recover("dialogs reload", nil)
 		_ = s.loadDialogs(ctx, api, self)
 	}()
+	// What changed of the stories meanwhile.
+	s.goLoadStories(ctx, api)
 }
 
 // loadDialogs reads the folders and every dialog of the main list, and
@@ -209,12 +235,17 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) err
 		read := len(l.chats)
 		added := l.add(dialogs)
 		page := l.chats[read:]
+		// Without them the thumbnails stay blank: the list is shown all the
+		// same.
+		_ = s.keepPreviewRefs(ctx, l.refs)
+		l.refs = nil
 		// The pages after one that tells nothing new are of chats that
 		// changed no more: see dialogs_kept.go.
 		unchanged := false
 		s.publish(func() {
 			unchanged = s.pageUnchanged(page, l)
 			chats, entries := s.withKept(l)
+			chats = keepAlbums(chats, s.chats)
 			s.chats, s.entries, s.filters = s.keepReads(chats), entries, filters.Filters
 			s.folders = folderList(self, filters.Filters, entries)
 		})
@@ -357,6 +388,9 @@ type list struct {
 	chats   []model.Chat
 	entries map[int64]entry
 	seen    map[int64]bool
+	// refs are where the thumbnails of the chats' last messages download
+	// from, by their media, until the store keeps them.
+	refs map[string]fileLocation
 	// pins counts the pinned dialogs seen; they come first, in pin order.
 	pins int
 }
@@ -438,6 +472,7 @@ func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 		ReadInbox:  model.MessageID(d.ReadInboxMaxID),
 	}
 	chat.Muted = mutedNow(d.NotifySettings)
+	chat.Draft = draftOf(d.Draft)
 	if d.Pinned {
 		l.pins++
 		chat.PinRank = l.pins
@@ -488,6 +523,7 @@ func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 		chat.Last.ID = model.MessageID(d.TopMessage)
 		if msg, ok := m.(*tg.Message); ok {
 			chat.Last.Sent = msg.Out
+			l.previewContent(&chat.Last, msg)
 		}
 		if chat.Kind == model.KindGroup {
 			chat.Last.Sender, chat.Last.Outgoing = l.sender(m)

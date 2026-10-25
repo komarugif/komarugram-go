@@ -137,7 +137,7 @@ func (s *Store) gallery(ctx context.Context, chat int64, anchor model.MessageID,
 	var photos []model.Message
 	total := 0
 	for _, m := range s.History(chat).Messages {
-		if !in(m.Kind) || m.Media == nil {
+		if !in(m.Kind) || m.Media == nil || m.StoryOf != nil {
 			continue
 		}
 		total++

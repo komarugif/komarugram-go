@@ -262,6 +262,7 @@ func (c *messageComposer) pickerLayout(gtx layout.Context, l localization.Catalo
 	event.Op(gtx.Ops, &c.pickerPointer)
 	c.hover.Update(gtx, &c.list.List, &c.strip)
 	c.hover.Op(gtx)
+	c.preview.Update(gtx)
 	tabHeight := min(gtx.Dp(44), size.Y)
 	searchHeight := min(gtx.Dp(48), max(0, size.Y-tabHeight))
 	footer := min(gtx.Dp(48), max(0, size.Y-tabHeight-searchHeight))
@@ -297,119 +298,145 @@ func (c *messageComposer) pickerLayout(gtx layout.Context, l localization.Catalo
 			})
 		}
 		return c.list.Layout(gtx, len(rows)+1, func(gtx layout.Context, n int) layout.Dimensions {
-			if n == len(rows) {
-				if c.searching() || c.featuredLoading {
-					// More loads under what is shown.
-					gtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X, gtx.Dp(56)))
-					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						n := gtx.Dp(32)
-						gtx.Constraints = layout.Exact(image.Pt(n, n))
-						return c.loader.Layout(gtx, l)
-					})
-				}
-				if c.pickerErr != nil {
-					if c.retry.Clicked(gtx) && c.source != nil {
-						if pack := c.selectedFeatured(); pack != nil {
-							c.loadFeatured(*pack)
-						} else {
-							c.request(l, false)
-						}
-					}
-					return textButton(gtx, &c.retry, l.T("composer.retry"))
-				}
-				if c.page.Next != "" {
-					if c.more.Clicked(gtx) && c.source != nil {
-						c.request(l, true)
-					}
-					return textButton(gtx, &c.more, l.T("composer.more"))
-				}
-				if len(rows) == 0 {
-					return label(gtx, l.T("composer.empty"), token.TypestyleBodySmall, sc.SurfaceVariant.OnColor, 2)
-				}
-				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(8))}
-			}
-			row := rows[n]
-			if len(row.items) == 0 {
-				if row.featured != nil {
-					pack := row.featured
-					click := c.packClicks[pack.ID]
-					if click == nil {
-						click = new(surface)
-						c.packClicks[pack.ID] = click
-					}
-					if click.Clicked(gtx) {
-						p.stickers.open(p, pack.Ref)
-						c.pickerOpen = false
-					}
-					size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(40))
-					style := surfaceStyle{radius: gtx.Dp(8), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor,
-						button: l.T("composer.view_pack") + " " + pack.Title}
-					return click.Layout(gtx, size, style, func(gtx layout.Context) layout.Dimensions {
-						return layout.Inset{Top: 8, Left: 8, Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-								layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-									return label(gtx, pack.Title, token.TypestyleTitleSmall, sc.Surface.OnColor, 1)
-								}),
-								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									return layout.Inset{Left: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										return label(gtx, l.T("composer.view_pack"), token.TypestyleLabelMedium, sc.Primary.Color, 1)
-									})
-								}),
-							)
-						})
-					})
-				}
-				if row.title == "" {
-					return layout.Dimensions{}
-				}
-				return layout.Inset{Top: 10, Bottom: 6, Left: 4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, row.title, token.TypestyleLabelLarge, sc.SurfaceVariant.OnColor, 1)
-				})
-			}
-			width := gtx.Constraints.Max.X
-			gap := gtx.Dp(4)
-			height := cell
-			widths := make([]int, len(row.items))
-			cols := max(1, width/max(1, cell))
-			for i := range widths {
-				widths[i] = width / cols
-			}
-			if c.tab == model.PickerGIF {
-				widths, height = gifWidths(row.items, width, gap)
-			}
-			x := 0
-			for i, item := range row.items {
-				key := fmt.Sprintf("%d/%d/%s", c.tab, n, item.ID)
-				click := c.itemClicks[key]
-				if click == nil {
-					click = new(surface)
-					c.itemClicks[key] = click
-				}
-				// A set not added is still sent from, as in Telegram
-				// Desktop; its title row opens it.
-				if click.Clicked(gtx) {
-					c.choose(gtx, item)
-				}
-				tileWidth := widths[i] - gap
-				if c.tab == model.PickerGIF {
-					tileWidth = widths[i]
-				}
-				inRect(gtx, image.Rect(x, 0, x+max(0, tileWidth), height), func(gtx layout.Context) layout.Dimensions {
-					style := surfaceStyle{radius: gtx.Dp(8), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor}
-					return click.Layout(gtx, gtx.Constraints.Max, style, func(gtx layout.Context) layout.Dimensions {
-						hovered := click.click.Hovered()
-						cheap := hovered && p.media.CheapToPlay(item.Media, gtx.Constraints.Max, c.tab == model.PickerGIF)
-						return c.drawItem(gtx, item, p, animate || c.hover.Play(gtx, key, hovered, cheap))
-					})
-				})
-				x += widths[i]
-				if c.tab == model.PickerGIF {
-					x += gap
-				}
-			}
-			return layout.Dimensions{Size: image.Pt(width, height+gap)}
+			dims := c.pickerRow(gtx, n, rows, cell, l, p, animate)
+			c.preview.row(n, dims.Size.Y)
+			return dims
 		})
 	})
+	// Over the rows, to see the pointer held on them.
+	offset(gtx, body.Min, func(gtx layout.Context) layout.Dimensions {
+		c.preview.area(gtx, body.Size(), &c.list.List, image.Point{})
+		return layout.Dimensions{}
+	})
+	c.pickerFooter(gtx, rows, size, footer, body, cell, l, p, animate)
+	return layout.Dimensions{Size: size}
+}
+
+// pickerRow lays out row n of the picker's list, the last one what is
+// under the items: what loads, a retry, more.
+func (c *messageComposer) pickerRow(gtx layout.Context, n int, rows []pickerRow, cell int, l localization.Catalog, p *chatPage, animate bool) layout.Dimensions {
+	sc := scheme(gtx)
+	if n == len(rows) {
+		if c.searching() || c.featuredLoading {
+			// More loads under what is shown.
+			gtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X, gtx.Dp(56)))
+			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				n := gtx.Dp(32)
+				gtx.Constraints = layout.Exact(image.Pt(n, n))
+				return c.loader.Layout(gtx, l)
+			})
+		}
+		if c.pickerErr != nil {
+			if c.retry.Clicked(gtx) && c.source != nil {
+				if pack := c.selectedFeatured(); pack != nil {
+					c.loadFeatured(*pack)
+				} else {
+					c.request(l, false)
+				}
+			}
+			return textButton(gtx, &c.retry, l.T("composer.retry"))
+		}
+		if c.page.Next != "" {
+			if c.more.Clicked(gtx) && c.source != nil {
+				c.request(l, true)
+			}
+			return textButton(gtx, &c.more, l.T("composer.more"))
+		}
+		if len(rows) == 0 {
+			return label(gtx, l.T("composer.empty"), token.TypestyleBodySmall, sc.SurfaceVariant.OnColor, 2)
+		}
+		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(8))}
+	}
+	row := rows[n]
+	if len(row.items) == 0 {
+		if row.featured != nil {
+			pack := row.featured
+			click := c.packClicks[pack.ID]
+			if click == nil {
+				click = new(surface)
+				c.packClicks[pack.ID] = click
+			}
+			if click.Clicked(gtx) {
+				p.stickers.open(p, pack.Ref)
+				c.pickerOpen = false
+			}
+			size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(40))
+			style := surfaceStyle{radius: gtx.Dp(8), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor,
+				button: l.T("composer.view_pack") + " " + pack.Title}
+			return click.Layout(gtx, size, style, func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Top: 8, Left: 8, Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+							return label(gtx, pack.Title, token.TypestyleTitleSmall, sc.Surface.OnColor, 1)
+						}),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return layout.Inset{Left: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+								return label(gtx, l.T("composer.view_pack"), token.TypestyleLabelMedium, sc.Primary.Color, 1)
+							})
+						}),
+					)
+				})
+			})
+		}
+		if row.title == "" {
+			return layout.Dimensions{}
+		}
+		return layout.Inset{Top: 10, Bottom: 6, Left: 4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, row.title, token.TypestyleLabelLarge, sc.SurfaceVariant.OnColor, 1)
+		})
+	}
+	width := gtx.Constraints.Max.X
+	gap := gtx.Dp(4)
+	height := cell
+	widths := make([]int, len(row.items))
+	cols := max(1, width/max(1, cell))
+	for i := range widths {
+		widths[i] = width / cols
+	}
+	if c.tab == model.PickerGIF {
+		widths, height = gifWidths(row.items, width, gap)
+	}
+	x := 0
+	for i, item := range row.items {
+		key := fmt.Sprintf("%d/%d/%s", c.tab, n, item.ID)
+		click := c.itemClicks[key]
+		if click == nil {
+			click = new(surface)
+			c.itemClicks[key] = click
+		}
+		// A set not added is still sent from, as in Telegram
+		// Desktop; its title row opens it. A release that
+		// closes the preview of one held chooses nothing.
+		if click.Clicked(gtx) && !c.preview.Swallow() {
+			c.choose(gtx, item)
+		}
+		tileWidth := widths[i] - gap
+		if c.tab == model.PickerGIF {
+			tileWidth = widths[i]
+		}
+		c.preview.tile(n, image.Rect(x, 0, x+max(0, tileWidth), height), item, c.tab == model.PickerGIF)
+		inRect(gtx, image.Rect(x, 0, x+max(0, tileWidth), height), func(gtx layout.Context) layout.Dimensions {
+			style := surfaceStyle{radius: gtx.Dp(8), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor}
+			return click.Layout(gtx, gtx.Constraints.Max, style, func(gtx layout.Context) layout.Dimensions {
+				hovered := click.click.Hovered()
+				cheap := hovered && p.media.CheapToPlay(item.Media, gtx.Constraints.Max, c.tab == model.PickerGIF)
+				return c.drawItem(gtx, item, p, animate || c.hover.Play(gtx, key, hovered, cheap))
+			})
+		})
+		x += widths[i]
+		if c.tab == model.PickerGIF {
+			x += gap
+		}
+	}
+	return layout.Dimensions{Size: image.Pt(width, height+gap)}
+}
+
+// pickerFooter lays out the picker's footer of packs, of footer high at the
+// bottom of size, under body, the list of cell sized items, and the toast
+// over the list.
+func (c *messageComposer) pickerFooter(gtx layout.Context, rows []pickerRow, size image.Point, footer int, body image.Rectangle, cell int, l localization.Catalog, p *chatPage, animate bool) {
+	sc := scheme(gtx)
+	sliding := func(area image.Rectangle, w layout.Widget) { c.tabs.Slide(gtx, area, w) }
 	footerArea := image.Rect(0, size.Y-footer, size.X, size.Y)
 	inRect(gtx, footerArea, func(gtx layout.Context) layout.Dimensions {
 		fillRect(gtx, sc.SurfaceContainerLow, gtx.Constraints.Max)
@@ -532,7 +559,6 @@ func (c *messageComposer) pickerLayout(gtx layout.Context, l localization.Catalo
 	c.pickerTold = c.pickerErr
 	// Over the end of the list, above the footer of packs.
 	c.pickerToast.Layout(gtx, image.Rect(0, 0, size.X, size.Y-footer))
-	return layout.Dimensions{Size: size}
 }
 
 // pickerShows reports whether the picker's page shows the media of id.

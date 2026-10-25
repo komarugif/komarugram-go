@@ -20,6 +20,39 @@
 "account.logout_hint" = "Завершить сеанс и удалить данные с компьютера";
 "account.logout_offline" = "Если Telegram недоступен, сеанс останется в списке устройств аккаунта: завершите его там.";
 
+"action.choose_sticker" = "выбирает стикер";
+"action.game" = "играет в игру";
+"action.many_game" = "{count} человек играют в игру";
+"action.many_game#few" = "{count} человека играют в игру";
+"action.many_game#many" = "{count} человек играют в игру";
+"action.many_game#one" = "{count} человек играет в игру";
+"action.many_typing" = "{count} человек печатают";
+"action.many_typing#few" = "{count} человека печатают";
+"action.many_typing#many" = "{count} человек печатают";
+"action.many_typing#one" = "{count} человек печатает";
+"action.record_round" = "записывает видеосообщение";
+"action.record_video" = "записывает видео";
+"action.record_voice" = "записывает голосовое";
+"action.typing" = "печатает";
+"action.upload_file" = "отправляет файл";
+"action.upload_photo" = "отправляет фото";
+"action.upload_round" = "отправляет видеосообщение";
+"action.upload_video" = "отправляет видео";
+"action.upload_voice" = "отправляет голосовое";
+"action.user_choose_sticker" = "{user} выбирает стикер";
+"action.user_game" = "{user} играет в игру";
+"action.user_record_round" = "{user} записывает видеосообщение";
+"action.user_record_video" = "{user} записывает видео";
+"action.user_record_voice" = "{user} записывает голосовое";
+"action.user_typing" = "{user} печатает";
+"action.user_upload_file" = "{user} отправляет файл";
+"action.user_upload_photo" = "{user} отправляет фото";
+"action.user_upload_round" = "{user} отправляет видеосообщение";
+"action.user_upload_video" = "{user} отправляет видео";
+"action.user_upload_voice" = "{user} отправляет голосовое";
+"action.users_game" = "{user} и {second_user} играют в игру";
+"action.users_typing" = "{user} и {second_user} печатают";
+
 "album_save.all" = "Весь альбом";
 "album_save.cancel" = "Отмена";
 "album_save.one" = "Только этот";
@@ -742,13 +775,17 @@
 "frozen.text3" = "Подайте апелляцию через {link} до {date}, иначе аккаунт будет удалён.";
 "frozen.title" = "Ваш аккаунт заморожен";
 
-"ghost.body" = "Что аккаунты сообщают о себе. Без отметок никто не видит, что вы читаете, в сети или печатаете.";
-"ghost.interact" = "Прочитывать при действии";
-"ghost.interact_body" = "Отмечает чат прочитанным, когда вы отправляете в него сообщение или ставите реакцию.";
-"ghost.online" = "Показывать «в сети»";
-"ghost.read" = "Отправлять прочтение";
+"ghost.body" = "Скрывает то, что отмечено ниже: собеседники не узнают, что вы прочитали их сообщения, смотрели их истории, были в сети или что-то пишете и отправляете.";
+"ghost.interact" = "Прочитывать чат, когда вы в нём действуете";
+"ghost.interact_body" = "Даже со скрытым прочтением отмечает чат прочитанным, когда вы отправляете в него сообщение или ставите реакцию.";
+"ghost.online" = "Статус «в сети»";
+"ghost.read" = "Прочтение сообщений";
+"ghost.recording" = "Запись голосового сообщения";
+"ghost.stickers" = "Выбор стикера";
+"ghost.stories" = "Просмотр историй";
 "ghost.title" = "Режим призрака";
-"ghost.typing" = "Отправлять «печатает»";
+"ghost.typing" = "Набор текста";
+"ghost.uploads" = "Отправка фото, видео, файлов и голосовых";
 
 "gif_fallback.both" = "Её можно воспроизвести здесь через FFmpeg — уже вне песочницы — или открыть во внешнем плеере.";
 "gif_fallback.cancel" = "Отмена";
@@ -815,6 +852,9 @@
 "history.snapshot_saved" = "Снимок сохранён: {path}";
 "history.snapshot_too_tall" = "Слишком много сообщений для одного снимка";
 "history.sticker" = "Стикер";
+"history.story" = "История";
+"history.story_expired" = "Срок действия истории истёк.";
+"history.story_from" = "История от {user}";
 "history.to_end" = "К концу чата";
 "history.to_top" = "К началу чата";
 "history.video" = "Видео";
@@ -1224,19 +1264,41 @@
 "preview.album" = "Альбом";
 "preview.attachment" = "Вложение";
 "preview.audio" = "Аудиофайл";
+"preview.audios" = "{count} аудио";
+"preview.audios#few" = "{count} аудио";
+"preview.audios#many" = "{count} аудио";
+"preview.audios#one" = "{count} аудио";
 "preview.contact" = "Контакт";
+"preview.draft" = "Черновик";
 "preview.file" = "Файл";
+"preview.files" = "{count} файлов";
+"preview.files#few" = "{count} файла";
+"preview.files#many" = "{count} файлов";
+"preview.files#one" = "{count} файл";
 "preview.gif" = "GIF";
 "preview.location" = "Геопозиция";
+"preview.media_count" = "{count} медиа";
+"preview.media_count#few" = "{count} медиа";
+"preview.media_count#many" = "{count} медиа";
+"preview.media_count#one" = "{count} медиа";
 "preview.music" = "Музыка";
 "preview.photo" = "Фото";
+"preview.photos" = "{count} фото";
+"preview.photos#few" = "{count} фото";
+"preview.photos#many" = "{count} фото";
+"preview.photos#one" = "{count} фото";
 "preview.poll" = "Опрос";
 "preview.round" = "Видеосообщение";
 "preview.service" = "Служебное сообщение";
 "preview.sticker" = "Стикер";
-"preview.sticker_emoji" = "{emoji} Стикер";
+"preview.story" = "История";
+"preview.story_expired" = "Истёкшая история";
 "preview.table" = "Таблица";
 "preview.video" = "Видео";
+"preview.videos" = "{count} видео";
+"preview.videos#few" = "{count} видео";
+"preview.videos#many" = "{count} видео";
+"preview.videos#one" = "{count} видео";
 "preview.voice" = "Голосовое сообщение";
 
 "privacy.streamer" = "Режим стримера";
@@ -1535,6 +1597,10 @@
 "service.set_wallpaper_both_me" = "Вы установили новые обои для себя и {user}";
 "service.set_wallpaper_me" = "Вы установили новые обои для этого чата";
 "service.somebody" = "кто-то";
+"service.story_mention" = "{user} упомянул(а) вас в истории";
+"service.story_mention_me" = "Вы упомянули {user} в истории";
+"service.story_mention_me_unavailable" = "История, в которой вы упомянули {user}, больше недоступна.";
+"service.story_mention_unavailable" = "История, в которой {user} упомянул(а) вас, больше недоступна.";
 "service.suggested_photo" = "{user} предлагает это фото для вашего профиля в Telegram.";
 "service.suggested_photo_me" = "Вы предложили это фото для профиля {user} в Telegram.";
 "service.theme_changed" = "{from} изменил(а) тему чата на {emoji}";
@@ -1796,6 +1862,8 @@
 "stickers.saved" = "Архив сохранён: {path}";
 "stickers.title" = "Набор стикеров";
 
+"stories.my" = "Моя история";
+
 "text.collapse_quote" = "Свернуть цитату";
 "text.copied" = "Текст скопирован";
 "text.copy_code" = "Копировать";
@@ -1825,17 +1893,24 @@
 "uninstall.uninstall" = "Удалить";
 "uninstall.uninstalling" = "Удаляем…";
 
+"viewer.attachment" = "Вложение";
 "viewer.close" = "Закрыть";
 "viewer.copied" = "Фото скопировано в буфер обмена.";
+"viewer.file_position" = "{file} {n} из {amount}";
 "viewer.recovered" = "Не удалось показать фото. Просмотрщик закрыт.";
 "viewer.counter" = "%d из %d";
 "viewer.failed" = "Не удалось загрузить фото · нажмите, чтобы повторить";
 "viewer.keep_failed" = "Не удалось сохранить фото";
 "viewer.loading_more" = "Загрузка фотографий…";
 "viewer.photo" = "Фотография";
-"viewer.position" = "{n} из {amount}";
+"viewer.position" = "Фотография {n} из {amount}";
 "viewer.saved" = "Фото сохранено: {path}";
+"viewer.story" = "История";
 "viewer.video" = "Видео";
+"viewer.views" = "{count} просмотра";
+"viewer.views#few" = "{count} просмотра";
+"viewer.views#many" = "{count} просмотров";
+"viewer.views#one" = "{count} просмотр";
 "viewer.window" = "Фото";
 
 "visibility.calm" = "Скрывать события, которые отвлекают внимание";

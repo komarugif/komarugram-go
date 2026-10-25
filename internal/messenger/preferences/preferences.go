@@ -331,14 +331,70 @@ type Notify struct {
 }
 
 // Ghost is what the accounts tell others: see model.Ghost. Everything is
-// told by default, as Telegram does, and Ghost Mode is choosing not to:
-// the fields are saved even when false, or a choice would come back as the
-// default. A chat is also read on sending to it or reacting in it.
+// told by default, as Telegram does; Ghost Mode, On, hides what the Keep
+// switches leave, all of it at first, as AyuGram's does. ReadOnInteract
+// still reads a chat on sending to it or reacting in it while reads are
+// hidden; it is saved even when false, or a choice would come back as the
+// default.
 type Ghost struct {
-	SendRead       bool `json:"send_read"`
-	SendOnline     bool `json:"send_online"`
-	SendTyping     bool `json:"send_typing"`
+	On bool `json:"on"`
+	// KeepRead keeps telling that messages are read; KeepOnline, that the
+	// account is online; KeepTyping, that it types, chooses a place or a
+	// contact; KeepUploads, that it sends a file, a photo, a video or a
+	// voice message; KeepRecording, that it records one; KeepStickers,
+	// that it chooses a sticker; KeepStories, the stories it saw.
+	KeepRead      bool `json:"keep_read,omitempty"`
+	KeepOnline    bool `json:"keep_online,omitempty"`
+	KeepTyping    bool `json:"keep_typing,omitempty"`
+	KeepUploads   bool `json:"keep_uploads,omitempty"`
+	KeepRecording bool `json:"keep_recording,omitempty"`
+	KeepStickers  bool `json:"keep_stickers,omitempty"`
+	KeepStories   bool `json:"keep_stories,omitempty"`
+	// ReadOnInteract marks a chat read on sending to it or reacting in
+	// it, while reads are hidden.
 	ReadOnInteract bool `json:"read_on_interact"`
+}
+
+// Told is what the accounts tell others: see Ghost's Keep switches.
+type Told struct {
+	Read, Online, Typing, Uploads, Recording, Stickers, Stories bool
+}
+
+// Tells reports what the accounts tell with g.
+func (g Ghost) Tells() Told {
+	tells := func(keep bool) bool { return !g.On || keep }
+	return Told{tells(g.KeepRead), tells(g.KeepOnline), tells(g.KeepTyping), tells(g.KeepUploads), tells(g.KeepRecording), tells(g.KeepStickers), tells(g.KeepStories)}
+}
+
+// UnmarshalJSON reads g, and the settings saved before Ghost Mode was one
+// switch: a switch of what to tell, turned off, is Ghost Mode on, hiding
+// it; typing then stood for every action the account told.
+func (g *Ghost) UnmarshalJSON(b []byte) error {
+	type plain Ghost
+	var old struct {
+		plain
+		SendRead   *bool `json:"send_read"`
+		SendOnline *bool `json:"send_online"`
+		SendTyping *bool `json:"send_typing"`
+	}
+	old.plain = plain(*g)
+	if err := json.Unmarshal(b, &old); err != nil {
+		return err
+	}
+	*g = Ghost(old.plain)
+	if old.SendRead == nil && old.SendOnline == nil && old.SendTyping == nil {
+		return nil
+	}
+	told := func(p *bool) bool { return p == nil || *p }
+	read, online, typing := told(old.SendRead), told(old.SendOnline), told(old.SendTyping)
+	if read && online && typing {
+		// Nothing was hidden: turned on, Ghost Mode hides everything.
+		return nil
+	}
+	g.On = true
+	g.KeepRead, g.KeepOnline = read, online
+	g.KeepTyping, g.KeepUploads, g.KeepRecording, g.KeepStickers = typing, typing, typing, typing
+	return nil
 }
 
 // Equal reports whether g and o are the same preferences, as saved.
@@ -385,7 +441,7 @@ func defaults() Global {
 		AudioVolume:    100,
 		WindowBlur:     true,
 		Overlays:       Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true, Shadow: ShadowDefault},
-		Ghost:          Ghost{SendRead: true, SendOnline: true, SendTyping: true, ReadOnInteract: true},
+		Ghost:          Ghost{ReadOnInteract: true},
 		Keep:           Keep{Deleted: true, Edits: true},
 		Notify:         Notify{Desktop: true, Sound: true, Name: true, Text: true, Private: true, Groups: true, Channels: true, AllAccounts: true},
 		Look:           Look{BubbleRadius: BubbleRadiusMax, AvatarCorners: AvatarRound},

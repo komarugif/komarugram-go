@@ -183,10 +183,14 @@ type settingsPage struct {
 	setStreamer  func(bool)
 	streamerMode *toggle.Toggle[string]
 	// ghost and setGhost read and change what the accounts tell others;
-	// without them the section is hidden.
-	ghost     func() preferences.Ghost
-	setGhost  func(preferences.Ghost)
-	ghostOpts *toggle.Toggle[string]
+	// without them the section is hidden. ghostToggle turns Ghost Mode on,
+	// ghostBoxes choose what it hides, and ghostInteract still reads a
+	// chat on an action in it.
+	ghost         func() preferences.Ghost
+	setGhost      func(preferences.Ghost)
+	ghostToggle   *toggle.Toggle[string]
+	ghostBoxes    *checkbox.Checkboxes[string]
+	ghostInteract *checkbox.Checkboxes[string]
 	// keep and setKeep read and change what the cache keeps.
 	keep     func() preferences.Keep
 	setKeep  func(preferences.Keep)
@@ -379,9 +383,23 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			p.setPremiumMedia(len(values) == 1)
 		}
 	})
-	p.ghostOpts = toggle.NewToggle(ghostOptions, nil, func(values []string) {
+	p.ghostToggle = toggle.NewToggle([]string{"ghost"}, nil, func(values []string) {
 		if p.setGhost != nil {
-			p.setGhost(ghostFromOptions(values))
+			g := p.ghost()
+			g.On = len(values) == 1
+			p.setGhost(g)
+		}
+	})
+	p.ghostBoxes = checkbox.NewCheckboxes(ghostHidden, nil, func(values []string) {
+		if p.setGhost != nil {
+			p.setGhost(ghostWithHidden(p.ghost(), values))
+		}
+	})
+	p.ghostInteract = checkbox.NewCheckboxes([]string{"interact"}, nil, func(values []string) {
+		if p.setGhost != nil {
+			g := p.ghost()
+			g.ReadOnInteract = len(values) == 1
+			p.setGhost(g)
 		}
 	})
 	p.notifyView = newNotifySettings()
@@ -648,6 +666,10 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		p.filtersView.Update(gtx)
 		if p.calm != nil {
 			p.calmBoxes.Update(gtx)
+		}
+		if p.ghost != nil {
+			p.ghostBoxes.Update(gtx)
+			p.ghostInteract.Update(gtx)
 		}
 		if p.keepPeerBadges != nil {
 			p.peerBadgeBoxes.Update(gtx)

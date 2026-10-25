@@ -3,6 +3,8 @@ package localization
 import (
 	"strings"
 	"testing"
+
+	"komarugram/internal/messenger/model"
 )
 
 func testPack(code string, values map[string]string) *Pack {
@@ -137,4 +139,16 @@ func TestPluralFallsBackWithinLanguage(t *testing.T) {
 		return
 	}
 	t.Fatal("no counted key without English forms to check")
+}
+
+// A sticker's emoji goes before the word, as the official clients show
+// it, though a pack's sticker_emoji puts it after; the word is the pack's.
+func TestStickerEmojiFirst(t *testing.T) {
+	p := NewPack("ru", "", "ru", false, 1, map[string]string{"lng_in_dlg_sticker": "Стикер", "lng_in_dlg_sticker_emoji": "Стикер {emoji}"})
+	for _, c := range []Catalog{For("ru"), For("en"), For("ru").WithPack(p)} {
+		_, media, _ := c.PreviewLine(model.Preview{Media: "preview.sticker", Emoji: "😀"}, "Anna", false)
+		if want := "😀 " + c.T("preview.sticker"); media != want {
+			t.Errorf("%q, want %q", media, want)
+		}
+	}
 }

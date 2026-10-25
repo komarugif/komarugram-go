@@ -68,7 +68,7 @@ func TestPersistsAndNotifies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Global{WindowBlur: true, Theme: ThemeLight, Language: "en", LastAccountID: "account-b", MotionMode: powersave.ModeOff, MotionSet: true, LowBattery: 25, MiniAppStorage: miniapp.PerApp, Composer: ComposerClassic, AudioVolume: 100, Player: player.VLC, VLCPath: "/opt/vlc/vlc", BrowserPath: "/opt/chromium/chrome", Ghost: Ghost{SendRead: true, SendOnline: true, SendTyping: true, ReadOnInteract: true}, Overlays: Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true, Shadow: ShadowDefault}, Keep: Keep{Deleted: true, Edits: true}, Notify: Notify{Desktop: true, Sound: true, Name: true, Text: true, Private: true, Groups: true, Channels: true, AllAccounts: true}, Look: Look{BubbleRadius: BubbleRadiusMax, AvatarCorners: AvatarRound}}
+	want := Global{WindowBlur: true, Theme: ThemeLight, Language: "en", LastAccountID: "account-b", MotionMode: powersave.ModeOff, MotionSet: true, LowBattery: 25, MiniAppStorage: miniapp.PerApp, Composer: ComposerClassic, AudioVolume: 100, Player: player.VLC, VLCPath: "/opt/vlc/vlc", BrowserPath: "/opt/chromium/chrome", Ghost: Ghost{ReadOnInteract: true}, Overlays: Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true, Shadow: ShadowDefault}, Keep: Keep{Deleted: true, Edits: true}, Notify: Notify{Desktop: true, Sound: true, Name: true, Text: true, Private: true, Groups: true, Channels: true, AllAccounts: true}, Look: Look{BubbleRadius: BubbleRadiusMax, AvatarCorners: AvatarRound}}
 	if got := loaded.Global(); !got.Equal(want) {
 		t.Fatalf("loaded %+v, want %+v", got, want)
 	}
@@ -174,18 +174,42 @@ func TestGhostDefaultsToTelling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g := s.Global().Ghost; !g.SendRead || !g.SendOnline || !g.SendTyping {
-		t.Fatalf("by default %+v, want everything told", g)
+	if told := s.Global().Ghost.Tells(); told != (Told{true, true, true, true, true, true, true}) {
+		t.Fatalf("by default %+v, want everything told", s.Global().Ghost)
 	}
-	if err := s.SetGhost(Ghost{ReadOnInteract: true}); err != nil {
+	if err := s.SetGhost(Ghost{On: true, KeepTyping: true}); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := OpenPath(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g := loaded.Global().Ghost; g.SendRead || g.SendOnline || g.SendTyping || !g.ReadOnInteract {
+	if g := loaded.Global().Ghost; g != (Ghost{On: true, KeepTyping: true}) {
 		t.Fatalf("Ghost Mode came back as %+v", g)
+	}
+}
+
+// Settings saved when Ghost Mode was switches of what to tell keep what
+// they hid.
+func TestGhostFromSwitchesOfTelling(t *testing.T) {
+	for _, c := range []struct {
+		saved string
+		want  Ghost
+	}{
+		{`{"send_read":true,"send_online":true,"send_typing":true,"read_on_interact":true}`, Ghost{ReadOnInteract: true}},
+		{`{"send_read":false,"send_online":true,"send_typing":false,"read_on_interact":false}`, Ghost{On: true, KeepOnline: true}},
+		{`{"on":true,"keep_online":true,"read_on_interact":true}`, Ghost{On: true, KeepOnline: true, ReadOnInteract: true}},
+	} {
+		var g Ghost
+		if err := json.Unmarshal([]byte(c.saved), &g); err != nil {
+			t.Fatal(err)
+		}
+		if g != c.want {
+			t.Errorf("%s: %+v, want %+v", c.saved, g, c.want)
+		}
+		if told := g.Tells(); told.Read != (c.want.KeepRead || !c.want.On) || told.Stories != !c.want.On {
+			t.Errorf("%s: told %+v", c.saved, told)
+		}
 	}
 }
 

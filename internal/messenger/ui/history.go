@@ -133,6 +133,12 @@ type messageRow struct {
 	alone bool
 }
 type chatPage struct {
+	// act is what others do in the chat now, drawn in the header in place
+	// of its status; animated is whether the page animated last frame,
+	// which the header, drawn before it, moves its mark by.
+	act      activityLine
+	animated bool
+
 	shortcuts  shortcutPreferences
 	menus      menuPreferences
 	membership membershipControl
@@ -286,9 +292,16 @@ type chatPage struct {
 	// of this page's, in place of the chat's history: the section of the
 	// info that is open.
 	audioList func() []model.Message
+	// videoTimeOnly marks a page of videos alone, as the info's section of
+	// them: the plate of a video tells its time, not that it is one.
+	videoTimeOnly bool
 	// openPhoto shows a photo in the viewer; nil leaves photos inline.
 	openPhoto func(model.Message)
 	openAlone func(model.Message)
+	// openStory opens the story a message of the chat carries, among the
+	// others the history does; openStoryOf, a story a message replies to.
+	openStory   func(model.Message)
+	openStoryOf func(model.StoryRef)
 	// openGIF opens a GIF in the viewer, among the chat's GIFs.
 	openGIF func(model.Message)
 	// openArticle shows the whole of rich message m, at its anchor
@@ -522,6 +535,7 @@ func (p *chatPage) save(force bool) {
 // Layout draws the bar of what plays, if anything does, the chat's pinned
 // bar, if it has pinned messages, and its history under them.
 func (p *chatPage) Layout(gtx layout.Context, c model.Chat, l localization.Catalog, animate bool) layout.Dimensions {
+	p.animated = animate
 	if p.composer != nil {
 		free := gtx.Focused(nil) || gtx.Focused(&p.keyboard) && !p.holdsKeyboard()
 		p.composer.takeKeyboard(gtx, c.ID, free)

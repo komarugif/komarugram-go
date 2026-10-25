@@ -31,12 +31,18 @@ type peerRecord struct {
 	ID, Hash int64
 	Kind     string
 	Name     string
-	Photo    *avatarRecord
+	// First is a user's first name, which an action in a group is told
+	// with; Name where there is none.
+	First string `json:",omitempty"`
+	Photo *avatarRecord
 	// Rights is what the account may do in a group or channel.
 	Rights   peerRights   `json:",omitempty"`
 	Metadata peerMetadata `json:",omitempty"`
 	// Username is a public channel's or supergroup's, for links.
 	Username string `json:",omitempty"`
+	// StoriesHidden: the account moved the peer's stories to the archive,
+	// out of the list over the chats.
+	StoriesHidden bool `json:",omitempty"`
 }
 
 // peerRights are what MessageRights and CanSend need of a peer.
@@ -211,6 +217,16 @@ func (s *Store) Configure(ctx context.Context, account, path string, p *security
 	if _, e = cache.Get(ctx, "dialog-entries", &entries); e != nil {
 		return e
 	}
+	var stories keptStoryState
+	if _, e = cache.Get(ctx, storiesKey, &stories); e != nil {
+		return e
+	}
+	s.stories.mu.Lock()
+	if s.stories.peers == nil {
+		s.stories.state, s.stories.peers = stories.State, stories.Peers
+		s.stories.changedLocked()
+	}
+	s.stories.mu.Unlock()
 	s.recent.mu.Lock()
 	s.recent.list = recent
 	s.recent.mu.Unlock()
@@ -384,6 +400,10 @@ func (s *Store) rememberPeers(users []tg.UserClass, chats []tg.ChatClass) {
 				s.setPresence(u.ID, u.Status)
 			}
 			p := c.peers[key]
+			p.First = strings.TrimSpace(u.FirstName)
+			if !u.Min {
+				p.StoriesHidden = u.StoriesHidden
+			}
 			if photo, ok := u.Photo.(*tg.UserProfilePhoto); ok {
 				p.Photo = &avatarRecord{photo.PhotoID, photo.DCID, photo.HasVideo, photo.StrippedThumb}
 			} else if !u.Min {
@@ -415,6 +435,9 @@ func (s *Store) rememberPeers(users []tg.UserClass, chats []tg.ChatClass) {
 			}
 			p := c.peers[key]
 			p.rememberChannelMetadata(ch)
+			if !ch.Min && !ch.StoriesHiddenMin {
+				p.StoriesHidden = ch.StoriesHidden
+			}
 			if ch.Min && p.Rights.Known {
 				p.Rights.Default = bannedKinds(ch.DefaultBannedRights)
 				p.Rights.JoinToSend = ch.JoinToSend
@@ -1213,11 +1236,13 @@ func (s *Store) ingest(ctx context.Context, raw []tg.MessageClass, live bool, st
 	cache := c.cache
 	c.mu.Unlock()
 	if cache != nil {
+		keepResolvedStories(ctx, cache, msgs)
 		if e := cache.SaveMessages(ctx, msgs); e != nil {
 			return nil, e
 		}
 	}
 	sort.Slice(msgs, func(i, j int) bool { return msgs[i].Key.MessageID < msgs[j].Key.MessageID })
+	s.goResolveChatStories(msgs)
 	return msgs, nil
 }
 
@@ -1409,6 +1434,14 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			s.applyPin(u)
 		case *tg.UpdateDialogUnreadMark:
 			s.applyUnreadMark(u)
+		case *tg.UpdateDraftMessage:
+			s.applyDraft(u)
+		case *tg.UpdateStory:
+			s.applyStory(u)
+		case *tg.UpdateReadStories:
+			s.applyReadStories(u)
+		case *tg.UpdateSentStoryReaction:
+			s.applyStoryReaction(u)
 		case *tg.UpdateFolderPeers:
 			s.applyFolderPeers(u)
 		case *tg.UpdatePinnedDialogs:
@@ -1426,10 +1459,13 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 		case *tg.UpdateUserTyping:
 			peer := &tg.PeerUser{UserID: u.UserID}
 			s.applyDraftAction(peer, u.TopMsgID, peer, u.Action)
+			s.noteAction(peer, u.TopMsgID, peer, u.Action)
 		case *tg.UpdateChatUserTyping:
 			s.applyDraftAction(&tg.PeerChat{ChatID: u.ChatID}, 0, u.FromID, u.Action)
+			s.noteAction(&tg.PeerChat{ChatID: u.ChatID}, 0, u.FromID, u.Action)
 		case *tg.UpdateChannelUserTyping:
 			s.applyDraftAction(&tg.PeerChannel{ChannelID: u.ChannelID}, u.TopMsgID, u.FromID, u.Action)
+			s.noteAction(&tg.PeerChannel{ChannelID: u.ChannelID}, u.TopMsgID, u.FromID, u.Action)
 		}
 		if msg != nil {
 			if service, ok := msg.(*tg.MessageService); ok {
@@ -1450,6 +1486,14 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			for _, m := range ms {
 				if fresh {
 					s.adoptDraft(m)
+					if !m.Outgoing {
+						// Their message ends what they did to write it.
+						sender := m.SenderID
+						if sender == 0 {
+							sender = m.Key.ChatID
+						}
+						s.endActivity(m.Key.ChatID, sender)
+					}
 				}
 				if chat, isNew := s.mergeUpdate(m); fresh && isNew {
 					s.notice(m, chat, msg)
@@ -1518,7 +1562,7 @@ func (s *Store) mergeUpdate(m model.Message) (chat model.Chat, isNew bool) {
 				chats[i].Unread++
 			}
 			if !m.Date.Before(chats[i].LastTime) {
-				setPreview(&chats[i], m)
+				updatePreview(&chats[i], m)
 			}
 			chat = chats[i]
 			found = true
@@ -1610,25 +1654,17 @@ func (s *Store) replaceDeletedPreviews(ctx context.Context, tops map[int64]int) 
 	c := s.history
 	for chat, top := range tops {
 		c.mu.Lock()
-		var last *model.Message
-		if h := c.histories[chat]; h != nil && !h.HasNewer && len(h.Messages) > 0 {
-			// A message kept deleted is not the chat's last one.
-			for i := len(h.Messages) - 1; i >= 0 && last == nil; i-- {
-				if m := h.Messages[i]; !m.Deleted {
-					last = &m
-				}
-			}
+		// A message kept deleted is not the chat's last one.
+		var last []model.Message
+		if h := c.histories[chat]; h != nil && !h.HasNewer {
+			last = lastAlbum(h.Messages)
 		}
 		cache, api, peer, start := c.cache, c.api, c.peers[chat], c.generation
 		c.mu.Unlock()
 		exact := last != nil
 		if last == nil && cache != nil {
 			if ms, e := cache.Page(ctx, chat, top, -1, 20); e == nil {
-				for i := len(ms) - 1; i >= 0 && last == nil; i-- {
-					if !ms[i].Deleted {
-						last = &ms[i]
-					}
-				}
+				last = lastAlbum(ms)
 			}
 		}
 		top = s.replacePreview(chat, top, last)
@@ -1658,21 +1694,18 @@ func (s *Store) replaceDeletedPreviews(ctx context.Context, tops map[int64]int) 
 			if e != nil {
 				return
 			}
-			var last *model.Message
-			if len(msgs) > 0 {
-				last = &msgs[len(msgs)-1]
-			}
-			s.replacePreview(chat, top, last)
+			s.replacePreview(chat, top, lastAlbum(msgs))
 			s.changed()
 			s.persistDialogs(ctx)
 		})
 	}
 }
 
-// replacePreview sets the chat's last message to m, or clears the preview
-// when m is nil. It does nothing when a message newer than top has arrived
-// in the meantime, and returns the chat's top message ID.
-func (s *Store) replacePreview(chat int64, top int, m *model.Message) int {
+// replacePreview sets the chat's last message to the last of items, the
+// messages of its album with it, or clears the preview when there are
+// none. It does nothing when a message newer than top has arrived in the
+// meantime, and returns the chat's top message ID.
+func (s *Store) replacePreview(chat int64, top int, items []model.Message) int {
 	c := s.history
 	c.mu.Lock()
 	if c.top[chat] != top {
@@ -1680,8 +1713,8 @@ func (s *Store) replacePreview(chat int64, top int, m *model.Message) int {
 		c.mu.Unlock()
 		return top
 	}
-	if m != nil {
-		top = int(m.Key.MessageID)
+	if len(items) > 0 {
+		top = int(items[len(items)-1].Key.MessageID)
 		c.top[chat] = top
 	}
 	c.mu.Unlock()
@@ -1692,8 +1725,8 @@ func (s *Store) replacePreview(chat int64, top int, m *model.Message) int {
 		if chats[i].ID != chat {
 			continue
 		}
-		if m != nil {
-			setPreview(&chats[i], *m)
+		if len(items) > 0 {
+			chats[i].Last, chats[i].LastTime = albumPreview(items, chats[i].Kind == model.KindGroup), items[len(items)-1].Date
 		} else {
 			// The time keeps the chat's place in the list.
 			chats[i].Last = model.Preview{}
@@ -1716,7 +1749,7 @@ func cachedDialogs(ctx context.Context, cache *historycache.Cache) ([]model.Chat
 	}
 	var chats []model.Chat
 	for _, c := range kept {
-		if c.Last == (model.Preview{}) && c.LastMessage != "" {
+		if c.Last.IsZero() && c.LastMessage != "" {
 			c.Last = model.Preview{Text: c.LastMessage, Sender: c.LastSender}
 		}
 		chats = append(chats, c.Chat)
@@ -1734,11 +1767,16 @@ func setPreview(chat *model.Chat, m model.Message) {
 func messagePreview(m model.Message, group bool) model.Preview {
 	if m.Kind == model.MessageService {
 		if m.Service == nil {
-			return model.Preview{Media: "preview.service"}
+			return model.Preview{Media: "preview.service", ID: m.Key.MessageID}
 		}
-		return model.Preview{Service: &m}
+		return model.Preview{Service: &m, ID: m.Key.MessageID}
 	}
-	p := model.Preview{Text: strings.Join(strings.Fields(m.Text), " "), Media: messageKindKey(m), ID: m.Key.MessageID, Sent: m.Outgoing}
+	p := model.Preview{Media: messageKindKey(m), ID: m.Key.MessageID, Sent: m.Outgoing, Forwarded: !m.ForwardDate.IsZero()}
+	if m.Kind == model.MessageSticker && m.Media != nil {
+		// "😀 Sticker", as Telegram Desktop's list words it.
+		p.Emoji = m.Media.Emoji
+	}
+	previewContent(&p, m)
 	if group {
 		p.Sender, p.Outgoing = m.SenderName, m.Outgoing
 		if m.Outgoing {
@@ -1749,6 +1787,13 @@ func messagePreview(m model.Message, group bool) model.Preview {
 }
 
 func messageKindKey(m model.Message) string {
+	if m.StoryOf != nil {
+		// As Telegram Desktop's MediaStory: the word, and no thumbnail.
+		if m.StoryOf.Expired {
+			return "preview.story_expired"
+		}
+		return "preview.story"
+	}
 	if m.Rich != nil && strings.TrimSpace(m.Text) == "" {
 		return richFallbackKey(*m.Rich)
 	}

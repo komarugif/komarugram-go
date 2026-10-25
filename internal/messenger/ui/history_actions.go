@@ -9,17 +9,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strings"
 	"time"
 
 	"gio-mw/token"
-	"gio-mw/widget/scroll"
 
 	"gioui.org/gpu/headless"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
-	"gioui.org/widget"
 
 	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
@@ -174,24 +171,6 @@ func (p *chatPage) selectionHeader(gtx layout.Context, l localization.Catalog) l
 	return layout.Dimensions{Size: size}
 }
 
-// forwardPicker is the dialog that picks the chat to forward messages to.
-type forwardPicker struct {
-	modal   modal
-	search  widget.Editor
-	list    scroll.List
-	rows    map[int64]*surface
-	cancel  surface
-	busy    bool
-	results chan error
-	from    int64
-	ids     []model.MessageID
-	target  model.Chat
-	loader  loadingIndicator
-	// selection is set when the selected messages are forwarded, which
-	// are unselected once they are.
-	selection bool
-}
-
 func (p *chatPage) openForward(gtx layout.Context) {
 	p.openForwardParts(gtx, p.selectedParts(), true)
 }
@@ -212,16 +191,7 @@ func (p *chatPage) openForwardParts(gtx layout.Context, parts []model.Message, s
 		return
 	}
 	f.from = p.chat
-	f.search.SingleLine = true
-	f.search.SetText("")
-	f.list = scroll.List{List: layout.List{Axis: layout.Vertical}}
-	if f.rows == nil {
-		f.rows = map[int64]*surface{}
-	}
-	// The search takes the keyboard from the message field.
-	f.modal.field = &f.search
-	f.modal.Open()
-	gtx.Execute(op.InvalidateCmd{})
+	f.open(gtx)
 }
 
 // forwardTargets are the chats messages may be forwarded to, matching the
@@ -231,168 +201,44 @@ func (p *chatPage) forwardTargets(l localization.Catalog) []model.Chat {
 		return nil
 	}
 	rights, _ := p.source.(model.RightsSource)
-	query := strings.ToLower(strings.TrimSpace(p.forwarding.search.Text()))
-	var saved, out []model.Chat
-	for _, c := range p.chats() {
-		if rights != nil && !rights.CanSend(c.ID) {
-			continue
-		}
-		if query != "" && !strings.Contains(strings.ToLower(l.ChatTitle(c)), query) {
-			continue
-		}
-		if c.Kind == model.KindSaved {
-			saved = append(saved, c)
-		} else {
-			out = append(out, c)
-		}
-	}
-	return append(saved, out...)
+	return p.forwarding.targets(p.chats(), rights, l)
 }
 
 // updateForward takes the result of a forward.
 func (p *chatPage) updateForward(l localization.Catalog) {
 	f := &p.forwarding
-	if f.results == nil {
-		return
-	}
-	select {
-	case err := <-f.results:
-		f.busy, f.results = false, nil
-		if err != nil {
-			f.modal.Toast(l.T("history.forward_failed") + ": " + mediaErrorText(err))
+	if err, done := f.result(l); done && err == nil {
+		if f.from == p.chat && f.selection {
+			p.clearSelection()
 		}
-		if err == nil {
-			f.modal.Close()
-			if f.from == p.chat && f.selection {
-				p.clearSelection()
-			}
-			p.toast.Show(l.Format("history.forwarded", map[string]string{"chat": l.ChatTitle(f.target)}))
-		}
-	default:
+		p.toast.Show(l.Format("history.forwarded", map[string]string{"chat": l.ChatTitle(f.target)}))
 	}
 }
 
 func (p *chatPage) forward(target model.Chat) {
 	f := &p.forwarding
 	source, ok := p.source.(model.MessageForwarder)
-	if !ok || f.busy {
+	if !ok {
 		return
 	}
-	f.busy, f.target = true, target
-	f.results = make(chan error, 1)
-	results, from, ids := f.results, f.from, append([]model.MessageID(nil), f.ids...)
+	from, ids := f.from, append([]model.MessageID(nil), f.ids...)
 	ctx := context.Background()
 	if p.composer != nil {
 		ctx = p.composer.ctx
 	}
-	go func() {
-		defer crash.Recover("forward", func(e *crash.Panic) { results <- e; p.invalidate() })
-		ctx, cancel := context.WithTimeout(ctx, time.Minute)
-		defer cancel()
-		results <- source.ForwardMessages(ctx, from, ids, target.ID)
-		p.invalidate()
-	}()
+	f.send(ctx, target, func(ctx context.Context, to int64) error {
+		return source.ForwardMessages(ctx, from, ids, to)
+	}, p.invalidate)
 }
 
 // forwardDialog draws the picker when it is open.
 func (p *chatPage) forwardDialog(gtx layout.Context, l localization.Catalog) {
-	f := &p.forwarding
-	if !f.modal.Shown() {
+	if !p.forwarding.modal.Shown() {
 		return
 	}
-	targets := p.forwardTargets(l)
-	if !f.busy {
-		if f.cancel.Clicked(gtx) {
-			f.modal.Close()
-		}
-		for _, c := range targets {
-			if r := f.rows[c.ID]; r != nil && r.Clicked(gtx) {
-				p.forward(c)
-			}
-		}
+	if c, ok := p.forwarding.layout(gtx, l, p.forwardTargets(l), p.avatar); ok {
+		p.forward(c)
 	}
-	sc := scheme(gtx)
-	f.modal.Layout(gtx, f.busy, func(gtx layout.Context) layout.Dimensions {
-		width := min(gtx.Constraints.Max.X, gtx.Dp(420))
-		height := min(gtx.Constraints.Max.Y-gtx.Dp(48), gtx.Dp(560))
-		gtx.Constraints = layout.Exact(image.Pt(width, max(height, 0)))
-		return f.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min = gtx.Constraints.Max
-			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, l.T("history.forward_to"), token.TypestyleTitleMedium, sc.Surface.OnColor, 1)
-				}),
-				vspace(12),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(40))
-					fillRounded(gtx, sc.SurfaceContainerHigh, size, gtx.Dp(20))
-					return layout.Inset{Top: 10, Bottom: 8, Left: 16, Right: 16}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return flatEditor(gtx, &f.search, l.T("chat.search"))
-					})
-				}),
-				vspace(8),
-				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					if f.busy {
-						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return f.loader.sized(gtx, l, 32)
-						})
-					}
-					if len(targets) == 0 {
-						return layout.N.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return layout.Inset{Top: 24}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								return label(gtx, l.T("chat.not_found"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 1)
-							})
-						})
-					}
-					return f.list.Layout(gtx, len(targets), func(gtx layout.Context, i int) layout.Dimensions {
-						return p.forwardRow(gtx, targets[i], l)
-					})
-				}),
-				vspace(8),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return layout.E.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						if f.busy {
-							gtx = gtx.Disabled()
-						}
-						return textButton(gtx, &f.cancel, l.T("history.cancel"))
-					})
-				}),
-			)
-		}, defaultCardPadding)
-	})
-}
-
-// forwardRow draws a chat of the picker: its avatar and title.
-func (p *chatPage) forwardRow(gtx layout.Context, c model.Chat, l localization.Catalog) layout.Dimensions {
-	f := &p.forwarding
-	r := f.rows[c.ID]
-	if r == nil {
-		r = new(surface)
-		f.rows[c.ID] = r
-	}
-	sc := scheme(gtx)
-	size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(52))
-	style := surfaceStyle{radius: gtx.Dp(10), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor}
-	return r.Layout(gtx, size, style, func(gtx layout.Context) layout.Dimensions {
-		avatarPx := gtx.Dp(40)
-		offset(gtx, image.Pt(gtx.Dp(6), (size.Y-avatarPx)/2), func(gtx layout.Context) layout.Dimensions {
-			if p.avatar != nil {
-				return p.avatar(gtx, c.ID, c.Kind, l.ChatTitle(c), 40)
-			}
-			return avatar(gtx, c.ID, c.Kind, l.ChatTitle(c), 40)
-		})
-		textX := gtx.Dp(6) + avatarPx + gtx.Dp(12)
-		text := gtx
-		text.Constraints = layout.Constraints{Max: image.Pt(max(size.X-textX-gtx.Dp(6), 0), size.Y)}
-		macro := op.Record(gtx.Ops)
-		dims := label(text, l.ChatTitle(c), token.TypestyleBodyLarge, sc.Surface.OnColor, 1)
-		call := macro.Stop()
-		offset(gtx, image.Pt(textX, (size.Y-dims.Size.Y)/2), func(gtx layout.Context) layout.Dimensions {
-			call.Add(gtx.Ops)
-			return dims
-		})
-		return layout.Dimensions{Size: size}
-	})
 }
 
 // snapshotMaxHeight bounds a snapshot to what a GPU texture holds.

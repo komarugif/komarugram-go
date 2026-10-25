@@ -38,6 +38,9 @@ const (
 	// ServiceInviteToGroupCall: Peers were invited to the video chat.
 	ServiceInviteToGroupCall ServiceKind = "invite_to_group_call"
 	ServiceScreenshot        ServiceKind = "screenshot"
+	// ServiceStoryMention is a story the account was mentioned in, or one
+	// it mentioned the chat's user in: see Message.StoryOf.
+	ServiceStoryMention ServiceKind = "story_mention"
 	// ServiceCustom shows Title as it is.
 	ServiceCustom        ServiceKind = "custom"
 	ServiceContactSignUp ServiceKind = "contact_sign_up"

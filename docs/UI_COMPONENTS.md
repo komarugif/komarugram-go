@@ -276,6 +276,64 @@ size-stability fixes remain in place.
 - **Chat list rows** (`chatlist.go`): `layoutRowWith` draws any row that looks
   like a chat (avatar, title, time, line, counter) with a `surface` of the
   caller's; search results reuse it for found messages.
+- **Last message line** (`chatlist_preview.go`): `previewLine` draws a chat's
+  or a topic's last message as Telegram Desktop's list does: the sender, the
+  arrow of a forward, up to three thumbnails (a video's with a play mark, a
+  video message's round, one under a spoiler only blurred), the interface's
+  words in the accent colour, and the text with italic, underline, strike,
+  code, covered spoilers and custom emoji, which play twice and stand. It
+  is made from `model.Preview` once a message, each run a label of its own,
+  so a frame of the list allocates no more than plain text did; its
+  thumbnails are Telegram's inline pictures, which come with the message:
+  only media without one is downloaded, by `previewMedia`
+  (`chatmedia.NewPreviews`), and a thumbnail that failed is asked again
+  only after a wait that doubles. `CHAT_PREVIEW_PNG` draws both beside
+  each other (`-files`, `-2x-files`).
+  A chat's draft takes the message's place, its mark in the error colour,
+  unless messages are unread, and what someone does in the chat now takes
+  both's (`activityLine`, `activity.go`): a mark stepping a few times a
+  second, dots or a swelling dot for a recording, and the words, in the
+  accent; the chat's header shows it in place of the status.
+  `CHAT_PREVIEW_PNG` saves a list of every kind, light, dark and narrow.
+- **Row of stories** (`stories_row.go`): `storiesRow` is the first row of
+  all chats, as Telegram Desktop's `Dialogs::Stories::List`: who has
+  stories now (`model.StorySource`), each an avatar in a ring of a
+  segment a story, the unread ones thick in the accent's gradient and the
+  seen ones thin and dim, the name under it. It scrolls sideways, and a
+  mouse drags it (`dragOnlyHorizontalStrip`, which leaves the wheel to the
+  list), and goes up with the chats rather than staying over them; the
+  chats in view stay where they are as it comes or goes. A click opens
+  the stories in the media viewer (`mediaViewer.OpenStories`), from the
+  first unread: the stories of the whole row are one gallery, each one's
+  oldest first, the arrows and the strip going on from one's to the
+  next one's (`viewer_stories.go`, which keys them apart and asks for a
+  neighbour's as the strip nears it); each shown is told seen, as Ghost
+  Mode allows. `CHAT_PREVIEW_PNG` draws
+  it, `VIEWER_STORIES` the viewer on them.
+- **Stories in a chat** (`model.StoryRef`): a message carrying a story is
+  a photo or a video headed "Story from …", as Telegram Desktop's
+  `MediaStory`, one gone or not told yet a line saying so; a mention in
+  a story is a service line, a reply to one a quote of it. A click on one
+  opens the stories the history carries in the media viewer
+  (`mediaViewer.OpenChatStories`), paged from the history's cache
+  (`model.ChatStoryGallery`), not the profile's; a reply's opens the story
+  alone (`OpenStory`). The store asks for those Telegram left out of the
+  messages once, a peer's together (`tgstore/chat_stories.go`).
+- **Held preview** (`hold_preview.go`): an emoji, a sticker or a GIF of the
+  composer's panel or of the box of a set, held half a second, shows large
+  over the whole window on the viewer's backdrop, as Telegram Desktop's
+  MediaPreviewWidget; moved over the grid with the button held, it shows
+  the item under the pointer, and the release closes it and chooses
+  nothing. It takes no pointer: a pass-through area over the grid reads
+  it, and the grid tells its rows' heights and its items' places, Gio
+  telling no item of the pointer over it while the button is held on
+  another. A grid that uses it calls `Update`, `row`, `tile` and `area`.
+- **Forwarding** (`forward_picker.go`): `forwardPicker` is the dialog that
+  picks the chat to forward to, Saved Messages first, with a search:
+  the history's selected messages and its message menu use it, and so does
+  the media viewer, whose button beside copy forwards what it shows, a
+  message or a story (`viewer_share.go`), unless it protects its content;
+  a story has its heart there too, red once put, with how many put theirs.
 - **Devices** (`sessions.go`): the settings section of the account's
   sessions, grouped as Telegram Desktop's Active Sessions, with a dialog of a
   session's details; it asks again every minute while it is open.
@@ -690,7 +748,7 @@ new piece sits next to its neighbours.
   and emoji pack states; `TestRenderMessageMenu`, the message menu over a
   reply, with a floating and a classic composer. They are skipped unless their
   variable (`COMPOSER_PNG`, `COMPOSER_MOTION_PNG`, `SETTINGS_PNG`,
-  `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
+  `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `CHAT_PREVIEW_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
   first dialog exists. `COMPOSER_VIEW=emoji-search`, the picker's emoji found for a word;
   `COMPOSER_VIEW=featured-stickers` or `featured-emoji`
   with `COMPOSER_PNG` shows the picker's recommendations; `COMPOSER_VIEW=voice`,

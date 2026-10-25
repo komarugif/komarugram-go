@@ -51,6 +51,8 @@ type messageDraft struct {
 	editing  *model.Message
 	editKind model.ChatKind
 	before   *draftBefore
+	// cloud is when the chat's draft the field took was saved.
+	cloud time.Time
 }
 type composerResult struct {
 	chat    int64
@@ -153,6 +155,8 @@ type messageComposer struct {
 	loader             loadingIndicator
 	strip              layout.List
 	hover              hoverPlay
+	// preview shows an item of the picker held large.
+	preview holdPreview
 	// pickerDrawn is whether the picker was drawn in the last frame.
 	pickerDrawn bool
 	stripDrag   stripDrag
@@ -450,7 +454,22 @@ func (c *messageComposer) textChanged(d *messageDraft) {
 	d.pending = nil
 	d.err = nil
 	if g, ok := c.source.(model.GhostStore); ok && strings.TrimSpace(next) != "" {
-		g.Typing(c.chat)
+		g.SendAction(c.chat, model.ActionTyping)
+	}
+}
+
+// tellAction tells chat what the account does in the composer, as Telegram
+// Desktop does: records a voice message, or chooses a sticker in the
+// picker; typing is told as the text changes. The store tells it again
+// only every few seconds, and only as far as Ghost Mode allows.
+func (c *messageComposer) tellAction(chat int64) {
+	g, ok := c.source.(model.GhostStore)
+	switch {
+	case !ok:
+	case c.recording != nil:
+		g.SendAction(c.recording.chat, model.ActionRecordVoice)
+	case c.pickerOpen && c.tab == model.PickerStickers:
+		g.SendAction(chat, model.ActionChooseSticker)
 	}
 }
 
@@ -492,6 +511,8 @@ func (c *messageComposer) takeKeyboard(gtx layout.Context, chat int64, free bool
 
 func (c *messageComposer) update(gtx layout.Context, chat int64, l localization.Catalog, p *chatPage) {
 	if c.chat != chat {
+		c.keepDraft(c.chat)
+		c.takeDraft(chat)
 		c.cancelFeatured()
 		c.chat = chat
 		c.nextRights = time.Time{}
@@ -980,6 +1001,7 @@ func composerFill(gtx layout.Context, classic bool, backdrop *blurBackdrop, size
 // backdrop, the history behind it, blurred; nil draws it opaque.
 func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.Catalog, p *chatPage, animate bool, backdrop *blurBackdrop) layout.Dimensions {
 	c.update(gtx, chat, l, p)
+	c.tellAction(chat)
 	size := gtx.Constraints.Max
 	pad := min(gtx.Dp(16), size.X/8)
 	classic := p.classicComposer()

@@ -108,7 +108,8 @@ func (c *Cache) open() error {
  DROP INDEX IF EXISTS photos;
  DELETE FROM kv WHERE key >= 'language/' AND key < 'language0';
  CREATE INDEX IF NOT EXISTS photo_videos ON messages(chat,id) WHERE ` + photoWhere + `;
- CREATE INDEX IF NOT EXISTS gifs ON messages(chat,id) WHERE ` + gifWhere + `;`)
+ CREATE INDEX IF NOT EXISTS gifs ON messages(chat,id) WHERE ` + gifWhere + `;
+ CREATE INDEX IF NOT EXISTS chat_stories ON messages(chat,id) WHERE ` + storyWhere + `;`)
 	for _, col := range [][2]string{{"topic", "INTEGER NOT NULL DEFAULT 0"}, {"kind", "INTEGER NOT NULL DEFAULT 0"}, {"thumb", "BLOB"}} {
 		if err == nil {
 			err = c.addColumn("downloads", col[0], col[1])
@@ -650,7 +651,19 @@ const gifWhere = `json_extract(CAST(payload AS TEXT),'$.Kind')=7`
 // Photos reads a page of cached photo messages next to anchor, oldest
 // first: before it when dir is negative, after it otherwise.
 func (c *Cache) Photos(ctx context.Context, chat int64, anchor, dir, limit int) ([]model.Message, error) {
-	return c.gallery(ctx, photoWhere, chat, anchor, dir, limit)
+	// A story's photo or video is the story's, which goes through stories
+	// of its own (Stories); the index photoWhere has still serves.
+	return c.gallery(ctx, photoWhere+` AND NOT (`+storyWhere+`)`, chat, anchor, dir, limit)
+}
+
+// storyWhere selects the messages carrying a story (model.Message.StoryOf),
+// with an index of its own.
+const storyWhere = `json_extract(CAST(payload AS TEXT),'$.StoryOf') IS NOT NULL`
+
+// Stories reads a page of the cached messages carrying stories next to
+// anchor, as Photos does photos.
+func (c *Cache) Stories(ctx context.Context, chat int64, anchor, dir, limit int) ([]model.Message, error) {
+	return c.gallery(ctx, storyWhere, chat, anchor, dir, limit)
 }
 
 // GIFs reads a page of cached GIFs next to anchor, as Photos does photos.

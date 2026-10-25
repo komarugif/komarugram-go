@@ -2,6 +2,33 @@
 // its texts from when Telegram's pack for the language is loaded: only keys
 // whose placeholders the client fills as Telegram Desktop does.
 
+"action.choose_sticker" = "lng_send_action_choose_sticker";
+"action.game" = "lng_playing_game";
+"action.many_game" = "lng_many_playing_game";
+"action.many_typing" = "lng_many_typing";
+"action.record_round" = "lng_send_action_record_round";
+"action.record_video" = "lng_send_action_record_video";
+"action.record_voice" = "lng_send_action_record_audio";
+"action.typing" = "lng_typing";
+"action.upload_file" = "lng_send_action_upload_file";
+"action.upload_photo" = "lng_send_action_upload_photo";
+"action.upload_round" = "lng_send_action_upload_round";
+"action.upload_video" = "lng_send_action_upload_video";
+"action.upload_voice" = "lng_send_action_upload_audio";
+"action.user_choose_sticker" = "lng_user_action_choose_sticker";
+"action.user_game" = "lng_user_playing_game";
+"action.user_record_round" = "lng_user_action_record_round";
+"action.user_record_video" = "lng_user_action_record_video";
+"action.user_record_voice" = "lng_user_action_record_audio";
+"action.user_typing" = "lng_user_typing";
+"action.user_upload_file" = "lng_user_action_upload_file";
+"action.user_upload_photo" = "lng_user_action_upload_photo";
+"action.user_upload_round" = "lng_user_action_upload_round";
+"action.user_upload_video" = "lng_user_action_upload_video";
+"action.user_upload_voice" = "lng_user_action_upload_audio";
+"action.users_game" = "lng_users_playing_game";
+"action.users_typing" = "lng_users_typing";
+
 "audio.close" = "lng_close";
 "audio.date" = "lng_player_message_date";
 "audio.next" = "lng_shortcuts_media_next";
@@ -255,6 +282,9 @@
 "history.select_forward" = "lng_selected_forward";
 "history.selection_count" = "lng_media_selected_message";
 "history.sticker" = "lng_in_dlg_sticker";
+"history.story" = "lng_in_dlg_story";
+"history.story_expired" = "lng_forwarded_story_expired";
+"history.story_from" = "lng_forwarded_story";
 "history.video" = "lng_in_dlg_video";
 "history.voice" = "lng_in_dlg_audio";
 
@@ -355,16 +385,23 @@
 
 "preview.album" = "lng_in_dlg_album";
 "preview.audio" = "lng_in_dlg_audio_file";
+"preview.audios" = "lng_in_dlg_audio_count";
 "preview.contact" = "lng_in_dlg_contact";
+"preview.draft" = "lng_from_draft";
 "preview.file" = "lng_in_dlg_file";
+"preview.files" = "lng_in_dlg_file_count";
 "preview.location" = "lng_maps_point";
+"preview.media_count" = "lng_in_dlg_media_count";
 "preview.photo" = "lng_in_dlg_photo";
+"preview.photos" = "lng_in_dlg_photo_count";
 "preview.poll" = "lng_in_dlg_poll";
 "preview.round" = "lng_in_dlg_video_message";
 "preview.sticker" = "lng_in_dlg_sticker";
-"preview.sticker_emoji" = "lng_in_dlg_sticker_emoji";
+"preview.story" = "lng_in_dlg_story";
+"preview.story_expired" = "lng_in_dlg_story_expired";
 "preview.table" = "lng_in_dlg_table";
 "preview.video" = "lng_in_dlg_video";
+"preview.videos" = "lng_in_dlg_video_count";
 "preview.voice" = "lng_in_dlg_audio";
 
 "reacted.title" = "lng_manage_peer_reactions";
@@ -508,6 +545,10 @@
 "service.set_wallpaper" = "lng_action_set_wallpaper";
 "service.set_wallpaper_both_me" = "lng_action_set_wallpaper_both_me";
 "service.set_wallpaper_me" = "lng_action_set_wallpaper_me";
+"service.story_mention" = "lng_action_story_mention";
+"service.story_mention_me" = "lng_action_story_mention_me";
+"service.story_mention_me_unavailable" = "lng_action_story_mention_me_unavailable";
+"service.story_mention_unavailable" = "lng_action_story_mention_unavailable";
 "service.suggested_photo" = "lng_action_suggested_photo";
 "service.suggested_photo_me" = "lng_action_suggested_photo_me";
 "service.theme_changed" = "lng_action_theme_changed";
@@ -612,6 +653,8 @@
 "stickers.emoji_count" = "lng_custom_emoji_count";
 "stickers.remove" = "lng_stickers_remove_pack_confirm";
 
+"stories.my" = "lng_stories_my_name";
+
 "text.copied" = "lng_text_copied";
 "text.copy_code" = "lng_code_block_header_copy";
 
@@ -619,6 +662,9 @@
 "translate.title" = "lng_context_translate";
 
 "viewer.close" = "lng_close";
+"viewer.file_position" = "lng_mediaview_file_n_of_amount";
 "viewer.photo" = "lng_mediaview_single_photo";
 "viewer.position" = "lng_mediaview_n_of_amount";
+"viewer.story" = "lng_in_dlg_story";
 "viewer.video" = "lng_in_dlg_video";
+"viewer.views" = "lng_stories_views";

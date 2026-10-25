@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -148,6 +149,26 @@ type mediaViewer struct {
 	// drawn is the item the last frame drew, for tests to compare with
 	// current.
 	drawn model.MessageID
+	// stories are the stories galleryStories shows; seen is the story told
+	// to it as seen last. storyRows are the peers of the row it goes
+	// through, storyLoaded the first and the last of them whose stories
+	// are in items (the last before the first for none), storyOpen the
+	// one opened: see viewer_stories.go. v.mu guards them.
+	stories     model.StorySource
+	chatStories model.ChatStoryGallery
+	// shared pages galleryShared, the section of kind sharedKind.
+	shared     model.SharedMediaSource
+	sharedKind model.SharedKind
+	// storyGone is set when the story alone is no more.
+	storyGone   bool
+	seen        model.MessageID
+	storyRows   []int64
+	storyLoaded [2]int
+	storyOpen   int
+	// alone is set for an item shown without a gallery.
+	alone bool
+	// share is what the viewer forwards: see viewer_share.go.
+	share viewerShare
 }
 
 type viewerThumbState struct {
@@ -174,11 +195,18 @@ type mediaList struct {
 	ended   [2]bool
 	gallery viewerGallery
 	offset  string
+	// shared is the section galleryShared goes through.
+	shared model.SharedKind
+	// rows, loaded and open are the row of stories galleryStories goes
+	// through: see mediaViewer.storyRows.
+	rows   []int64
+	loaded [2]int
+	open   int
 }
 
 // viewerGallery is what the viewer goes through: the photos and videos of
-// a chat, its GIFs, or the photos of its profile, as Telegram Desktop's
-// shared media of a type. Each is paged from a source of its own, and holds
+// a chat, its GIFs, the photos of its profile, as Telegram Desktop's
+// shared media of a type, or the stories someone has now. Each is paged from a source of its own, and holds
 // its own kind of media alone: a GIF opened goes on to the chat's GIFs,
 // a photo to its photos and videos.
 type viewerGallery uint8
@@ -187,7 +215,26 @@ const (
 	galleryPhotos viewerGallery = iota
 	galleryGIFs
 	galleryProfile
+	galleryStories
+	// galleryChatStories are the stories a chat's history carries, from
+	// its cache: model.ChatStoryGallery. galleryOneStory is a story alone,
+	// asked for by its id: the one a message replies to.
+	galleryChatStories
+	galleryOneStory
+	// galleryShared is a section of a chat's info, its photos or its
+	// videos alone, as Telegram Desktop's viewer goes through those of
+	// the shared media it opened from: see mediaViewer.sharedKind.
+	galleryShared
 )
+
+// before reports whether the item of a goes before b's: by their ids, the
+// stories the oldest first, whose ids are theirs below zero.
+func (g viewerGallery) before(a, b model.MessageID) bool {
+	if g == galleryStories {
+		return a > b
+	}
+	return a < b
+}
 
 // holds reports whether m is of the gallery's kind of media.
 func (g viewerGallery) holds(m model.Message) bool {
@@ -196,6 +243,15 @@ func (g viewerGallery) holds(m model.Message) bool {
 	}
 	if g == galleryGIFs {
 		return m.Kind == model.MessageGIF
+	}
+	if g == galleryShared {
+		// Filtered by the section's kind in mediaViewer.holds.
+		return m.StoryOf == nil && (m.Kind == model.MessagePhoto || m.Kind == model.MessageVideo)
+	}
+	if (m.StoryOf != nil) != (g == galleryChatStories) {
+		// A story of the history is not among its photos, and the
+		// stories hold nothing else.
+		return false
 	}
 	return m.Kind == model.MessagePhoto || m.Kind == model.MessageVideo
 }
@@ -207,6 +263,12 @@ func (v *mediaViewer) pages(g viewerGallery) bool {
 		return v.gifs != nil
 	case galleryProfile:
 		return v.profiles != nil
+	case galleryStories, galleryOneStory:
+		return v.stories != nil
+	case galleryChatStories:
+		return v.chatStories != nil
+	case galleryShared:
+		return v.shared != nil
 	}
 	return v.photos != nil
 }
@@ -217,6 +279,11 @@ func newMediaViewer(source model.ConversationStore, images *imageOps, invalidate
 	v.photos, _ = source.(model.PhotoGallery)
 	v.gifs, _ = source.(model.GIFGallery)
 	v.profiles, _ = source.(model.ProfilePhotoSource)
+	v.stories, _ = source.(model.StorySource)
+	v.chatStories, _ = source.(model.ChatStoryGallery)
+	v.shared, _ = source.(model.SharedMediaSource)
+	v.share.forwarder, _ = source.(model.MessageForwarder)
+	v.share.rights, _ = source.(model.RightsSource)
 	v.full = chatmedia.NewSized(source, invalidate, viewerFullLimit, 4096)
 	v.mid = chatmedia.NewSized(source, invalidate, 3, 1024)
 	v.thumbs = chatmedia.NewSized(source, invalidate, 96, 256)
@@ -256,26 +323,41 @@ func (v *mediaViewer) openList(chat int64, m model.Message, list mediaList) {
 			v.cancel()
 		}
 		v.session++
-		v.items = mergeMedia(list.gallery, nil, list.items)
-		if indexOf(v.items, m.Key.MessageID) < 0 {
+		v.sharedKind = list.shared
+		v.items = v.sharedOnly(mergeMedia(list.gallery, nil, list.items))
+		// Stories open before Telegram has told them: m is the one to show.
+		if m.Media != nil && !slices.ContainsFunc(v.items, func(o model.Message) bool { return o.Key.MessageID == m.Key.MessageID }) {
 			v.items = append(v.items, m)
-			sort.Slice(v.items, func(i, j int) bool { return v.items[i].Key.MessageID < v.items[j].Key.MessageID })
+			sort.Slice(v.items, func(i, j int) bool { return list.gallery.before(v.items[i].Key.MessageID, v.items[j].Key.MessageID) })
 		}
 		v.total, v.ended, v.gallery, v.offset = list.total, list.ended, list.gallery, list.offset
+		v.storyRows, v.storyLoaded, v.storyOpen = list.rows, list.loaded, list.open
 		pageless := !v.pages(v.gallery)
-		if v.gallery == galleryProfile {
+		switch v.gallery {
+		case galleryProfile:
 			// The photos of a profile start at the one it shows now.
 			v.ended[0] = true
-		} else {
+		case galleryStories:
+			// Paged by the peers of the row.
+		case galleryOneStory:
+			// Asked for once.
+			v.ended[0] = true
+		case galleryShared:
+			// A section is read from its latest: none is newer than
+			// those it has.
+			v.ended[1] = true
+		default:
 			// A message not sent yet is in no gallery.
 			pageless = pageless || m.Key.MessageID < 0
 		}
 		v.loading, v.exhausted = [2]bool{}, [2]bool{pageless || v.ended[0], pageless || v.ended[1]}
 		v.ctx, v.cancel = context.WithCancel(context.Background())
 		ctx, session = v.ctx, v.session
-		first, last = v.items[0].Key.MessageID, v.items[len(v.items)-1].Key.MessageID
+		if len(v.items) > 0 {
+			first, last = v.items[0].Key.MessageID, v.items[len(v.items)-1].Key.MessageID
+		}
 	}()
-	v.open, v.focus, v.center = true, true, true
+	v.open, v.focus, v.center, v.alone, v.seen, v.storyGone = true, true, true, false, 0, false
 	v.zoom.reset()
 	v.chat, v.current = chat, m.Key.MessageID
 	v.strip.Position = layout.Position{}
@@ -303,6 +385,7 @@ func (v *mediaViewer) OpenVideo(chat int64, m model.Message, known []model.Messa
 // OpenAlone shows m without a gallery, as a GIF is.
 func (v *mediaViewer) OpenAlone(chat int64, m model.Message) {
 	v.openList(chat, m, mediaList{ended: [2]bool{true, true}})
+	v.alone = true
 }
 
 // OpenProfile shows the photos of chat's profile, the one it shows now
@@ -366,8 +449,17 @@ func (v *mediaViewer) fetch(ctx context.Context, session, dir int, anchor model.
 		v.mu.Unlock()
 		return
 	}
+	row, peer := 0, int64(0)
+	if v.gallery == galleryStories {
+		var ok bool
+		if row, ok = v.nextStoryRowLocked(dir); !ok {
+			v.mu.Unlock()
+			return
+		}
+		peer = v.storyRows[row]
+	}
 	v.loading[side] = true
-	chat, gallery, offset := v.chat, v.gallery, v.offset
+	chat, gallery, offset, one, sharedKind := v.chat, v.gallery, v.offset, v.current, v.sharedKind
 	v.mu.Unlock()
 	go func() {
 		defer crash.Recover("photo gallery", func(*crash.Panic) {
@@ -384,6 +476,22 @@ func (v *mediaViewer) fetch(ctx context.Context, session, dir int, anchor model.
 			page, err = v.profiles.ProfilePhotos(ctx, chat, offset, viewerPage)
 		case galleryGIFs:
 			page, err = v.gifs.ChatGIFs(ctx, chat, anchor, dir, viewerPage)
+		case galleryStories:
+			// All the peer's, those known at least when Telegram cannot be
+			// asked.
+			page.Messages, err = v.stories.PeerStories(ctx, peer)
+		case galleryChatStories:
+			page, err = v.chatStories.ChatStories(ctx, chat, anchor, dir, viewerPage)
+		case galleryShared:
+			var shared model.SharedPage
+			shared, err = v.shared.SharedMedia(ctx, chat, sharedKind, anchor, viewerPage)
+			page = model.GalleryPage{Messages: shared.Messages, Total: shared.Total, More: shared.More}
+		case galleryOneStory:
+			var m model.Message
+			m, err = v.stories.Story(ctx, chat, one)
+			if err == nil {
+				page.Messages = []model.Message{m}
+			}
 		default:
 			page, err = v.photos.ChatPhotos(ctx, chat, anchor, dir, viewerPage)
 		}
@@ -394,6 +502,16 @@ func (v *mediaViewer) fetch(ctx context.Context, session, dir int, anchor model.
 			return
 		}
 		v.loading[side] = false
+		if gallery == galleryStories {
+			v.takeStoriesLocked(row, page.Messages)
+			return
+		}
+		if gallery == galleryOneStory {
+			v.ended, v.exhausted = [2]bool{true, true}, [2]bool{true, true}
+			v.storyGone = err != nil
+			v.items = mergeMedia(gallery, v.items, page.Messages)
+			return
+		}
 		if err != nil {
 			// A failed page ends the strip there; items already known stay available.
 			v.exhausted[side] = true
@@ -405,7 +523,7 @@ func (v *mediaViewer) fetch(ctx context.Context, session, dir int, anchor model.
 			v.total = page.Total
 		}
 		v.offset = page.Next
-		v.items = mergeMedia(gallery, v.items, page.Messages)
+		v.items = v.sharedOnly(mergeMedia(gallery, v.items, page.Messages))
 	}()
 }
 
@@ -463,7 +581,7 @@ func mergeMedia(gallery viewerGallery, items, add []model.Message) []model.Messa
 			items = append(items, m)
 		}
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].Key.MessageID < items[j].Key.MessageID })
+	sort.Slice(items, func(i, j int) bool { return gallery.before(items[i].Key.MessageID, items[j].Key.MessageID) })
 	return items
 }
 
@@ -472,6 +590,11 @@ func mergeMedia(gallery viewerGallery, items, add []model.Message) []model.Messa
 // known to end at, as Telegram Desktop does. Without a total from Telegram
 // only a gallery read to both ends is counted.
 func (v *mediaViewer) place(items []model.Message, i int) (n, amount int, ok bool) {
+	if v.gallery == galleryStories {
+		// Each peer's stories come whole.
+		n, amount = storyPlace(items, i)
+		return n, amount, true
+	}
 	v.mu.Lock()
 	total, ended := v.total, v.ended
 	v.mu.Unlock()
@@ -501,7 +624,14 @@ func (v *mediaViewer) snapshot() (items []model.Message, loading, exhausted [2]b
 }
 
 func indexOf(items []model.Message, id model.MessageID) int {
-	i := sort.Search(len(items), func(i int) bool { return items[i].Key.MessageID >= id })
+	// Stories go down from the first: see viewerGallery.before.
+	down := len(items) > 1 && items[0].Key.MessageID > items[len(items)-1].Key.MessageID
+	i := sort.Search(len(items), func(i int) bool {
+		if down {
+			return items[i].Key.MessageID <= id
+		}
+		return items[i].Key.MessageID >= id
+	})
 	return min(i, len(items)-1)
 }
 
@@ -549,6 +679,15 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 
 	items, loading, exhausted, ctx, session := v.snapshot()
 	if len(items) == 0 {
+		v.mu.Lock()
+		gone := v.storyGone
+		v.mu.Unlock()
+		if loading[0] || loading[1] || gone {
+			// Stories, opened before Telegram has told them, or a story
+			// Telegram has no more.
+			v.layoutWaiting(gtx, l, gone)
+			return
+		}
 		v.Close()
 		return
 	}
@@ -587,6 +726,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 		return
 	}
 	v.updateKept(gtx)
+	v.updateShare(gtx, items[indexOf(items, v.current)], l)
 	select {
 	case err := <-v.playErrs:
 		v.toast.Show(mediaErrorText(err))
@@ -611,7 +751,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	if v.detach.Clicked(gtx) && v.popout != nil {
 		i := indexOf(items, v.current)
 		v.mu.Lock()
-		list := mediaList{items: items, total: v.total, ended: v.ended, gallery: v.gallery, offset: v.offset}
+		list := mediaList{items: items, total: v.total, ended: v.ended, gallery: v.gallery, offset: v.offset, shared: v.sharedKind, rows: v.storyRows, loaded: v.storyLoaded, open: v.storyOpen}
 		v.mu.Unlock()
 		v.popout(v.chat, items[i], list)
 		v.Close()
@@ -621,6 +761,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	if v.since.IsZero() {
 		v.since = gtx.Now
 	}
+	v.readStory(items[i])
 	// Keep decoded only what the arrows lead to and the way back.
 	var keep []string
 	for _, j := range []int{i, i - 1, i + 1, indexOf(items, v.previous)} {
@@ -632,10 +773,14 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	}
 	v.full.Retain(keep...)
 	// Read further into the cache before the strip runs out.
-	if i < viewerPrefetch && !exhausted[0] && !loading[0] {
+	prefetch := viewerPrefetch
+	if v.gallery == galleryStories {
+		prefetch = storyPrefetch
+	}
+	if i < prefetch && !exhausted[0] && !loading[0] {
 		v.fetch(ctx, session, -1, items[0].Key.MessageID)
 	}
-	if len(items)-1-i < viewerPrefetch && !exhausted[1] && !loading[1] {
+	if len(items)-1-i < prefetch && !exhausted[1] && !loading[1] {
 		v.fetch(ctx, session, 1, items[len(items)-1].Key.MessageID)
 	}
 
@@ -679,6 +824,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 			}
 		}
 	}
+	v.layoutShare(gtx, l)
 }
 
 func (v *mediaViewer) keyEvents(gtx layout.Context, items []model.Message, i int, photo, stage image.Point) {
@@ -979,7 +1125,7 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 	bar := gtx.Dp(viewerBar)
 	white := token.NewMatColorFromHexRGB(0xffffff)
 	dim := token.NewMatColorFromHexRGB(0xb8bec8)
-	m := items[i]
+	m := v.storyNow(items[i])
 	d := gtx.Dp(40)
 	barGtx := gtx
 	barGtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X, bar))
@@ -992,17 +1138,7 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 					gtx.Constraints.Min = image.Point{}
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							title := l.T("viewer.photo")
-							switch m.Kind {
-							case model.MessageVideo:
-								title = l.T("viewer.video")
-							case model.MessageGIF:
-								title = "GIF"
-							}
-							if n, amount, ok := v.place(items, i); ok && m.Kind != model.MessageGIF {
-								title = l.Format("viewer.position", map[string]string{"n": fmt.Sprint(n), "amount": fmt.Sprint(amount)})
-							}
-							return label(gtx, title, token.TypestyleTitleSmall, white, 1)
+							return label(gtx, v.title(m, items, i, l), token.TypestyleTitleSmall, white, 1)
 						}),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							// A profile photo known only locally has no date yet.
@@ -1013,9 +1149,29 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 								}
 								txt += m.Date.Local().Format("02.01.2006 15:04")
 							}
+							if v.isStory(m) && m.Views > 0 {
+								// Who saw it, as a story tells.
+								txt += " · " + l.Count("viewer.views", m.Views, nil)
+							}
 							return label(gtx, txt, token.TypestyleLabelMedium, dim, 1)
 						}),
 					)
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if m.Story == nil || v.stories == nil || v.gallery != galleryStories {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return layoutLike(gtx, &v.share.like, *m.Story, d)
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if !v.canForward(m) {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return viewerButton(gtx, &v.share.forward, iconForward, d)
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1045,6 +1201,35 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return viewerButton(gtx, &v.close, iconClear, d) }),
 		)
 	})
+}
+
+// title is the bar's title over item i of items, m: what it is, and where
+// it is among the gallery's when that is known, worded by what the
+// gallery goes through, as Telegram Desktop words its viewer's: "Photo 3
+// of 10" where all are photos, "Video 3 of 10", "GIF 3 of 10", "Story 3 of
+// 10", and the chat's photos and videos together an "Attachment 3 of 10".
+func (v *mediaViewer) title(m model.Message, items []model.Message, i int, l localization.Catalog) string {
+	what := l.T("viewer.photo")
+	switch {
+	case v.isStory(m) || m.StoryOf != nil:
+		what = l.T("viewer.story")
+	case m.Kind == model.MessageVideo:
+		what = l.T("viewer.video")
+	case m.Kind == model.MessageGIF:
+		what = "GIF"
+	}
+	n, amount, ok := v.place(items, i)
+	if !ok {
+		return what
+	}
+	switch {
+	case v.gallery == galleryPhotos && !v.alone && !v.isStory(m) && m.StoryOf == nil:
+		// The chat's photos and videos, one after the other.
+		what = l.T("viewer.attachment")
+	case what == l.T("viewer.photo"):
+		return l.Format("viewer.position", map[string]string{"n": fmt.Sprint(n), "amount": fmt.Sprint(amount)})
+	}
+	return l.Format("viewer.file_position", map[string]string{"file": what, "n": fmt.Sprint(n), "amount": fmt.Sprint(amount)})
 }
 
 // variant returns m showing variant, with the original's blurred preview.

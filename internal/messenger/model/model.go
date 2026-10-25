@@ -6,7 +6,9 @@
 package model
 
 import (
+	"bytes"
 	"image"
+	"slices"
 	"time"
 )
 
@@ -44,6 +46,73 @@ type Preview struct {
 	// chat, for the list to mark whether it was read.
 	ID   MessageID `json:",omitempty"`
 	Sent bool      `json:",omitempty"`
+	// Entities are the formatting of Text a list draws, in UTF-16 offsets
+	// into it, as Telegram Desktop's keeps them: italic, underline, strike,
+	// code, spoilers and custom emoji.
+	Entities []Entity `json:",omitempty"`
+	// Thumbs are small pictures of what the message carries, of an album up
+	// to three, drawn before Text; a list leaves out Media's word for them
+	// when Text has words of its own.
+	Thumbs []PreviewThumb `json:",omitempty"`
+	// Album is what the album the message ends holds, as far as the client
+	// has seen it; nil for a message alone.
+	Album *PreviewAlbum `json:",omitempty"`
+	// Forwarded marks a message forwarded from elsewhere.
+	Forwarded bool `json:",omitempty"`
+}
+
+// IsZero reports whether p tells nothing: a chat without a last message.
+func (p Preview) IsZero() bool {
+	return p.Text == "" && p.Sender == "" && !p.Outgoing && p.Media == "" && p.Emoji == "" && p.Service == nil &&
+		p.ID == 0 && !p.Sent && len(p.Entities) == 0 && len(p.Thumbs) == 0 && p.Album == nil && !p.Forwarded
+}
+
+// Equal reports whether p and o show the same, a service message by the
+// same pointer.
+func (p Preview) Equal(o Preview) bool {
+	return p.Text == o.Text && p.Sender == o.Sender && p.Outgoing == o.Outgoing && p.Media == o.Media && p.Emoji == o.Emoji &&
+		p.Service == o.Service && p.ID == o.ID && p.Sent == o.Sent && p.Forwarded == o.Forwarded &&
+		slices.Equal(p.Entities, o.Entities) && slices.EqualFunc(p.Thumbs, o.Thumbs, PreviewThumb.Equal) &&
+		(p.Album == o.Album || p.Album != nil && o.Album != nil && *p.Album == *o.Album)
+}
+
+// PreviewThumb is a small picture of media a last message carries.
+type PreviewThumb struct {
+	// ID is the media of the picture: the smallest size of a photo that
+	// covers a list's, or the thumbnail of a video or a file.
+	ID string
+	// Message is the message the media is of, by which its file reference
+	// is renewed.
+	Message MessageID `json:",omitempty"`
+	// Video marks a video's, which a play mark covers; Round a video
+	// message's, drawn as a circle.
+	Video bool `json:",omitempty"`
+	Round bool `json:",omitempty"`
+	// Spoiler marks media under a spoiler, or one that destructs itself:
+	// only Blurred is drawn, and the media is not downloaded.
+	Spoiler bool `json:",omitempty"`
+	// Blurred is Telegram's inline picture of the media, drawn in its place:
+	// the media downloads only without it. It is a stripped thumbnail, as
+	// Telegram sends it (its first byte 1), or a small JPEG.
+	Blurred []byte `json:",omitempty"`
+}
+
+// Equal reports whether t and o are the same picture.
+func (t PreviewThumb) Equal(o PreviewThumb) bool {
+	return t.ID == o.ID && t.Message == o.Message && t.Video == o.Video && t.Round == o.Round && t.Spoiler == o.Spoiler && bytes.Equal(t.Blurred, o.Blurred)
+}
+
+// PreviewAlbum counts what an album holds, as Telegram Desktop's list
+// words it when it has no caption, or more than one.
+type PreviewAlbum struct {
+	ID                            int64
+	Photos, Videos, Audios, Files int
+	// Captions counts its messages with a caption, and Caption is the one
+	// whose caption the preview's Text is.
+	Captions int       `json:",omitempty"`
+	Caption  MessageID `json:",omitempty"`
+	// Last is the newest of its messages counted, the preview's.
+	Last MessageID
 }
 
 type Chat struct {
@@ -76,8 +145,46 @@ type Chat struct {
 	// (DirectMessagesSource), a group of Telegram's that the account reads
 	// as a private chat with the channel: without avatars.
 	DirectMessages bool `json:",omitempty"`
+	// Draft is the message the account began in the chat and did not
+	// send, as Telegram keeps it for all of its devices; nil for none.
+	Draft *Draft `json:",omitempty"`
 	// Badges are the marks beside the chat's name.
 	Badges
+}
+
+// Draft is a message begun and not sent.
+type Draft struct {
+	Text     string
+	Entities []Entity `json:",omitempty"`
+	// ReplyTo is the message it replies to, 0 for none.
+	ReplyTo MessageID `json:",omitempty"`
+	// Date is when it was saved last.
+	Date time.Time
+}
+
+// Equal reports whether d and o are the same draft, but for when they were
+// saved; nil is no draft.
+func (d *Draft) Equal(o *Draft) bool {
+	if d == nil || o == nil {
+		return d == o
+	}
+	return d.Text == o.Text && d.ReplyTo == o.ReplyTo && slices.Equal(d.Entities, o.Entities)
+}
+
+// DraftStore keeps the drafts of chats for all of the account's devices.
+type DraftStore interface {
+	// SaveDraft makes d chat's draft, nil none, Chat.Draft showing it at
+	// once; it does nothing when chat has that draft already.
+	SaveDraft(chat int64, d *Draft)
+}
+
+// SortTime is when the chat changed last, as a list orders it: its last
+// message, or its draft when saved since, as Telegram Desktop orders them.
+func (c Chat) SortTime() time.Time {
+	if c.Draft != nil && c.Draft.Date.After(c.LastTime) {
+		return c.Draft.Date
+	}
+	return c.LastTime
 }
 
 // Badges are the marks Telegram shows around a name.

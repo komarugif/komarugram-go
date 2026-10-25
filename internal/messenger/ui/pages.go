@@ -124,6 +124,11 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 		}, after)
 	})
 	offset(textGtx, image.Pt(textX, gtx.Dp(30)), func(gtx layout.Context) layout.Dimensions {
+		if selection != nil && head == nil {
+			if dims, ok := selection.layoutActivity(gtx, c, l); ok {
+				return dims
+			}
+		}
 		return label(gtx, status, token.TypestyleBodySmall, statusColor, 1)
 	})
 	offset(gtx, image.Pt(0, header.Y), func(gtx layout.Context) layout.Dimensions {

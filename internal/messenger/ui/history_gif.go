@@ -155,20 +155,14 @@ func (c *gifControls) layout(gtx layout.Context, size image.Point, paused, hover
 	if timeShown > 0 {
 		// The time on a plate in the corner, as a video message's: where
 		// it plays, or would go.
-		sc := scheme(gtx)
 		macro := op.Record(gtx.Ops)
-		pgtx := gtx
-		pgtx.Constraints.Min = image.Point{}
-		plate := layout.Inset{Top: 2, Bottom: 2, Left: 7, Right: 7}.Layout(pgtx, func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, playTime(shown), token.TypestyleLabelMedium, sc.InverseSurface.OnColor, 1)
-		})
+		plate := mediaPlate(gtx, playTime(shown))
 		call := macro.Stop()
 		// Over the bar while it shows.
 		lift := int(trackShown * float32(gtx.Dp(6)))
 		func() {
 			defer paint.PushOpacity(gtx.Ops, timeShown).Pop()
 			offset(gtx, image.Pt(inset, max(0, size.Y-inset-lift-plate.Size.Y)), func(gtx layout.Context) layout.Dimensions {
-				fillRounded(gtx, sc.InverseSurface.Color.SetOpacity(0.55), plate.Size, plate.Size.Y/2)
 				call.Add(gtx.Ops)
 				return plate
 			})

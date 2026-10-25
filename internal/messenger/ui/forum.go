@@ -48,6 +48,14 @@ type forumPage struct {
 	group string
 	// emoji draws a custom emoji, for a topic's icon.
 	emoji func(gtx layout.Context, id int64, size unit.Dp) layout.Dimensions
+	// lines are the topics' last messages, which previews draw the
+	// pictures of, as the chat list's; animate tells whether its emoji
+	// may play.
+	lines    map[int]*previewLine
+	previews *previewMedia
+	animate  func() bool
+	// activity tells what others do in the topics.
+	activity model.ActivitySource
 	// open shows a topic; openAt shows it at a message.
 	open   func(forum model.Chat, topic model.Topic)
 	openAt func(forum model.Chat, topic model.Topic, at model.MessageID)
@@ -61,6 +69,19 @@ func newForumPage() *forumPage {
 	f := &forumPage{rows: map[int]*surface{}}
 	f.list.Axis = layout.Vertical
 	return f
+}
+
+// line is the last message of topic id.
+func (f *forumPage) line(id int) *previewLine {
+	if f.lines == nil {
+		f.lines = map[int]*previewLine{}
+	}
+	p := f.lines[id]
+	if p == nil {
+		p = new(previewLine)
+		f.lines[id] = p
+	}
+	return p
 }
 
 func (f *forumPage) row(id int) *surface {
@@ -83,6 +104,7 @@ func (a *App) layoutForum(gtx layout.Context, c model.Chat, l localization.Catal
 		f.chat = c.ID
 		f.list.Position = layout.Position{}
 		f.rows = map[int]*surface{}
+		f.lines = nil
 		f.search.reset()
 		f.search.chat = c.ID
 		source.OpenForum(c.ID)
@@ -158,7 +180,7 @@ func (f *forumPage) layout(gtx layout.Context, c model.Chat, source model.ForumS
 		if row.Clicked(gtx) && f.open != nil {
 			f.open(c, t)
 		}
-		return f.layoutTopic(gtx, row, t, now, l)
+		return f.layoutTopic(gtx, row, f.line(t.ID), t, now, l)
 	})
 	if list.More && !list.Loading && f.list.Position.First+f.list.Position.Count >= len(list.Topics)-3 {
 		source.LoadMoreTopics(c.ID)
@@ -178,8 +200,9 @@ func (f *forumPage) layoutFailed(gtx layout.Context, chat int64, source model.Fo
 }
 
 // layoutTopic draws a topic as the chat list draws a chat: its icon, its
-// title and time, its last message and what is unread.
-func (f *forumPage) layoutTopic(gtx layout.Context, row *surface, t model.Topic, now time.Time, l localization.Catalog) layout.Dimensions {
+// title and time, its last message, with line, or as plain text without,
+// and what is unread.
+func (f *forumPage) layoutTopic(gtx layout.Context, row *surface, line *previewLine, t model.Topic, now time.Time, l localization.Catalog) layout.Dimensions {
 	sc := scheme(gtx)
 	margin := gtx.Dp(chatRowMargin)
 	size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(chatRowHeight))
@@ -199,7 +222,7 @@ func (f *forumPage) layoutTopic(gtx layout.Context, row *surface, t model.Topic,
 		})
 		textX := iconX + iconPx + pad
 		area := image.Rect(textX, gtx.Dp(11), size.X-margin-pad, size.Y-gtx.Dp(11))
-		f.layoutTopicText(gtx, t, area, now, l)
+		f.layoutTopicText(gtx, t, line, area, now, l)
 		return layout.Dimensions{Size: size}
 	})
 }
@@ -254,7 +277,7 @@ func (f *forumPage) layoutTopicIcon(gtx layout.Context, t model.Topic, px int) l
 
 // layoutTopicText draws the title and time of a topic, its last message and
 // what is unread, in area.
-func (f *forumPage) layoutTopicText(gtx layout.Context, t model.Topic, area image.Rectangle, now time.Time, l localization.Catalog) {
+func (f *forumPage) layoutTopicText(gtx layout.Context, t model.Topic, line *previewLine, area image.Rectangle, now time.Time, l localization.Catalog) {
 	sc := scheme(gtx)
 	width := area.Dx()
 	title, text, accent := sc.Surface.OnColor, sc.SurfaceVariant.OnColor, sc.Primary.Color
@@ -324,6 +347,27 @@ func (f *forumPage) layoutTopicText(gtx layout.Context, t model.Topic, area imag
 		messageWidth -= px + gtx.Dp(8)
 	}
 	x := area.Min.X
+	if line != nil && !t.Last.IsZero() {
+		lineGtx := gtx
+		lineGtx.Constraints.Max.X = max(messageWidth, 0)
+		offset(lineGtx, image.Pt(x, lineY), func(gtx layout.Context) layout.Dimensions {
+			// The forum's chat, which the thumbnails' file references are
+			// renewed by.
+			animate := f.animate != nil && f.animate()
+			// What someone does in the topic now takes its place; the
+			// General topic's has no thread.
+			top := t.ID
+			if t.General {
+				top = 0
+			}
+			if f.activity != nil && line.act.update(gtx, f.activity.Activities(f.chat), top, false, l) {
+				return line.act.layout(gtx, token.TypestyleBodyMedium, accent, animate)
+			}
+			line.update(model.Chat{ID: f.chat, Kind: model.KindGroup, Last: t.Last}, f.group, l, previewEmojiPx(gtx))
+			return line.layout(gtx, f.previews, text, accent, accent, animate)
+		})
+		return
+	}
 	sender, message := l.Preview(t.Last, f.group, false)
 	if sender != "" {
 		senderGtx := gtx

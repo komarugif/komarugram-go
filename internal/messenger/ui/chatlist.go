@@ -65,6 +65,22 @@ type chatList struct {
 	// when nothing blurs it.
 	overlays func() overlayPrefs
 	bd       *blurBackdrop
+	// previews draw the thumbnails and custom emoji of the last messages;
+	// nil draws neither. animate tells whether the emoji may play.
+	previews *previewMedia
+	animate  func() bool
+	// activity tells what others do in the chats, drawn in place of their
+	// last messages; nil for nothing.
+	activity model.ActivitySource
+	// stories are those with stories now, drawn as the first row of all
+	// chats, nil for none; openStories opens a peer's. storiesShown tells
+	// whether the last frame had the row.
+	stories      model.StorySource
+	storiesRow   storiesRow
+	openStories  func(model.StoryPeer)
+	storiesShown bool
+	// invalidate draws the list again, as its row of stories scrolls.
+	invalidate func()
 }
 
 // overlayPrefs is how the list's overlays are drawn.
@@ -96,6 +112,7 @@ type chatPick struct {
 
 type chatRow struct {
 	surface
+	line previewLine
 }
 
 func newChatList() *chatList {
@@ -195,7 +212,20 @@ func (l *chatList) Update(gtx layout.Context, sec section, catalog localization.
 			return chatPick{ID: id}, true
 		}
 	}
+	if p, ok := l.storiesRow.clicked(gtx); ok && l.openStories != nil {
+		l.openStories(p)
+	}
 	return chatPick{}, false
+}
+
+// storyPeers are the peers of the row of stories the section shows: all
+// chats have it, as Telegram Desktop's main list does, unless the list is
+// too narrow for names.
+func (l *chatList) storyPeers(sec section, narrow bool) []model.StoryPeer {
+	if l.stories == nil || sec.kind != sectionAll || narrow {
+		return nil
+	}
+	return l.stories.StoryPeers()
 }
 
 // Layout draws the list in the exact size of the constraints.
@@ -256,8 +286,35 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 		}
 		now := time.Now()
 		l.shown = l.shown[:0]
-		return l.list.Layout(gtx, len(visible), func(gtx layout.Context, i int) layout.Dimensions {
-			c := visible[i]
+		// The row of stories is the list's first: it scrolls away with the
+		// chats. The chats in view stay where they are as it comes or goes.
+		peers := l.storyPeers(sec, narrow)
+		row := len(peers) > 0
+		if row != l.storiesShown {
+			if l.list.Position.First > 0 || l.list.Position.Offset > 0 {
+				if row {
+					l.list.Position.First++
+				} else {
+					l.list.Position.First = max(l.list.Position.First-1, 0)
+				}
+			}
+			l.storiesShown = row
+		}
+		first := 0
+		if row {
+			first = 1
+		} else {
+			l.storiesRow.shown = l.storiesRow.shown[:0]
+		}
+		return l.list.Layout(gtx, len(visible)+first, func(gtx layout.Context, i int) layout.Dimensions {
+			if i < first {
+				invalidate := l.invalidate
+				if invalidate == nil {
+					invalidate = func() {}
+				}
+				return l.storiesRow.layout(gtx, peers, l.avatar, catalog, invalidate)
+			}
+			c := visible[i-first]
 			l.shown = append(l.shown, c.ID)
 			dims := l.layoutRow(gtx, c, c.ID == selected, narrow, now, catalog)
 			l.menu.rowOp(gtx, c.ID, dims.Size)
@@ -288,7 +345,7 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 // withMembersLine gives c, a chat found by a search or remembered from one,
 // how big it is as its line, when it has no message to show.
 func withMembersLine(c model.Chat, catalog localization.Catalog) model.Chat {
-	if c.Last == (model.Preview{}) && c.Members > 0 {
+	if c.Last.IsZero() && c.Members > 0 {
 		key := "status.members"
 		if c.Kind == model.KindChannel {
 			key = "status.subscribers"
@@ -341,11 +398,13 @@ func (l *chatList) layoutResults(gtx layout.Context, selected int64, catalog loc
 }
 
 func (l *chatList) layoutRow(gtx layout.Context, c model.Chat, selected, narrow bool, now time.Time, catalog localization.Catalog) layout.Dimensions {
-	return l.layoutRowWith(gtx, &l.row(c.ID).surface, c, selected, narrow, now, catalog)
+	row := l.row(c.ID)
+	return l.layoutRowWith(gtx, &row.surface, &row.line, c, selected, narrow, now, catalog)
 }
 
-// layoutRowWith draws the row of c, which takes its clicks with r.
-func (l *chatList) layoutRowWith(gtx layout.Context, r *surface, c model.Chat, selected, narrow bool, now time.Time, catalog localization.Catalog) layout.Dimensions {
+// layoutRowWith draws the row of c, which takes its clicks with r, its
+// last message with line; nil draws it as plain text.
+func (l *chatList) layoutRowWith(gtx layout.Context, r *surface, line *previewLine, c model.Chat, selected, narrow bool, now time.Time, catalog localization.Catalog) layout.Dimensions {
 	sc := scheme(gtx)
 	margin := gtx.Dp(chatRowMargin)
 	size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(chatRowHeight))
@@ -397,8 +456,12 @@ func (l *chatList) layoutRowWith(gtx layout.Context, r *surface, c model.Chat, s
 		} else {
 			textX := avatarX + avatarPx + pad
 			textWidth := size.X - margin - pad - textX
-			l.layoutRowText(gtx, c, image.Rect(textX, gtx.Dp(11), textX+textWidth, size.Y-gtx.Dp(11)),
-				titleColor, textColor, accent, badgeBackground, badgeText, now, catalog)
+			drafted := sc.Error.Color
+			if selected {
+				drafted = sc.Primary.OnColor
+			}
+			l.layoutRowText(gtx, c, line, image.Rect(textX, gtx.Dp(11), textX+textWidth, size.Y-gtx.Dp(11)),
+				titleColor, textColor, accent, drafted, badgeBackground, badgeText, now, catalog)
 		}
 		return layout.Dimensions{Size: size}
 	})
@@ -406,7 +469,7 @@ func (l *chatList) layoutRowWith(gtx layout.Context, r *surface, c model.Chat, s
 
 // layoutRowText draws the title, time, last message and unread counter in
 // area.
-func (l *chatList) layoutRowText(gtx layout.Context, c model.Chat, area image.Rectangle, titleColor, textColor, accent, badgeBackground, badgeText token.MatColor, now time.Time, catalog localization.Catalog) {
+func (l *chatList) layoutRowText(gtx layout.Context, c model.Chat, line *previewLine, area image.Rectangle, titleColor, textColor, accent, drafted, badgeBackground, badgeText token.MatColor, now time.Time, catalog localization.Catalog) {
 	measure := func(w layout.Widget) (layout.Dimensions, op.CallOp) {
 		macro := op.Record(gtx.Ops)
 		dims := w(gtx)
@@ -488,6 +551,14 @@ func (l *chatList) layoutRowText(gtx layout.Context, c model.Chat, area image.Re
 		messageWidth -= px + gtx.Dp(8)
 	}
 	x := area.Min.X
+	if line != nil {
+		lineGtx := gtx
+		lineGtx.Constraints.Max.X = max(messageWidth, 0)
+		offset(lineGtx, image.Pt(x, lineY), func(gtx layout.Context) layout.Dimensions {
+			return l.layoutLine(gtx, line, c, textColor, accent, drafted, catalog)
+		})
+		return
+	}
 	sender, message := catalog.Preview(c.Last, catalog.ChatTitle(c), c.Kind == model.KindChannel)
 	if sender != "" {
 		senderGtx := gtx
@@ -503,6 +574,23 @@ func (l *chatList) layoutRowText(gtx layout.Context, c model.Chat, area image.Re
 	offset(messageGtx, image.Pt(x, lineY), func(gtx layout.Context) layout.Dimensions {
 		return label(gtx, message, token.TypestyleBodyMedium, textColor, 1)
 	})
+}
+
+// layoutLine draws line, the last message of c or its draft, in the width
+// of the constraints; what someone does in the chat now takes its place.
+func (l *chatList) layoutLine(gtx layout.Context, line *previewLine, c model.Chat, fg, accent, drafted token.MatColor, catalog localization.Catalog) layout.Dimensions {
+	animate := l.animate != nil && l.animate()
+	if l.activity != nil && !c.Forum && line.act.update(gtx, l.activity.Activities(c.ID), 0, privateChat(c), catalog) {
+		return line.act.layout(gtx, token.TypestyleBodyMedium, accent, animate)
+	}
+	line.update(c, catalog.ChatTitle(c), catalog, previewEmojiPx(gtx))
+	return line.layout(gtx, l.previews, fg, accent, drafted, animate)
+}
+
+// privateChat reports whether c is a chat with one person, where what they
+// do is told without their name.
+func privateChat(c model.Chat) bool {
+	return c.Kind == model.KindUser || c.Kind == model.KindBot || c.Kind == model.KindSaved
 }
 
 // online reports whether the row of c marks its user online, and has the
