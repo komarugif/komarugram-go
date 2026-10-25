@@ -695,6 +695,10 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.info.renderer.audio = a.history.audio
 		a.info.renderer.openPhoto = func(m model.Message) { a.viewer.Open(m.Key.ChatID, m, a.info.messages) }
 		a.info.renderer.openGIF = func(m model.Message) { a.viewer.OpenGIF(m.Key.ChatID, m, a.info.messages) }
+		// A video of the section plays where one of the chat does: in the
+		// viewer, when the settings choose it.
+		a.info.renderer.openVideo = func(m model.Message, at time.Duration) { a.viewer.OpenVideo(m.Key.ChatID, m, a.info.messages, at) }
+		a.info.renderer.videoEngine = a.videoEngine
 		a.info.openAvatar = func(chat int64) { a.viewer.OpenProfile(chat) }
 		if services.OpenWindow != nil {
 			a.openWindow = services.OpenWindow

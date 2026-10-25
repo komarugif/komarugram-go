@@ -12,6 +12,7 @@ import (
 	"gioui.org/op"
 
 	"komarugram/internal/appwindow"
+	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/miniappprefs"
@@ -109,5 +110,24 @@ func TestClosedWindowIsCollected(t *testing.T) {
 	}
 	if gone.Value() != nil {
 		t.Fatal("the window of a closed view is still referenced")
+	}
+}
+
+// A video of the info's section of videos plays where the same one of the
+// chat does: in the viewer, when the settings choose it, not always in
+// the external player.
+func TestSharedVideoPlaysInViewer(t *testing.T) {
+	w := &appwindow.Window{Motion: motion.New(func() {})}
+	defer w.Motion.Close()
+	a := New(w, mockstore.New(time.Now(), 0), Services{MiniApps: miniappprefs.New(miniapp.Shared)})
+	m := model.Message{Key: model.MessageKey{ChatID: 2, MessageID: 7}, Kind: model.MessageVideo,
+		Media: &model.MessageMedia{ID: "demo/video", MIMEType: "video/mp4", Width: 1280, Height: 720, Duration: 36 * time.Second}}
+	if a.videoEngine(m) == videoExternal {
+		t.Skip("the settings play videos outside")
+	}
+	gtx := layout.Context{Ops: new(op.Ops)}
+	a.info.renderer.playVideo(gtx, m, -1, localization.For("en"))
+	if !a.viewer.open || a.viewer.current != m.Key.MessageID || a.viewer.autoplay != m.Key.MessageID {
+		t.Fatalf("viewer open %v on %d, to play %d", a.viewer.open, a.viewer.current, a.viewer.autoplay)
 	}
 }
