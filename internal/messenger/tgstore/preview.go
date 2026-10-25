@@ -87,6 +87,10 @@ func utf16Units(s string) int {
 // Desktop's list draws before the text: of a photo, a video, a GIF, a
 // video message, a file with a thumbnail, a link's photo or video.
 func previewThumb(m model.Message) (model.PreviewThumb, bool) {
+	if m.StoryOf != nil {
+		// A story's, as Telegram Desktop's list shows it, has none.
+		return model.PreviewThumb{}, false
+	}
 	t := model.PreviewThumb{Message: m.Key.MessageID, Spoiler: m.MediaSpoiler}
 	var media *model.MessageMedia
 	switch m.Kind {

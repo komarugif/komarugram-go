@@ -153,6 +153,18 @@ func (c Catalog) Service(m model.Message, ctx ServiceContext) string {
 			return f("you_took_screenshot")
 		}
 		return f("took_screenshot")
+	case model.ServiceStoryMention:
+		// Who posted it mentioned the other: the chat's user, for the
+		// account's own.
+		key := "story_mention"
+		args["user"] = from
+		if m.Outgoing {
+			key, args["user"] = "story_mention_me", ctx.Chat
+		}
+		if m.StoryOf != nil && m.StoryOf.Expired {
+			key += "_unavailable"
+		}
+		return f(key)
 	case model.ServiceCustom:
 		return s.Title
 	case model.ServiceContactSignUp:

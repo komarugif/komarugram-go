@@ -282,6 +282,9 @@
 "history.select_forward" = "lng_selected_forward";
 "history.selection_count" = "lng_media_selected_message";
 "history.sticker" = "lng_in_dlg_sticker";
+"history.story" = "lng_in_dlg_story";
+"history.story_expired" = "lng_forwarded_story_expired";
+"history.story_from" = "lng_forwarded_story";
 "history.video" = "lng_in_dlg_video";
 "history.voice" = "lng_in_dlg_audio";
 
@@ -395,6 +398,8 @@
 "preview.round" = "lng_in_dlg_video_message";
 "preview.sticker" = "lng_in_dlg_sticker";
 "preview.sticker_emoji" = "lng_in_dlg_sticker_emoji";
+"preview.story" = "lng_in_dlg_story";
+"preview.story_expired" = "lng_in_dlg_story_expired";
 "preview.table" = "lng_in_dlg_table";
 "preview.video" = "lng_in_dlg_video";
 "preview.videos" = "lng_in_dlg_video_count";
@@ -541,6 +546,10 @@
 "service.set_wallpaper" = "lng_action_set_wallpaper";
 "service.set_wallpaper_both_me" = "lng_action_set_wallpaper_both_me";
 "service.set_wallpaper_me" = "lng_action_set_wallpaper_me";
+"service.story_mention" = "lng_action_story_mention";
+"service.story_mention_me" = "lng_action_story_mention_me";
+"service.story_mention_me_unavailable" = "lng_action_story_mention_me_unavailable";
+"service.story_mention_unavailable" = "lng_action_story_mention_unavailable";
 "service.suggested_photo" = "lng_action_suggested_photo";
 "service.suggested_photo_me" = "lng_action_suggested_photo_me";
 "service.theme_changed" = "lng_action_theme_changed";

@@ -749,6 +749,8 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 	p.openVideo = func(m model.Message, at time.Duration) { a.viewer.OpenVideo(p.chat, m, p.viewerItems(), at) }
 	p.videoEngine = a.videoEngine
 	p.openAlone = func(m model.Message) { a.viewer.OpenAlone(p.chat, m) }
+	p.openStory = func(m model.Message) { a.viewer.OpenChatStories(p.chat, m, p.viewerItems()) }
+	p.openStoryOf = func(story model.StoryRef) { a.viewer.OpenStory(story.Peer, story.ID) }
 	p.openGIF = func(m model.Message) { a.viewer.OpenGIF(p.chat, m, p.viewerItems()) }
 	p.releaseMemory, p.keepMemory = w.ReleaseMemoryLater, w.KeepMemory
 	formula.SetRelease(w.MemoryReleaser())

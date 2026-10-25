@@ -155,6 +155,9 @@ type mediaViewer struct {
 	// are in items (the last before the first for none), storyOpen the
 	// one opened: see viewer_stories.go. v.mu guards them.
 	stories     model.StorySource
+	chatStories model.ChatStoryGallery
+	// storyGone is set when the story alone is no more.
+	storyGone   bool
 	seen        model.MessageID
 	storyRows   []int64
 	storyLoaded [2]int
@@ -208,6 +211,11 @@ const (
 	galleryGIFs
 	galleryProfile
 	galleryStories
+	// galleryChatStories are the stories a chat's history carries, from
+	// its cache: model.ChatStoryGallery. galleryOneStory is a story alone,
+	// asked for by its id: the one a message replies to.
+	galleryChatStories
+	galleryOneStory
 )
 
 // before reports whether the item of a goes before b's: by their ids, the
@@ -227,6 +235,11 @@ func (g viewerGallery) holds(m model.Message) bool {
 	if g == galleryGIFs {
 		return m.Kind == model.MessageGIF
 	}
+	if (m.StoryOf != nil) != (g == galleryChatStories) {
+		// A story of the history is not among its photos, and the
+		// stories hold nothing else.
+		return false
+	}
 	return m.Kind == model.MessagePhoto || m.Kind == model.MessageVideo
 }
 
@@ -237,8 +250,10 @@ func (v *mediaViewer) pages(g viewerGallery) bool {
 		return v.gifs != nil
 	case galleryProfile:
 		return v.profiles != nil
-	case galleryStories:
+	case galleryStories, galleryOneStory:
 		return v.stories != nil
+	case galleryChatStories:
+		return v.chatStories != nil
 	}
 	return v.photos != nil
 }
@@ -250,6 +265,7 @@ func newMediaViewer(source model.ConversationStore, images *imageOps, invalidate
 	v.gifs, _ = source.(model.GIFGallery)
 	v.profiles, _ = source.(model.ProfilePhotoSource)
 	v.stories, _ = source.(model.StorySource)
+	v.chatStories, _ = source.(model.ChatStoryGallery)
 	v.share.forwarder, _ = source.(model.MessageForwarder)
 	v.share.rights, _ = source.(model.RightsSource)
 	v.full = chatmedia.NewSized(source, invalidate, viewerFullLimit, 4096)
@@ -306,6 +322,9 @@ func (v *mediaViewer) openList(chat int64, m model.Message, list mediaList) {
 			v.ended[0] = true
 		case galleryStories:
 			// Paged by the peers of the row.
+		case galleryOneStory:
+			// Asked for once.
+			v.ended[0] = true
 		default:
 			// A message not sent yet is in no gallery.
 			pageless = pageless || m.Key.MessageID < 0
@@ -317,7 +336,7 @@ func (v *mediaViewer) openList(chat int64, m model.Message, list mediaList) {
 			first, last = v.items[0].Key.MessageID, v.items[len(v.items)-1].Key.MessageID
 		}
 	}()
-	v.open, v.focus, v.center, v.alone, v.seen = true, true, true, false, 0
+	v.open, v.focus, v.center, v.alone, v.seen, v.storyGone = true, true, true, false, 0, false
 	v.zoom.reset()
 	v.chat, v.current = chat, m.Key.MessageID
 	v.strip.Position = layout.Position{}
@@ -419,7 +438,7 @@ func (v *mediaViewer) fetch(ctx context.Context, session, dir int, anchor model.
 		peer = v.storyRows[row]
 	}
 	v.loading[side] = true
-	chat, gallery, offset := v.chat, v.gallery, v.offset
+	chat, gallery, offset, one := v.chat, v.gallery, v.offset, v.current
 	v.mu.Unlock()
 	go func() {
 		defer crash.Recover("photo gallery", func(*crash.Panic) {
@@ -440,6 +459,14 @@ func (v *mediaViewer) fetch(ctx context.Context, session, dir int, anchor model.
 			// All the peer's, those known at least when Telegram cannot be
 			// asked.
 			page.Messages, err = v.stories.PeerStories(ctx, peer)
+		case galleryChatStories:
+			page, err = v.chatStories.ChatStories(ctx, chat, anchor, dir, viewerPage)
+		case galleryOneStory:
+			var m model.Message
+			m, err = v.stories.Story(ctx, chat, one)
+			if err == nil {
+				page.Messages = []model.Message{m}
+			}
 		default:
 			page, err = v.photos.ChatPhotos(ctx, chat, anchor, dir, viewerPage)
 		}
@@ -452,6 +479,12 @@ func (v *mediaViewer) fetch(ctx context.Context, session, dir int, anchor model.
 		v.loading[side] = false
 		if gallery == galleryStories {
 			v.takeStoriesLocked(row, page.Messages)
+			return
+		}
+		if gallery == galleryOneStory {
+			v.ended, v.exhausted = [2]bool{true, true}, [2]bool{true, true}
+			v.storyGone = err != nil
+			v.items = mergeMedia(gallery, v.items, page.Messages)
 			return
 		}
 		if err != nil {
@@ -621,9 +654,13 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 
 	items, loading, exhausted, ctx, session := v.snapshot()
 	if len(items) == 0 {
-		if loading[0] || loading[1] {
-			// Stories, opened before Telegram has told them.
-			v.layoutWaiting(gtx, l)
+		v.mu.Lock()
+		gone := v.storyGone
+		v.mu.Unlock()
+		if loading[0] || loading[1] || gone {
+			// Stories, opened before Telegram has told them, or a story
+			// Telegram has no more.
+			v.layoutWaiting(gtx, l, gone)
 			return
 		}
 		v.Close()
@@ -1078,7 +1115,7 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							title := l.T("viewer.photo")
 							switch {
-							case v.isStory(m):
+							case v.isStory(m) || m.StoryOf != nil:
 								title = l.T("viewer.story")
 							case m.Kind == model.MessageVideo:
 								title = l.T("viewer.video")
@@ -1109,7 +1146,7 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if m.Story == nil || v.stories == nil {
+				if m.Story == nil || v.stories == nil || v.gallery != galleryStories {
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

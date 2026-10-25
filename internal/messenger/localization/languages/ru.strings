@@ -852,6 +852,9 @@
 "history.snapshot_saved" = "Снимок сохранён: {path}";
 "history.snapshot_too_tall" = "Слишком много сообщений для одного снимка";
 "history.sticker" = "Стикер";
+"history.story" = "История";
+"history.story_expired" = "Срок действия истории истёк.";
+"history.story_from" = "История от {user}";
 "history.to_end" = "К концу чата";
 "history.to_top" = "К началу чата";
 "history.video" = "Видео";
@@ -1289,6 +1292,8 @@
 "preview.service" = "Служебное сообщение";
 "preview.sticker" = "Стикер";
 "preview.sticker_emoji" = "{emoji} Стикер";
+"preview.story" = "История";
+"preview.story_expired" = "Истёкшая история";
 "preview.table" = "Таблица";
 "preview.video" = "Видео";
 "preview.videos" = "{count} видео";
@@ -1593,6 +1598,10 @@
 "service.set_wallpaper_both_me" = "Вы установили новые обои для себя и {user}";
 "service.set_wallpaper_me" = "Вы установили новые обои для этого чата";
 "service.somebody" = "кто-то";
+"service.story_mention" = "{user} упомянул(а) вас в истории";
+"service.story_mention_me" = "Вы упомянули {user} в истории";
+"service.story_mention_me_unavailable" = "История, в которой вы упомянули {user}, больше недоступна.";
+"service.story_mention_unavailable" = "История, в которой {user} упомянул(а) вас, больше недоступна.";
 "service.suggested_photo" = "{user} предлагает это фото для вашего профиля в Telegram.";
 "service.suggested_photo_me" = "Вы предложили это фото для профиля {user} в Telegram.";
 "service.theme_changed" = "{from} изменил(а) тему чата на {emoji}";

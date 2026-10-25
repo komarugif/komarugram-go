@@ -79,12 +79,16 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 			out.SenderID = peerID(m.FromID)
 			out.SenderName = names[out.SenderID]
 		}
-		if r, ok := m.ReplyTo.(*tg.MessageReplyHeader); ok {
+		switch r := m.ReplyTo.(type) {
+		case *tg.MessageReplyHeader:
 			out.ReplyToMessageID = model.MessageID(r.ReplyToMsgID)
 			out.ForumTopic = r.ForumTopic
 			if top, ok := r.GetReplyToTopID(); ok {
 				out.ReplyToTopID = model.MessageID(top)
 			}
+		case *tg.MessageReplyStoryHeader:
+			story := peerID(r.Peer)
+			out.ReplyToStory = &model.StoryRef{Peer: story, ID: r.StoryID, From: names[story]}
 		}
 		if f, ok := m.GetFwdFrom(); ok {
 			if f.FromID != nil {
@@ -169,6 +173,8 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 				out.Kind, out.Media, loc = documentMedia(d)
 				out.MediaSpoiler = media.Spoiler || media.TTLSeconds > 0
 			}
+		case *tg.MessageMediaStory:
+			loc = storyInMessage(&out, media, names)
 		}
 		switch markup := m.ReplyMarkup.(type) {
 		case *tg.ReplyInlineMarkup:
@@ -491,4 +497,45 @@ func convertReplyKeyboard(rows []tg.KeyboardButtonRow) [][]model.MessageButton {
 		out = append(out, row)
 	}
 	return out
+}
+
+// storyInMessage gives out, a message, the story media carries, as
+// Telegram Desktop's MediaStory shows it: forwarded, its photo or video
+// with its caption; one the account was mentioned in, a line of the
+// history. The story Telegram leaves out is asked for later
+// (resolveChatStories); one deleted is expired. It returns where its
+// media downloads from, by the story itself.
+func storyInMessage(out *model.Message, media *tg.MessageMediaStory, names map[int64]string) *fileLocation {
+	peer := peerID(media.Peer)
+	ref := &model.StoryRef{Peer: peer, ID: media.ID, From: names[peer], Mention: media.ViaMention}
+	out.StoryOf = ref
+	// The message's own text, empty, is the story's caption.
+	out.Kind, out.Text, out.Entities = model.MessageText, "", nil
+	if media.ViaMention {
+		out.Kind, out.Service = model.MessageService, &model.ServiceAction{Kind: model.ServiceStoryMention}
+	}
+	switch item := media.Story.(type) {
+	case *tg.StoryItem:
+		return storyMedia(out, peer, item)
+	case *tg.StoryItemDeleted:
+		ref.Expired = true
+	}
+	return nil
+}
+
+// storyMedia gives out, a message carrying story item of peer, the
+// story's media and caption, and returns where the media downloads from.
+func storyMedia(out *model.Message, peer int64, item *tg.StoryItem) *fileLocation {
+	shown, loc := convertMessage("", &tg.Message{Media: item.Media}, nil)
+	if shown.Media == nil || loc == nil || shown.Kind != model.MessagePhoto && shown.Kind != model.MessageVideo {
+		// A story of another kind, as a live one, is not shown.
+		out.StoryOf.Expired = true
+		return nil
+	}
+	out.Media, out.StoryOf.Video, out.StoryOf.Expired = shown.Media, shown.Kind == model.MessageVideo, false
+	if !out.StoryOf.Mention {
+		out.Kind, out.Text, out.Entities = shown.Kind, item.Caption, convertEntities(item.Entities)
+	}
+	loc.StoryPeer, loc.Story = peer, item.ID
+	return loc
 }

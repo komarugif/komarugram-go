@@ -178,6 +178,66 @@ func (s *Store) StoryNow(peer int64, id model.MessageID) (model.Message, bool) {
 	return d.stories[at], true
 }
 
+// demoChatStories are the messages of the demo's histories that carry
+// stories, or reply to one, keyed and dated by the history. s.mu is held.
+func (s *Store) demoChatStories() []model.Message {
+	stories := s.storiesLocked()
+	var out []model.Message
+	carry := func(peer int64, n int, mention bool) {
+		d := stories[peer]
+		if d == nil || n >= len(d.stories) {
+			return
+		}
+		story := d.stories[n]
+		m := model.Message{Kind: story.Kind, Media: story.Media, Text: story.Text, SenderID: 42, SenderName: "Анна",
+			StoryOf: &model.StoryRef{Peer: peer, ID: model.StoryID(story.Key.MessageID), From: story.SenderName, Mention: mention}}
+		if mention {
+			m.Kind, m.Text, m.Service = model.MessageService, "", &model.ServiceAction{Kind: model.ServiceStoryMention}
+		}
+		out = append(out, m)
+	}
+	peerOf := func(title string) int64 {
+		if at := slices.IndexFunc(s.chats, func(c model.Chat) bool { return c.Title == title }); at >= 0 {
+			return s.chats[at].ID
+		}
+		return 0
+	}
+	nature, anna := peerOf("Фото природы"), peerOf("Анна Смирнова")
+	carry(nature, 0, false)
+	out = append(out, model.Message{Kind: model.MessageText, SenderID: 42, SenderName: "Анна",
+		StoryOf: &model.StoryRef{Peer: nature, ID: 9, From: "Фото природы", Expired: true}})
+	carry(anna, 1, true)
+	carry(nature, 1, false)
+	out = append(out, model.Message{Kind: model.MessageText, Text: "Какой вид!", Outgoing: true,
+		ReplyToStory: &model.StoryRef{Peer: anna, ID: 1, From: "Анна Смирнова"}})
+	return out
+}
+
+// ChatStories implements model.ChatStoryGallery over the demo history.
+func (s *Store) ChatStories(ctx context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.GalleryPage, error) {
+	var found []model.Message
+	for _, m := range s.History(chat).Messages {
+		if m.StoryShown() && (dir < 0 && m.Key.MessageID < anchor || dir > 0 && m.Key.MessageID > anchor) {
+			found = append(found, m.AsStory())
+		}
+	}
+	page := model.GalleryPage{More: len(found) > limit}
+	if dir < 0 {
+		page.Messages = found[max(0, len(found)-limit):]
+	} else {
+		page.Messages = found[:min(len(found), limit)]
+	}
+	return page, ctx.Err()
+}
+
+// Story implements model.StorySource with the demo's stories.
+func (s *Store) Story(ctx context.Context, peer int64, id model.MessageID) (model.Message, error) {
+	if m, ok := s.StoryNow(peer, id); ok {
+		return m, ctx.Err()
+	}
+	return model.Message{}, errors.New("the story is no longer available")
+}
+
 // ShareStory implements model.StorySource: the demo sends nothing.
 func (s *Store) ShareStory(context.Context, int64, model.MessageID, int64) error {
 	return nil

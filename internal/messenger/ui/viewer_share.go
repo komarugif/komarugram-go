@@ -150,8 +150,9 @@ func (v *mediaViewer) layoutShare(gtx layout.Context, l localization.Catalog) {
 }
 
 // layoutWaiting draws the viewer while the stories it opened on are asked
-// for: the backdrop, the ring, and the button that closes it.
-func (v *mediaViewer) layoutWaiting(gtx layout.Context, l localization.Catalog) {
+// for: the backdrop, the ring, and the button that closes it; for a story
+// gone, the words that tell it in place of the ring.
+func (v *mediaViewer) layoutWaiting(gtx layout.Context, l localization.Catalog, gone bool) {
 	if v.backdrop.Clicked(gtx) && !v.standalone || v.close.Clicked(gtx) {
 		v.Close()
 		return
@@ -163,6 +164,10 @@ func (v *mediaViewer) layoutWaiting(gtx layout.Context, l localization.Catalog) 
 		return layout.Dimensions{Size: size}
 	})
 	layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		if gone {
+			gtx.Constraints.Min = image.Point{}
+			return label(gtx, l.T("history.story_expired"), token.TypestyleBodyLarge, token.NewMatColorFromHexRGB(0xffffff), 0)
+		}
 		return v.share.loader.sized(gtx, l, 48)
 	})
 	d := gtx.Dp(40)

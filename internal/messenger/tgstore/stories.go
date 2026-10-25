@@ -96,6 +96,9 @@ type storyState struct {
 	unsaved map[string]fileLocation
 	loading bool
 	expiry  *time.Timer
+	// resolving are the stories of chats' messages asked for in this run:
+	// see goResolveChatStories.
+	resolving map[storyKey]bool
 	// persist orders the writes to the cache, each of what the stories
 	// are when it writes; queued is set while one waits to, which those
 	// asked meanwhile leave to it.

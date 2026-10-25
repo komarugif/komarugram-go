@@ -1236,11 +1236,13 @@ func (s *Store) ingest(ctx context.Context, raw []tg.MessageClass, live bool, st
 	cache := c.cache
 	c.mu.Unlock()
 	if cache != nil {
+		keepResolvedStories(ctx, cache, msgs)
 		if e := cache.SaveMessages(ctx, msgs); e != nil {
 			return nil, e
 		}
 	}
 	sort.Slice(msgs, func(i, j int) bool { return msgs[i].Key.MessageID < msgs[j].Key.MessageID })
+	s.goResolveChatStories(msgs)
 	return msgs, nil
 }
 
@@ -1781,6 +1783,13 @@ func messagePreview(m model.Message, group bool) model.Preview {
 }
 
 func messageKindKey(m model.Message) string {
+	if m.StoryOf != nil {
+		// As Telegram Desktop's MediaStory: the word, and no thumbnail.
+		if m.StoryOf.Expired {
+			return "preview.story_expired"
+		}
+		return "preview.story"
+	}
 	if m.Rich != nil && strings.TrimSpace(m.Text) == "" {
 		return richFallbackKey(*m.Rich)
 	}

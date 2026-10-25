@@ -56,6 +56,14 @@ func TestServiceTexts(t *testing.T) {
 		{"ru", out(msg(model.ServiceAction{Kind: model.ServiceTTL, Count: 10 * 86400})), ServiceContext{}, "Вы установили автоудаление сообщений через 1 неделю 3 дня"},
 		{"ru", out(msg(model.ServiceAction{Kind: model.ServiceTTL})), ServiceContext{}, "Вы отключили автоудаление сообщений"},
 		{"en", msg(model.ServiceAction{Kind: model.ServiceScreenshot}), ServiceContext{}, "Anna took a screenshot!"},
+		// A story's mention: who posted it, or the chat's user it mentions.
+		{"en", msg(model.ServiceAction{Kind: model.ServiceStoryMention}), ServiceContext{}, "Anna mentioned you in a story"},
+		{"ru", out(msg(model.ServiceAction{Kind: model.ServiceStoryMention})), ServiceContext{Chat: "Bob"}, "Вы упомянули Bob в истории"},
+		{"en", func() model.Message {
+			m := msg(model.ServiceAction{Kind: model.ServiceStoryMention})
+			m.StoryOf = &model.StoryRef{Expired: true, Mention: true}
+			return m
+		}(), ServiceContext{}, "The story where Anna mentioned you is no longer available."},
 		{"en", out(msg(model.ServiceAction{Kind: model.ServiceChatTheme, Title: "🌷"})), ServiceContext{}, "You changed the chat theme to 🌷"},
 		{"ru", msg(model.ServiceAction{Kind: model.ServiceBoost, Count: 3}), ServiceContext{}, "Anna усилил(а) группу 3 раза"},
 		{"en", msg(model.ServiceAction{Kind: model.ServiceStarGift, Count: 50}), ServiceContext{}, "Anna sent you a gift for 50 Stars"},

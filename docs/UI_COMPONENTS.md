@@ -310,6 +310,15 @@ size-stability fixes remain in place.
   neighbour's as the strip nears it); each shown is told seen, as Ghost
   Mode allows. `CHAT_PREVIEW_PNG` draws
   it, `VIEWER_STORIES` the viewer on them.
+- **Stories in a chat** (`model.StoryRef`): a message carrying a story is
+  a photo or a video headed "Story from …", as Telegram Desktop's
+  `MediaStory`, one gone or not told yet a line saying so; a mention in
+  a story is a service line, a reply to one a quote of it. A click on one
+  opens the stories the history carries in the media viewer
+  (`mediaViewer.OpenChatStories`), paged from the history's cache
+  (`model.ChatStoryGallery`), not the profile's; a reply's opens the story
+  alone (`OpenStory`). The store asks for those Telegram left out of the
+  messages once, a peer's together (`tgstore/chat_stories.go`).
 - **Forwarding** (`forward_picker.go`): `forwardPicker` is the dialog that
   picks the chat to forward to, Saved Messages first, with a search:
   the history's selected messages and its message menu use it, and so does

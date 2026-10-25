@@ -30,6 +30,46 @@ func StoryMessage(id int) MessageID { return MessageID(-id) }
 // StoryID is the id of the story of a message StoryMessage made.
 func StoryID(id MessageID) int { return int(-id) }
 
+// StoryRef is a story a message of a chat names: see Message.StoryOf.
+type StoryRef struct {
+	Peer int64
+	ID   int
+	// From is the name of who posted it.
+	From string `json:",omitempty"`
+	// Mention: the message tells that one mentioned the other in it.
+	Mention bool `json:",omitempty"`
+	// Video: the story is a video; Expired: Telegram has it no more, or
+	// shows it to the account no more.
+	Video   bool `json:",omitempty"`
+	Expired bool `json:",omitempty"`
+}
+
+// StoryShown reports whether the story m carries is there to show: told, with
+// its media, and not gone.
+func (m Message) StoryShown() bool {
+	return m.StoryOf != nil && !m.StoryOf.Expired && m.Media != nil
+}
+
+// AsStory is m, a message carrying a story, as the viewer shows it: a
+// photo or a video, the mention of one too.
+func (m Message) AsStory() Message {
+	if m.StoryOf == nil {
+		return m
+	}
+	m.Kind = MessagePhoto
+	if m.StoryOf.Video {
+		m.Kind = MessageVideo
+	}
+	return m
+}
+
+// ChatStoryGallery is a Store that pages the stories a chat's history
+// carries, from what its cache keeps, as PhotoGallery pages its photos:
+// not the stories the chat's user keeps on the profile.
+type ChatStoryGallery interface {
+	ChatStories(ctx context.Context, chat int64, anchor MessageID, dir, limit int) (GalleryPage, error)
+}
+
 // StoryPeer is someone with stories now, as the list of chats shows them
 // over the chats.
 type StoryPeer struct {
@@ -68,4 +108,8 @@ type StorySource interface {
 	StoryNow(peer int64, id MessageID) (Message, bool)
 	// ShareStory sends story id of peer to chat to.
 	ShareStory(ctx context.Context, peer int64, id MessageID, to int64) error
+	// Story is story id of peer, any the account may see, as a message
+	// keyed as StoryMessage keys it, asked of Telegram when not known:
+	// the story a message replies to.
+	Story(ctx context.Context, peer int64, id MessageID) (Message, error)
 }

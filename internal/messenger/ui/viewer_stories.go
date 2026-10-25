@@ -73,6 +73,30 @@ func (v *mediaViewer) OpenStories(peer int64, open model.MessageID) bool {
 	return true
 }
 
+// OpenChatStories shows m, a message of chat carrying a story, among the
+// stories the chat's history carries, as its photos go through its photos:
+// those of the cache, not the ones the user keeps on the profile. known
+// are messages the caller has, of which those are taken.
+func (v *mediaViewer) OpenChatStories(chat int64, m model.Message, known []model.Message) {
+	var stories []model.Message
+	for _, k := range known {
+		if k.StoryShown() {
+			stories = append(stories, k.AsStory())
+		}
+	}
+	v.openList(chat, m.AsStory(), mediaList{items: stories, gallery: galleryChatStories})
+}
+
+// OpenStory shows story id of peer alone, asked of the store, and tells
+// when Telegram has it no more: the story a message replies to.
+func (v *mediaViewer) OpenStory(peer int64, id int) bool {
+	if v.stories == nil {
+		return false
+	}
+	v.openList(peer, model.Message{Key: model.MessageKey{ChatID: peer, MessageID: model.StoryMessage(id)}}, mediaList{gallery: galleryOneStory})
+	return true
+}
+
 // nextStoryRowLocked is the row whose stories a fetch toward dir asks for,
 // ok false for none: the one opened first, then those beside what is
 // known. At an end, that side is exhausted. v.mu is held.

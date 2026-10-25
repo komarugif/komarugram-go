@@ -130,7 +130,10 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	}
 	r.mediaTold = err
 	if clicked {
-		if video {
+		if m.StoryOf != nil && p.openStory != nil && err == nil && !cancelled {
+			// The stories of the history go through the viewer apart.
+			p.openStory(m)
+		} else if video {
 			p.playVideo(gtx, m, -1, l)
 		} else if m.Kind == model.MessagePhoto && r.alone && p.openAlone != nil {
 			p.openAlone(m)

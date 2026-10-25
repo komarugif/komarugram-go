@@ -4,6 +4,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"slices"
@@ -94,6 +95,35 @@ func (s *storyGallery) LikeStory(_ context.Context, peer int64, id model.Message
 
 func (s *storyGallery) StoryNow(peer int64, id model.MessageID) (model.Message, bool) {
 	return s.peerStory(peer, model.StoryID(id)), true
+}
+
+func (s *storyGallery) Story(_ context.Context, peer int64, id model.MessageID) (model.Message, error) {
+	if model.StoryID(id) > 3 {
+		return model.Message{}, errors.New("STORY_ID_INVALID")
+	}
+	return s.peerStory(peer, model.StoryID(id)), nil
+}
+
+// chatStory is message id of chat 1 carrying a story of peer 7, the photo
+// of the gallery's at n.
+func (s *storyGallery) chatStory(id model.MessageID, n int) model.Message {
+	m := s.photos[n]
+	m.Key = model.MessageKey{ChatID: 1, MessageID: id}
+	m.StoryOf = &model.StoryRef{Peer: 7, ID: n, From: "Anna"}
+	return m
+}
+
+// ChatStories pages the stories of chat 1's history: 400, 500, 510 and
+// 520, 515 gone.
+func (s *storyGallery) ChatStories(_ context.Context, chat int64, anchor model.MessageID, dir, limit int) (model.GalleryPage, error) {
+	s.record("chat stories %d %d", anchor, dir)
+	var page model.GalleryPage
+	for _, m := range []model.Message{s.chatStory(400, 4), s.chatStory(500, 5), s.chatStory(510, 6), s.chatStory(520, 7)} {
+		if dir < 0 && m.Key.MessageID < anchor || dir > 0 && m.Key.MessageID > anchor {
+			page.Messages = append(page.Messages, m.AsStory())
+		}
+	}
+	return page, nil
 }
 
 func (s *storyGallery) ShareStory(_ context.Context, peer int64, id model.MessageID, to int64) error {
@@ -272,5 +302,75 @@ func TestStoriesRowInList(t *testing.T) {
 	h.frame()
 	if h.list.storiesShown {
 		t.Fatal("a folder has the row")
+	}
+}
+
+// The stories a chat's history carries go through the viewer apart from
+// its photos, paged from the history's cache; neither has the other's.
+func TestViewerChatStories(t *testing.T) {
+	h := newViewerHarness(t)
+	src := newStoryGallery()
+	h.viewer = newMediaViewer(src, &h.images, func() {
+		select {
+		case h.changed <- struct{}{}:
+		default:
+		}
+	})
+	t.Cleanup(h.viewer.Destroy)
+	v := h.viewer
+	gone := src.chatStory(515, 8)
+	gone.StoryOf.Expired, gone.Media = true, nil
+	known := []model.Message{src.photos[0], src.chatStory(500, 5), src.photos[1], src.chatStory(510, 6), gone, src.chatStory(520, 7)}
+	v.OpenChatStories(1, known[3], known)
+	h.until("the history's stories", func() bool { items, _, _, _, _ := v.snapshot(); return len(items) == 4 })
+	items, _, _, _, _ := v.snapshot()
+	var ids []model.MessageID
+	for _, m := range items {
+		if m.Kind != model.MessagePhoto || m.StoryOf == nil {
+			t.Fatalf("item %+v", m.Key)
+		}
+		ids = append(ids, m.Key.MessageID)
+	}
+	if !slices.Equal(ids, []model.MessageID{400, 500, 510, 520}) || v.current != 510 {
+		t.Fatalf("stories %v, current %d", ids, v.current)
+	}
+	v.Close()
+	v.Open(1, src.photos[1], known)
+	h.frame()
+	items, _, _, _, _ = v.snapshot()
+	for _, m := range items {
+		if m.StoryOf != nil {
+			t.Fatalf("the photos have story %d", m.Key.MessageID)
+		}
+	}
+}
+
+// The story a message replies to opens alone, asked for; one gone says so,
+// in place of closing the viewer at once.
+func TestViewerOneStory(t *testing.T) {
+	h := newViewerHarness(t)
+	src := newStoryGallery()
+	close(src.release)
+	h.viewer = newMediaViewer(src, &h.images, func() {
+		select {
+		case h.changed <- struct{}{}:
+		default:
+		}
+	})
+	t.Cleanup(h.viewer.Destroy)
+	v := h.viewer
+	v.OpenStory(7, 9)
+	h.until("gone", func() bool { v.mu.Lock(); defer v.mu.Unlock(); return v.storyGone })
+	for range 3 {
+		h.frame()
+	}
+	if !v.open {
+		t.Fatal("a story gone closed the viewer")
+	}
+	v.OpenStory(7, 2)
+	h.until("the story", func() bool { items, _, _, _, _ := v.snapshot(); return len(items) == 1 })
+	items, _, _, _, _ := v.snapshot()
+	if m := items[0]; m.Key.ChatID != 7 || model.StoryID(m.Key.MessageID) != 2 || !v.isStory(m) {
+		t.Fatalf("shows %+v", m.Key)
 	}
 }

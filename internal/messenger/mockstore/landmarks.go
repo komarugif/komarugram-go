@@ -28,6 +28,7 @@ var landmarks = map[string]func(model.Message) bool{
 	"poll":          func(m model.Message) bool { return m.Kind == model.MessagePoll },
 	"article":       func(m model.Message) bool { return m.Rich != nil },
 	"service":       func(m model.Message) bool { return m.Kind == model.MessageService },
+	"story":         func(m model.Message) bool { return m.StoryShown() && !m.StoryOf.Mention },
 }
 
 func mediaIs(id string, kind model.MessageKind) func(model.Message) bool {

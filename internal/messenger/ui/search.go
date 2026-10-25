@@ -350,6 +350,13 @@ func foundText(m model.Message, l localization.Catalog) string {
 			}
 		}
 	}
+	if m.StoryOf != nil {
+		// A story's photo or video, as Telegram Desktop words it.
+		media = l.T("history.story")
+		if m.StoryOf.Expired {
+			media = l.T("preview.story_expired")
+		}
+	}
 	switch {
 	case media == "":
 	case text == "":

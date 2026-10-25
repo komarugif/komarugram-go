@@ -172,6 +172,12 @@ type Message struct {
 	Rich *RichPage `json:",omitempty"`
 	// Story is what a story has beyond a message: see StoryMessage.
 	Story *Story `json:",omitempty"`
+	// StoryOf is the story a message of a chat carries, forwarded to it or
+	// one the account was mentioned in: its media is the story's, a photo
+	// or a video, its text the story's caption. ReplyToStory is the story
+	// a message replies to.
+	StoryOf      *StoryRef `json:",omitempty"`
+	ReplyToStory *StoryRef `json:",omitempty"`
 	// MediaUnread is Telegram's mark of a voice message nobody listened to
 	// yet: the account, for one that came, or who it was sent to. Telegram
 	// sets it on an unread mention as well; only voice messages show it.

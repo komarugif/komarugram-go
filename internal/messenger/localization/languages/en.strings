@@ -803,6 +803,9 @@
 "history.snapshot_saved" = "Snapshot saved: {path}";
 "history.snapshot_too_tall" = "Too many messages for one snapshot";
 "history.sticker" = "Sticker";
+"history.story" = "Story";
+"history.story_expired" = "This story has expired.";
+"history.story_from" = "Story from {user}";
 "history.to_end" = "To the end of the chat";
 "history.to_top" = "To the start of the chat";
 "history.video" = "Video";
@@ -1225,6 +1228,8 @@
 "preview.service" = "Service message";
 "preview.sticker" = "Sticker";
 "preview.sticker_emoji" = "{emoji} Sticker";
+"preview.story" = "Story";
+"preview.story_expired" = "Expired story";
 "preview.table" = "Table";
 "preview.video" = "Video";
 "preview.videos" = "{count} videos";
@@ -1521,6 +1526,10 @@
 "service.set_wallpaper_both_me" = "You set a new wallpaper for {user} and you.";
 "service.set_wallpaper_me" = "You set a new wallpaper for this chat";
 "service.somebody" = "somebody";
+"service.story_mention" = "{user} mentioned you in a story";
+"service.story_mention_me" = "You mentioned {user} in a story";
+"service.story_mention_me_unavailable" = "The story where you mentioned {user} is no longer available.";
+"service.story_mention_unavailable" = "The story where {user} mentioned you is no longer available.";
 "service.suggested_photo" = "{user} suggests this photo for your Telegram profile.";
 "service.suggested_photo_me" = "You suggested this photo for {user}'s Telegram profile.";
 "service.theme_changed" = "{from} changed the chat theme to {emoji}";

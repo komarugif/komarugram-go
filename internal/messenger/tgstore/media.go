@@ -244,11 +244,16 @@ func (s *Store) refreshReference(ctx context.Context, m model.Message) error {
 			return e
 		}
 		s.rememberPeers(stories.Users, stories.Chats)
+		// Where it downloads from, kept for the next start: a story of
+		// a chat's message is not one of those over the list.
 		for _, raw := range stories.Stories {
-			s.applyStory(&tg.UpdateStory{Peer: owner.output(), Story: raw})
+			if item, ok := raw.(*tg.StoryItem); ok {
+				if shown, ok := s.storyMessage(ref.StoryPeer, item); ok {
+					return s.keepStoryRefs(ctx, []model.Message{shown})
+				}
+			}
 		}
-		// The renewed reference is kept for the next start.
-		return s.keepStoryRefs(ctx, s.knownStories(ref.StoryPeer))
+		return errStoryGone
 	}
 	if m.Key.MessageID < 0 {
 		stories, e := api.StoriesGetStoriesByID(ctx, &tg.StoriesGetStoriesByIDRequest{Peer: peer.input(), ID: []int{-int(m.Key.MessageID)}})
