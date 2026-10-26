@@ -131,6 +131,9 @@ func (e *entry) setPosition(at time.Duration) {
 }
 
 type Manager struct {
+	// loadingSeen counts the media asked for that were still loading,
+	// since LoadingSeen was last called.
+	loadingSeen int
 	// wasm plays video stickers in the VP9 sandbox, and gifWASM GIFs and
 	// animated avatars in the H.264 one, even with an FFmpeg.
 	wasm, gifWASM                 bool
@@ -1750,11 +1753,25 @@ func (m *Manager) status(msg model.Message, animate bool, want image.Point, cove
 	}
 	e := m.entries[msg.Media.ID]
 	if e == nil {
+		m.loadingSeen++
 		return Status{Loading: true}
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return Status{Frame: frame, Preview: e.preview, Err: e.err, Downloaded: e.downloaded, Total: e.total, Loading: e.frame == nil && e.err == nil && !e.cancelled && !e.waiting, Cancelled: e.cancelled}
+	st := Status{Frame: frame, Preview: e.preview, Err: e.err, Downloaded: e.downloaded, Total: e.total, Loading: e.frame == nil && e.err == nil && !e.cancelled && !e.waiting, Cancelled: e.cancelled}
+	if st.Loading {
+		m.loadingSeen++
+	}
+	return st
+}
+
+// LoadingSeen tells how many of the media asked for since it was last
+// called were still loading, and starts counting anew: what draws them
+// once, as a snapshot, draws them again until none is.
+func (m *Manager) LoadingSeen() int {
+	n := m.loadingSeen
+	m.loadingSeen = 0
+	return n
 }
 func (m *Manager) Cancel(msg model.Message) {
 	if msg.Media == nil {

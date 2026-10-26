@@ -55,17 +55,30 @@ type shotDialog struct {
 	// stale is set when the preview is not of the options; rendering,
 	// while one is on its way.
 	stale, rendering bool
-	results          chan shotRender
-	image            *image.RGBA
-	encoded          []byte
-	err              error
-	save, copy       surface
-	close            surface
-	loader           loadingIndicator
-	light, dark      *token.Theme
+	// opened is when the dialog opened; retryAt, when the messages are laid
+	// out again while their pictures load (see shotMediaWait).
+	opened, retryAt time.Time
+	results         chan shotRender
+	image           *image.RGBA
+	encoded         []byte
+	err             error
+	save, copy      surface
+	close           surface
+	loader          loadingIndicator
+	light, dark     *token.Theme
 	// themeFonts is the version of the fonts the themes were made with.
 	themeFonts uint64
 }
+
+// shotMediaWait is how long a snapshot waits for the pictures of its
+// messages to load, laid out again until none is loading: the selected
+// messages of a chat's shared files are not drawn in the size the
+// history has them in, and their pictures in it load only now. After it,
+// what has not loaded is drawn as it is.
+const (
+	shotMediaWait  = 20 * time.Second
+	shotMediaRetry = 100 * time.Millisecond
+)
 
 type shotRender struct {
 	image *image.RGBA
@@ -109,6 +122,7 @@ func (d *shotDialog) open(p *chatPage, msgs []model.Message) {
 		d.stale = true
 	})
 	d.stale = true
+	d.opened = time.Now()
 	d.modal.Open()
 }
 
@@ -129,7 +143,7 @@ func (d *shotDialog) layout(gtx layout.Context, p *chatPage, l localization.Cata
 		}
 	default:
 	}
-	if d.stale && !d.rendering {
+	if d.stale && !d.rendering && !gtx.Now.Before(d.retryAt) {
 		d.render(gtx, p, l)
 	}
 	if !d.modal.closing {
@@ -247,7 +261,14 @@ func (d *shotDialog) render(gtx layout.Context, p *chatPage, l localization.Cata
 		}
 		wdk.InitMaterialThemeInContext(sgtx, d.dark)
 	}
+	p.media.LoadingSeen()
 	ops, size, ok := p.buildSnapshot(sgtx, l, d.msgs, d.opts)
+	if ok && p.media.LoadingSeen() > 0 && time.Since(d.opened) < shotMediaWait {
+		// Laid out again once the pictures came, or in a moment.
+		d.stale, d.retryAt = true, gtx.Now.Add(shotMediaRetry)
+		gtx.Execute(op.InvalidateCmd{At: d.retryAt})
+		return
+	}
 	if !ok {
 		d.image, d.err = nil, fmt.Errorf("%s", l.T("history.snapshot_too_tall"))
 		d.modal.Toast(l.T("history.snapshot_too_tall"))
