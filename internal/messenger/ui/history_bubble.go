@@ -331,7 +331,11 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 	// from nothing, the list was made anew in each frame.
 	children := r.children[:0]
 	defer func() { r.children = children[:0] }()
-	if msg.SenderName != "" && !msg.Outgoing && join&joinAbove == 0 {
+	// As Telegram Desktop's Message::hasFromName: a chat with one person,
+	// a bot or Saved Messages names no sender over a message, whatever
+	// Telegram told of it; where a forward came from says the rest.
+	private := p.kind == model.KindUser || p.kind == model.KindBot || p.kind == model.KindSaved
+	if msg.SenderName != "" && !msg.Outgoing && !private && join&joinAbove == 0 {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, msg.SenderName, token.TypestyleLabelLargeEmphasized, senderColor(gtx, msg.SenderID), 1)
 		}), vspace(3))
