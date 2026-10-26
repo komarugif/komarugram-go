@@ -1384,7 +1384,6 @@
 "proxy.websocket_hint" = "Как заход на web.telegram.org";
 "reacted.all" = "Все";
 "reacted.failed" = "Не удалось загрузить список";
-"reacted.title" = "Реакции";
 
 "record.audio_files" = "Аудиофайлы";
 "record.bad_file" = "Этот файл не отправить голосовым сообщением: нужен Opus в OGG, MP3 или M4A.";

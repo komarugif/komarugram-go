@@ -166,37 +166,39 @@ func (d *reactedDialog) layout(gtx layout.Context, p *chatPage, l localization.C
 		width := min(gtx.Constraints.Max.X, gtx.Dp(420))
 		height := min(gtx.Constraints.Max.Y, gtx.Dp(560))
 		gtx.Constraints = layout.Exact(image.Pt(width, height))
+		// The tabs take the card's top edge to edge, as the composer's
+		// picker has them, its rounded corners cutting their ripples.
 		return d.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions {
-			sc := scheme(gtx)
 			var labels []string
 			for i := range d.filters {
 				labels = append(labels, d.tabLabel(i, l))
 			}
+			pad := layout.Inset{Left: defaultCardPadding, Right: defaultCardPadding}
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, l.T("reacted.title"), token.TypestyleTitleLarge, sc.Surface.OnColor, 1)
-				}),
-				vspace(8),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X, gtx.Dp(44)))
 					return d.tabs.Layout(gtx, labels, d.active)
 				}),
 				vspace(8),
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					area := image.Rectangle{Max: gtx.Constraints.Max}
-					d.tabs.Slide(gtx, area, func(gtx layout.Context) layout.Dimensions {
-						return d.layoutList(gtx, p, l)
+					return pad.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						area := image.Rectangle{Max: gtx.Constraints.Max}
+						d.tabs.Slide(gtx, area, func(gtx layout.Context) layout.Dimensions {
+							return d.layoutList(gtx, p, l)
+						})
+						return layout.Dimensions{Size: area.Max}
 					})
-					return layout.Dimensions{Size: area.Max}
 				}),
 				vspace(8),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return layout.E.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return textButton(gtx, &d.close, l.T("stickers.close"))
+					return layout.Inset{Right: defaultCardPadding, Bottom: defaultCardPadding}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return layout.E.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return textButton(gtx, &d.close, l.T("stickers.close"))
+						})
 					})
 				}),
 			)
-		}, defaultCardPadding)
+		}, 0)
 	})
 	if !shown {
 		d.stop()

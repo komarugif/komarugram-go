@@ -1318,7 +1318,6 @@
 "proxy.websocket_hint" = "Like a visit to web.telegram.org";
 "reacted.all" = "All";
 "reacted.failed" = "Could not load the list";
-"reacted.title" = "Reactions";
 
 "record.audio_files" = "Audio files";
 "record.bad_file" = "This file cannot be sent as a voice message: it must be Opus in OGG, MP3 or M4A.";

@@ -422,7 +422,6 @@
 "preview.videos" = "lng_in_dlg_video_count";
 "preview.voice" = "lng_in_dlg_audio";
 
-"reacted.title" = "lng_manage_peer_reactions";
 
 "record.cancel" = "lng_record_cancel_recording";
 "record.problem" = "lng_record_audio_problem";
