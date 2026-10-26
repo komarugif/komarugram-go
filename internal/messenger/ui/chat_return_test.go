@@ -92,6 +92,72 @@ func TestChatReturnSteps(t *testing.T) {
 	}
 }
 
+// A chat a link, a mention or the audio bar opens goes back to the one it
+// was opened from, the comments over it too; a link to a post of the chat
+// open only goes to it.
+func TestLinkReturns(t *testing.T) {
+	a, store := returnApp(t)
+	const channel, group, user = 4, 3, 2
+	chat := func(id int64) model.Chat {
+		c, ok := chatByID(a.store.Chats(), id)
+		if !ok {
+			t.Fatalf("no chat %d", id)
+		}
+		return c
+	}
+	a.open(chatPick{ID: group})
+	a.history.openChat(chat(user), 0)
+	a.testUpdate()
+	if a.selected != user || a.returnButton() == nil {
+		t.Fatalf("link: selected %d, back %v", a.selected, a.returnButton() != nil)
+	}
+	a.goBack()
+	a.testUpdate()
+	if a.selected != group || a.returnButton() != nil {
+		t.Fatalf("back: selected %d, back %v", a.selected, a.returnButton() != nil)
+	}
+
+	post := store.History(group).Messages[0].Key.MessageID
+	a.history.openChat(chat(group), post)
+	a.testUpdate()
+	if a.selected != group || a.returnButton() != nil {
+		t.Fatalf("a post here: selected %d, back %v", a.selected, a.returnButton() != nil)
+	}
+
+	voice := store.History(user).Messages[0]
+	a.history.openAudio(voice)
+	a.testUpdate()
+	if a.selected != user || a.returnButton() == nil {
+		t.Fatalf("audio: selected %d, back %v", a.selected, a.returnButton() != nil)
+	}
+	a.goBack()
+	a.testUpdate()
+	if a.selected != group {
+		t.Fatalf("back from the audio: selected %d", a.selected)
+	}
+
+	a.open(chatPick{ID: channel})
+	for _, m := range store.History(channel).Messages {
+		if m.CommentsOpen {
+			a.openComments(m)
+			break
+		}
+	}
+	view := a.thread
+	if view == nil {
+		t.Fatal("no comments")
+	}
+	a.comments.openChat(chat(user), 0)
+	a.testUpdate()
+	if a.selected != user || a.thread != nil || a.returnButton() == nil {
+		t.Fatalf("from the comments: selected %d, comments %v, back %v", a.selected, a.thread != nil, a.returnButton() != nil)
+	}
+	a.goBack()
+	if a.selected != channel || a.thread != view {
+		t.Fatalf("back to the comments: selected %d, comments %v", a.selected, a.thread == view)
+	}
+}
+
 // waitSender lays out frames until the sender asked for comes.
 func (a *App) waitSender(t *testing.T) {
 	t.Helper()

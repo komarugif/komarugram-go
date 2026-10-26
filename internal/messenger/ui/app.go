@@ -758,13 +758,14 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 	p.audioExternal = func() bool { return a.preferences.Global().AudioPlayer == "external" }
 	p.appearance = a.themes
 	p.avatar = a.layoutAvatar
+	// A chat a link, a mention or the audio bar opens goes back to the one
+	// it was opened from, as the chat of a group member does.
 	p.openChat = func(chat model.Chat, post model.MessageID) {
-		a.open(chatPick{ID: chat.ID, Chat: &chat, Message: post})
+		a.openFromHere(chatPick{ID: chat.ID, Chat: &chat, Message: post})
 		a.window.Invalidate()
 	}
 	p.openAudio = func(m model.Message) {
-		a.thread = nil
-		a.open(chatPick{ID: m.Key.ChatID, Message: m.Key.MessageID})
+		a.openFromHere(chatPick{ID: m.Key.ChatID, Message: m.Key.MessageID})
 		a.window.Invalidate()
 	}
 	p.openPhoto = func(m model.Message) { a.viewer.Open(p.chat, m, p.viewerItems()) }
