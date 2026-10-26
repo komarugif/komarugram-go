@@ -340,8 +340,9 @@ func (m *chatRowMenu) rowOp(gtx layout.Context, chat int64, size image.Point) {
 	event.Op(gtx.Ops, m.row(chat))
 }
 
-// layout draws the menu over the list of size, while it is open or closing.
-func (m *chatRowMenu) layout(gtx layout.Context, bd *blurBackdrop, l localization.Catalog) {
+// layout draws the menu over the window of size, in which the rows the menu
+// is of start at origin, while it is open or closing.
+func (m *chatRowMenu) layout(gtx layout.Context, origin image.Point, bd *blurBackdrop, l localization.Catalog) {
 	if m.store == nil {
 		return
 	}
@@ -365,7 +366,7 @@ func (m *chatRowMenu) layout(gtx layout.Context, bd *blurBackdrop, l localizatio
 	margin := gtx.Dp(8)
 	w := min(gtx.Dp(menuWidth), max(0, size.X-2*margin))
 	h := 2*gtx.Dp(menuPadding) + len(actions)*gtx.Dp(menuItemHeight)
-	rect, corner := m.menu.Place(gtx, m.at, size, image.Pt(w, h))
+	rect, corner := m.menu.Place(gtx, m.at.Add(origin), size, image.Pt(w, h))
 	m.rect = rect
 	radius := gtx.Dp(12)
 	m.menu.Layout(gtx, m.open, m.rect, corner, radius, func(gtx layout.Context) layout.Dimensions {

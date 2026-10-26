@@ -59,8 +59,13 @@ type chatList struct {
 	panel *searchPanel
 	// items are the search results laid out in the last frame.
 	items []searchItem
-	// menu is the menu of a chat right-clicked.
-	menu chatRowMenu
+	// menu is the menu of a chat right-clicked. It is drawn over the window
+	// (layoutMenu): a list narrowed to its avatars has no room for it.
+	// menuShown tells whether the rows it is of were laid out in this
+	// frame, menuTop where they start in the list.
+	menu      chatRowMenu
+	menuShown bool
+	menuTop   int
 	// reorder drags the pinned chats into another order.
 	reorder pinReorder
 	// overlays says how the menus are drawn; nil draws them opaque. bd is
@@ -248,6 +253,7 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 	sc := scheme(gtx)
 	size := gtx.Constraints.Max
 	fillWindowSurface(gtx, sc.Surface.Color, size)
+	l.menuShown = false
 
 	// Only search has a header; otherwise the chats take the full height
 	// under a small gap.
@@ -376,10 +382,20 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 	offset(menuGtx, image.Pt(0, headerHeight), func(gtx layout.Context) layout.Dimensions {
 		l.reorder.areaOp(gtx)
 		l.menu.areaOp(gtx)
-		l.menu.layout(gtx, l.menuBackdrop(), catalog)
 		return layout.Dimensions{}
 	})
+	l.menuShown, l.menuTop = true, headerHeight
 	return layout.Dimensions{Size: size}
+}
+
+// layoutMenu draws the menu of a chat over the whole of gtx, the window,
+// in which the list is at origin; bd is what it blurs there, nil for an
+// opaque menu. It goes after what the window draws beside the list.
+func (l *chatList) layoutMenu(gtx layout.Context, origin image.Point, bd *blurBackdrop, catalog localization.Catalog) {
+	if !l.menuShown {
+		return
+	}
+	l.menu.layout(gtx, origin.Add(image.Pt(0, l.menuTop)), bd, catalog)
 }
 
 // chatIndex is where the chat of id is in chats, -1 for nowhere.

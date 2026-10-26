@@ -1341,6 +1341,11 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	if overlays.toasts {
 		under = op.Record(gtx.Ops)
 	}
+	// The chat list's menu, drawn over the window, blurs all of it.
+	var underMenu op.MacroOp
+	if overlays.menus {
+		underMenu = op.Record(gtx.Ops)
+	}
 	size := gtx.Constraints.Max
 	folders := a.store.Folders()
 	chats := a.store.Chats()
@@ -1366,6 +1371,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 		x = sidebarPx
 	}
 
+	var listAt image.Point
 	if a.section.showsChats() {
 		available := toDp(size.X - x)
 		width, narrow := listWidth(a.listRequest, available)
@@ -1389,6 +1395,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 			})
 			top += bar
 		}
+		listAt = image.Pt(x, top)
 		column(x, top, listPx, size.Y-top, func(gtx layout.Context) layout.Dimensions {
 			return a.chats.Layout(gtx, a.section, folders, chats, a.selected, narrow, a.catalog())
 		})
@@ -1420,6 +1427,15 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	// The splitter goes last so that it takes the pointer over the columns.
 	if a.section.showsChats() {
 		a.splitter.Layout(gtx, x, size.Y)
+	}
+	var menuBackdrop *blurBackdrop
+	if overlays.menus {
+		call := underMenu.Stop()
+		call.Add(gtx.Ops)
+		menuBackdrop = newBackdrop(call, overlays.opacity)
+	}
+	if a.section.showsChats() {
+		a.chats.layoutMenu(gtx, listAt, menuBackdrop, a.catalog())
 	}
 	a.drop.layout(gtx, a.catalog())
 	if !a.overlayUpdated {
