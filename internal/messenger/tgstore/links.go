@@ -182,7 +182,10 @@ func (s *Store) SenderChat(ctx context.Context, m model.Message) (model.Chat, er
 	c.mu.Lock()
 	api, group := c.api, c.peers[m.Key.ChatID]
 	c.mu.Unlock()
-	if group.Kind != "chat" && group.Kind != "channel" {
+	// Asked by the message of any chat: a group's member, or whom a
+	// message forwarded there came from, in a private chat or Saved
+	// Messages too.
+	if group.Kind == "" {
 		return model.Chat{}, model.ErrLinkNotFound
 	}
 	if api == nil {
@@ -222,7 +225,7 @@ func (s *Store) senderChannel(ctx context.Context, m model.Message) (model.Chat,
 	var input tg.InputChannelClass = &tg.InputChannelFromMessage{Peer: group.input(), MsgID: int(m.Key.MessageID), ChannelID: id}
 	if known && peer.Rights.Known && peer.Hash != 0 {
 		input = &tg.InputChannel{ChannelID: id, AccessHash: peer.Hash}
-	} else if group.Kind != "chat" && group.Kind != "channel" {
+	} else if group.Kind == "" {
 		input = nil
 	}
 	if api == nil || input == nil {

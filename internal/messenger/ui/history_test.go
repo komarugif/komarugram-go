@@ -52,9 +52,10 @@ func TestMediaGeometryAndAvatarScope(t *testing.T) {
 	if senderAvatar(model.KindGroup, m) != 17 || senderAvatar(model.KindSaved, m) != m.ForwardFromID {
 		t.Fatal("missing sender/channel")
 	}
+	// A user's forward has their avatar too, as Telegram Desktop's.
 	m.ForwardFromID = 17
-	if senderAvatar(model.KindSaved, m) != 0 {
-		t.Fatal("saved user forward has avatar")
+	if senderAvatar(model.KindSaved, m) != 17 {
+		t.Fatal("saved user forward has no avatar")
 	}
 }
 func TestStickyAvatarStaysWithinMessage(t *testing.T) {

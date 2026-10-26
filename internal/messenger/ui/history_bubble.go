@@ -13,6 +13,7 @@ import (
 	"gio-mw/wdk"
 
 	"gioui.org/gesture"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -60,19 +61,25 @@ const (
 	joinBelow
 )
 
-// joinable reports whether b, the message after a, continues a's group.
-func joinable(a, b model.Message) bool {
+// joinable reports whether b, the message after a, continues a's group. In
+// Saved Messages, whose messages tell no sender, the group is of whom they
+// were forwarded from, whose avatar each group shows, as Telegram
+// Desktop's.
+func joinable(a, b model.Message, saved bool) bool {
+	if saved && (a.ForwardFromID != b.ForwardFromID || a.ForwardName != b.ForwardName) {
+		return false
+	}
 	return a.Kind != model.MessageService && b.Kind != model.MessageService &&
 		a.Outgoing == b.Outgoing && a.SenderID == b.SenderID && a.SenderName == b.SenderName &&
 		sameDay(a.Date, b.Date) && b.Date.Sub(a.Date) < joinGap
 }
 
 // messageJoins tells for each message of msgs, in order, how it joins its
-// neighbours.
-func messageJoins(msgs []model.Message) []bubbleJoin {
+// neighbours; saved for those of Saved Messages.
+func messageJoins(msgs []model.Message, saved bool) []bubbleJoin {
 	joins := make([]bubbleJoin, len(msgs))
 	for i := 1; i < len(msgs); i++ {
-		if joinable(msgs[i-1], msgs[i]) {
+		if joinable(msgs[i-1], msgs[i], saved) {
 			joins[i-1] |= joinBelow
 			joins[i] |= joinAbove
 		}
@@ -164,7 +171,10 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 		r.viewTop = p.rowTop + r.bodyTop + gtx.Dp(bubblePadTop) + r.articleAbove
 	}
 	if r.avatar.Clicked(gtx) && p.senderOpens(m) {
-		p.openSender(m)
+		p.openSender(p.avatarSender(m))
+	}
+	if r.forward.Clicked(gtx) && p.forwardOpens(m) {
+		p.openSender(forwardSender(m))
 	}
 	if m.ReplyToMessageID != 0 && r.reply.Clicked(gtx) {
 		p.jumpPending = m.ReplyToMessageID
@@ -349,11 +359,7 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 		}), vspace(4))
 	} else if !msg.ForwardDate.IsZero() {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			text := l.T("history.forward")
-			if msg.ForwardName != "" {
-				text = l.Format("history.forwarded_from", map[string]string{"name": msg.ForwardName, "user": msg.ForwardName})
-			}
-			return label(gtx, text, token.TypestyleLabelMedium, sc.Primary.Color, 1)
+			return p.forwardLine(gtx, r, *msg, l)
 		}), vspace(4))
 	}
 	// In a thread, as the comments to a post, what replies to its root
@@ -884,4 +890,46 @@ func (p *chatPage) jumpTo(id model.MessageID) {
 		p.forget()
 		p.invalidate()
 	}
+}
+
+// forwardLine is the line of whom m, a forward, came from. Before the name
+// is their avatar, as big as a custom emoji in the text, when Telegram told who
+// they are, but in Saved Messages, which draws it beside the bubble, as
+// Telegram Desktop's; a click on it opens their chat, as a group member's
+// avatar does.
+func (p *chatPage) forwardLine(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog) layout.Dimensions {
+	sc := scheme(gtx)
+	text := l.T("history.forward")
+	if m.ForwardName != "" {
+		text = l.Format("history.forwarded_from", map[string]string{"name": m.ForwardName, "user": m.ForwardName})
+	}
+	line := func(gtx layout.Context) layout.Dimensions {
+		if m.ForwardFromID == 0 || p.kind == model.KindSaved || p.avatar == nil {
+			return label(gtx, text, token.TypestyleLabelMedium, sc.Primary.Color, 1)
+		}
+		// As big as a custom emoji in the message's text: one of this
+		// small line's size was much smaller than those beside it.
+		ty := wdk.GetMaterialTheme(gtx).Typescale[token.TypestyleBodyLarge]
+		side := emojiBox(gtx, ty.Size).Size.X
+		kind := model.KindUser
+		if model.IsChannelID(m.ForwardFromID) {
+			kind = model.KindChannel
+		}
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return p.avatar(gtx, m.ForwardFromID, kind, m.ForwardName, unit.Dp(float32(side)/gtx.Metric.PxPerDp))
+			}),
+			layout.Rigid(layout.Spacer{Width: 4}.Layout),
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, text, token.TypestyleLabelMedium, sc.Primary.Color, 1)
+			}),
+		)
+	}
+	if !p.forwardOpens(m) || p.selectionCount() > 0 {
+		return line(gtx)
+	}
+	return r.forward.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		pointer.CursorPointer.Add(gtx.Ops)
+		return line(gtx)
+	})
 }

@@ -170,3 +170,37 @@ func TestSenderChannel(t *testing.T) {
 		t.Fatalf("offline: %+v %v", chat, err)
 	}
 }
+
+// Whom a message forwarded to Saved Messages came from, known only as a min
+// user, is asked for by that message, as a group's member is.
+func TestSenderChatOfAForwardInSavedMessages(t *testing.T) {
+	s := testStore(t)
+	s.rememberPeers([]tg.UserClass{&tg.User{ID: 5, Self: true, FirstName: "Me"}, &tg.User{ID: 42, Min: true, FirstName: "Pavel"}}, nil)
+	saved := peerID(&tg.PeerUser{UserID: 5})
+	var asked *tg.InputUserFromMessage
+	s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
+		req, ok := in.(*tg.UsersGetUsersRequest)
+		if !ok {
+			t.Fatalf("unexpected request %T", in)
+		}
+		asked, _ = req.ID[0].(*tg.InputUserFromMessage)
+		return &tg.UserClassVector{Elems: []tg.UserClass{&tg.User{ID: 42, AccessHash: 7, FirstName: "Pavel"}}}, nil
+	})
+	forward := model.Message{Key: model.MessageKey{ChatID: saved, MessageID: 100}, SenderID: 42, SenderName: "Pavel"}
+	chat, err := s.SenderChat(context.Background(), forward)
+	if err != nil || chat.ID != 42 {
+		t.Fatalf("the forward's sender: %+v %v", chat, err)
+	}
+	if asked == nil || asked.MsgID != 100 || asked.UserID != 42 {
+		t.Fatalf("asked %+v", asked)
+	}
+	switch p := asked.Peer.(type) {
+	case *tg.InputPeerSelf:
+	case *tg.InputPeerUser:
+		if p.UserID != 5 {
+			t.Fatalf("asked by %+v, not Saved Messages", p)
+		}
+	default:
+		t.Fatalf("asked by %T, not Saved Messages", p)
+	}
+}

@@ -299,7 +299,7 @@ func (p *chatPage) buildSnapshot(gtx layout.Context, l localization.Catalog, msg
 			}
 		}
 	}()
-	joins := messageJoins(msgs)
+	joins := messageJoins(msgs, p.kind == model.KindSaved)
 	for i, m := range msgs {
 		date := opts.date && (i == 0 || !sameDay(m.Date, msgs[i-1].Date))
 		if !opts.reactions {

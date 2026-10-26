@@ -98,7 +98,10 @@ type messageRow struct {
 	plate wdk.FloatTween
 	// avatar is the sender's avatar the row draws for its group of
 	// messages, which opens the chat with them.
-	avatar   widget.Clickable
+	avatar widget.Clickable
+	// forward is the line of whom the message was forwarded from, which
+	// opens their chat when Telegram told who they are.
+	forward  widget.Clickable
 	sticker  surface
 	audio    audioRow
 	revealed bool
@@ -1032,7 +1035,7 @@ func (p *chatPage) rebuild(messages []model.Message, env model.RenderEnvironment
 	p.messages = messages
 	p.dates = make([]string, len(messages))
 	p.dayStart = make([]bool, len(messages))
-	p.joins = messageJoins(messages)
+	p.joins = messageJoins(messages, p.kind == model.KindSaved)
 	p.nextDay = make([]int, len(messages))
 	next := len(messages)
 	for i := len(messages) - 1; i >= 0; i-- {
