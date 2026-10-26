@@ -47,3 +47,24 @@ func TestDocumentKindByAttributeOrder(t *testing.T) {
 		}
 	}
 }
+
+// A message forwarded from a channel's post keeps which post it was, which
+// its channel opens at; one from a user has none.
+func TestForwardPost(t *testing.T) {
+	channel := &tg.MessageFwdHeader{Date: 10, FromID: &tg.PeerChannel{ChannelID: 42}}
+	channel.SetChannelPost(15)
+	posted := &tg.Message{ID: 1, PeerID: &tg.PeerUser{UserID: 5}}
+	posted.SetFwdFrom(*channel)
+	m, _ := convertMessage("a", posted, nil)
+	if m.ForwardPostID != 15 || m.ForwardFromID != peerID(&tg.PeerChannel{ChannelID: 42}) {
+		t.Fatalf("forward %d of %d", m.ForwardPostID, m.ForwardFromID)
+	}
+	user := &tg.MessageFwdHeader{Date: 10, FromID: &tg.PeerUser{UserID: 7}}
+	user.SetChannelPost(3)
+	sent := &tg.Message{ID: 2, PeerID: &tg.PeerUser{UserID: 5}}
+	sent.SetFwdFrom(*user)
+	m, _ = convertMessage("a", sent, nil)
+	if m.ForwardPostID != 0 {
+		t.Fatalf("a user's forward has post %d", m.ForwardPostID)
+	}
+}

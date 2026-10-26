@@ -96,5 +96,15 @@ func (a *App) hasChat(id int64) bool {
 // openSenderChat opens the chat with the sender r found, with a way back
 // to the group.
 func (a *App) openSenderChat(r senderResult) {
-	a.openReturning(r.chat, r.from, r.thread)
+	a.openReturningAt(r.chat, r.from, r.thread, senderPost(r.message, r.chat))
+}
+
+// senderPost is the post of chat that m, a message forwarded from that
+// channel, is, which its chat opens at, as Telegram Desktop goes to a
+// forwarded post; 0 for any other.
+func senderPost(m model.Message, chat model.Chat) model.MessageID {
+	if m.ForwardPostID == 0 || m.ForwardFromID != chat.ID || chat.Kind != model.KindChannel && chat.Kind != model.KindGroup {
+		return 0
+	}
+	return m.ForwardPostID
 }

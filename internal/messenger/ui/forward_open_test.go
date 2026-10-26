@@ -84,3 +84,19 @@ func TestSavedForwardsGroupBySource(t *testing.T) {
 		t.Fatalf("a chat's joins %v", got)
 	}
 }
+
+// A message forwarded from a channel's post opens the channel at it; one
+// from a user, or a post of another chat, opens it where it would.
+func TestSenderPost(t *testing.T) {
+	post := model.Message{ForwardFromID: -1000000000042, ForwardPostID: 15}
+	channel := model.Chat{ID: -1000000000042, Kind: model.KindChannel}
+	if senderPost(post, channel) != 15 {
+		t.Fatal("a forwarded post does not open the channel at it")
+	}
+	if senderPost(post, model.Chat{ID: -1000000000043, Kind: model.KindChannel}) != 0 {
+		t.Fatal("a post opens another channel at it")
+	}
+	if senderPost(model.Message{ForwardFromID: 77}, model.Chat{ID: 77, Kind: model.KindUser}) != 0 {
+		t.Fatal("a user's forward opens at a post")
+	}
+}

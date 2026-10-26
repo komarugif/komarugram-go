@@ -98,6 +98,9 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 			if f.FromName != "" {
 				out.ForwardName = f.FromName
 			}
+			if post, ok := f.GetChannelPost(); ok && model.IsChannelID(out.ForwardFromID) {
+				out.ForwardPostID = model.MessageID(post)
+			}
 			out.ForwardDate = time.Unix(int64(f.Date), 0)
 		}
 		out.Views, _ = m.GetViews()

@@ -29,10 +29,16 @@ const returnsMax = 32
 // from, when it was opened so too. From thread, chat may be from itself,
 // as the channel of the comments: they close over it.
 func (a *App) openReturning(chat, from model.Chat, thread *commentsView) {
+	a.openReturningAt(chat, from, thread, 0)
+}
+
+// openReturningAt is openReturning with chat open at message, 0 for where
+// it would open: a channel's post a message was forwarded from.
+func (a *App) openReturningAt(chat, from model.Chat, thread *commentsView, message model.MessageID) {
 	if n := len(a.returns); n > 0 && a.returns[n-1].chat != from.ID {
 		a.returns = nil
 	}
-	a.open(chatPick{ID: chat.ID, Chat: &chat})
+	a.open(chatPick{ID: chat.ID, Chat: &chat, Message: message})
 	if thread != nil && a.thread == thread {
 		a.closeComments()
 	}

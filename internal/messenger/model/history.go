@@ -138,9 +138,12 @@ type Message struct {
 	ReplyToMessageID MessageID
 	ForwardFromID    int64
 	ForwardDate      time.Time
-	GroupedID        int64
-	Media            *MessageMedia
-	ContentRevision  uint64
+	// ForwardPostID is the post of ForwardFromID, a channel, the message
+	// was forwarded from (fwd_from.channel_post), 0 for none.
+	ForwardPostID   MessageID `json:",omitempty"`
+	GroupedID       int64
+	Media           *MessageMedia
+	ContentRevision uint64
 	// NoForwards is set when the message protects its content: it cannot
 	// be forwarded or saved.
 	NoForwards bool `json:",omitempty"`
