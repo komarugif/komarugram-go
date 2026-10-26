@@ -15,22 +15,30 @@ import (
 	"gio-mw/token"
 	"gio-mw/wdk"
 
+	"gioui.org/f32"
 	"gioui.org/font"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
+	"gioui.org/op/paint"
 	"gioui.org/text"
 )
 
-// richLabel is a label of text runs, as a message's text has them: bold
-// and italic, and custom emoji drawn as their pictures, where label has
-// one style. A text of the catalog marks its bold parts with "**", as
-// Telegram Desktop's: see markedRuns.
+// richLabel is a label of text runs, as a message's text has them: bold,
+// italic, code, underlined and struck out, links in their color, spoilers
+// covered, and custom emoji drawn as their pictures, where label has one
+// style. It only shows them: a click on a link opens nothing. A text of
+// the catalog marks its bold parts with "**", as Telegram Desktop's: see
+// markedRuns.
 type richLabel struct {
 	runs  []model.TextRun
 	style token.Typestyle
 	color token.MatColor
+	// link is the color of links, the scheme's primary when nil.
+	link  *token.MatColor
 	align text.Alignment
+	// revealed uncovers the spoilers.
+	revealed bool
 	// maxLines 1 keeps the text on one line, cut with an ellipsis where it
 	// does not fit; 0 wraps all of it.
 	maxLines int
@@ -67,6 +75,10 @@ func (r richLabel) Layout(gtx layout.Context) layout.Dimensions {
 	theme := wdk.GetMaterialTheme(gtx)
 	ty := theme.Typescale[r.style]
 	fg := r.color.AsNRGBA()
+	link := scheme(gtx).Primary.Color.AsNRGBA()
+	if r.link != nil {
+		link = r.link.AsNRGBA()
+	}
 	styles := make([]styledtext.SpanStyle, len(r.runs))
 	frames := make([]image.Image, len(r.runs))
 	for i, run := range r.runs {
@@ -80,6 +92,12 @@ func (r richLabel) Layout(gtx layout.Context) layout.Dimensions {
 		}
 		if run.Italic {
 			st.Font.Style = font.Italic
+		}
+		if run.Code {
+			st.Font.Typeface = theme.Typescale[token.TypestylePreformatted].Font
+		}
+		if run.URL != "" || run.Action != "" {
+			st.Color = link
 		}
 		if run.Emoji != 0 && r.media != nil && r.images != nil {
 			msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d", run.Emoji), MIMEType: "application/x-custom-emoji"}}
@@ -95,9 +113,22 @@ func (r richLabel) Layout(gtx layout.Context) layout.Dimensions {
 	t := styledtext.Text(theme.TextShaper, styles...)
 	t.Alignment = r.align
 	t.Decorate = func(gtx layout.Context, f styledtext.Fragment, draw func()) {
+		run, size := r.runs[f.Index], f.Bounds.Size()
+		if run.Spoiler && !r.revealed {
+			// Covered as the history's spoilers are before a click.
+			paintSpoiler(gtx, size, f32.Point{}, 0, r.color.SetOpacity(.35).AsNRGBA(), nil)
+			return
+		}
 		draw()
 		if frame := frames[f.Index]; frame != nil {
-			drawImage(gtx, r.images, frame, f.Bounds.Size())
+			drawImage(gtx, r.images, frame, size)
+		}
+		if run.Underline || run.Strike || run.URL != "" || run.Action != "" {
+			y := size.Y - 1
+			if run.Strike {
+				y = size.Y / 2
+			}
+			paint.FillShape(gtx.Ops, styles[f.Index].Color, clip.Rect(image.Rect(0, y, size.X, y+max(gtx.Dp(1), 1))).Op())
 		}
 	}
 	if r.maxLines != 1 {

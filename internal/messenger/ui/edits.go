@@ -18,11 +18,13 @@ import (
 )
 
 // editsDialog shows the versions an edited message had, as AyuGram's
-// edits history does: oldest first, then the message as it is.
+// edits history does: oldest first, then the message as it is. Their text
+// is drawn as the history draws a message's: rows are theirs, in order.
 type editsDialog struct {
 	modal    modal
 	msg      model.Message
 	versions []model.Message
+	rows     []*messageRow
 	loaded   bool
 	failed   bool
 	results  chan editsResult
@@ -83,6 +85,11 @@ func (d *editsDialog) layout(gtx layout.Context, p *chatPage, l localization.Cat
 		if r.err != nil {
 			d.modal.Toast(l.T("edits.failed"))
 		}
+		d.rows = nil
+		now := time.Now()
+		for _, m := range append(append([]model.Message(nil), d.versions...), d.msg) {
+			d.rows = append(d.rows, newMessageRow(m, l, now))
+		}
 	default:
 	}
 	if store, ok := p.source.(model.KeepStore); ok && d.failed && d.retry.Clicked(gtx) {
@@ -114,7 +121,7 @@ func (d *editsDialog) layout(gtx layout.Context, p *chatPage, l localization.Cat
 					all := append(append([]model.Message(nil), d.versions...), d.msg)
 					d.list.Axis = layout.Vertical
 					return d.list.Layout(gtx, len(all), func(gtx layout.Context, i int) layout.Dimensions {
-						return d.version(gtx, all[i], i == len(all)-1, l)
+						return d.version(gtx, p, all[i], d.rows[i], i == len(all)-1, l)
 					})
 				}),
 				vspace(12),
@@ -131,8 +138,9 @@ func (d *editsDialog) layout(gtx layout.Context, p *chatPage, l localization.Cat
 	}
 }
 
-// version draws one version: when it was written or edited, and its text.
-func (d *editsDialog) version(gtx layout.Context, m model.Message, current bool, l localization.Catalog) layout.Dimensions {
+// version draws one version: when it was written or edited, and its text,
+// that of r, with its formatting and custom emoji.
+func (d *editsDialog) version(gtx layout.Context, p *chatPage, m model.Message, r *messageRow, current bool, l localization.Catalog) layout.Dimensions {
 	sc := scheme(gtx)
 	at := m.EditedAt
 	if at.IsZero() {
@@ -149,7 +157,7 @@ func (d *editsDialog) version(gtx layout.Context, m model.Message, current bool,
 			}),
 			vspace(2),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, m.Text, token.TypestyleBodyMedium, sc.Surface.OnColor, 0)
+				return p.richText(gtx, r, l, p.animate)
 			}),
 		)
 	})

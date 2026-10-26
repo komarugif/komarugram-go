@@ -89,22 +89,14 @@ func (s *Store) History(chat int64) model.History {
 		messages = append(messages, model.Message{Key: model.MessageKey{AccountID: "demo", ChatID: chat, MessageID: model.MessageID(len(messages) + 1)}, Date: start.Add(4*24*time.Hour + time.Duration(len(messages))*time.Minute), SenderID: 42, SenderName: "Демонстрация", Text: text, Kind: kind, Media: media, Entities: entities, Buttons: buttons, ContentRevision: 1})
 	}
 
-	rich := "👋 Привет! Жирный, курсив, код и спойлер. Telegram"
-	var entities []model.Entity
-	for _, pair := range [][2]string{{"bold", "Жирный"}, {"italic", "курсив"}, {"code", "код"}, {"spoiler", "спойлер"}, {"url", "Telegram"}} {
-		i := strings.Index(rich, pair[1])
-		e := model.Entity{Kind: pair[0], Offset: len(utf16.Encode([]rune(rich[:i]))), Length: len(utf16.Encode([]rune(pair[1])))}
-		if e.Kind == "url" {
-			e.URL = "https://telegram.org"
-		}
-		entities = append(entities, e)
-	}
-	add(rich, model.MessageText, nil, entities, nil)
+	// Edited once: its first words are in its edits history.
+	add(demoRichText, model.MessageText, nil, demoEntities(demoRichText, [][2]string{{"bold", "Жирный"}, {"italic", "курсив"}, {"code", "код"}, {"spoiler", "спойлер"}, {"url", "Telegram"}}), nil)
+	messages[len(messages)-1].EditedAt = messages[len(messages)-1].Date.Add(3 * time.Minute)
 	messages[len(messages)-1].WebPage = &model.WebPreview{URL: "https://telegram.org", Title: "Telegram", Description: "Telegram Messenger", Photo: &model.MessageMedia{ID: "demo/photo", MIMEType: "image/png", Width: 640, Height: 360}}
 	add("", model.MessagePoll, nil, nil, nil)
 	messages[len(messages)-1].Poll = &model.Poll{Question: "Какое оформление выберем?", Total: 10, Answers: []model.PollAnswer{{Text: "Светлое", Voters: 6}, {Text: "Тёмное", Voters: 4, Chosen: true}}}
 
-	add("Изображение из локального кеша", model.MessagePhoto, &model.MessageMedia{ID: "demo/photo", MIMEType: "image/png", Width: 640, Height: 360}, nil, nil)
+	add(demoPhotoCaption, model.MessagePhoto, &model.MessageMedia{ID: "demo/photo", MIMEType: "image/png", Width: 640, Height: 360}, demoEntities(demoPhotoCaption, [][2]string{{"bold", "Изображение"}, {"italic", "кеша"}, {"spoiler", "сюрприз"}, {"emoji", "☀"}}), nil)
 	// A GIF, as Telegram keeps them: a silent MP4, assets/video.mp4, 720×1280.
 	add("GIF воспроизводится прямо в чате", model.MessageGIF, &model.MessageMedia{ID: "demo/gifv", MIMEType: "video/mp4", Width: 720, Height: 1280, Size: 7789765, Duration: 36 * time.Second, Thumbnail: &model.MessageMedia{ID: "demo/portrait", MIMEType: "image/png", Width: 180, Height: 320}}, nil, nil)
 	add("", model.MessageSticker, &model.MessageMedia{ID: "demo/tgs", MIMEType: "application/x-tgsticker", Width: 512, Height: 512}, nil, nil)

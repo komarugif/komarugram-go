@@ -26,6 +26,7 @@ var landmarks = map[string]func(model.Message) bool{
 	"round":         mediaIs("demo/round", model.MessageRound),
 	"file":          mediaIs("demo/markdown", model.MessageFile),
 	"poll":          func(m model.Message) bool { return m.Kind == model.MessagePoll },
+	"edited":        func(m model.Message) bool { return !m.EditedAt.IsZero() },
 	"article":       func(m model.Message) bool { return m.Rich != nil },
 	"service":       func(m model.Message) bool { return m.Kind == model.MessageService },
 	"story":         func(m model.Message) bool { return m.StoryShown() && !m.StoryOf.Mention },
