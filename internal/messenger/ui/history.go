@@ -356,9 +356,8 @@ type chatPage struct {
 	blur func() bool
 	// frozen replaces the composer when the account is frozen.
 	frozen *frozenView
-	// loader shows that history is loading; fileLoader, that a file is
-	// being downloaded to open.
-	loader, fileLoader loadingIndicator
+	// loader shows that history is loading.
+	loader loadingIndicator
 	// chats are the account's chats, which messages can be forwarded to.
 	chats func() []model.Chat
 	// title is the open chat's, for the initials of its avatar.

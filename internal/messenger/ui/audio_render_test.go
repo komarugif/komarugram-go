@@ -11,6 +11,7 @@ import (
 
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
+	"komarugram/pkg/audio"
 
 	"gioui.org/layout"
 )
@@ -77,6 +78,19 @@ func TestRenderAudio(t *testing.T) {
 		renderToast(t, filepath.Join(dir, "audio-voice-"+theme+".png"), image.Pt(600, 820), dark, draw)
 		p.audioBar.slider.dragging = false
 		p.audio.setVolume(1, false)
+		// The music while its file opens: the ring of a file's download
+		// on its button, the voice message's bar still over the chat.
+		play := p.audio.play
+		opened := make(chan struct{})
+		p.audio.play = func(src audio.Source) (audioPlayback, error) {
+			<-opened
+			return play(src)
+		}
+		p.audio.toggle(p, music, -1)
+		renderToast(t, filepath.Join(dir, "audio-loading-"+theme+".png"), image.Pt(600, 820), dark, draw)
+		p.audio.stop()
+		close(opened)
+		p.audio.play = play
 
 		// A video message: its thumbnail while it does not play, not seen
 		// yet; then paused at 40%, its picture and the ring of what was
