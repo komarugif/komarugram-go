@@ -325,7 +325,11 @@ func documentMedia(d *tg.Document) (model.MessageKind, *model.MessageMedia, *fil
 	if m.Thumbnail != nil {
 		m.Preview = m.Thumbnail.Preview
 	}
-	sticker, animated := false, false
+	// The attributes make the kind in their order, as Telegram Desktop's
+	// DocumentData::setattributes: a video or an audio names the kind of a
+	// file only, so that a video message with an audio attribute after its
+	// video's stays a video message; an animation is a file's or a video's,
+	// a sticker a file's, a video's or an animation's.
 	for _, a := range d.Attributes {
 		switch a := a.(type) {
 		case *tg.DocumentAttributeFilename:
@@ -333,37 +337,49 @@ func documentMedia(d *tg.Document) (model.MessageKind, *model.MessageMedia, *fil
 		case *tg.DocumentAttributeImageSize:
 			m.Width, m.Height = a.W, a.H
 		case *tg.DocumentAttributeVideo:
-			k = model.MessageVideo
-			if a.RoundMessage {
-				k = model.MessageRound
+			if k == model.MessageFile {
+				k = model.MessageVideo
+				if a.RoundMessage {
+					k = model.MessageRound
+				}
 			}
 			m.Width, m.Height = a.W, a.H
 			m.Duration = time.Duration(a.Duration * float64(time.Second))
 		case *tg.DocumentAttributeAudio:
-			if a.Voice {
-				k = model.MessageVoice
-				m.Waveform = a.Waveform
-			} else {
+			if k == model.MessageFile {
 				k = model.MessageMusic
+				if a.Voice {
+					k = model.MessageVoice
+				}
 			}
-			m.Title, m.Performer = a.Title, a.Performer
-			m.Duration = time.Duration(a.Duration) * time.Second
+			switch k {
+			case model.MessageVoice, model.MessageRound:
+				m.Waveform = a.Waveform
+			case model.MessageMusic:
+				m.Title, m.Performer = a.Title, a.Performer
+			}
+			if m.Duration == 0 {
+				m.Duration = time.Duration(a.Duration) * time.Second
+			}
 		case *tg.DocumentAttributeAnimated:
-			animated = true
+			if k == model.MessageFile || k == model.MessageVideo {
+				k = model.MessageGIF
+			}
 		case *tg.DocumentAttributeSticker:
-			sticker = true
+			if k == model.MessageFile || k == model.MessageVideo || k == model.MessageGIF {
+				k = model.MessageSticker
+			}
 			m.StickerSet, m.Emoji = stickerSetRef(a.Stickerset), a.Alt
 		case *tg.DocumentAttributeCustomEmoji:
-			sticker = true
+			if k == model.MessageFile || k == model.MessageVideo || k == model.MessageGIF {
+				k = model.MessageSticker
+			}
 			m.StickerSet = stickerSetRef(a.Stickerset)
 			m.TextColor = a.TextColor
 		}
 	}
-	if animated || d.MimeType == "image/gif" {
+	if k == model.MessageFile && d.MimeType == "image/gif" {
 		k = model.MessageGIF
-	}
-	if sticker {
-		k = model.MessageSticker
 	}
 	return k, m, &fileLocation{ID: d.ID, Hash: d.AccessHash, Reference: d.FileReference, DC: d.DCID}
 }

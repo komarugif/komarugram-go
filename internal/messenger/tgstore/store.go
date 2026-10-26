@@ -662,23 +662,21 @@ func mediaKey(media tg.MessageMediaClass) (key, emoji string) {
 		if !ok {
 			return "preview.file", ""
 		}
-		for _, a := range doc.Attributes {
-			switch a := a.(type) {
-			case *tg.DocumentAttributeSticker:
-				return "preview.sticker", a.Alt
-			case *tg.DocumentAttributeAudio:
-				if a.Voice {
-					return "preview.voice", ""
-				}
-				return "preview.music", ""
-			case *tg.DocumentAttributeVideo:
-				if a.RoundMessage {
-					return "preview.round", ""
-				}
-				return "preview.video", ""
-			case *tg.DocumentAttributeAnimated:
-				return "preview.gif", ""
-			}
+		// Named by the kind the history shows it as.
+		kind, meta, _ := documentMedia(doc)
+		switch kind {
+		case model.MessageSticker:
+			return "preview.sticker", meta.Emoji
+		case model.MessageVoice:
+			return "preview.voice", ""
+		case model.MessageMusic:
+			return "preview.music", ""
+		case model.MessageRound:
+			return "preview.round", ""
+		case model.MessageVideo:
+			return "preview.video", ""
+		case model.MessageGIF:
+			return "preview.gif", ""
 		}
 		return "preview.file", ""
 	}
