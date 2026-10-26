@@ -704,8 +704,10 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			}
 		}
 		// The audio of the info's sections plays in the same player, under
-		// the same bar, as the chat's.
+		// the same bar, as the chat's, whose click goes to what plays as
+		// the chat's does.
 		a.info.renderer.audio = a.history.audio
+		a.info.renderer.openAudio = a.history.openAudio
 		// A section's photo or video goes through the section's kind alone.
 		a.info.renderer.openPhoto = func(m model.Message) {
 			a.viewer.OpenShared(m.Key.ChatID, m, a.info.messages, a.info.section, -1)

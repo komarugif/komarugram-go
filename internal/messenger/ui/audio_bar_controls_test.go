@@ -189,8 +189,8 @@ func (h *barHarness) drag(x, y float32) {
 	h.frame()
 }
 
-// Over a page that is not the chat's, a click on the bar opens the chat at
-// what plays; over the chat it scrolls there.
+// Over a page that is not the chat's, or over another chat, a click on the
+// bar opens the chat at what plays; over the chat it scrolls there.
 func TestAudioBarAwayOpensTheChat(t *testing.T) {
 	p, _, find := audioHarnessPage(t)
 	voice := find("demo/voice")
@@ -209,5 +209,10 @@ func TestAudioBarAwayOpensTheChat(t *testing.T) {
 	h.click(300, 24)
 	if len(opened) != 1 {
 		t.Fatalf("over the chat the bar opened %v", opened)
+	}
+	p.chat = 3
+	h.click(300, 24)
+	if len(opened) != 2 || opened[1] != voice.Key {
+		t.Fatalf("over another chat the bar opened %v", opened)
 	}
 }
