@@ -115,6 +115,7 @@ func (s *Store) fetchProfile(ctx context.Context, chat int64) (model.PeerProfile
 			}
 		}
 		channelID, channelMsg = full.FullUser.PersonalChannelID, full.FullUser.PersonalChannelMessage
+		out.About = full.FullUser.About
 	case "channel":
 		full, e := api.ChannelsGetFullChannel(ctx, &tg.InputChannel{ChannelID: peer.ID, AccessHash: peer.Hash})
 		if e != nil {

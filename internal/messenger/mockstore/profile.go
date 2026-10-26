@@ -21,6 +21,7 @@ func (s *Store) PeerProfile(_ context.Context, chat int64) (model.PeerProfile, e
 	switch chat {
 	case 2:
 		out.Usernames = append(out.Usernames, model.Username{Name: "anna", Collectible: true}, model.Username{Name: "smirnova", Collectible: true})
+		out.About = "Фотографирую рассветы и пишу о них в t.me/gonews. Пишите @gopher_bot или на https://go.dev."
 		out.Cover = model.ProfileCover{Gift: true, CenterColor: 0x6fae6a, EdgeColor: 0x2f6e43, PatternColor: 0x1c4f2c, TextColor: 0xffffff, Pattern: 1}
 		for _, i := range []int{1, 3, 5} {
 			out.Gifts = append(out.Gifts, demoGift(chat, i))

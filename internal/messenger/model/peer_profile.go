@@ -20,6 +20,9 @@ type PeerProfile struct {
 	Gifts []Message
 	// Channel is the channel a user put in the profile, nil for none.
 	Channel *PersonalChannel
+	// About is what a user tells of themselves: plain text, whose links
+	// and mentions PlainEntities finds.
+	About string
 	// Badges are the marks beside the name as Telegram says now, when
 	// BadgesKnown: a chat's own may be older, as the emoji status of someone
 	// with no dialog, which no update reaches.
