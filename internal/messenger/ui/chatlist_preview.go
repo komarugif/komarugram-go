@@ -4,7 +4,6 @@ package ui
 
 import (
 	"bytes"
-	"fmt"
 	"image"
 	"image/color"
 	_ "image/jpeg"
@@ -146,7 +145,7 @@ func (p *previewLine) update(c model.Chat, title string, catalog localization.Ca
 	for i, r := range p.runs {
 		if r.Emoji != 0 {
 			// Decoded in the pixels it takes, as the badges' are.
-			p.emoji[i] = model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d@%d", r.Emoji, emojiPx), MIMEType: "application/x-custom-emoji"}}
+			p.emoji[i] = customEmojiMessage(r.Emoji, emojiPx)
 		}
 	}
 	p.thumbs = p.thumbs[:0]

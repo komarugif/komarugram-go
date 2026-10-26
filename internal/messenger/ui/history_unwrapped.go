@@ -3,7 +3,6 @@
 package ui
 
 import (
-	"fmt"
 	"image"
 	"strings"
 	"unicode/utf8"
@@ -264,13 +263,8 @@ func (p *chatPage) largeEmoji(gtx layout.Context, m model.Message, animate bool)
 	side := gtx.Dp(largeEmojiSize)
 	size := image.Pt(side, side)
 	if doc != 0 {
-		if p.media != nil && p.images != nil {
-			msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d", doc), MIMEType: "application/x-custom-emoji"}}
-			if frame := emojiFrame(p.media, p.images, msg, animate, scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
-				return exact(gtx, size, func(gtx layout.Context) layout.Dimensions {
-					return widget.Image{Src: p.images.Op(frame), Fit: widget.Contain}.Layout(gtx)
-				})
-			}
+		if frame := customEmoji(p.media, p.images, doc, side, animate, scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
+			return drawImage(gtx, p.images, frame, size)
 		}
 		return layout.Dimensions{Size: size}
 	}

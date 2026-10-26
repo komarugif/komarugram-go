@@ -22,6 +22,7 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
+	"gioui.org/unit"
 )
 
 // richLabel is a label of text runs, as a message's text has them: bold,
@@ -49,15 +50,36 @@ type richLabel struct {
 	animate bool
 }
 
-// emojiFrame is the frame of msg, a custom emoji, from media: in col
-// when Telegram marks it of the text's color, as Telegram Desktop draws
-// it; nil until it has loaded.
-func emojiFrame(media *chatmedia.Manager, images *imageOps, msg model.Message, animate bool, col color.NRGBA) image.Image {
-	frame, _ := media.Frame(msg, animate)
+// customEmojiMessage is the media of custom emoji id shown px pixels
+// square, "emoji/id@px": it is decoded in just that size, as a picture
+// drawn at another size is resampled and blurred.
+func customEmojiMessage(id int64, px int) model.Message {
+	return model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d@%d", id, px), MIMEType: "application/x-custom-emoji"}}
+}
+
+// customEmoji is the picture of custom emoji id, px pixels square, from
+// media: in col when Telegram marks it of the text's color, as Telegram
+// Desktop draws it; nil until it has loaded. Every custom emoji of the
+// client is drawn from it, in a text, a reaction, a status beside a name.
+func customEmoji(media *chatmedia.Manager, images *imageOps, id int64, px int, animate bool, col color.NRGBA) image.Image {
+	if media == nil || images == nil || px <= 0 {
+		return nil
+	}
+	msg := customEmojiMessage(id, px)
+	frame := media.StatusFit(msg, animate, image.Pt(px, px), false).Frame
 	if frame != nil && media.TextColored(msg) {
 		frame = images.Colored(frame, col)
 	}
 	return frame
+}
+
+// emojiBox is the square a custom emoji takes in a line of text of size,
+// a little over the letters, on their baseline: the fallback emoji's glyph
+// may be any width, or missing from the fonts. It is kept while the
+// picture loads.
+func emojiBox(gtx layout.Context, size unit.Sp) *styledtext.Box {
+	em := gtx.Sp(size) * 6 / 5
+	return &styledtext.Box{Size: image.Pt(em, em), Ascent: em * 4 / 5}
 }
 
 // markedRuns are the runs of a text whose bold parts are between "**".
@@ -100,13 +122,10 @@ func (r richLabel) Layout(gtx layout.Context) layout.Dimensions {
 			st.Color = link
 		}
 		if run.Emoji != 0 && r.media != nil && r.images != nil {
-			msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d", run.Emoji), MIMEType: "application/x-custom-emoji"}}
-			// A square of its own, a little over the letters' size: the
-			// fallback emoji's glyph may be any width, or missing from the
-			// fonts. It is kept while the picture loads.
-			em := gtx.Sp(ty.Size) * 6 / 5
-			st.Box = &styledtext.Box{Size: image.Pt(em, em), Ascent: em * 4 / 5}
-			frames[i] = emojiFrame(r.media, r.images, msg, r.animate, fg)
+			st.Box = emojiBox(gtx, ty.Size)
+			if !run.Spoiler || r.revealed {
+				frames[i] = customEmoji(r.media, r.images, run.Emoji, st.Box.Size.X, r.animate, fg)
+			}
 		}
 		styles[i] = st
 	}

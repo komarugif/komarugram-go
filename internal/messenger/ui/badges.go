@@ -137,14 +137,10 @@ func (a *App) layoutTintedEmoji(gtx layout.Context, id int64, size unit.Dp, tint
 	// several sizes, in the list, the header and the profile, so each size
 	// is a media of its own, "emoji/id@pixels", resampled by no one.
 	px := gtx.Dp(size)
-	emoji := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d@%d", id, px), MIMEType: "application/x-custom-emoji"}}
-	frame := a.avatars.media.StatusFit(emoji, a.window.Motion.AnimationsEnabled(), image.Pt(px, px), false).Frame
+	// One of the text's color is in the tint, as a status is.
+	frame := customEmoji(a.avatars.media, &a.images, id, px, a.window.Motion.AnimationsEnabled(), tint)
 	if frame == nil {
 		return layout.Dimensions{}
-	}
-	// One of the text's color is in the tint, as a status is.
-	if a.avatars.media.TextColored(emoji) {
-		frame = a.images.Colored(frame, tint)
 	}
 	return drawImage(gtx, &a.images, frame, image.Pt(px, px))
 }

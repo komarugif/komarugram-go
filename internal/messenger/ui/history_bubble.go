@@ -3,7 +3,6 @@
 package ui
 
 import (
-	"fmt"
 	"image"
 	"strconv"
 	"strings"
@@ -19,7 +18,6 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/unit"
-	"gioui.org/widget"
 	"golang.org/x/exp/shiny/materialdesign/icons"
 
 	"komarugram/internal/messenger/localization"
@@ -699,14 +697,8 @@ func reactionChipColors(sc *token.Scheme, chosen, outgoing bool) (background, co
 func (p *chatPage) reactionIcon(gtx layout.Context, reaction model.Reaction, animate bool) layout.Dimensions {
 	size := gtx.Dp(18)
 	if reaction.DocumentID != 0 && p.media != nil {
-		msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d", reaction.DocumentID), MIMEType: "application/x-custom-emoji"}}
-		if p.images == nil {
-			return layout.Dimensions{Size: image.Pt(size, size)}
-		}
-		if frame := emojiFrame(p.media, p.images, msg, animate, scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
-			return exact(gtx, image.Pt(size, size), func(gtx layout.Context) layout.Dimensions {
-				return widget.Image{Src: p.images.Op(frame), Fit: widget.Contain}.Layout(gtx)
-			})
+		if frame := customEmoji(p.media, p.images, reaction.DocumentID, size, animate, scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
+			return drawImage(gtx, p.images, frame, image.Pt(size, size))
 		}
 		return layout.Dimensions{Size: image.Pt(size, size)}
 	}

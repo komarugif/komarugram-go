@@ -1163,10 +1163,12 @@ func (p *chatPage) textFlow(gtx layout.Context, r *messageRow, block *messageTex
 		if run.Sub {
 			st.Shift = unit.Sp(float32(size) * .45)
 		}
-		if run.Emoji != 0 && (!run.Spoiler || r.revealed || !r.text.reveal.started.IsZero()) {
-			msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d", run.Emoji), MIMEType: "application/x-custom-emoji"}}
-			if frames[i] = emojiFrame(p.media, p.images, msg, animate, st.Color); frames[i] != nil {
-				st.Color.A = 0
+		if run.Emoji != 0 {
+			// A square of its own, as a custom emoji has in any text: see
+			// emojiBox.
+			st.Box = emojiBox(gtx, st.Size)
+			if !run.Spoiler || r.revealed || !r.text.reveal.started.IsZero() {
+				frames[i] = customEmoji(p.media, p.images, run.Emoji, st.Box.Size.X, animate, st.Color)
 			}
 		}
 		if run.Math {

@@ -9,6 +9,13 @@ import (
 
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
+
+	"gio-mw/defaults"
+	"gio-mw/defaults/schemes"
+	"gio-mw/token"
+
+	"gioui.org/layout"
+	"gioui.org/unit"
 )
 
 // editsKept is the menu's store that kept an edit of each message: its
@@ -107,5 +114,46 @@ func TestCaptionRunsKeepFormatting(t *testing.T) {
 	}
 	if captionRuns(model.Message{Text: " \n "}, l, time.Now()) != nil {
 		t.Fatal("blank text made a caption")
+	}
+}
+
+// A custom emoji in a message's text takes the square every custom emoji
+// of a text takes, emojiBox's, as in a quote or a caption, not the box of
+// its fallback emoji's glyph.
+func TestBubbleCustomEmojiTakesItsSquare(t *testing.T) {
+	h := newMenuHarnessOn(t, func(_ *menuStore, m []model.Message) {
+		m[19].Text = "Sun ☀ here"
+		m[19].Entities = []model.Entity{{Kind: model.EntityEmoji, Offset: 4, Length: 1, DocumentID: 5}}
+	}, func(s *menuStore) model.ConversationStore { return noMedia{s} })
+	h.frames(5)
+	var row *messageRow
+	for _, m := range h.page.messages {
+		if m.Key.MessageID == 20 {
+			row = h.page.rows[m.Key.MessageID]
+		}
+	}
+	if row == nil {
+		t.Fatal("message 20 has no row")
+	}
+	emoji := -1
+	for i, r := range row.runs {
+		if r.Emoji == 5 {
+			emoji = i
+		}
+	}
+	gtx := layout.Context{Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}
+	theme := defaults.NewTheme(gtx, schemes.SchemeBaselineLight())
+	want := emojiBox(gtx, theme.Typescale[token.TypestyleBodyLarge].Size).Size
+	found := false
+	for _, f := range row.text.fragments {
+		if f.Index == emoji {
+			found = true
+			if got := f.Bounds.Size(); got != want {
+				t.Errorf("the emoji takes %v, want the square %v", got, want)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no fragment of the emoji run %d", emoji)
 	}
 }
