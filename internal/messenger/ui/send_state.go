@@ -32,7 +32,9 @@ var onlineColor = token.NewMatColorFromHexRGB(0x4DC920)
 const sendStateMarkSize = unit.Dp(16)
 
 // sendStateMark draws the mark of state in a square of size, in col;
-// nothing for SendNone.
+// nothing for SendNone. Every mark takes the whole square, the clock
+// drawn smaller in it too, so that a message does not change its width
+// as it goes from one state to the next.
 func sendStateMark(gtx layout.Context, state model.SendState, size unit.Dp, col token.MatColor) layout.Dimensions {
 	var icon wdk.IconWidget
 	switch state {
@@ -51,10 +53,13 @@ func sendStateMark(gtx layout.Context, state model.SendState, size unit.Dp, col 
 			// The clock is drawn smaller, as the checks fill less of their
 			// box than it does.
 			inset := px / 8
-			gtx.Constraints = layout.Exact(image.Pt(px-2*inset, px-2*inset))
-			return offset(gtx, image.Pt(inset, inset), func(gtx layout.Context) layout.Dimensions { return icon(gtx, col) })
+			small := gtx
+			small.Constraints = layout.Exact(image.Pt(px-2*inset, px-2*inset))
+			offset(small, image.Pt(inset, inset), func(gtx layout.Context) layout.Dimensions { return icon(gtx, col) })
+		} else {
+			icon(gtx, col)
 		}
-		return icon(gtx, col)
+		return layout.Dimensions{Size: image.Pt(px, px)}
 	})
 }
 
