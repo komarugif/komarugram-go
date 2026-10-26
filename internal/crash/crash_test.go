@@ -7,11 +7,25 @@ import (
 	"testing"
 )
 
+// The reports of a test binary are in a directory of its own, not among
+// the user's: go test makes panics on purpose, and in fakes, which would
+// push the user's own reports out.
+func TestTestReportsStayOutOfTheUsers(t *testing.T) {
+	dir, err := Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		t.Skip(err)
+	}
+	users := filepath.Join(cache, "komarugram-go")
+	if rel, err := filepath.Rel(users, dir); err == nil && !strings.HasPrefix(rel, "..") {
+		t.Fatalf("a test reports into %s, in the user's %s", dir, users)
+	}
+}
+
 func TestGuardReportsOncePerSite(t *testing.T) {
-	// os.UserCacheDir reads LOCALAPPDATA on Windows, XDG_CACHE_HOME elsewhere.
-	cache := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cache)
-	t.Setenv("LOCALAPPDATA", cache)
 	var nilMap map[string]int
 	for range 3 {
 		p := Guard("test site", func() { nilMap["x"] = 1 })
