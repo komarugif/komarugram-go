@@ -99,6 +99,9 @@ type storyState struct {
 	// resolving are the stories of chats' messages asked for in this run:
 	// see goResolveChatStories.
 	resolving map[storyKey]bool
+	// ringAsked are the peers whose stories PeerStoryRing asked for in this
+	// run, for the ring of a header.
+	ringAsked map[int64]bool
 	// persist orders the writes to the cache, each of what the stories
 	// are when it writes; queued is set while one waits to, which those
 	// asked meanwhile leave to it.

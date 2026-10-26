@@ -83,6 +83,16 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 		avatarX = gtx.Dp(headBackWidth)
 	}
 	if head == nil {
+		if ring, ok := selection.headStories(c); ok {
+			// Around the avatar, as the row of stories draws them: the
+			// avatar keeps its size, and the ring takes from the margins.
+			out := gtx.Dp(storyRingGap) + gtx.Dp(storyRing)
+			side := imagePx + 2*out
+			offset(gtx, image.Pt(avatarX-out, (header.Y-side)/2), func(gtx layout.Context) layout.Dimensions {
+				drawStoryRing(gtx, side, ring.Count, ring.Unread, sc.Primary.Color, sc.Tertiary.Color, sc.OutlineVariant)
+				return layout.Dimensions{Size: image.Pt(side, side)}
+			})
+		}
 		offset(gtx, image.Pt(avatarX, (header.Y-imagePx)/2), func(gtx layout.Context) layout.Dimensions {
 			return drawAvatar(gtx, c.ID, c.Kind, c.Title, chatHeaderImage)
 		})
@@ -252,4 +262,14 @@ func layoutAvatarTarget(gtx layout.Context, click *widget.Clickable, x int) {
 			return layout.Dimensions{Size: gtx.Constraints.Max}
 		})
 	})
+}
+
+// openHeadAvatar opens in v what the avatar of chat c's header, in page,
+// shows: the stories in its ring, alone, as Telegram Desktop's top bar
+// opens them, or else its photos, which the chat's info still opens.
+func openHeadAvatar(v *mediaViewer, page *chatPage, c model.Chat) {
+	if ring, ok := page.headStories(c); ok && v.OpenPeerStories(c.ID, ring.Open) {
+		return
+	}
+	v.OpenProfile(c.ID)
 }

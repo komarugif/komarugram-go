@@ -206,6 +206,10 @@ type chatPage struct {
 	composer   *messageComposer
 	header     widget.Clickable
 	headAvatar widget.Clickable
+	// stories tells the stories of the chat's peer now, whose ring the
+	// header's avatar is drawn in and which a click on it opens; nil for a
+	// store without them.
+	stories model.PeerStoryRing
 	// communityOf is the community a chat is one of, 0 for none, whose
 	// badge over the header's avatar communityBadge clicks; nil for none.
 	communityOf    func(chat int64) int64
@@ -421,7 +425,19 @@ func (p *chatPage) blurComposer() bool {
 }
 
 func newChatPage(source model.ConversationStore, changed func()) *chatPage {
-	return &chatPage{composer: newMessageComposer(source, changed), source: source, media: chatmedia.New(source, changed), invalidate: changed, audio: newAudioPlayer()}
+	p := &chatPage{composer: newMessageComposer(source, changed), source: source, media: chatmedia.New(source, changed), invalidate: changed, audio: newAudioPlayer()}
+	p.stories, _ = source.(model.PeerStoryRing)
+	return p
+}
+
+// headStories are the stories of chat c's peer now, whose ring its header's
+// avatar is drawn in, as Telegram Desktop's top bar draws them; ok false for
+// none, and for Saved Messages, whose avatar is not the account's.
+func (p *chatPage) headStories(c model.Chat) (model.StoryPeer, bool) {
+	if p == nil || p.stories == nil || c.Kind == model.KindSaved || c.Kind == model.KindCommunity {
+		return model.StoryPeer{}, false
+	}
+	return p.stories.PeerStoryRing(c.ID)
 }
 
 // dropStickerLoops drops, at the end of the frame, the decoded loops of the

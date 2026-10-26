@@ -87,6 +87,17 @@ type StoryPeer struct {
 	Open MessageID
 }
 
+// PeerStoryRing is a Store that tells the stories of any peer now, as the
+// ring around its avatar in a chat's header shows them: also of one out of
+// the list over the chats, whose stories are archived or who is no
+// contact.
+type PeerStoryRing interface {
+	// PeerStoryRing is peer's stories now, ok false for none. Those the
+	// store knows only by Telegram's word that there are some count as
+	// one unread until it has asked for them, which the first ask starts.
+	PeerStoryRing(peer int64) (ring StoryPeer, ok bool)
+}
+
 // StorySource is a Store that knows the stories of the account's contacts
 // and channels, as Telegram Desktop's list shows them over the chats.
 type StorySource interface {

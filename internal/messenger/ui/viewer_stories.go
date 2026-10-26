@@ -67,7 +67,22 @@ func (v *mediaViewer) OpenStories(peer int64, open model.MessageID) bool {
 	if row < 0 || row >= storyRows {
 		rows, row = []int64{peer}, 0
 	}
-	rows = rows[:min(len(rows), storyRows)]
+	return v.openStoryRows(peer, open, rows[:min(len(rows), storyRows)], row)
+}
+
+// OpenPeerStories shows peer's stories alone, from open, without those of
+// the others of the list beside them: as Telegram Desktop's top bar opens
+// a peer's stories from its avatar.
+func (v *mediaViewer) OpenPeerStories(peer int64, open model.MessageID) bool {
+	if v.stories == nil {
+		return false
+	}
+	return v.openStoryRows(peer, open, []int64{peer}, 0)
+}
+
+// openStoryRows shows the stories of rows, those of rows[row], peer, from
+// open.
+func (v *mediaViewer) openStoryRows(peer int64, open model.MessageID, rows []int64, row int) bool {
 	key := storyKey(row, model.StoryID(open))
 	v.openList(peer, model.Message{Key: model.MessageKey{ChatID: peer, MessageID: key}}, mediaList{gallery: galleryStories, rows: rows, loaded: [2]int{0, -1}, open: row})
 	return true

@@ -1316,7 +1316,12 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 			}
 		}
 	}
-	if a.viewer != nil && (a.history.headAvatar.Clicked(gtx) || a.forum != nil && a.forum.avatar.Clicked(gtx)) {
+	if a.viewer != nil && a.history.headAvatar.Clicked(gtx) {
+		if c, ok := a.selectedChat(); ok {
+			openHeadAvatar(a.viewer, a.history, c)
+		}
+	}
+	if a.viewer != nil && a.forum != nil && a.forum.avatar.Clicked(gtx) {
 		if c, ok := a.selectedChat(); ok {
 			a.viewer.OpenProfile(c.ID)
 		}

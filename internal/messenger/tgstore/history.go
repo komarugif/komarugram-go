@@ -43,6 +43,10 @@ type peerRecord struct {
 	// StoriesHidden: the account moved the peer's stories to the archive,
 	// out of the list over the chats.
 	StoriesHidden bool `json:",omitempty"`
+	// StoriesMax is the latest of the peer's stories now, 0 for none, as
+	// Telegram tells it with the peer (stories_max_id): whether it has
+	// stories, before they are asked for.
+	StoriesMax int `json:",omitempty"`
 	// Community is the chat id of the community a channel or user is linked
 	// to, 0 for none: also of those not in the list, found or opened by a
 	// link.
@@ -422,6 +426,10 @@ func (s *Store) rememberPeers(users []tg.UserClass, chats []tg.ChatClass) {
 			if !u.Min {
 				p.StoriesHidden = u.StoriesHidden
 				p.Community = linkedCommunity(u.GetLinkedCommunityID())
+				p.StoriesMax = storiesMax(u.GetStoriesMaxID())
+				if u.StoriesUnavailable {
+					p.StoriesMax = 0
+				}
 			}
 			if photo, ok := u.Photo.(*tg.UserProfilePhoto); ok {
 				p.Photo = &avatarRecord{photo.PhotoID, photo.DCID, photo.HasVideo, photo.StrippedThumb}
@@ -459,6 +467,10 @@ func (s *Store) rememberPeers(users []tg.UserClass, chats []tg.ChatClass) {
 			}
 			if !ch.Min {
 				p.Community = linkedCommunity(ch.GetLinkedCommunityID())
+				p.StoriesMax = storiesMax(ch.GetStoriesMaxID())
+				if ch.StoriesUnavailable {
+					p.StoriesMax = 0
+				}
 			}
 			if ch.Min && p.Rights.Known {
 				p.Rights.Default = bannedKinds(ch.DefaultBannedRights)
