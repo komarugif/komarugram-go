@@ -836,6 +836,7 @@
 "history.voice" = "Voice message";
 "history.you" = "You";
 
+"info.about" = "Bio";
 "info.collectible_copy" = "Copy Link";
 "info.collectible_info" = "This username was bought on **Fragment** on {date} for {price}";
 "info.collectible_more" = "Learn More";
@@ -1048,6 +1049,7 @@
 "menu.filter" = "Add Filter";
 "menu.forward" = "Forward";
 "menu.forward_selected" = "Forward Selected";
+"menu.go_to_message" = "Go To Message";
 "menu.link_copied" = "Link copied to clipboard.";
 "menu.private_link" = "This link will only work for members of this chat.";
 "menu.reacted#one" = "{count} Reacted";
@@ -1699,6 +1701,7 @@
 "settings.window_transparency" = "Main window transparency";
 "settings.window_transparency_hint" = "The backgrounds of the sidebar, chat list and chat header. Text and avatars stay opaque. Works on Wayland, Windows and macOS. On Wayland blur depends on the compositor; on Windows 10 and 11 a window with it draws its own frame in place of the system one.";
 
+"shared.columns" = "Thumbnails per Row";
 "shared.count.files" = "{count} · Files";
 "shared.count.gifs" = "{count} · GIFs";
 "shared.count.gifts" = "{count} · Gifts";
@@ -1729,6 +1732,9 @@
 "shared.photos" = "Photos";
 "shared.polls" = "Polls";
 "shared.saved" = "Saved messages";
+"shared.select_cursor" = "Select after the Cursor";
+"shared.select_range" = "Select in Order";
+"shared.selection" = "Selection";
 "shared.stories" = "Stories";
 "shared.total" = "Total: %s";
 "shared.videos" = "Videos";

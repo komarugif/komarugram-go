@@ -136,6 +136,15 @@ type Global struct {
 	// ArticleZoom is how big the article window draws articles, in
 	// percent, from 25 to 400 as Telegram Desktop's: 0 for 100.
 	ArticleZoom int `json:"article_zoom,omitempty"`
+	// SharedSelection is how a drag selects the files of a chat's info:
+	// empty for the range from the file pressed to the one under the
+	// pointer, as Telegram Desktop's; SharedSelectionCursor for the files
+	// the pointer passes over.
+	SharedSelection string `json:"shared_selection,omitempty"`
+	// SharedColumns is how many thumbnails a row of a chat's info's grid
+	// has, from SharedColumnsMin to SharedColumnsMax: 0 for
+	// SharedColumnsDefault.
+	SharedColumns int `json:"shared_columns,omitempty"`
 	// Ghost is what the accounts tell others of themselves, as AyuGram's
 	// Ghost Mode, the same for all of them.
 	Ghost Ghost `json:"ghost"`
@@ -535,6 +544,12 @@ func validate(g Global) error {
 	if g.VoiceSpeed != 0 && (g.VoiceSpeed < 0.5 || g.VoiceSpeed > 3) {
 		return errors.New("invalid voice speed")
 	}
+	if g.SharedSelection != "" && g.SharedSelection != SharedSelectionCursor {
+		return errors.New("invalid shared selection")
+	}
+	if g.SharedColumns != 0 && (g.SharedColumns < SharedColumnsMin || g.SharedColumns > SharedColumnsMax) {
+		return errors.New("invalid shared columns")
+	}
 	if g.AudioPlayer != "" && g.AudioPlayer != "wasm" && g.AudioPlayer != "external" {
 		return errors.New("invalid audio player")
 	}
@@ -617,6 +632,41 @@ func (s *Store) SetArticleZoom(percent int) error {
 
 func (s *Store) SetVoiceSpeed(value float64) error {
 	return s.change(func(g *Global) { g.VoiceSpeed = value })
+}
+
+// SharedSelectionCursor is the SharedSelection of the files the pointer
+// passes over.
+const SharedSelectionCursor = "cursor"
+
+// SetSharedSelection chooses how a drag selects the files of a chat's
+// info: empty or SharedSelectionCursor.
+func (s *Store) SetSharedSelection(value string) error {
+	return s.change(func(g *Global) { g.SharedSelection = value })
+}
+
+// The thumbnails a row of a chat's info's grid may have, and has unless
+// chosen.
+const (
+	SharedColumnsMin     = 3
+	SharedColumnsMax     = 6
+	SharedColumnsDefault = 4
+)
+
+// SharedGridColumns is how many thumbnails a row of a chat's info's grid has.
+func (g Global) SharedGridColumns() int {
+	if g.SharedColumns == 0 {
+		return SharedColumnsDefault
+	}
+	return g.SharedColumns
+}
+
+// SetSharedColumns chooses how many thumbnails a row of a chat's info's
+// grid has; the default is kept as 0.
+func (s *Store) SetSharedColumns(n int) error {
+	if n == SharedColumnsDefault {
+		n = 0
+	}
+	return s.change(func(g *Global) { g.SharedColumns = n })
 }
 
 func (s *Store) SetTheme(value Theme) error {

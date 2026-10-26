@@ -885,6 +885,7 @@
 "history.voice" = "Голосовое сообщение";
 "history.you" = "Вы";
 
+"info.about" = "О себе";
 "info.collectible_copy" = "Копировать ссылку";
 "info.collectible_info" = "Это имя было куплено на **Fragment** {date} за {price}";
 "info.collectible_more" = "Подробнее";
@@ -1101,6 +1102,7 @@
 "menu.filter" = "Добавить фильтр";
 "menu.forward" = "Переслать";
 "menu.forward_selected" = "Переслать выбранные";
+"menu.go_to_message" = "Перейти к сообщению";
 "menu.link_copied" = "Ссылка скопирована в буфер обмена.";
 "menu.private_link" = "Эта ссылка будет работать только для участников чата.";
 "menu.reacted#few" = "{count} реакции";
@@ -1777,6 +1779,7 @@
 "settings.window_transparency" = "Прозрачность основного окна";
 "settings.window_transparency_hint" = "Фон бокового меню, списка чатов и заголовка чата. Текст и аватарки остаются непрозрачными. Работает на Wayland, Windows и macOS. Размытие на Wayland зависит от композитора, а на Windows 10 и 11 окно с ним рисует свою рамку вместо системной.";
 
+"shared.columns" = "Миниатюр в ряду";
 "shared.count.files" = "{count} · Файлы";
 "shared.count.gifs" = "{count} · GIF";
 "shared.count.gifts" = "{count} · Подарки";
@@ -1807,6 +1810,9 @@
 "shared.photos" = "Фото";
 "shared.polls" = "Опросы";
 "shared.saved" = "Сохранённые сообщения";
+"shared.select_cursor" = "Выборка вслед за курсором";
+"shared.select_range" = "Последовательная выборка";
+"shared.selection" = "Выборка";
 "shared.stories" = "Публикации";
 "shared.total" = "Всего: %s";
 "shared.videos" = "Видео";

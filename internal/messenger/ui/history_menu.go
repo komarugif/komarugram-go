@@ -637,21 +637,31 @@ func (p *chatPage) menuLayout(gtx layout.Context, l localization.Catalog) {
 // icon, then its text, small on two lines when long, on s, which takes its
 // clicks, filling the constraints.
 func menuRow(gtx layout.Context, s *surface, icon wdk.IconWidget, text string, long bool) layout.Dimensions {
+	return menuRowChosen(gtx, s, icon, text, long, false)
+}
+
+// menuRowChosen is menuRow, its icon and text in the primary color when
+// chosen: the choice of a menu of choices.
+func menuRowChosen(gtx layout.Context, s *surface, icon wdk.IconWidget, text string, long, chosen bool) layout.Dimensions {
 	sc := scheme(gtx)
 	row := gtx.Constraints.Max
-	style := surfaceStyle{background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor, button: text}
+	iconCol, textCol := sc.SurfaceVariant.OnColor, sc.Surface.OnColor
+	if chosen {
+		iconCol, textCol = sc.Primary.Color, sc.Primary.Color
+	}
+	style := surfaceStyle{background: textCol.SetOpacity(0), content: textCol, button: text}
 	return s.Layout(gtx, row, style, func(gtx layout.Context) layout.Dimensions {
 		return layout.Inset{Left: 16, Right: 16}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return icon(gtx, sc.SurfaceVariant.OnColor) }),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return icon(gtx, iconCol) }),
 				layout.Rigid(layout.Spacer{Width: 12}.Layout),
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 					return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						gtx.Constraints.Min = image.Point{}
 						if long {
-							return label(gtx, text, token.TypestyleBodySmall, sc.Surface.OnColor, 2)
+							return label(gtx, text, token.TypestyleBodySmall, textCol, 2)
 						}
-						return label(gtx, text, token.TypestyleBodyMedium, sc.Surface.OnColor, 1)
+						return label(gtx, text, token.TypestyleBodyMedium, textCol, 1)
 					})
 				}),
 			)

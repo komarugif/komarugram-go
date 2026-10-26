@@ -256,6 +256,27 @@ func TestRenderSharedMediaAndThemes(t *testing.T) {
 	info.selectSection(model.SharedPhotos)
 	awaitShared(t, info)
 	render("photos")
+	// Two photos selected, the selection's buttons in the header; then the
+	// menu of one of them.
+	info.toggleSelected(info.messages[1])
+	info.toggleSelected(info.messages[2])
+	render("photos-selected")
+	info.sharedMenu.open, info.sharedMenu.id, info.sharedMenu.at = true, info.messages[1].Key.MessageID, image.Pt(420, 260)
+	info.sharedMenu.shown = info.sharedMenuActions(info.messages[1])
+	render("photos-menu")
+	info.sharedMenu.open = false
+	info.renderer.clearSelection()
+	info.sharedMenu.id = info.messages[4].Key.MessageID
+	info.sharedMenu.shown = info.sharedMenuActions(info.messages[4])
+	info.sharedMenu.open = true
+	render("photos-menu-one")
+	info.sharedMenu.open = false
+	// The ways a drag selects, by the three dots in the header.
+	info.setSelectionMode = func(string) error { return nil }
+	info.setColumns = func(int) error { return nil }
+	info.mode.open, info.mode.at = true, image.Pt(744, 80)
+	render("photos-selection-mode")
+	info.mode.open = false
 	info.selectSection(model.SharedVideos)
 	awaitShared(t, info)
 	render("videos")
@@ -265,6 +286,16 @@ func TestRenderSharedMediaAndThemes(t *testing.T) {
 	info.selectSection(model.SharedLinks)
 	awaitShared(t, info)
 	render("links")
+	for _, kind := range []model.SharedKind{model.SharedFiles, model.SharedMusic, model.SharedVoice} {
+		info.selectSection(kind)
+		awaitShared(t, info)
+		render(string(kind))
+	}
+	info.selectSection(model.SharedFiles)
+	awaitShared(t, info)
+	info.toggleSelected(info.messages[0])
+	render("files-selected")
+	info.renderer.clearSelection()
 	info.selectSection(model.SharedGifts)
 	awaitShared(t, info)
 	info.messages[0].Gift.SenderHidden = true

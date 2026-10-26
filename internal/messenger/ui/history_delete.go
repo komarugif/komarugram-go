@@ -78,6 +78,9 @@ func (p *chatPage) updateDelete(chat int64, l localization.Catalog) {
 				for _, id := range d.ids {
 					delete(p.selection.selected, id)
 				}
+				if p.deleted != nil {
+					p.deleted(d.ids)
+				}
 			}
 		}
 	default:

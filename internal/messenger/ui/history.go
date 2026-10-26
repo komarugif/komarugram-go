@@ -368,6 +368,9 @@ type chatPage struct {
 	snapshotting bool
 	shot         shotDialog
 	historyWidth int
+	// deleted is told the messages the page deleted, for a list of them
+	// that is not the history, as a chat's shared files.
+	deleted func([]model.MessageID)
 	// stickerVideo saves a Lottie sticker as a video.
 	stickerVideo stickerVideoDialog
 	// albumSave asks what of an album to save.

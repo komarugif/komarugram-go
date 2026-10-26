@@ -703,11 +703,31 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 				a.comments.openSender = func(m model.Message) { a.openSender(senders, m, a.thread) }
 			}
 		}
-		// The audio of the info's sections plays in the same player, under
-		// the same bar, as the chat's, whose click goes to what plays as
-		// the chat's does.
+		// The audio of the info's sections plays in the same player as the
+		// chat's, told in the chat's bar.
 		a.info.renderer.audio = a.history.audio
-		a.info.renderer.openAudio = a.history.openAudio
+		// The files of the sections are selected, forwarded and deleted as
+		// the chat's messages are, and a file goes to its message.
+		a.info.renderer.chats = store.Chats
+		a.info.renderer.avatar = a.layoutAvatar
+		a.info.renderer.menus = a.menuPrefs
+		a.info.renderer.frozen = a.frozen
+		a.info.renderer.files = a.attachments
+		a.info.selectionMode = func() string { return a.preferences.Global().SharedSelection }
+		a.info.setSelectionMode = a.preferences.SetSharedSelection
+		a.info.columns = func() int { return a.preferences.Global().SharedGridColumns() }
+		a.info.setColumns = a.preferences.SetSharedColumns
+		// A mention or a link in the info, as its bio has, opens its chat
+		// over the dialog, which closes, with the way back.
+		a.info.renderer.openChat = func(chat model.Chat, post model.MessageID) {
+			a.info.modal.Close()
+			a.history.openChat(chat, post)
+		}
+		a.info.openMessage = func(m model.Message) {
+			chat := a.info.chat
+			a.openFromHere(chatPick{ID: chat.ID, Chat: &chat, Message: m.Key.MessageID})
+			a.window.Invalidate()
+		}
 		// A section's photo or video goes through the section's kind alone.
 		a.info.renderer.openPhoto = func(m model.Message) {
 			a.viewer.OpenShared(m.Key.ChatID, m, a.info.messages, a.info.section, -1)

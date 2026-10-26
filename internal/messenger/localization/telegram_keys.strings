@@ -306,6 +306,7 @@
 "history.video" = "lng_in_dlg_video";
 "history.voice" = "lng_in_dlg_audio";
 
+"info.about" = "lng_info_about_label";
 "info.collectible_copy" = "lng_collectible_username_copy";
 "info.collectible_info" = "lng_collectible_username_info";
 "info.collectible_more" = "lng_collectible_learn_more";
@@ -359,6 +360,7 @@
 "menu.emoji_packs" = "lng_context_animated_emoji_many";
 "menu.forward" = "lng_context_forward_msg";
 "menu.forward_selected" = "lng_context_forward_selected";
+"menu.go_to_message" = "lng_context_to_msg";
 "menu.link_copied" = "lng_channel_public_link_copied";
 "menu.private_link" = "lng_context_about_private_link";
 "menu.reacted" = "lng_context_seen_reacted";
