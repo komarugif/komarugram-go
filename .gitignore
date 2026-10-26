@@ -18,3 +18,5 @@ profiles/
 # What the grammar generator of pkg/prism installs to run.
 /pkg/prism/generate/node_modules/
 /pkg/prism/generate/bun.lock
+# What Claude Code keeps of its own in the project: worktrees, settings.
+/.claude/
