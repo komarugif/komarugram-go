@@ -271,6 +271,43 @@ func TestReactedList(t *testing.T) {
 	}
 }
 
+// A click on one who reacted opens them, as a group member's avatar does,
+// asked by the message as if they had sent it, and closes the dialog.
+func TestReactedOpens(t *testing.T) {
+	h := newMenuHarnessOn(t, func(_ *menuStore, messages []model.Message) {
+		messages[2].Reactions = []model.Reaction{{Emoji: "❤", Count: 2}, {Emoji: "👍", Count: 1}}
+		messages[2].ReactionsListed = true
+		messages[2].ForwardFromID, messages[2].ForwardPostID = -1000000000005, 9
+	}, func(s *menuStore) model.ConversationStore {
+		return &reactedStore{reactionMenuStore: reactionMenuStore{menuStore: s}}
+	})
+	var opened []model.Message
+	h.page.openSender = func(m model.Message) { opened = append(opened, m) }
+	m, _ := h.page.messageByID(3)
+	d := &h.page.reacted
+	d.open(h.page, m)
+	deadline := time.Now().Add(5 * time.Second)
+	for len(d.lists) == 0 || len(d.lists[0].items) < 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("listed %+v", d.lists)
+		}
+		time.Sleep(time.Millisecond)
+		h.frame()
+	}
+	h.frames(30)
+	// The dialog, 420 by 560, is in the middle of the page; Bob's row is
+	// the second under the tabs.
+	h.press(pointer.ButtonPrimary, f32.Pt(250, 70+44+8+52+26))
+	h.frames(30)
+	if len(opened) != 1 || opened[0].SenderID != 8 || opened[0].SenderName != "Bob" || opened[0].Key != m.Key ||
+		opened[0].ForwardFromID != 0 || opened[0].ForwardPostID != 0 {
+		t.Fatalf("opened %+v", opened)
+	}
+	if d.modal.Shown() {
+		t.Fatal("the dialog stays open")
+	}
+}
+
 // TestRenderReacted saves the list of who reacted, for looking at it:
 // REACTED_PNG=/tmp/reacted.png.
 func TestRenderReacted(t *testing.T) {

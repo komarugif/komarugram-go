@@ -69,14 +69,21 @@ func (r *tabRow) Switch(from, to int) {
 
 // Layout draws the tabs titled labels in the exact size of the constraints.
 func (r *tabRow) Layout(gtx layout.Context, labels []string, active int) layout.Dimensions {
-	r.grow(len(labels))
+	return r.LayoutWith(gtx, len(labels), active, func(gtx layout.Context, i int, col token.MatColor) layout.Dimensions {
+		return label(gtx, labels[i], token.TypestyleLabelLarge, col, 1)
+	})
+}
+
+// LayoutWith draws n tabs as Layout does, their titles drawn by title, in
+// col, for a title a label cannot draw, as a custom emoji.
+func (r *tabRow) LayoutWith(gtx layout.Context, n, active int, title func(gtx layout.Context, i int, col token.MatColor) layout.Dimensions) layout.Dimensions {
+	r.grow(n)
 	sc := scheme(gtx)
 	size := gtx.Constraints.Max
-	n := len(labels)
 	if n == 0 {
 		return layout.Dimensions{Size: size}
 	}
-	for i, text := range labels {
+	for i := range n {
 		col := sc.SurfaceVariant.OnColor
 		if i == active {
 			col = sc.Primary.Color
@@ -95,7 +102,7 @@ func (r *tabRow) Layout(gtx layout.Context, labels []string, active int) layout.
 				gtx.Constraints = layout.Exact(tab)
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min = image.Point{}
-					return label(gtx, text, token.TypestyleLabelLarge, col, 1)
+					return title(gtx, i, col)
 				})
 			})
 		})

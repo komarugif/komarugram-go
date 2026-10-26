@@ -48,6 +48,7 @@ type reactedDialog struct {
 // reactedList is who reacted, as far as its pages have come.
 type reactedList struct {
 	items   []model.Reacted
+	rows    []surface
 	next    string
 	done    bool
 	failed  bool
@@ -130,22 +131,28 @@ func (d *reactedDialog) update(loc localization.Catalog) {
 	}
 }
 
-// tabLabel is the title of tab i: the reaction and how many chose it.
-func (d *reactedDialog) tabLabel(i int, l localization.Catalog) string {
+// tabTitle draws the title of tab i: all of them, or the reaction, a
+// custom emoji too, and how many chose it.
+func (d *reactedDialog) tabTitle(gtx layout.Context, p *chatPage, i int, col token.MatColor, l localization.Catalog) layout.Dimensions {
 	f := d.filters[i]
 	if i == 0 {
 		total := 0
 		for _, r := range d.msg.Reactions {
 			total += r.Count
 		}
-		return l.T("reacted.all") + " " + strconv.Itoa(total)
+		return label(gtx, l.T("reacted.all")+" "+strconv.Itoa(total), token.TypestyleLabelLarge, col, 1)
 	}
-	icon := f.Emoji
-	if f.DocumentID != 0 {
-		// A label cannot draw a custom emoji.
-		icon = "✦"
-	}
-	return icon + " " + strconv.Itoa(f.Count)
+	return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return p.reactionIcon(gtx, f, p.animate)
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Dimensions{Size: image.Pt(gtx.Dp(6), 0)}
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, strconv.Itoa(f.Count), token.TypestyleLabelLarge, col, 1)
+		}),
+	)
 }
 
 func (d *reactedDialog) layout(gtx layout.Context, p *chatPage, l localization.Catalog) {
@@ -169,15 +176,13 @@ func (d *reactedDialog) layout(gtx layout.Context, p *chatPage, l localization.C
 		// The tabs take the card's top edge to edge, as the composer's
 		// picker has them, its rounded corners cutting their ripples.
 		return d.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions {
-			var labels []string
-			for i := range d.filters {
-				labels = append(labels, d.tabLabel(i, l))
-			}
 			pad := layout.Inset{Left: defaultCardPadding, Right: defaultCardPadding}
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X, gtx.Dp(44)))
-					return d.tabs.Layout(gtx, labels, d.active)
+					return d.tabs.LayoutWith(gtx, len(d.filters), d.active, func(gtx layout.Context, i int, col token.MatColor) layout.Dimensions {
+						return d.tabTitle(gtx, p, i, col, l)
+					})
 				}),
 				vspace(8),
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -224,6 +229,9 @@ func (d *reactedDialog) layoutList(gtx layout.Context, p *chatPage, l localizati
 	}
 	d.list.Axis = layout.Vertical
 	n := len(list.items)
+	for len(list.rows) < n {
+		list.rows = append(list.rows, surface{})
+	}
 	more := !list.done && !list.failed
 	count := n
 	if more {
@@ -239,15 +247,41 @@ func (d *reactedDialog) layoutList(gtx layout.Context, p *chatPage, l localizati
 				})
 			})
 		}
-		return d.row(gtx, p, list.items[i])
+		return d.row(gtx, p, &list.rows[i], list.items[i])
 	})
 	return dims
 }
 
-// row draws one who reacted: their avatar and name, and their reaction.
-func (d *reactedDialog) row(gtx layout.Context, p *chatPage, r model.Reacted) layout.Dimensions {
+// row draws one who reacted: their avatar and name, and their reaction. A
+// click opens their chat, as a group member's avatar does, or their info
+// when the account has no chat with them, and closes the dialog.
+func (d *reactedDialog) row(gtx layout.Context, p *chatPage, s *surface, r model.Reacted) layout.Dimensions {
 	sc := scheme(gtx)
 	size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(reactedRow))
+	if p.openSender == nil || r.PeerID == 0 {
+		return d.rowContent(gtx, p, size, r)
+	}
+	if s.Clicked(gtx) && !d.modal.closing {
+		p.openSender(reactedSender(d.msg, r))
+		d.modal.Close()
+	}
+	style := surfaceStyle{radius: gtx.Dp(12), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor}
+	return s.Layout(gtx, size, style, func(gtx layout.Context) layout.Dimensions {
+		return d.rowContent(gtx, p, size, r)
+	})
+}
+
+// reactedSender is m as sent by r, who reacted to it, which the store's
+// SenderChat asks for by m, as forwardSender does for whom m came from.
+func reactedSender(m model.Message, r model.Reacted) model.Message {
+	m.SenderID, m.SenderName = r.PeerID, r.Name
+	m.Outgoing = false
+	m.ForwardPostID, m.ForwardFromID = 0, 0
+	return m
+}
+
+func (d *reactedDialog) rowContent(gtx layout.Context, p *chatPage, size image.Point, r model.Reacted) layout.Dimensions {
+	sc := scheme(gtx)
 	const avatarSize = 36
 	offset(gtx, image.Pt(gtx.Dp(4), (size.Y-gtx.Dp(avatarSize))/2), func(gtx layout.Context) layout.Dimensions {
 		kind := model.KindUser
