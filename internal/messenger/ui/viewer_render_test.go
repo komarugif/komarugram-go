@@ -18,6 +18,7 @@ import (
 	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
+	"gio-mw/widget/indicator"
 
 	"gioui.org/f32"
 	"gioui.org/gpu/headless"
@@ -32,8 +33,9 @@ import (
 //	VIEWER_PNG=/tmp/viewer.png go test ./internal/messenger/ui -run RenderPhotoViewer
 //
 // With VIEWER_PROFILE set it shows the photos of a chat's profile, with
-// VIEWER_GIFS a GIF of the chat among its GIFs, and with VIEWER_STORIES the
-// stories of someone of the list's.
+// VIEWER_GIFS a GIF of the chat among its GIFs, with VIEWER_STORIES the
+// stories of someone of the list's, and with VIEWER_SAVE_GIF a video saved
+// as a GIF by the bot, halfway through.
 func TestRenderMediaViewer(t *testing.T) {
 	out := os.Getenv("VIEWER_PNG")
 	if out == "" {
@@ -80,6 +82,18 @@ func TestRenderMediaViewer(t *testing.T) {
 			}
 		}
 		v.OpenGIF(2, start, nil)
+	} else if os.Getenv("VIEWER_SAVE_GIF") != "" {
+		for _, m := range h.Messages {
+			if m.Kind == model.MessageVideo && m.Media != nil {
+				start = m
+				break
+			}
+		}
+		v.Open(2, start, nil)
+		v.gif.work = &gifWork{stop: func() {}, done: make(chan error, 1), bot: true,
+			progress: model.GIFProgress{Stage: model.GIFEncoding, Share: .42, Pass: 1}}
+		v.gif.bar = indicator.Linear()
+		v.gif.modal.Open()
 	} else {
 		v.Open(2, start, nil)
 	}
@@ -102,6 +116,9 @@ func TestRenderMediaViewer(t *testing.T) {
 	for time.Now().Before(deadline) {
 		frame()
 		st := v.full.StatusFit(start, false, image.Pt(1, 1), false)
+		if target, ok := v.viewerTarget(start); ok && start.Kind == model.MessageVideo {
+			st = v.full.StatusFit(target, false, image.Pt(1, 1), false)
+		}
 		if st.Frame != nil {
 			time.Sleep(300 * time.Millisecond) // let thumbnails finish
 			break

@@ -65,6 +65,10 @@ type Store struct {
 	gifs       []model.PickerItem
 	gifsKept   bool
 	recentGone map[string]bool
+	// gifsMade counts the GIFs made of videos, which name them; gifsOf
+	// are those made, by the media ID of their video (gif_maker.go).
+	gifsMade int
+	gifsOf   map[string]model.Message
 }
 
 // New returns a store with demo chats whose times are relative to now, and

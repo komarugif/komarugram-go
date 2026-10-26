@@ -343,6 +343,18 @@ size-stability fixes remain in place.
   the media viewer, whose button beside copy forwards what it shows, a
   message or a story (`viewer_share.go`), unless it protects its content;
   a story has its heart there too, red once put, with how many put theirs.
+- **Saving a video as a GIF** (`viewer_gif.go`): the viewer's GIF button,
+  beside forwarding, on a video that does not protect its content, saves it
+  among the saved GIFs (`model.GIFMaker`): `video.ConvertGIF` encodes it
+  with FFmpeg (H.264 without sound, within 1280×720 and 10 MB, as the GIF
+  bot does), or, without FFmpeg, it is forwarded to `model.GIFBot`, whose
+  edited status message tells the progress (`model.ParseGIFBot`). The
+  dialog is a `modal` with `progressRows`, the rows of the dialog that saves
+  a Lottie sticker as a video (`sticker_video.go`); its Cancel stops FFmpeg
+  or the wait, and sends the bot `/cancel`. The bot's messages are marked
+  read once done with (as Ghost's ReadOnInteract allows), and a video made
+  again saves the GIF it made (`MadeGIF`), which Telegram keeps once.
+  `VIEWER_SAVE_GIF` renders it.
 - **Devices** (`sessions.go`): the settings section of the account's
   sessions, grouped as Telegram Desktop's Active Sessions, with a dialog of a
   session's details; it asks again every minute while it is open.

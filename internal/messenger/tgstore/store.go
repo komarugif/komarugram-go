@@ -36,7 +36,9 @@ const pagePause = 300 * time.Millisecond
 
 // Store holds what Load last read. It is safe to use from any goroutine.
 type Store struct {
-	picker  pickerCache
+	picker pickerCache
+	// watch hands the messages of chats watched to their watchers.
+	watch   chatWatch
 	themes  themeCatalogue
 	changed func()
 	notices atomic.Pointer[func(model.MessageNotice)]

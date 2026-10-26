@@ -225,27 +225,7 @@ func (d *stickerVideoDialog) layoutContent(gtx layout.Context, l localization.Ca
 	}
 	if working {
 		share := stickerVideoShare(progress, d.quality == stickerVideoSendable)
-		children = append(children,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				return layout.Flex{Alignment: layout.Baseline}.Layout(gtx,
-					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-						return label(gtx, stickerVideoStatus(progress, l), token.TypestyleBodyMedium, sc.Surface.OnColor, 2)
-					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						percent := strconv.Itoa(int(share*100)) + "%"
-						return label(gtx, percent, token.TypestyleLabelLarge, sc.SurfaceVariant.OnColor, 1)
-					}),
-				)
-			}),
-			vspace(10),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				d.bar.Progress = share
-				return d.bar.Layout(gtx)
-			}),
-			vspace(4),
-		)
+		children = append(children, progressRows(d.bar, stickerVideoStatus(progress, l), share)...)
 	} else {
 		children = append(children,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -276,6 +256,37 @@ func (d *stickerVideoDialog) layoutContent(gtx layout.Context, l localization.Ca
 			)
 		}))
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
+}
+
+// progressRows are the rows of a dialog that tells how far a conversion
+// has come: what it does now, beside the share done in per cent, and the
+// bar; a share below 0 is not known, and leaves the bar empty.
+func progressRows(bar *indicator.Indicator, status string, share float32) []layout.FlexChild {
+	return []layout.FlexChild{
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			sc := scheme(gtx)
+			gtx.Constraints.Min.X = gtx.Constraints.Max.X
+			return layout.Flex{Alignment: layout.Baseline}.Layout(gtx,
+				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					return label(gtx, status, token.TypestyleBodyMedium, sc.Surface.OnColor, 2)
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					if share < 0 {
+						return layout.Dimensions{}
+					}
+					percent := strconv.Itoa(int(share*100)) + "%"
+					return label(gtx, percent, token.TypestyleLabelLarge, sc.SurfaceVariant.OnColor, 1)
+				}),
+			)
+		}),
+		vspace(10),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min.X = gtx.Constraints.Max.X
+			bar.Progress = max(share, 0)
+			return bar.Layout(gtx)
+		}),
+		vspace(4),
+	}
 }
 
 // stickerVideoShare is how much of the bar progress fills, along the parts

@@ -1520,6 +1520,7 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 				}
 			}
 			for _, m := range ms {
+				s.watch.deliver(m)
 				if fresh {
 					s.adoptDraft(m)
 					if !m.Outgoing {

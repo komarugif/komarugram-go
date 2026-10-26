@@ -169,6 +169,8 @@ type mediaViewer struct {
 	alone bool
 	// share is what the viewer forwards: see viewer_share.go.
 	share viewerShare
+	// gif saves a video as a GIF: see viewer_gif.go.
+	gif viewerGIF
 }
 
 type viewerThumbState struct {
@@ -284,6 +286,7 @@ func newMediaViewer(source model.ConversationStore, images *imageOps, invalidate
 	v.shared, _ = source.(model.SharedMediaSource)
 	v.share.forwarder, _ = source.(model.MessageForwarder)
 	v.share.rights, _ = source.(model.RightsSource)
+	v.gif.maker, _ = source.(model.GIFMaker)
 	v.full = chatmedia.NewSized(source, invalidate, viewerFullLimit, 4096)
 	v.mid = chatmedia.NewSized(source, invalidate, 3, 1024)
 	v.thumbs = chatmedia.NewSized(source, invalidate, 96, 256)
@@ -416,6 +419,7 @@ func (v *mediaViewer) Close() {
 	v.mu.Unlock()
 	v.open = false
 	v.video.stop()
+	v.closeGIF()
 	v.autoplay = 0
 	// A closed viewer keeps no decoded pixels.
 	v.full.Clear()
@@ -727,6 +731,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	}
 	v.updateKept(gtx)
 	v.updateShare(gtx, items[indexOf(items, v.current)], l)
+	v.updateGIF(gtx, items[indexOf(items, v.current)], l)
 	select {
 	case err := <-v.playErrs:
 		v.toast.Show(mediaErrorText(err))
@@ -825,6 +830,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 		}
 	}
 	v.layoutShare(gtx, l)
+	v.layoutGIF(gtx, l)
 }
 
 func (v *mediaViewer) keyEvents(gtx layout.Context, items []model.Message, i int, photo, stage image.Point) {
@@ -1172,6 +1178,14 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 				}
 				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return viewerButton(gtx, &v.share.forward, iconForward, d)
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if !v.canMakeGIF(m) {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return viewerButton(gtx, &v.gif.button, iconGIF, d)
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
