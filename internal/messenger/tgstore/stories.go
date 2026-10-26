@@ -580,14 +580,27 @@ func (s *Store) PeerStories(ctx context.Context, peer int64) ([]model.Message, e
 	st.mu.Lock()
 	k, known := st.peers[peer]
 	var missing []int
+	var full []keptStory
 	if known {
 		for _, story := range k.Stories {
-			if story.Full == nil && story.Expires > now {
+			switch {
+			case story.Expires <= now:
+			case story.Full == nil:
 				missing = append(missing, story.ID)
+			default:
+				full = append(full, story)
 			}
 		}
 	}
 	st.mu.Unlock()
+	// A story told in full in an earlier run is kept with its media, but
+	// not where they download from, which the cache keeps only of those
+	// opened then: those are asked for again, as those told in part.
+	for _, story := range full {
+		if !s.storyLocated(ctx, story.Full.Media) {
+			missing = append(missing, story.ID)
+		}
+	}
 	switch {
 	case !known:
 		res, err := api.StoriesGetPeerStories(ctx, rec.input())
@@ -618,6 +631,26 @@ func (s *Store) PeerStories(ctx context.Context, peer int64) ([]model.Message, e
 	}
 	stories := s.knownStories(peer)
 	return stories, s.keepStoryRefs(ctx, stories)
+}
+
+// storyLocated reports whether where media downloads from is known, in
+// this run or kept by the cache: a story's, which Media and MediaStream
+// cannot download without it.
+func (s *Store) storyLocated(ctx context.Context, media *model.MessageMedia) bool {
+	if media == nil {
+		return true
+	}
+	c := s.history
+	c.mu.Lock()
+	_, ok := c.refs[media.ID]
+	cache := c.cache
+	c.mu.Unlock()
+	if ok || cache == nil {
+		return ok
+	}
+	var ref fileLocation
+	ok, err := cache.Get(ctx, "ref/"+media.ID, &ref)
+	return err != nil || ok
 }
 
 // knownStories are the stories of peer the store knows in full now, the
