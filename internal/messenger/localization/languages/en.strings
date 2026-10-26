@@ -128,11 +128,13 @@
 "chat_menu.search" = "Search for messages";
 "chat_menu.show_filtered" = "Show Filtered Messages";
 
+"chat_row.community" = "View community info";
 "chat_row.pin" = "Pin to top";
 "chat_row.pin_failed" = "Could not change the pinned chats";
 "chat_row.pin_limit" = "You can pin no more than {limit} chats.";
 "chat_row.pin_limit_pro" = "You can pin no more than {limit} chats. With Telegram Premium, up to {premium}.";
 "chat_row.read" = "Mark as read";
+"chat_row.ungroup" = "Ungroup";
 "chat_row.unpin" = "Unpin from top";
 
 "chat_search.close" = "Close search";
@@ -178,6 +180,20 @@
 "comments.none" = "Leave a comment";
 "comments.open" = "{count} comments";
 "comments.open#one" = "{count} comment";
+
+"community.collapse_failed" = "Could not change how the community is shown";
+"community.failed" = "Could not open the community";
+"community.hidden" = "Hidden";
+"community.hidden_chats" = "Hidden chats";
+"community.hidden_unavailable" = "You can't join or view this group until an admin invites you.";
+"community.hidden_unavailable_channel" = "You can't join or view this channel until an admin invites you.";
+"community.joined" = "Chats you are in";
+"community.requestable" = "Chats you can request to join";
+"community.show_as_one" = "Show as One Chat";
+"community.show_as_one_about" = "Group all community chats into one item in the chat list.";
+"community.status" = "Community with {count} chats";
+"community.status#one" = "Community with {count} chat";
+"community.viewable" = "Chats you can view";
 
 "composer.all" = "All emoji";
 "composer.attach" = "Attachments";
@@ -1481,9 +1497,22 @@
 "service.changed_photo_channel" = "Channel photo updated";
 "service.changed_title" = "{from} changed group name to «{title}»";
 "service.changed_title_channel" = "Channel name was changed to «{title}»";
+"service.community_added" = "{from} added this group to the {community} community.";
+"service.community_added_channel" = "This channel was added to the {community} community.";
+"service.community_added_chat" = "This chat was added to the {community} community.";
+"service.community_added_unknown" = "{from} added this group to a community.";
+"service.community_added_unknown_channel" = "This channel was added to a community.";
+"service.community_added_unknown_chat" = "This chat was added to a community.";
+"service.community_removed" = "{from} removed this group from the community.";
+"service.community_removed_channel" = "This channel was removed from the community.";
+"service.community_removed_chat" = "This chat was removed from the community.";
 "service.created_channel" = "Channel created";
 "service.created_chat" = "{from} created the group «{title}»";
 "service.deleted_message" = "Deleted message";
+"service.direct_messages_disabled" = "Channel disabled Direct Messages.";
+"service.direct_messages_enabled" = "Channel enabled Direct Messages.";
+"service.direct_messages_paid" = "Channel allows Direct Messages for {count} Stars each.";
+"service.direct_messages_paid#one" = "Channel allows Direct Messages for {count} Star each.";
 "service.game_score_no_game" = "{from} scored {count}";
 "service.game_score_no_game#one" = "{from} scored {count}";
 "service.game_score_no_game#other" = "{from} scored {count}";
@@ -1508,8 +1537,13 @@
 "service.invite_users_and_last" = "{accumulated} and {user}";
 "service.invite_users_and_one" = "{accumulated}, {user}";
 "service.invite_users_many" = "{from} invited {users} to {chat}";
+"service.joined_via_community" = "{from} joined the group via the {community} community";
+"service.joined_via_community_unknown" = "{from} joined the group via a community";
 "service.kick_user" = "{from} removed {user}";
 "service.loading" = "Loading...";
+"service.message_price_free" = "Messages are now free in this group.";
+"service.message_price_paid" = "Messages now cost {count} Stars each in this group.";
+"service.message_price_paid#one" = "Messages now cost {count} Star each in this group.";
 "service.no_forwards_disabled" = "{from} disabled sharing in this chat";
 "service.no_forwards_enabled" = "{from} enabled sharing in this chat";
 "service.no_forwards_still_disabled" = "Sharing in this chat is still disabled";

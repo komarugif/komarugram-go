@@ -206,14 +206,18 @@ type chatPage struct {
 	composer   *messageComposer
 	header     widget.Clickable
 	headAvatar widget.Clickable
-	appearance *chatThemeController
-	files      *attachmentFiles
-	trace      *diagnostics.Trace
-	selection  messageSelection
-	keyboard   struct{}
-	activeText *messageRow
-	actions    selectionBar
-	forwarding forwardPicker
+	// communityOf is the community a chat is one of, 0 for none, whose
+	// badge over the header's avatar communityBadge clicks; nil for none.
+	communityOf    func(chat int64) int64
+	communityBadge widget.Clickable
+	appearance     *chatThemeController
+	files          *attachmentFiles
+	trace          *diagnostics.Trace
+	selection      messageSelection
+	keyboard       struct{}
+	activeText     *messageRow
+	actions        selectionBar
+	forwarding     forwardPicker
 	// toast tells, over the end of the history, what was done in the chat
 	// and what failed there.
 	toast    toast

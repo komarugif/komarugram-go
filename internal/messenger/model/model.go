@@ -22,6 +22,9 @@ const (
 	KindBot
 	// KindSaved is the user's own chat, "Saved Messages".
 	KindSaved
+	// KindCommunity is a community, listed as one chat of its chats while
+	// Collapsed: see CommunitySource.
+	KindCommunity
 )
 
 // Preview is the last message of a chat or a topic as its list shows it.
@@ -145,6 +148,12 @@ type Chat struct {
 	// (DirectMessagesSource), a group of Telegram's that the account reads
 	// as a private chat with the channel: without avatars.
 	DirectMessages bool `json:",omitempty"`
+	// Community is the community the chat is one of, the community's own
+	// chat id; 0 for none.
+	Community int64 `json:",omitempty"`
+	// Collapsed is set for a community shown as one chat, in place of its
+	// chats.
+	Collapsed bool `json:",omitempty"`
 	// Draft is the message the account began in the chat and did not
 	// send, as Telegram keeps it for all of its devices; nil for none.
 	Draft *Draft `json:",omitempty"`

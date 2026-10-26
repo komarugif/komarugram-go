@@ -86,6 +86,9 @@ type chatList struct {
 	storiesHeight int
 	// invalidate draws the list again, as its row of stories scrolls.
 	invalidate func()
+	// communityBadges are the marks on the avatars of chats of communities
+	// shown apart, which open them.
+	communityBadges map[int64]*communityBadge
 }
 
 // overlayPrefs is how the list's overlays are drawn.
@@ -113,6 +116,8 @@ type chatPick struct {
 	Chat *model.Chat
 	// Message is the message to open the chat at, 0 for none.
 	Message model.MessageID
+	// Community is set for the community ID of a chat, picked by its badge.
+	Community bool
 }
 
 type chatRow struct {
@@ -213,6 +218,9 @@ func (l *chatList) Update(gtx layout.Context, sec section, catalog localization.
 		}
 	}
 	for _, id := range l.shown {
+		if b := l.communityBadges[id]; b != nil && b.community != 0 && b.click.Clicked(gtx) {
+			return chatPick{ID: b.community, Community: true}, true
+		}
 		if l.row(id).click.Clicked(gtx) {
 			return chatPick{ID: id}, true
 		}
@@ -272,6 +280,10 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 	}
 	l.items = l.items[:0]
 
+	l.menu.all = chats
+	if sec.kind == sectionAll || sec.kind == sectionSaved {
+		chats = communityRows(chats, catalog)
+	}
 	chats = l.reorder.update(gtx, sec, chats, l.shown, &l.toast, catalog)
 	visible := l.visible(sec, folders, chats, catalog)
 	l.menu.update(gtx, sec, chats, l.shown, &l.toast, catalog)
@@ -457,7 +469,20 @@ func (l *chatList) layoutResults(gtx layout.Context, selected int64, catalog loc
 
 func (l *chatList) layoutRow(gtx layout.Context, c model.Chat, selected, narrow bool, now time.Time, catalog localization.Catalog) layout.Dimensions {
 	row := l.row(c.ID)
-	return l.layoutRowWith(gtx, &row.surface, &row.line, c, selected, narrow, now, catalog)
+	dims := l.layoutRowWith(gtx, &row.surface, &row.line, c, selected, narrow, now, catalog)
+	if c.Community != 0 && c.Kind != model.KindCommunity {
+		// Over the row, which would take its click.
+		sc := scheme(gtx)
+		ring := sc.Surface.Color
+		if selected {
+			ring = sc.Primary.Color
+		}
+		px := gtx.Dp(chatAvatarSize)
+		l.layoutCommunityBadge(gtx, c, image.Pt(gtx.Dp(chatAvatarInset), (dims.Size.Y-px)/2), px, ring)
+	} else if b := l.communityBadges[c.ID]; b != nil {
+		b.community = 0
+	}
+	return dims
 }
 
 // layoutRowWith draws the row of c, which takes its clicks with r, its
@@ -497,7 +522,10 @@ func (l *chatList) layoutRowWith(gtx layout.Context, r *surface, line *previewLi
 			if selected {
 				ring = sc.Primary.Color
 			}
-			drawOnlineDot(gtx, image.Pt(avatarX, avatarY), avatarPx, ring)
+			if c.Community == 0 {
+				// A chat of a community has its badge there.
+				drawOnlineDot(gtx, image.Pt(avatarX, avatarY), avatarPx, ring)
+			}
 		}
 
 		badgeBackground, badgeText := sc.Primary.Color, sc.Primary.OnColor
@@ -674,6 +702,8 @@ func chatKindIcon(kind model.ChatKind) wdk.IconWidget {
 		return iconKindChannel
 	case model.KindBot:
 		return iconKindBot
+	case model.KindCommunity:
+		return iconKindCommunity
 	}
 	return nil
 }

@@ -74,8 +74,13 @@ func (p *chatPage) messageActionID(a menuAction) string {
 	return messageActionIDs[a]
 }
 func chatRowActionID(a chatRowAction) string {
-	if a == chatRowRead {
+	switch a {
+	case chatRowRead:
 		return "read"
+	case chatRowUngroup:
+		return "ungroup"
+	case chatRowCommunity:
+		return "community"
 	}
 	return "pin"
 }
@@ -119,7 +124,7 @@ func menuCatalogs(folders []model.Folder, account string, l localization.Catalog
 		message.items = append(message.items, menuChoice{id, title, menuIcon(a)})
 	}
 	out = append(out, message)
-	out = append(out, menuCatalog{menuChatRow, l.T("menus.chat_row"), []menuChoice{{"pin", l.T("chat_row.pin"), iconPinChat}, {"read", l.T("chat_row.read"), iconRead}}})
+	out = append(out, menuCatalog{menuChatRow, l.T("menus.chat_row"), []menuChoice{{"pin", l.T("chat_row.pin"), iconPinChat}, {"read", l.T("chat_row.read"), iconRead}, {"ungroup", l.T("chat_row.ungroup"), iconUngroup}, {"community", l.T("chat_row.community"), iconKindCommunity}}})
 	header := menuCatalog{menuChatHeader, l.T("menus.chat_header"), nil}
 	for a := chatMenuAction(0); a < chatMenuActions; a++ {
 		title := p.chatMenuLabel(a, l)

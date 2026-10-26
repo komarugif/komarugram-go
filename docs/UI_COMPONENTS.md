@@ -497,6 +497,28 @@ size-stability fixes remain in place.
   topic's row draws its last one; a click opens the topic at the message
   (`OpenTopicAt`), tinted. Going back finds the search as it was.
   `FORUM_PNG` saves the list.
+- **Communities** (`community.go`, `model.CommunitySource`): a community
+  shown as one chat (`Chat.Collapsed`) has one row in the list of all
+  chats in place of its chats (`communityRows`), where the newest of them
+  would be: the number of them with something unread, their names for its
+  line, as Telegram Desktop's; shown apart, it has none, and its chats'
+  menus and the badge with an arrow on their avatars open it ("View
+  community info"), as does the badge over the avatar in the header of a
+  chat of one not in the list, found or opened by a link
+  (`LinkedCommunity`). It opens, as a forum does, as a
+  page in place of a history (`communityPage`): its description, the
+  "Show as One Chat" switch, then its chats as Telegram for Android
+  divides them (`CommunityPeer.Type`, the maintainer's choice over
+  Telegram Desktop): those the account is in, those it can read (users and
+  bots always, public groups and channels, hidden or not), those it can ask
+  to join, and the hidden ones, which only tell, in the toast, that they
+  cannot be opened; the others open with the way back to the community. A
+  community shown apart has no chat in the list: its page is made of what
+  the store knows of it (`App.openCommunity`), with a spinner while it is
+  read, the toast and a retry when it cannot be.
+  The row's menu marks all its chats read and ungroups it. Folders and the
+  search list the chats as they are. `COMMUNITY_PNG` saves the page, and
+  the lists beside it, as one chat and apart.
 - **Message sent** (`history_send.go`): a message the composer sent, when it
   shows at the end of a history that is at its end, flies up from the
   composer to its place while it fades in (300 ms); the rest of the history
@@ -757,7 +779,7 @@ new piece sits next to its neighbours.
   and emoji pack states; `TestRenderMessageMenu`, the message menu over a
   reply, with a floating and a classic composer. They are skipped unless their
   variable (`COMPOSER_PNG`, `COMPOSER_MOTION_PNG`, `SETTINGS_PNG`,
-  `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `CHAT_PREVIEW_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
+  `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `COMMUNITY_PNG`, `CHAT_PREVIEW_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
   first dialog exists. `COMPOSER_VIEW=emoji-search`, the picker's emoji found for a word;
   `COMPOSER_VIEW=featured-stickers` or `featured-emoji`
   with `COMPOSER_PNG` shows the picker's recommendations; `COMPOSER_VIEW=voice`,

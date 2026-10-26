@@ -92,6 +92,7 @@ func New(now time.Time, extra int) *Store {
 		{ID: DemoForum, Kind: model.KindGroup, Forum: true, Title: "Клуб Go: обсуждения", Last: model.Preview{Sender: "Игорь", Text: "Релиз в пятницу, кто берёт заметки?"}, LastTime: ago(35 * time.Minute), Unread: 9, Members: 240},
 	}
 	chats = append(chats, generate(now, extra, int64(len(chats)+1))...)
+	chats = withDemoCommunities(chats)
 	model.Renumbered(chats)
 	return &Store{chats: chats, created: now, presence: demoPresence(now),
 		// A chat of the demo has a theme set for all in it, as from Telegram.

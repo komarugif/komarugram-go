@@ -53,7 +53,8 @@ func readEntries(kept map[int64]keptEntry) map[int64]entry {
 // the one kept (k, ke), as far as the list shows.
 func sameChat(c model.Chat, e entry, k model.Chat, ke entry) bool {
 	return c.Unread == k.Unread && c.ReadInbox == k.ReadInbox && c.ReadOutbox == k.ReadOutbox &&
-		c.Pinned == k.Pinned && c.Muted == k.Muted && c.Last.ID == k.Last.ID && e == ke
+		c.Pinned == k.Pinned && c.Muted == k.Muted && c.Last.ID == k.Last.ID && e == ke &&
+		c.Community == k.Community && c.Collapsed == k.Collapsed
 }
 
 // pageUnchanged reports whether each chat of page, which l read last, is
@@ -76,10 +77,11 @@ func (s *Store) pageUnchanged(page []model.Chat, l *list) bool {
 }
 
 // horizon is the time of the oldest last message of the chats l read, but
-// the pinned, which come first whatever their age; ok is false for none.
+// the pinned, which come first whatever their age, and communities, which
+// have no messages of their own; ok is false for none.
 func (l *list) horizon() (oldest time.Time, ok bool) {
 	for _, c := range l.chats {
-		if c.Pinned {
+		if c.Pinned || c.Kind == model.KindCommunity {
 			continue
 		}
 		if !ok || c.LastTime.Before(oldest) {

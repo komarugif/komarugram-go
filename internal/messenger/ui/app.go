@@ -157,8 +157,11 @@ type App struct {
 	mini *webApps
 	// forum is the list of topics that shows in place of the history of a
 	// forum; a topic opens as thread, like comments.
-	forum  *forumPage
-	viewer *mediaViewer
+	forum *forumPage
+	// community is the page of the community open, nil when the store has
+	// none.
+	community *communityPage
+	viewer    *mediaViewer
 	// openWindow is the host of the windows the viewer and articles open
 	// in; viewerWindows and articleWindows, their lists, which close with
 	// this window and when it locks.
@@ -262,6 +265,11 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	a.chats.menu.invalidate = w.Invalidate
 	a.chats.reorder.store, _ = store.(model.PinReorderer)
 	a.chats.reorder.invalidate = w.Invalidate
+	if _, ok := store.(model.CommunitySource); ok {
+		a.community = newCommunityPage()
+		a.chats.menu.ungroup = func(id int64) { a.setCommunityCollapsed(id, false) }
+		a.chats.menu.openCommunity = a.openCommunity
+	}
 	if searcher, ok := store.(model.Searcher); ok {
 		a.chats.panel = newSearchPanel(searcher)
 	}
@@ -646,6 +654,9 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			if from, ok := a.selectedChat(); ok {
 				a.openReturning(chat, from, nil)
 			}
+		}
+		if source, ok := store.(model.CommunitySource); ok {
+			a.history.communityOf = source.LinkedCommunity
 		}
 		// A user's channel in their info opens with a way back, as a
 		// channel's discussion does.
@@ -1040,7 +1051,11 @@ func (a *App) Update(gtx layout.Context) {
 	}
 	if a.section.showsChats() {
 		if pick, ok := a.chats.Update(gtx, a.section, a.catalog()); ok {
-			a.open(pick)
+			if pick.Community {
+				a.openCommunity(pick.ID)
+			} else {
+				a.open(pick)
+			}
 		}
 	}
 	if a.section.kind == sectionProfile {
@@ -1165,6 +1180,10 @@ func (a *App) open(pick chatPick) {
 	a.selected = pick.ID
 	if pick.Chat != nil {
 		a.found = *pick.Chat
+	} else if c, ok := chatByID(a.store.Chats(), pick.ID); ok && c.Kind == model.KindCommunity {
+		// Shown apart, a community has no row: its page stays open.
+		c.Collapsed = false
+		a.found = c
 	}
 	if a.section.kind == sectionSaved && pick.ID != a.savedChat() {
 		a.section = section{kind: sectionAll}
@@ -1289,6 +1308,13 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	a.history.filter = a.messageFilter()
 	if a.comments != nil {
 		a.comments.filter = a.history.filter
+	}
+	if a.history.communityBadge.Clicked(gtx) && a.history.communityOf != nil {
+		if c, ok := a.selectedChat(); ok {
+			if id := a.history.communityOf(c.ID); id != 0 {
+				a.openCommunity(id)
+			}
+		}
 	}
 	if a.viewer != nil && (a.history.headAvatar.Clicked(gtx) || a.forum != nil && a.forum.avatar.Clicked(gtx)) {
 		if c, ok := a.selectedChat(); ok {
@@ -1463,7 +1489,7 @@ func (a *App) pageToast() *toast {
 	if a.thread != nil && a.comments != nil {
 		return &a.comments.toast
 	}
-	if c, chat := a.selectedChat(); chat && !(c.Forum && a.forum != nil) && a.history != nil {
+	if c, chat := a.selectedChat(); chat && !a.listPage(c) && a.history != nil {
 		return &a.history.toast
 	}
 	return nil
@@ -1487,7 +1513,7 @@ func (a *App) layoutPage(gtx layout.Context) layout.Dimensions {
 			a.drop.page = a.comments
 		}
 		return a.layoutComments(gtx, l)
-	case a.section.showsChats() && chat && !(c.Forum && a.forum != nil):
+	case a.section.showsChats() && chat && !a.listPage(c):
 		if a.history.takesFiles() {
 			a.drop.page = a.history
 		}
@@ -1506,11 +1532,19 @@ func (a *App) layoutPage(gtx layout.Context) layout.Dimensions {
 			return a.settings.Layout(gtx, a.themeMode(), a.window.Appearance.Scheme(), a.dark(), l)
 		case a.section.kind == sectionDownloads && a.downloads != nil:
 			return a.downloads.Layout(gtx, l, a.window.Motion.AnimationsEnabled())
+		case chat && c.Kind == model.KindCommunity:
+			return a.layoutCommunity(gtx, c, l)
 		case chat:
 			return a.layoutForum(gtx, c, l)
 		}
 		return layoutEmptyPage(gtx, l)
 	})
+}
+
+// listPage reports whether c opens as a list in place of a history: a
+// forum's topics, a community's chats.
+func (a *App) listPage(c model.Chat) bool {
+	return c.Forum && a.forum != nil || c.Kind == model.KindCommunity
 }
 
 // withAudioBar draws the bar of what plays over a page that is not a chat's,

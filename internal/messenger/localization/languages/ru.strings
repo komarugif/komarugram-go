@@ -137,11 +137,13 @@
 "chat_menu.search" = "Поиск сообщений";
 "chat_menu.show_filtered" = "Показать отфильтрованные";
 
+"chat_row.community" = "О сообществе";
 "chat_row.pin" = "Закрепить";
 "chat_row.pin_failed" = "Не удалось изменить закрепы";
 "chat_row.pin_limit" = "Закрепить можно не больше {limit} чатов.";
 "chat_row.pin_limit_pro" = "Закрепить можно не больше {limit} чатов. С Telegram Premium — до {premium}.";
 "chat_row.read" = "Прочитано";
+"chat_row.ungroup" = "Разгруппировать";
 "chat_row.unpin" = "Открепить";
 
 "chat_search.close" = "Закрыть поиск";
@@ -191,6 +193,22 @@
 "comments.open#few" = "{count} комментария";
 "comments.open#many" = "{count} комментариев";
 "comments.open#one" = "{count} комментарий";
+
+"community.collapse_failed" = "Не удалось изменить, как показано сообщество";
+"community.failed" = "Не удалось открыть сообщество";
+"community.hidden" = "Скрытый";
+"community.hidden_chats" = "Скрытые чаты";
+"community.hidden_unavailable" = "Вы не сможете вступить в эту группу или посмотреть её, пока вас не пригласит администратор.";
+"community.hidden_unavailable_channel" = "Вы не сможете подписаться на этот канал или посмотреть его, пока вас не пригласит администратор.";
+"community.joined" = "Чаты, в которых вы состоите";
+"community.requestable" = "Чаты, в которые можно подать заявку";
+"community.show_as_one" = "Показывать как один чат";
+"community.show_as_one_about" = "Все чаты сообщества будут одним пунктом в списке чатов.";
+"community.status" = "Сообщество, {count} чатов";
+"community.status#few" = "Сообщество, {count} чата";
+"community.status#many" = "Сообщество, {count} чатов";
+"community.status#one" = "Сообщество, {count} чат";
+"community.viewable" = "Чаты, которые можно посмотреть";
 
 "composer.all" = "Все эмодзи";
 "composer.attach" = "Вложения";
@@ -1548,9 +1566,24 @@
 "service.changed_photo_channel" = "Фото канала обновлено";
 "service.changed_title" = "{from} изменил(а) название группы на «{title}»";
 "service.changed_title_channel" = "Название канала изменено на «{title}»";
+"service.community_added" = "{from} добавил(а) эту группу в сообщество «{community}».";
+"service.community_added_channel" = "Этот канал добавлен в сообщество «{community}».";
+"service.community_added_chat" = "Этот чат добавлен в сообщество «{community}».";
+"service.community_added_unknown" = "{from} добавил(а) эту группу в сообщество.";
+"service.community_added_unknown_channel" = "Этот канал добавлен в сообщество.";
+"service.community_added_unknown_chat" = "Этот чат добавлен в сообщество.";
+"service.community_removed" = "{from} убрал(а) эту группу из сообщества.";
+"service.community_removed_channel" = "Этот канал убран из сообщества.";
+"service.community_removed_chat" = "Этот чат убран из сообщества.";
 "service.created_channel" = "Канал создан";
 "service.created_chat" = "{from} создал(а) группу «{title}»";
 "service.deleted_message" = "Удалённое сообщение";
+"service.direct_messages_disabled" = "Канал отключил личные сообщения.";
+"service.direct_messages_enabled" = "Канал включил личные сообщения.";
+"service.direct_messages_paid" = "Личные сообщения каналу стоят {count} звёзд.";
+"service.direct_messages_paid#few" = "Личные сообщения каналу стоят {count} звезды.";
+"service.direct_messages_paid#many" = "Личные сообщения каналу стоят {count} звёзд.";
+"service.direct_messages_paid#one" = "Личные сообщения каналу стоят {count} звезду.";
 "service.game_score_no_game" = "{from} набрал(а) {count} очков";
 "service.game_score_no_game#few" = "{from} набрал(а) {count} очка";
 "service.game_score_no_game#many" = "{from} набрал(а) {count} очков";
@@ -1578,8 +1611,15 @@
 "service.invite_users_and_last" = "{accumulated} и {user}";
 "service.invite_users_and_one" = "{accumulated}, {user}";
 "service.invite_users_many" = "{from} пригласил(а) {users} в {chat}";
+"service.joined_via_community" = "{from} вступил(а) в группу через сообщество «{community}»";
+"service.joined_via_community_unknown" = "{from} вступил(а) в группу через сообщество";
 "service.kick_user" = "{from} удалил(а) {user}";
 "service.loading" = "Загрузка…";
+"service.message_price_free" = "Сообщения в этой группе теперь бесплатные.";
+"service.message_price_paid" = "Сообщение в этой группе теперь стоит {count} звёзд.";
+"service.message_price_paid#few" = "Сообщение в этой группе теперь стоит {count} звезды.";
+"service.message_price_paid#many" = "Сообщение в этой группе теперь стоит {count} звёзд.";
+"service.message_price_paid#one" = "Сообщение в этой группе теперь стоит {count} звезду.";
 "service.no_forwards_disabled" = "{from} запретил(а) пересылку в этом чате";
 "service.no_forwards_enabled" = "{from} разрешил(а) пересылку в этом чате";
 "service.no_forwards_still_disabled" = "Пересылка в этом чате по-прежнему запрещена";

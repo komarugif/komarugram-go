@@ -70,6 +70,16 @@ const (
 	ServiceSuggestPhoto ServiceKind = "suggest_photo"
 	// ServiceWebViewData: data from the button Title went to the bot.
 	ServiceWebViewData ServiceKind = "web_view_data"
+	// ServiceCommunity: the chat was added to the community Title, of chat
+	// id Count, empty when not known; Reason "removed", taken out of one.
+	ServiceCommunity ServiceKind = "community"
+	// ServiceJoinedViaCommunity: the sender joined the group through the
+	// community Title, of chat id Count.
+	ServiceJoinedViaCommunity ServiceKind = "joined_via_community"
+	// ServicePaidMessages: messages to the group cost Count Stars each, 0
+	// for free; in a channel, its direct messages do, Reason "allowed" when
+	// they are allowed for free.
+	ServicePaidMessages ServiceKind = "paid_messages"
 )
 
 // ServicePeer is a user or chat an action names.

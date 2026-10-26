@@ -51,6 +51,8 @@ type Store struct {
 	activity activities
 	// stories are the stories over the list of chats.
 	stories storyState
+	// communities are the communities opened.
+	communities communityState
 
 	themeRevisions map[int64]uint64
 	// appearances are the states of the chats' cached appearances.
@@ -383,7 +385,9 @@ type list struct {
 	groups   map[int64]*tg.Chat
 	channels map[int64]*tg.Channel
 	titles   map[int64]string // forbidden chats and channels
-	messages map[[2]int64]tg.MessageClass
+	// communities are the communities the pages name.
+	communities map[int64]*tg.Community
+	messages    map[[2]int64]tg.MessageClass
 
 	chats   []model.Chat
 	entries map[int64]entry
@@ -397,14 +401,15 @@ type list struct {
 
 func newList(self int64) *list {
 	return &list{
-		self:     self,
-		users:    map[int64]*tg.User{},
-		groups:   map[int64]*tg.Chat{},
-		channels: map[int64]*tg.Channel{},
-		titles:   map[int64]string{},
-		messages: map[[2]int64]tg.MessageClass{},
-		entries:  map[int64]entry{},
-		seen:     map[int64]bool{},
+		self:        self,
+		users:       map[int64]*tg.User{},
+		groups:      map[int64]*tg.Chat{},
+		channels:    map[int64]*tg.Channel{},
+		titles:      map[int64]string{},
+		communities: map[int64]*tg.Community{},
+		messages:    map[[2]int64]tg.MessageClass{},
+		entries:     map[int64]entry{},
+		seen:        map[int64]bool{},
 	}
 }
 
@@ -425,6 +430,10 @@ func (l *list) add(page tg.ModifiedMessagesDialogs) int {
 			l.channels[c.ID] = c
 		case *tg.ChannelForbidden:
 			l.titles[peerID(&tg.PeerChannel{ChannelID: c.ID})] = c.Title
+		case *tg.Community:
+			l.communities[c.ID] = c
+		case *tg.CommunityForbidden:
+			l.titles[peerID(&tg.PeerChannel{ChannelID: c.ID})] = c.Title
 		}
 	}
 	for _, m := range page.GetMessages() {
@@ -434,16 +443,21 @@ func (l *list) add(page tg.ModifiedMessagesDialogs) int {
 	}
 	added := 0
 	for _, d := range page.GetDialogs() {
-		dialog, ok := d.(*tg.Dialog)
-		if !ok {
+		var chat model.Chat
+		var e entry
+		switch d := d.(type) {
+		case *tg.Dialog:
+			chat, e = l.chat(d)
+		case *tg.DialogCommunity:
+			chat = l.community(d)
+		default:
 			continue // a folder entry: the archive is not loaded yet
 		}
-		id := peerID(dialog.Peer)
+		id := chat.ID
 		if l.seen[id] {
 			continue
 		}
 		l.seen[id] = true
-		chat, e := l.chat(dialog)
 		l.chats = append(l.chats, chat)
 		l.entries[id] = e
 		added++
@@ -485,6 +499,7 @@ func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 		if u := l.users[p.UserID]; u != nil {
 			chat.Title = userName(u)
 			chat.Badges = userBadges(u, time.Now())
+			chat.Community = linkedCommunity(u.GetLinkedCommunityID())
 			e.contact = u.Contact || u.Self
 			switch {
 			case u.Self:
@@ -505,6 +520,7 @@ func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 			chat.Title = c.Title
 			chat.Badges = channelBadges(c, time.Now())
 			chat.Forum, chat.DirectMessages = c.Forum, c.Monoforum
+			chat.Community = linkedCommunity(c.GetLinkedCommunityID())
 			if c.Broadcast {
 				chat.Kind = model.KindChannel
 			}
@@ -530,6 +546,35 @@ func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 		}
 	}
 	return chat, e
+}
+
+// community turns the dialog of a community into the model's chat: it has
+// no messages of its own, the list shows those of its chats.
+func (l *list) community(d *tg.DialogCommunity) model.Chat {
+	chat := model.Chat{
+		ID:     peerID(&tg.PeerChannel{ChannelID: d.CommunityID}),
+		Kind:   model.KindCommunity,
+		Pinned: d.Pinned,
+		Muted:  mutedNow(d.NotifySettings),
+		Title:  l.titles[peerID(&tg.PeerChannel{ChannelID: d.CommunityID})],
+	}
+	if c := l.communities[d.CommunityID]; c != nil {
+		chat.Title, chat.Collapsed = c.Title, c.CollapsedInDialogs
+	}
+	if d.Pinned {
+		l.pins++
+		chat.PinRank = l.pins
+	}
+	return chat
+}
+
+// linkedCommunity is the chat id of the community a user or channel is
+// linked to, 0 for none.
+func linkedCommunity(id int64, ok bool) int64 {
+	if !ok || id == 0 {
+		return 0
+	}
+	return peerID(&tg.PeerChannel{ChannelID: id})
 }
 
 // sender names who wrote m, for the line under a group's title, or says

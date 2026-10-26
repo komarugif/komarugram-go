@@ -203,6 +203,8 @@ func chatStatus(c model.Chat, l localization.Catalog) string {
 		return l.T("status.bot")
 	case model.KindSaved:
 		return l.T("status.saved")
+	case model.KindCommunity:
+		return l.Count("community.status", c.Members, map[string]string{"count": groupDigits(c.Members)})
 	default:
 		return l.T("status.recently")
 	}

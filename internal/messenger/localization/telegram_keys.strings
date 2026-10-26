@@ -62,8 +62,10 @@
 "chat_menu.profile" = "lng_context_view_profile";
 "chat_menu.search" = "lng_dlg_search_for_messages";
 
+"chat_row.community" = "lng_context_view_community";
 "chat_row.pin" = "lng_context_pin_to_top";
 "chat_row.read" = "lng_context_mark_read";
+"chat_row.ungroup" = "lng_community_ungroup";
 "chat_row.unpin" = "lng_context_unpin_from_top";
 
 "chat_search.hint" = "lng_dlg_search_for_messages";
@@ -99,6 +101,16 @@
 "comments.header_none" = "lng_comments_header_none";
 "comments.none" = "lng_comments_open_none";
 "comments.open" = "lng_comments_open_count";
+
+"community.hidden" = "lng_community_hidden_status";
+"community.hidden_chats" = "lng_community_chats_requestable";
+"community.hidden_unavailable" = "lng_community_hidden_not_accessible";
+"community.hidden_unavailable_channel" = "lng_community_hidden_not_accessible_channel";
+"community.joined" = "lng_community_chats_joined";
+"community.show_as_one" = "lng_community_show_as_one";
+"community.show_as_one_about" = "lng_community_show_as_one_about";
+"community.status" = "lng_community_profile_status";
+"community.viewable" = "lng_community_chats_viewable";
 
 "composer.delete_gif" = "lng_context_delete_gif";
 "composer.direct_messages" = "lng_profile_direct_messages";
@@ -506,9 +518,21 @@
 "service.changed_photo_channel" = "lng_action_changed_photo_channel";
 "service.changed_title" = "lng_action_changed_title";
 "service.changed_title_channel" = "lng_action_changed_title_channel";
+"service.community_added" = "lng_action_community_added";
+"service.community_added_channel" = "lng_action_community_added_channel";
+"service.community_added_chat" = "lng_action_community_added_chat";
+"service.community_added_unknown" = "lng_action_community_added_unknown";
+"service.community_added_unknown_channel" = "lng_action_community_added_unknown_channel";
+"service.community_added_unknown_chat" = "lng_action_community_added_unknown_chat";
+"service.community_removed" = "lng_action_community_removed";
+"service.community_removed_channel" = "lng_action_community_removed_channel";
+"service.community_removed_chat" = "lng_action_community_removed_chat";
 "service.created_channel" = "lng_action_created_channel";
 "service.created_chat" = "lng_action_created_chat";
 "service.deleted_message" = "lng_deleted_message";
+"service.direct_messages_disabled" = "lng_action_direct_messages_disabled";
+"service.direct_messages_enabled" = "lng_action_direct_messages_enabled";
+"service.direct_messages_paid" = "lng_action_direct_messages_paid";
 "service.game_score_no_game" = "lng_action_game_score_no_game";
 "service.game_you_scored_no_game" = "lng_action_game_you_scored_no_game";
 "service.gift_for_stars" = "lng_action_gift_for_stars";
@@ -527,8 +551,12 @@
 "service.invite_users_and_last" = "lng_action_invite_users_and_last";
 "service.invite_users_and_one" = "lng_action_invite_users_and_one";
 "service.invite_users_many" = "lng_action_invite_users_many";
+"service.joined_via_community" = "lng_action_user_joined_via_community";
+"service.joined_via_community_unknown" = "lng_action_user_joined_via_community_unknown";
 "service.kick_user" = "lng_action_kick_user";
 "service.loading" = "lng_contacts_loading";
+"service.message_price_free" = "lng_action_message_price_free";
+"service.message_price_paid" = "lng_action_message_price_paid";
 "service.no_forwards_disabled" = "lng_action_no_forwards_disabled";
 "service.no_forwards_enabled" = "lng_action_no_forwards_enabled";
 "service.no_forwards_still_disabled" = "lng_action_no_forwards_still_disabled";
