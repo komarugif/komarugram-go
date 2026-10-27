@@ -843,6 +843,7 @@
 "info.copied" = "Copied to clipboard.";
 "info.copy_link" = "Copy Link";
 "info.dc" = "Profile photo's data center";
+"info.description" = "Description";
 "info.link_copied" = "Link copied to clipboard.";
 "info.open_chat" = "Go to private chat with user";
 "info.open_chat_new" = "You have no chat yet";

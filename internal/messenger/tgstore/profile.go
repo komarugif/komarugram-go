@@ -129,6 +129,9 @@ func (s *Store) fetchProfile(ctx context.Context, chat int64) (model.PeerProfile
 				out.Badges, out.BadgesKnown = channelBadges(ch, time.Now()), true
 			}
 		}
+		if f, ok := full.FullChat.(*tg.ChannelFull); ok {
+			out.About = f.About
+		}
 	default:
 		// A basic group has none of a profile's own.
 		return out, nil

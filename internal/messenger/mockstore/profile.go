@@ -41,6 +41,7 @@ func (s *Store) PeerProfile(_ context.Context, chat int64) (model.PeerProfile, e
 		s.mu.Unlock()
 	case 4:
 		out.Usernames = []model.Username{{Name: "gonews", Collectible: true}, {Name: "golang_news"}}
+		out.About = "Новости Go и его экосистемы: релизы, предложения и статьи. Обсуждение — @golang_chat, сайт — https://go.dev."
 		out.Cover.Colors = []uint32{0x5a8fd6, 0x82b4ee}
 		out.Cover.DarkColors = []uint32{0x2a4f80, 0x3f6aa3}
 		out.Cover.Pattern = 2

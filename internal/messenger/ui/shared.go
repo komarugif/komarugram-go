@@ -806,9 +806,10 @@ func (p *chatInfo) layoutChannel(gtx layout.Context, l localization.Catalog, ani
 // which open as a message's, and under it what it is.
 func (p *chatInfo) layoutAbout(gtx layout.Context, l localization.Catalog, animate bool) layout.Dimensions {
 	about := strings.TrimSpace(p.profile.About)
-	if about == "" || p.chat.Kind != model.KindUser && p.chat.Kind != model.KindBot {
+	if about == "" {
 		return layout.Dimensions{}
 	}
+	caption := p.aboutCaption(l)
 	if p.about == nil || p.about.source != about || p.about.language != l.Language() || p.about.key.ChatID != p.chat.ID {
 		m := model.Message{Key: model.MessageKey{ChatID: p.chat.ID}, Text: about, Entities: model.PlainEntities(about)}
 		p.about = newMessageRow(m, l, gtx.Now)
@@ -821,12 +822,21 @@ func (p *chatInfo) layoutAbout(gtx layout.Context, l localization.Catalog, anima
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.renderer.richText(gtx, p.about, l, animate) }),
 					vspace(2),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return label(gtx, l.T("info.about"), token.TypestyleBodySmall, scheme(gtx).SurfaceVariant.OnColor, 1)
+						return label(gtx, caption, token.TypestyleBodySmall, scheme(gtx).SurfaceVariant.OnColor, 1)
 					}),
 				)
 			})
 		}, 6)
 	})
+}
+
+// aboutCaption names the card of About: a user's bio, and the description
+// of a bot, a channel or a group, as Telegram Desktop names them.
+func (p *chatInfo) aboutCaption(l localization.Catalog) string {
+	if p.chat.Kind == model.KindUser {
+		return l.T("info.about")
+	}
+	return l.T("info.description")
 }
 
 // channelLine is the line under the name of a user's channel: its

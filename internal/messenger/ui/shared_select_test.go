@@ -438,3 +438,36 @@ func TestSharedGridColumns(t *testing.T) {
 		t.Fatalf("the slider chose %d", columns)
 	}
 }
+
+// A channel's description is a card of its info, as a user's bio is, and
+// named a description, as a bot's is.
+func TestInfoChannelDescription(t *testing.T) {
+	store := mockstore.New(time.Now(), 0)
+	var images imageOps
+	p := newChatInfo(store, &images, func() {})
+	defer p.Destroy()
+	l := localization.For("en")
+	p.Open(model.Chat{ID: 4, Kind: model.KindChannel, Title: "Go News"})
+	awaitShared(t, p)
+	ops := new(op.Ops)
+	p.Layout(sharedContext(ops, image.Pt(900, 2000)), l, false)
+	if p.about == nil {
+		t.Fatal("no description")
+	}
+	var urls []string
+	for _, r := range p.about.runs {
+		if r.URL != "" {
+			urls = append(urls, r.URL)
+		}
+	}
+	if want := []string{"https://t.me/golang_chat", "https://go.dev"}; !slices.Equal(urls, want) {
+		t.Fatalf("links %q", urls)
+	}
+	if got := p.aboutCaption(l); got != "Description" {
+		t.Fatalf("a channel's card is named %q", got)
+	}
+	p.chat.Kind = model.KindUser
+	if got := p.aboutCaption(l); got != "Bio" {
+		t.Fatalf("a user's card is named %q", got)
+	}
+}

@@ -306,11 +306,12 @@
 "history.video" = "lng_in_dlg_video";
 "history.voice" = "lng_in_dlg_audio";
 
-"info.about" = "lng_info_about_label";
+"info.about" = "lng_info_bio_label";
 "info.collectible_copy" = "lng_collectible_username_copy";
 "info.collectible_info" = "lng_collectible_username_info";
 "info.collectible_more" = "lng_collectible_learn_more";
 "info.collectible_title" = "lng_collectible_username_title";
+"info.description" = "lng_info_about_label";
 
 "links.channel_not_accessible" = "lng_channel_not_accessible";
 "links.group_not_accessible" = "lng_group_not_accessible";
