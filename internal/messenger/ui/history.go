@@ -236,6 +236,12 @@ type chatPage struct {
 	nextDay  []int
 	avatar   avatarLayout
 	kind     model.ChatKind
+	// senderBadges are the marks beside the name of a message's sender, the
+	// user or channel id called name; nil draws none.
+	senderBadges func(id int64, name string) (before, after layout.Widget)
+	// statusSet brings the set of the emoji status clicked beside a
+	// sender's name.
+	statusSet chan emojiSetResult
 	// readOutbox is the newest of the account's messages the chat read.
 	readOutbox model.MessageID
 	direct     bool // the chat of a channel's direct messages
@@ -666,6 +672,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	}
 	p.keyboardEvents(gtx, l)
 	p.kind, p.title, p.direct, p.readOutbox = c.Kind, c.Title, c.DirectMessages, c.ReadOutbox
+	p.updateStatusSet()
 	p.menuUpdate(gtx, l)
 	p.updateForward(l)
 	p.source.OpenChat(c.ID)

@@ -767,6 +767,16 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 		a.attachments = newAttachmentFiles()
 	}
 	p.files = a.attachments
+	if badges, ok := store.(model.PeerBadgesSource); ok {
+		p.senderBadges = func(id int64, name string) (before, after layout.Widget) {
+			b, ok := badges.PeerBadges(id)
+			if !ok {
+				return nil, nil
+			}
+			// A click on the status shows its set over the chat.
+			return a.clickedBadges(b, name, senderBadgeSize, false, badgeClicks{openStatus: p.openStatusSet})
+		}
+	}
 	p.menus = a.menuPrefs
 	p.shortcuts = a.shortcutPrefs
 	p.composer.shortcuts = a.shortcutPrefs

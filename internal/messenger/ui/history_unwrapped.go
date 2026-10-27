@@ -221,7 +221,7 @@ func (p *chatPage) unwrappedSide(m *model.Message, join bubbleJoin, l localizati
 		var children []layout.FlexChild
 		if m.SenderName != "" && !m.Outgoing && join&joinAbove == 0 {
 			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, m.SenderName, token.TypestyleLabelLargeEmphasized, senderColor(gtx, m.SenderID), 1)
+				return p.layoutSenderName(gtx, m)
 			}), vspace(3))
 		}
 		if forward {

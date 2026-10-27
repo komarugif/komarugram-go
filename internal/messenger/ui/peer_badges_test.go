@@ -5,9 +5,14 @@ package ui
 import (
 	"context"
 	"image"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"gio-mw/defaults"
+	"gio-mw/defaults/schemes"
+	"gio-mw/wdk"
 
 	"gioui.org/f32"
 	"gioui.org/io/input"
@@ -172,6 +177,83 @@ func TestPremiumStarComesFromTheSet(t *testing.T) {
 	}
 	if dims := bare.layoutPremiumMark(layout.Context{}, 16); dims.Size != (image.Point{}) {
 		t.Fatalf("a star of %v from a store without sets", dims.Size)
+	}
+}
+
+// The name of a message's sender has the marks of the sender beside it, as
+// a chat's name in the list: the store's badges of that sender, through the
+// window's.
+func TestSenderNameHasBadges(t *testing.T) {
+	store := mockstore.New(time.Now(), 0)
+	var asked []int64
+	a := &App{preferences: preferences.Memory()}
+	p := newChatPage(store, func() {})
+	p.senderBadges = func(id int64, name string) (before, after layout.Widget) {
+		asked = append(asked, id)
+		b, ok := store.PeerBadges(id)
+		if !ok {
+			return nil, nil
+		}
+		before, after = a.badges(b, name, senderBadgeSize, false)
+		if after != nil {
+			// The star of a store without sets takes no room: a mark that does.
+			after = func(gtx layout.Context) layout.Dimensions {
+				return layout.Dimensions{Size: image.Pt(gtx.Dp(senderBadgeSize), gtx.Dp(senderBadgeSize))}
+			}
+		}
+		return before, after
+	}
+	width := func(sender int64) int {
+		gtx := layout.Context{Ops: new(op.Ops), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Constraints{Max: image.Pt(400, 100)}, Values: map[string]any{}}
+		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		return p.layoutSenderName(gtx, &model.Message{SenderID: sender, SenderName: "Анна"}).Size.X
+	}
+	plain, premium := width(1), width(42)
+	if premium != plain+4+int(senderBadgeSize) {
+		t.Fatalf("the name is %d wide with the Premium star, %d without", premium, plain)
+	}
+	if !slices.Equal(asked, []int64{1, 42}) {
+		t.Fatalf("badges asked of %v", asked)
+	}
+	p.senderBadges = nil
+	if width(42) != plain {
+		t.Fatal("a page without badges draws some")
+	}
+}
+
+// statusSetStore tells the set of every custom emoji.
+type statusSetStore struct{ *mockstore.Store }
+
+func (s statusSetStore) CustomEmoji(context.Context, int64) (model.Message, error) {
+	return model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "status", StickerSet: &model.StickerSetRef{Type: "short_name", ShortName: "Statuses"}}}, nil
+}
+
+// A click on the emoji status beside a sender's name shows its set over the
+// chat, as the profile does, but not in another chat opened meanwhile.
+func TestSenderStatusOpensItsSet(t *testing.T) {
+	p := newChatPage(statusSetStore{mockstore.New(time.Now(), 0)}, func() {})
+	opened := func(chat int64) bool {
+		p.chat = chat
+		deadline := time.Now().Add(5 * time.Second)
+		for p.statusSet != nil && time.Now().Before(deadline) {
+			p.updateStatusSet()
+			time.Sleep(5 * time.Millisecond)
+		}
+		return p.stickers.modal.Shown() && p.stickers.ref.ShortName == "Statuses"
+	}
+	p.chat = 3
+	p.openStatusSet(77)
+	if !opened(3) {
+		t.Fatal("the status's set is not shown")
+	}
+	p.stickers.modal.Hide()
+	p.openStatusSet(77)
+	if opened(4) {
+		t.Fatal("the set is shown in the chat opened after the click")
+	}
+	clicks := (&App{}).clicksOf(false, nil)
+	if clicks.openStatus != nil {
+		t.Fatal("a status in the list opens its set")
 	}
 }
 

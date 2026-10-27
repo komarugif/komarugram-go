@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"context"
 	"image"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"gioui.org/unit"
 	"golang.org/x/exp/shiny/materialdesign/icons"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -347,7 +349,7 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 	private := p.kind == model.KindUser || p.kind == model.KindBot || p.kind == model.KindSaved
 	if msg.SenderName != "" && !msg.Outgoing && !private && join&joinAbove == 0 {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, msg.SenderName, token.TypestyleLabelLargeEmphasized, senderColor(gtx, msg.SenderID), 1)
+			return p.layoutSenderName(gtx, msg)
 		}), vspace(3))
 	}
 	if msg.StoryOf != nil && !msg.StoryOf.Mention {
@@ -932,4 +934,54 @@ func (p *chatPage) forwardLine(gtx layout.Context, r *messageRow, m model.Messag
 		pointer.CursorPointer.Add(gtx.Ops)
 		return line(gtx)
 	})
+}
+
+// layoutSenderName draws the name of msg's sender over the message, in the
+// sender's color, with all the marks beside it a chat's name has in the
+// list: Telegram Desktop shows only the emoji status or the Premium star.
+func (p *chatPage) layoutSenderName(gtx layout.Context, msg *model.Message) layout.Dimensions {
+	name := func(gtx layout.Context) layout.Dimensions {
+		return label(gtx, msg.SenderName, token.TypestyleLabelLargeEmphasized, senderColor(gtx, msg.SenderID), 1)
+	}
+	if p.senderBadges == nil {
+		return name(gtx)
+	}
+	before, after := p.senderBadges(msg.SenderID, msg.SenderName)
+	return withBadges(gtx, before, name, after)
+}
+
+// openStatusSet shows the set the emoji status emoji, clicked beside a
+// sender's name, belongs to, once the emoji tells it.
+func (p *chatPage) openStatusSet(emoji int64) {
+	source, ok := p.source.(customEmojiSource)
+	if !ok || emoji == 0 {
+		return
+	}
+	ch := make(chan emojiSetResult, 1)
+	p.statusSet = ch
+	chat, invalidate := p.chat, p.invalidate
+	go func() {
+		defer crash.Recover("emoji set of a status", func(*crash.Panic) { ch <- emojiSetResult{chat: chat} })
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		var ref *model.StickerSetRef
+		if m, err := source.CustomEmoji(ctx, emoji); err == nil && m.Media != nil {
+			ref = m.Media.StickerSet
+		}
+		ch <- emojiSetResult{chat: chat, ref: ref}
+		invalidate()
+	}()
+}
+
+// updateStatusSet opens the set openStatusSet found, if the page is still
+// of the chat it was asked in.
+func (p *chatPage) updateStatusSet() {
+	select {
+	case r := <-p.statusSet:
+		p.statusSet = nil
+		if r.chat == p.chat && r.ref != nil {
+			p.stickers.open(p, *r.ref)
+		}
+	default:
+	}
 }
