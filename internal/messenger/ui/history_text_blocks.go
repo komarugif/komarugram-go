@@ -50,9 +50,11 @@ type messageTextBlock struct {
 type flowScratch struct {
 	styles, flowStyles      []styledtext.SpanStyle
 	indices, flowRuns, base []int
-	frames                  []image.Image
-	formulas                []*ratex.List
-	formulaEm               []float32
+	// edges are where the runs begin, for the spoilers to join.
+	edges     []int
+	frames    []image.Image
+	formulas  []*ratex.List
+	formulaEm []float32
 }
 
 // zeroed returns s with n zero elements, in its own array when it holds them.

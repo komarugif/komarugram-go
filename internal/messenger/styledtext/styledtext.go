@@ -100,9 +100,13 @@ type Cluster struct {
 }
 
 // Fragment is the part of a span on one line, in text-block coordinates.
+// Line is Bounds as high as the line: the spans of a line differ in height,
+// a box's from the text's, and what covers the line, as a spoiler does,
+// covers it whole.
 type Fragment struct {
 	Index    int
 	Bounds   image.Rectangle
+	Line     image.Rectangle
 	Clusters []Cluster
 }
 
@@ -417,7 +421,8 @@ func (t TextStyle) Layout(gtx layout.Context, spanFn func(gtx layout.Context, id
 					stack := op.Offset(shape.offset).Push(gtx.Ops)
 					local := shape
 					local.offset = image.Point{}
-					t.Decorate(gtx, Fragment{Index: span.idx, Bounds: bounds, Clusters: clusters}, func() { span.Layout(gtx, local) })
+					line := image.Rect(bounds.Min.X, overallSize.Y, bounds.Max.X, overallSize.Y+lineDims.Y)
+					t.Decorate(gtx, Fragment{Index: span.idx, Bounds: bounds, Line: line, Clusters: clusters}, func() { span.Layout(gtx, local) })
 					stack.Pop()
 				}
 

@@ -93,8 +93,9 @@ func previewChats(now time.Time, inline func(n int) []byte) []model.Chat {
 	text := func(s string) model.Preview { return model.Preview{Text: s} }
 	formatted := text("курсив, подчёркнутый, зачёркнутый и код: go test ./...")
 	formatted.Sender, formatted.Entities = "Анна", []model.Entity{{Kind: "italic", Offset: 0, Length: 6}, {Kind: "underline", Offset: 8, Length: 13}, {Kind: "strike", Offset: 23, Length: 11}, {Kind: "code", Offset: 42, Length: 13}}
-	spoiler := text("Ответ на загадку: это был дворецкий")
-	spoiler.Outgoing, spoiler.Entities = true, []model.Entity{{Kind: "spoiler", Offset: 18, Length: 17}}
+	// A custom emoji under the spoiler, lower than the text: one band.
+	spoiler := text("Ответ на загадку: это был 🔥 дворецкий")
+	spoiler.Outgoing, spoiler.Entities = true, []model.Entity{{Kind: "spoiler", Offset: 18, Length: 20}, {Kind: "emoji", Offset: 26, Length: 2, DocumentID: 1}}
 	emoji := text("Идея 🔥 и цвет текста 💙")
 	emoji.Entities = []model.Entity{{Kind: "emoji", Offset: 5, Length: 2, DocumentID: 1}, {Kind: "emoji", Offset: 22, Length: 2, DocumentID: 2}}
 	login := text("Код для входа в Telegram: 52107. Никому не давайте код")

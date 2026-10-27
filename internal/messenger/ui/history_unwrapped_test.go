@@ -91,6 +91,9 @@ func TestRenderUnwrapped(t *testing.T) {
 			}
 		}
 		messages[19].Reactions = []model.Reaction{{Emoji: "❤", Count: 2}}
+		// A custom emoji under a spoiler: one band, as high as the line.
+		messages[13].Text = "Ответ: это был 🔥 дворецкий"
+		messages[13].Entities = []model.Entity{{Kind: "spoiler", Offset: 7, Length: 20}, {Kind: "emoji", Offset: 15, Length: 2, DocumentID: 7}}
 	})
 	p := h.page
 	p.list.Position.BeforeEnd = false

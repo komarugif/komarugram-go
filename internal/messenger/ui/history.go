@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -27,7 +28,6 @@ import (
 	"gio-mw/wdk"
 	"gio-mw/widget/scroll"
 
-	"gioui.org/f32"
 	"gioui.org/font"
 	"gioui.org/gesture"
 	"gioui.org/layout"
@@ -1260,10 +1260,21 @@ func (p *chatPage) textFlow(gtx layout.Context, r *messageRow, block *messageTex
 	}
 	text.Clusters = &block.clusters
 	text.MaxLines = block.maxLines
+	var edges []int
+	if !r.revealed && slices.ContainsFunc(runs, func(run model.TextRun) bool { return run.Spoiler }) {
+		sc.edges = runEdges(runs, sc.edges)
+		edges = sc.edges
+	}
 	text.Decorate = func(gtx layout.Context, f styledtext.Fragment, draw func()) {
 		i := flowRuns[f.Index]
+		var join spoilerJoin
+		if edges != nil && runs[i].Spoiler {
+			// Taken in the text's own coordinates and runes.
+			join = fragmentJoin(runs, edges, i, f)
+		}
 		f.Index = i + block.first
 		f.Bounds = f.Bounds.Add(origin)
+		f.Line = f.Line.Add(origin)
 		for j := range f.Clusters {
 			f.Clusters[j].Bounds = f.Clusters[j].Bounds.Add(origin)
 			f.Clusters[j].Start += runeStart
@@ -1297,8 +1308,7 @@ func (p *chatPage) textFlow(gtx layout.Context, r *messageRow, block *messageTex
 			if !r.text.reveal.started.IsZero() {
 				radius = r.text.reveal.radius(gtx.Now, r.text.size)
 			}
-			center := r.text.reveal.center.Sub(f32.Pt(float32(f.Bounds.Min.X), float32(f.Bounds.Min.Y)))
-			paintSpoiler(gtx, size, center, radius, scheme(gtx).OutlineVariant.AsNRGBA(), paintContent)
+			paintLineSpoiler(gtx, f, r.text.reveal.center, radius, scheme(gtx).OutlineVariant.AsNRGBA(), join, paintContent)
 		} else {
 			paintContent()
 		}

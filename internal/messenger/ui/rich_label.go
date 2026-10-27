@@ -131,11 +131,16 @@ func (r richLabel) Layout(gtx layout.Context) layout.Dimensions {
 	}
 	t := styledtext.Text(theme.TextShaper, styles...)
 	t.Alignment = r.align
+	// The clusters tell where a fragment is in its run, for the spoilers to
+	// join.
+	var clusters []styledtext.Cluster
+	t.Clusters = &clusters
+	edges := runEdges(r.runs, nil)
 	t.Decorate = func(gtx layout.Context, f styledtext.Fragment, draw func()) {
 		run, size := r.runs[f.Index], f.Bounds.Size()
 		if run.Spoiler && !r.revealed {
 			// Covered as the history's spoilers are before a click.
-			paintSpoiler(gtx, size, f32.Point{}, 0, r.color.SetOpacity(.35).AsNRGBA(), nil)
+			paintLineSpoiler(gtx, f, f32.Point{}, 0, r.color.SetOpacity(.35).AsNRGBA(), fragmentJoin(r.runs, edges, f.Index, f), nil)
 			return
 		}
 		draw()

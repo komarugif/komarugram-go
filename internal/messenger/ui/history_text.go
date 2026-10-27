@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"gioui.org/gesture"
 	"github.com/go-text/typesetting/segmenter"
@@ -296,8 +297,13 @@ func (p *chatPage) keyboardEvents(gtx layout.Context, catalog ...localization.Ca
 	area.Pop()
 }
 
-func paintSpoiler(gtx layout.Context, size image.Point, center f32.Point, radius float32, col color.NRGBA, draw func()) {
-	defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(3)).Push(gtx.Ops).Pop()
+// spoilerJoin tells the sides where a spoiler goes on in the next part of
+// its line, a run of another style or a custom emoji: they are square, so
+// that the parts make one band.
+type spoilerJoin struct{ left, right bool }
+
+func paintSpoiler(gtx layout.Context, size image.Point, center f32.Point, radius float32, col color.NRGBA, join spoilerJoin, draw func()) {
+	defer spoilerShape(gtx, size, join).Push(gtx.Ops).Pop()
 	if radius <= 0 {
 		paint.Fill(gtx.Ops, col)
 		return
@@ -319,6 +325,69 @@ func paintSpoiler(gtx layout.Context, size image.Point, center f32.Point, radius
 	circle := clip.Outline{Path: inner.End()}.Op().Push(gtx.Ops)
 	draw()
 	circle.Pop()
+}
+
+// spoilerShape is the cover of a spoiler of size, rounded but where join
+// says it goes on.
+func spoilerShape(gtx layout.Context, size image.Point, join spoilerJoin) clip.RRect {
+	r := gtx.Dp(3)
+	shape := clip.RRect{Rect: image.Rectangle{Max: size}, NW: r, SW: r, NE: r, SE: r}
+	if join.left {
+		shape.NW, shape.SW = 0, 0
+	}
+	if join.right {
+		shape.NE, shape.SE = 0, 0
+	}
+	return shape
+}
+
+// fragmentJoin is where the spoiler over fragment f of run i goes on in the
+// runs beside it: on the left when f begins run i, not at the start of a
+// line, after a spoiler; on the right when f ends run i before a spoiler.
+// edges are where the runs begin in the text's runes, and the end, f is in
+// the text's coordinates and its runes.
+func fragmentJoin(runs []model.TextRun, edges []int, i int, f styledtext.Fragment) spoilerJoin {
+	if len(f.Clusters) == 0 || i+1 >= len(edges) {
+		return spoilerJoin{}
+	}
+	lo, hi := f.Clusters[0].Start, f.Clusters[0].End
+	for _, c := range f.Clusters[1:] {
+		lo, hi = min(lo, c.Start), max(hi, c.End)
+	}
+	return spoilerJoin{
+		left:  i > 0 && runs[i-1].Spoiler && lo == edges[i] && f.Bounds.Min.X > 0,
+		right: i+1 < len(runs) && runs[i+1].Spoiler && hi == edges[i+1],
+	}
+}
+
+// runEdges are where runs begin in the runes of their text, and its end.
+func runEdges(runs []model.TextRun, edges []int) []int {
+	edges = append(edges[:0], 0)
+	for _, run := range runs {
+		edges = append(edges, edges[len(edges)-1]+utf8.RuneCountInString(run.Text))
+	}
+	return edges
+}
+
+// paintLineSpoiler is paintSpoiler over the fragment f of a text, as high
+// as its line, so that the spoiler over a line is one band where the text's
+// fragments and a custom emoji's differ in height. center is in the text's
+// coordinates, and draw draws the fragment where Decorate does.
+func paintLineSpoiler(gtx layout.Context, f styledtext.Fragment, center f32.Point, radius float32, col color.NRGBA, join spoilerJoin, draw func()) {
+	line := f.Line
+	if line.Empty() {
+		line = f.Bounds
+	}
+	dy := line.Min.Y - f.Bounds.Min.Y
+	defer op.Offset(image.Pt(0, dy)).Push(gtx.Ops).Pop()
+	shifted := draw
+	if draw != nil {
+		shifted = func() {
+			defer op.Offset(image.Pt(0, -dy)).Push(gtx.Ops).Pop()
+			draw()
+		}
+	}
+	paintSpoiler(gtx, image.Pt(f.Bounds.Dx(), line.Dy()), center.Sub(f32.Pt(float32(f.Bounds.Min.X), float32(line.Min.Y))), radius, col, join, shifted)
 }
 
 // A counter-clockwise circle, shared by the cover hole and text clip.

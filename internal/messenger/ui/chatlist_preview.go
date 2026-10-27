@@ -399,8 +399,11 @@ func (p *previewLine) layoutText(gtx layout.Context, pm *previewMedia, fg, accen
 		offset(gtx, image.Pt(x, 0), func(gtx layout.Context) layout.Dimensions {
 			if run.Spoiler {
 				// Covered, as the history covers a spoiler not revealed:
-				// the list reveals none.
-				fillRounded(gtx, fg.SetOpacity(.28), size, gtx.Dp(3))
+				// the list reveals none. The cover is as high as the line,
+				// whatever the run's own height, a custom emoji's fallback
+				// lower than the text, and goes on in the runs beside it.
+				join := spoilerJoin{left: i > 0 && p.runs[i-1].Spoiler, right: i+1 < len(p.runs) && p.runs[i+1].Spoiler}
+				paint.FillShape(gtx.Ops, fg.SetOpacity(.28).AsNRGBA(), spoilerShape(gtx, image.Pt(size.X, lineHeight), join).Op(gtx.Ops))
 				return dims
 			}
 			call.Add(gtx.Ops)
