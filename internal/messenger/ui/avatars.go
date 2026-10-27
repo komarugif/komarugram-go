@@ -85,9 +85,9 @@ func senderAvatar(kind model.ChatKind, m model.Message) int64 {
 		// A channel's posts are its own: no avatar, as Telegram shows them.
 		return 0
 	case model.KindSaved:
-		if m.ForwardFromID <= -1000000000000 {
-			return m.ForwardFromID
-		}
+		// Whom a forward came from, a channel or a user, when Telegram told
+		// it: one whose privacy hides them has only a name.
+		return m.ForwardFromID
 	}
 	return 0
 }
@@ -112,15 +112,48 @@ func (p *chatPage) senderAvatar(m model.Message) int64 {
 
 // senderOpens tells whether a click on the avatar of m's sender opens
 // their chat: a member's in a group or a channel's that posted there, not
-// the account's own or an anonymous admin's, which is the group itself.
+// the account's own or an anonymous admin's, which is the group itself;
+// in Saved Messages, whom a forward came from.
 func (p *chatPage) senderOpens(m model.Message) bool {
+	if p.kind == model.KindSaved {
+		return p.forwardOpens(m)
+	}
 	sender := m.SenderID > 0 || model.IsChannelID(m.SenderID) && m.SenderID != m.Key.ChatID
 	return p.openSender != nil && !p.snapshotting && p.kind == model.KindGroup &&
 		!m.Outgoing && sender && m.Kind != model.MessageService
 }
 
+// avatarSender is the message whose sender the avatar of m's group opens:
+// m, or in Saved Messages its forward's, as forwardSender makes it.
+func (p *chatPage) avatarSender(m model.Message) model.Message {
+	if p.kind == model.KindSaved {
+		return forwardSender(m)
+	}
+	return m
+}
+
+// forwardOpens tells whether whom m was forwarded from opens, clicked: one
+// Telegram told the peer of, not one whose privacy leaves only a name, nor
+// the chat it is in.
+func (p *chatPage) forwardOpens(m model.Message) bool {
+	return p.openSender != nil && !p.snapshotting && m.ForwardFromID != 0 && m.ForwardFromID != m.Key.ChatID &&
+		m.StoryOf == nil && m.Kind != model.MessageService
+}
+
+// forwardSender is m as sent by whom it was forwarded from, which the
+// store's SenderChat asks for by m, as a group member's: the way a message
+// forwarded goes to its sender's chat.
+func forwardSender(m model.Message) model.Message {
+	m.SenderID, m.SenderName = m.ForwardFromID, m.ForwardName
+	m.Outgoing = false
+	return m
+}
+
 // avatarName is the name whose initials stand for the sender of m.
 func (p *chatPage) avatarName(m model.Message) string {
+	if p.kind == model.KindSaved && m.ForwardName != "" {
+		return m.ForwardName
+	}
 	if m.SenderName != "" {
 		return m.SenderName
 	}

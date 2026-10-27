@@ -83,14 +83,25 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 		avatarX = gtx.Dp(headBackWidth)
 	}
 	if head == nil {
+		if ring, ok := selection.headStories(c); ok {
+			// Around the avatar, as the row of stories draws them: the
+			// avatar keeps its size, and the ring takes from the margins.
+			out := gtx.Dp(storyRingGap) + gtx.Dp(storyRing)
+			side := imagePx + 2*out
+			offset(gtx, image.Pt(avatarX-out, (header.Y-side)/2), func(gtx layout.Context) layout.Dimensions {
+				drawStoryRing(gtx, side, ring.Count, ring.Unread, sc.Primary.Color, sc.Tertiary.Color, sc.OutlineVariant)
+				return layout.Dimensions{Size: image.Pt(side, side)}
+			})
+		}
 		offset(gtx, image.Pt(avatarX, (header.Y-imagePx)/2), func(gtx layout.Context) layout.Dimensions {
 			return drawAvatar(gtx, c.ID, c.Kind, c.Title, chatHeaderImage)
 		})
 		if selection != nil {
 			// The buttons at the end: search and the chat's menu.
 			infoPx = selection.headActionsWidth(gtx, false) - pad + gtx.Dp(8)
-		} else {
-			// The info mark at the end tells that the header opens the chat's info.
+		} else if c.Kind != model.KindCommunity {
+			// The info mark at the end tells that the header opens the chat's
+			// info; a community's page is its info.
 			infoPx = gtx.Dp(24)
 			offset(gtx, image.Pt(size.X-pad-infoPx, (header.Y-infoPx)/2), func(gtx layout.Context) layout.Dimensions {
 				return exact(gtx, image.Pt(infoPx, infoPx), func(gtx layout.Context) layout.Dimensions {
@@ -145,6 +156,10 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 		})
 		if c.Kind != model.KindSaved {
 			layoutAvatarTarget(gtx, &selection.headAvatar, avatarX)
+		}
+		if selection.communityOf != nil && c.Kind != model.KindCommunity && selection.communityOf(c.ID) != 0 {
+			// Over the avatar's click, as the list's badge.
+			drawCommunityBadge(gtx, &selection.communityBadge, image.Pt(avatarX, (header.Y-imagePx)/2), imagePx, sc.Surface.Color)
 		}
 		selection.layoutHeadActions(gtx, header, size.X-gtx.Dp(8), false, l)
 	}
@@ -247,4 +262,14 @@ func layoutAvatarTarget(gtx layout.Context, click *widget.Clickable, x int) {
 			return layout.Dimensions{Size: gtx.Constraints.Max}
 		})
 	})
+}
+
+// openHeadAvatar opens in v what the avatar of chat c's header, in page,
+// shows: the stories in its ring, alone, as Telegram Desktop's top bar
+// opens them, or else its photos, which the chat's info still opens.
+func openHeadAvatar(v *mediaViewer, page *chatPage, c model.Chat) {
+	if ring, ok := page.headStories(c); ok && v.OpenPeerStories(c.ID, ring.Open) {
+		return
+	}
+	v.OpenProfile(c.ID)
 }

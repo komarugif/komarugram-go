@@ -203,6 +203,8 @@ func chatStatus(c model.Chat, l localization.Catalog) string {
 		return l.T("status.bot")
 	case model.KindSaved:
 		return l.T("status.saved")
+	case model.KindCommunity:
+		return l.Count("community.status", c.Members, map[string]string{"count": groupDigits(c.Members)})
 	default:
 		return l.T("status.recently")
 	}
@@ -246,10 +248,14 @@ func pill(gtx layout.Context, txt string) layout.Dimensions {
 
 // card draws content on a rounded surface.
 func card(gtx layout.Context, content layout.Widget, padding unit.Dp) layout.Dimensions {
-	sc := scheme(gtx)
+	return cardIn(gtx, scheme(gtx).Surface.Color, content, padding)
+}
+
+// cardIn is a card filled with fill.
+func cardIn(gtx layout.Context, fill token.MatColor, content layout.Widget, padding unit.Dp) layout.Dimensions {
 	return layout.Stack{}.Layout(gtx,
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-			fillRounded(gtx, sc.Surface.Color, gtx.Constraints.Min, gtx.Dp(16))
+			fillRounded(gtx, fill, gtx.Constraints.Min, gtx.Dp(16))
 			return layout.Dimensions{Size: gtx.Constraints.Min}
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {

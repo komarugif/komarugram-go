@@ -60,6 +60,10 @@ func (c Catalog) PreviewLine(p model.Preview, chat string, channel bool) (sender
 	if p.Text != "" && len(p.Thumbs) > 0 {
 		return sender, "", p.Text
 	}
+	if p.Title != "" {
+		// A poll's question or a checklist's title, after its icon.
+		return sender, p.Title, p.Text
+	}
 	media = p.Emoji
 	if p.Media != "" {
 		// A sticker's emoji before the word, as the official clients show

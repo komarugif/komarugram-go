@@ -25,6 +25,10 @@ import (
 // with, whatever the theme around them.
 var telegramBlue = color.NRGBA{R: 0x40, G: 0xa7, B: 0xe3, A: 0xff}
 
+// senderBadgeSize is the height of the marks beside the name of a message's
+// sender, as beside a chat's in the list.
+const senderBadgeSize = unit.Dp(16)
+
 // badgesLayout returns what goes before and after the name of a peer, called
 // name, with badges b, nil
 // where there is nothing; see App.badges.
@@ -62,15 +66,47 @@ func (a *App) refreshOwnUsers(accounts model.Accounts) {
 // Premium star while there is no status or it has not loaded. The marks of
 // the forks of Telegram clients (peerMarks) come first, and stay beside
 // SCAM or FAKE. name is what the popup of such a mark calls the owner; size
-// is the height of the name's line.
+// is the height of the name's line. The popup is a toast of the chat list;
+// where both is set, the profile, a click on the status shows its set.
 func (a *App) badges(b model.Badges, name string, size unit.Dp, both bool) (before, after layout.Widget) {
+	return a.clickedBadges(b, name, size, both, a.clicksOf(both, nil))
+}
+
+// badgesTelling is badges whose popups tell shows: a dialog's toast, which
+// the chat's would lie under.
+func (a *App) badgesTelling(tell func(text string)) badgesLayout {
+	return func(b model.Badges, name string, size unit.Dp, both bool) (before, after layout.Widget) {
+		return a.clickedBadges(b, name, size, both, a.clicksOf(both, tell))
+	}
+}
+
+// badgeClicks is what a click on a mark does: tell shows its popup, nil
+// for the chat list's toast, and openStatus shows the set of an emoji
+// status, nil for nothing.
+type badgeClicks struct {
+	tell       func(text string)
+	openStatus func(emoji int64)
+}
+
+// clicksOf are the clicks of badges: the status's opens its set in the
+// profile, where both is set.
+func (a *App) clicksOf(both bool, tell func(text string)) badgeClicks {
+	c := badgeClicks{tell: tell}
+	if both {
+		c.openStatus = a.statusClicked
+	}
+	return c
+}
+
+// clickedBadges is badges with what a click on a mark does.
+func (a *App) clickedBadges(b model.Badges, name string, size unit.Dp, both bool, clicks badgeClicks) (before, after layout.Widget) {
 	b.Premium = b.Premium || a.localPremium(b.User)
 	if b.BotVerification != 0 {
 		before = func(gtx layout.Context) layout.Dimensions {
 			return a.layoutCustomEmoji(gtx, b.BotVerification, size)
 		}
 	}
-	marks := a.peerMarks(b, name, size)
+	marks := a.peerMarks(b, name, size, clicks.tell)
 	switch {
 	case b.Scam:
 		return before, joinMarks(append(marks, func(gtx layout.Context) layout.Dimensions { return layoutTextBadge(gtx, "SCAM") }))
@@ -88,10 +124,10 @@ func (a *App) badges(b model.Badges, name string, size unit.Dp, both bool) (befo
 			}
 			return a.layoutPremiumMark(gtx, size)
 		}
-		if both && a.statusClicked != nil {
-			// In the profile a click on the status shows its emoji set.
+		if open := clicks.openStatus; open != nil {
+			// A click on the status shows its emoji set.
 			emoji := b.EmojiStatus
-			status = a.badgeClick(badgeKey{emoji, badgeStatus}, status, func() { a.statusClicked(emoji) })
+			status = a.badgeClick(badgeKey{emoji, badgeStatus}, status, func() { open(emoji) })
 		}
 		marks = append(marks, status)
 	} else if b.Premium && !b.Verified {
@@ -137,14 +173,10 @@ func (a *App) layoutTintedEmoji(gtx layout.Context, id int64, size unit.Dp, tint
 	// several sizes, in the list, the header and the profile, so each size
 	// is a media of its own, "emoji/id@pixels", resampled by no one.
 	px := gtx.Dp(size)
-	emoji := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d@%d", id, px), MIMEType: "application/x-custom-emoji"}}
-	frame := a.avatars.media.StatusFit(emoji, a.window.Motion.AnimationsEnabled(), image.Pt(px, px), false).Frame
+	// One of the text's color is in the tint, as a status is.
+	frame := customEmoji(a.avatars.media, &a.images, id, px, a.window.Motion.AnimationsEnabled(), tint)
 	if frame == nil {
 		return layout.Dimensions{}
-	}
-	// One of the text's color is in the tint, as a status is.
-	if a.avatars.media.TextColored(emoji) {
-		frame = a.images.Colored(frame, tint)
 	}
 	return drawImage(gtx, &a.images, frame, image.Pt(px, px))
 }

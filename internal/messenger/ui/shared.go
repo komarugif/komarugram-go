@@ -6,12 +6,14 @@ import (
 	"context"
 	"image"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"komarugram/internal/crash"
 	"komarugram/internal/messenger/chatmedia"
+	"komarugram/internal/messenger/countries"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
@@ -36,7 +38,7 @@ type sharedResult struct {
 	err        error
 }
 type chatInfo struct {
-	cardHeights       [6]heightTransition
+	cardHeights       [7]heightTransition
 	loader            loadingIndicator
 	giftGeneration    uint64
 	drawAvatar        avatarLayout
@@ -71,14 +73,17 @@ type chatInfo struct {
 	// AyuGram's Copy Username and Copy Username as Link.
 	usernames              model.UsernameSource
 	username, usernameLink settingsItem
+	// phone is a user's phone number, over the username; a click copies it.
+	phone settingsItem
 	// told is the failure to load told in the toast last.
 	told error
 	// details tells the registration of a user and the data center of a
-	// chat's photo, as materialgram's profile; each row copies its text.
-	details                  model.ChatDetailer
-	registration, dataCenter settingsItem
-	themePage                bool
-	themes                   *chatThemeController
+	// chat's photo, as materialgram's profile, under a user's ID; each row
+	// copies its text.
+	details                          model.ChatDetailer
+	userID, registration, dataCenter settingsItem
+	themePage                        bool
+	themes                           *chatThemeController
 	// openChat, when set, goes to the chat shown, which is not open: the
 	// info of a group's member who has no chat with the account yet.
 	openChat func()
@@ -109,6 +114,33 @@ type chatInfo struct {
 	// avatarSprite is the chat's avatar as a picture of side px, which the
 	// avatar's motion blurs; nil while there is none.
 	avatarSprite func(gtx layout.Context, id int64, kind model.ChatKind, title string, px int) image.Image
+	// The files of the chat's sections may be selected, as the messages
+	// of a chat, and have a menu: sharedMenu; cells take their clicks.
+	// openMessage goes to a file's message; nil offers it not.
+	sharedMenu  sharedMenu
+	cells       map[model.MessageKey]*sharedCell
+	openMessage func(model.Message)
+	// headerHeight is the height of the sections' header, which the
+	// selection's buttons take.
+	headerHeight int
+	// about is the text a user tells of themselves, as a message's, whose
+	// links and mentions open as a message's do.
+	about *messageRow
+	// drag selects the files by a drag across them, from where the last
+	// frame placed them: places, made of the rows drawn, drawnRows.
+	drag      sharedDrag
+	places    []sharedPlace
+	drawnRows map[int]sharedRow
+	// mode is the menu of how a drag selects, which selectionMode tells
+	// and setSelectionMode keeps (preferences' SharedSelection); without
+	// them a drag selects in order.
+	mode             selectModeMenu
+	selectionMode    func() string
+	setSelectionMode func(string) error
+	// columns tells how many thumbnails a row of the grid has, and
+	// setColumns keeps it (preferences' SharedColumns); without them, 4.
+	columns    func() int
+	setColumns func(int) error
 }
 
 func newChatInfo(source model.ConversationStore, images *imageOps, invalidate func()) *chatInfo {
@@ -129,11 +161,17 @@ func newChatInfo(source model.ConversationStore, images *imageOps, invalidate fu
 	p.linkRows = map[model.MessageKey]*sharedLinkRow{}
 	p.giftRows = map[model.MessageKey]*giftRow{}
 	p.gift = nil
+	p.cells = map[model.MessageKey]*sharedCell{}
+	p.renderer.deleted = p.dropDeleted
 	for _, k := range append(append([]model.SharedKind{}, model.SharedKinds...), model.SharedStories, model.SharedGifts, model.SharedGroups) {
 		p.sections[k] = new(settingsItem)
 	}
 	// Escape goes back from a section before it closes the dialog.
 	p.modal.back = func() bool {
+		if p.selecting() {
+			p.renderer.clearSelection()
+			return true
+		}
 		if p.section == "" && !p.themePage {
 			return false
 		}
@@ -168,6 +206,7 @@ func (p *chatInfo) Open(c model.Chat) {
 	p.linkRows = map[model.MessageKey]*sharedLinkRow{}
 	p.giftRows = map[model.MessageKey]*giftRow{}
 	p.gift = nil
+	p.clearShared()
 	p.closeCollectible()
 	p.renderer.stickers.stop()
 	p.emojiSet = nil
@@ -229,6 +268,7 @@ func (p *chatInfo) Close() {
 	p.giftRows = map[model.MessageKey]*giftRow{}
 	p.gift = nil
 	p.messages = nil
+	p.clearShared()
 	p.closeCollectible()
 	p.renderer.stickers.stop()
 	p.emojiSet = nil
@@ -332,6 +372,9 @@ func (p *chatInfo) drain() {
 		}
 		p.counts[p.section] = r.page.Total
 		p.next = r.page.Next
+		if p.selectable() {
+			p.syncSelection()
+		}
 	default:
 	}
 }
@@ -347,6 +390,7 @@ func (p *chatInfo) selectSection(k model.SharedKind) {
 	p.linkRows = map[model.MessageKey]*sharedLinkRow{}
 	p.giftRows = map[model.MessageKey]*giftRow{}
 	p.gift = nil
+	p.clearShared()
 	p.renderer.media.Clear()
 	p.list = scroll.List{List: layout.List{Axis: layout.Vertical}}
 	p.load(false)
@@ -380,9 +424,17 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 		p.renderer.toast.Hide()
 		p.modal.Toast(text)
 	}
+	// What was forwarded or deleted from the selection or a menu is told.
+	p.renderer.updateDelete(p.chat.ID, l)
+	p.renderer.updateForward(l)
+	p.sharedMenuUpdate(gtx, l)
+	p.modeMenuUpdate(gtx)
 	// The dialogs over this one take Escape first.
 	if p.renderer.link != "" {
 		p.renderer.linkModal.Update(gtx, false)
+	}
+	for _, m := range p.rendererModals() {
+		m.Update(gtx, false)
 	}
 	if p.gift != nil {
 		p.gift.modal.Update(gtx, false)
@@ -421,7 +473,7 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 	for _, row := range []struct {
 		item *settingsItem
 		text string
-	}{{&p.registration, registration}, {&p.dataCenter, dataCenter}} {
+	}{{&p.phone, p.phoneText()}, {&p.userID, p.userIDText()}, {&p.registration, registration}, {&p.dataCenter, dataCenter}} {
 		if row.text != "" && row.item.click.Clicked(gtx) {
 			gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(row.text))})
 			p.modal.Toast(l.T("info.copied"))
@@ -456,7 +508,7 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 		p.load(false)
 	}
 	overlayGtx := gtx
-	covered := p.gift != nil || p.collectible != nil || p.renderer.link != "" || p.renderer.stickers.modal.Shown()
+	covered := p.gift != nil || p.collectible != nil || p.renderer.link != "" || p.renderer.stickers.modal.Shown() || len(p.rendererModals()) > 0
 	if covered {
 		gtx = gtx.Disabled()
 	}
@@ -488,18 +540,15 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 				if p.themePage {
 					title = l.T("chat_theme.title")
 				}
-				return p.layoutHeader(gtx, l, title)
-			}),
-			// What plays is told here, in the player's bar, as over a chat.
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				h := p.renderer.audioBarSize(gtx)
-				if h == 0 {
-					return layout.Dimensions{}
+				if p.selecting() && p.headerHeight > 0 {
+					// The selection's buttons, as over a chat, in the
+					// header's place.
+					gtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X, p.headerHeight))
+					return p.renderer.selectionHeader(gtx, l)
 				}
-				gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, h)
-				gtx.Constraints.Max.Y = h
-				p.renderer.layoutAudioBar(gtx, l, true)
-				return layout.Dimensions{Size: gtx.Constraints.Min}
+				dims := p.layoutHeader(gtx, l, title)
+				p.headerHeight = dims.Size.Y
+				return dims
 			}),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				if p.themePage && p.themes != nil {
@@ -517,12 +566,28 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 		p.Close()
 		return
 	}
+	p.sharedMenuLayout(overlayGtx, l)
 	p.layoutGiftDialog(overlayGtx, l, animate)
 	p.layoutCollectible(overlayGtx, l)
-	p.renderer.stickers.layout(overlayGtx, p.renderer, l)
-	if p.renderer.link != "" {
-		p.renderer.linkDialog(overlayGtx, l)
+	// The renderer's dialogs: a link's, a sticker set's, and the selection's
+	// forward, delete and snapshot. A snapshot is of the chat's look, as
+	// the chat's own is, the thumbnails' too, which are drawn without it.
+	if p.themes != nil && p.selectable() {
+		p.renderer.appearance = p.themes
 	}
+	p.renderer.layoutDialogs(overlayGtx, l)
+}
+
+// rendererModals are the renderer's dialogs over this one that are shown.
+func (p *chatInfo) rendererModals() []*modal {
+	var shown []*modal
+	r := p.renderer
+	for _, m := range []*modal{&r.deletion.modal, &r.forwarding.modal, &r.shot.modal, &r.albumSave.modal} {
+		if m.Shown() {
+			shown = append(shown, m)
+		}
+	}
+	return shown
 }
 
 // layoutHeader draws the header of a section or the theme's page: back,
@@ -540,6 +605,13 @@ func (p *chatInfo) layoutHeader(gtx layout.Context, l localization.Catalog, titl
 			}),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, title, token.TypestyleTitleLarge, content, 1)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				// How a drag selects the files, in a section of them.
+				if !p.selectable() || p.setSelectionMode == nil {
+					return layout.Dimensions{}
+				}
+				return navigationButtonColor(gtx, &p.mode.button, iconMore, l.T("shared.selection"), content)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return navigationButtonColor(gtx, &p.close, iconClear, l.T("viewer.close"), content)
@@ -564,6 +636,7 @@ func (p *chatInfo) goBack() {
 		p.themes.DiscardPreview()
 	}
 	p.stop()
+	p.clearShared()
 	p.section = ""
 	p.themePage = false
 	p.problem = nil
@@ -606,19 +679,31 @@ func (p *chatInfo) layoutCards(gtx layout.Context, l localization.Catalog, anima
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutChannel(gtx, l, animate) }),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutAbout(gtx, l, animate) }),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				name := p.chatUsername()
-				if name == "" {
+				name, phone := p.chatUsername(), p.phoneText()
+				if name == "" && phone == "" {
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return p.cardHeights[0].Card(gtx, func(gtx layout.Context) layout.Dimensions {
-						subtitle := l.T("info.username")
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return p.username.Layout(gtx, iconCopy, "@"+name, subtitle)
+								if phone == "" {
+									return layout.Dimensions{}
+								}
+								return p.phone.Layout(gtx, iconPhone, phone, l.T("info.phone"))
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								if name == "" {
+									return layout.Dimensions{}
+								}
+								return p.username.Layout(gtx, iconCopy, "@"+name, l.T("info.username"))
+							}),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								if name == "" {
+									return layout.Dimensions{}
+								}
 								return p.usernameLink.Layout(gtx, iconLink, l.T("info.copy_link"), "t.me/"+name)
 							}),
 						)
@@ -627,13 +712,20 @@ func (p *chatInfo) layoutCards(gtx layout.Context, l localization.Catalog, anima
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutCollectibles(gtx) }),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				id := p.userIDText()
 				registration, dataCenter := p.detailTexts(l)
-				if registration == "" && dataCenter == "" {
+				if id == "" && registration == "" && dataCenter == "" {
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return p.cardHeights[1].Card(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								if id == "" {
+									return layout.Dimensions{}
+								}
+								return p.userID.Layout(gtx, iconUserID, id, l.T("info.user_id"))
+							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								if registration == "" {
 									return layout.Dimensions{}
@@ -707,6 +799,44 @@ func (p *chatInfo) layoutChannel(gtx layout.Context, l localization.Catalog, ani
 			}, size, title, subtitle.Layout)
 		}, 6)
 	})
+}
+
+// layoutAbout is the card of what a user tells of themselves, as Telegram
+// Desktop's info has it: the text, plain but for its links and mentions,
+// which open as a message's, and under it what it is.
+func (p *chatInfo) layoutAbout(gtx layout.Context, l localization.Catalog, animate bool) layout.Dimensions {
+	about := strings.TrimSpace(p.profile.About)
+	if about == "" {
+		return layout.Dimensions{}
+	}
+	caption := p.aboutCaption(l)
+	if p.about == nil || p.about.source != about || p.about.language != l.Language() || p.about.key.ChatID != p.chat.ID {
+		m := model.Message{Key: model.MessageKey{ChatID: p.chat.ID}, Text: about, Entities: model.PlainEntities(about)}
+		p.about = newMessageRow(m, l, gtx.Now)
+	}
+	return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return p.cardHeights[6].Card(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: 10, Bottom: 10, Left: 16, Right: 16}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min.X = gtx.Constraints.Max.X
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.renderer.richText(gtx, p.about, l, animate) }),
+					vspace(2),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return label(gtx, caption, token.TypestyleBodySmall, scheme(gtx).SurfaceVariant.OnColor, 1)
+					}),
+				)
+			})
+		}, 6)
+	})
+}
+
+// aboutCaption names the card of About: a user's bio, and the description
+// of a bot, a channel or a group, as Telegram Desktop names them.
+func (p *chatInfo) aboutCaption(l localization.Catalog) string {
+	if p.chat.Kind == model.KindUser {
+		return l.T("info.about")
+	}
+	return l.T("info.description")
 }
 
 // channelLine is the line under the name of a user's channel: its
@@ -829,29 +959,30 @@ func (p *chatInfo) status(gtx layout.Context, l localization.Catalog) layout.Dim
 }
 func (p *chatInfo) layoutMedia(gtx layout.Context, l localization.Catalog, animate bool) layout.Dimensions {
 	fillRect(gtx, scheme(gtx).SurfaceContainerLow, gtx.Constraints.Max)
+	grid := p.section == model.SharedPhotos || p.section == model.SharedVideos || p.section == model.SharedGIFs || p.section == model.SharedStories
+	// The chat's messages are drawn as the chat draws them, in its theme
+	// and on its wallpaper; the thumbnails need no wallpaper.
 	p.renderer.appearance = nil
-	if p.section == model.SharedPolls || p.section == model.SharedSaved {
+	if p.themes != nil && slices.Contains(model.SharedKinds, p.section) && !grid {
 		p.renderer.appearance = p.themes
-		if p.themes != nil {
-			p.themes.Backdrop(gtx)
-			gtx = p.themes.historyContext(gtx)
-		}
+		p.themes.Backdrop(gtx)
+		gtx = p.themes.historyContext(gtx)
 	}
 	if p.section == model.SharedGifts {
 		return p.giftsGrid(gtx, l, animate)
 	}
-	grid := p.section == model.SharedPhotos || p.section == model.SharedVideos || p.section == model.SharedGIFs || p.section == model.SharedStories
 	if grid {
 		return layout.Inset{Left: 16, Right: 16, Top: 12, Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutMediaRows(gtx, l, animate, true) })
 	}
 	return p.layoutMediaRows(gtx, l, animate, false)
 }
 func (p *chatInfo) layoutMediaRows(gtx layout.Context, l localization.Catalog, animate, grid bool) layout.Dimensions {
-	cols := max(1, (gtx.Constraints.Max.X+gtx.Dp(3))/max(1, gtx.Dp(143)))
+	cols := p.gridColumns()
 	rows := len(p.messages)
 	if grid {
 		rows = (rows + cols - 1) / cols
 	}
+	p.dragEvents(gtx, gtx.Constraints.Max.Y)
 	dims := p.list.Layout(gtx, rows+1, func(gtx layout.Context, i int) layout.Dimensions {
 		if i == rows {
 			return layout.UniformInset(12).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -861,11 +992,17 @@ func (p *chatInfo) layoutMediaRows(gtx layout.Context, l localization.Catalog, a
 				return p.status(gtx, l)
 			})
 		}
-		if p.section == model.SharedLinks {
-			return p.linkRow(gtx, p.messages[i], l)
-		}
 		if !grid {
-			return p.renderer.row(gtx, p.messages[i], i == 0 || !sameMessageDay(p.messages[i-1], p.messages[i]), 0, l, animate)
+			m := p.messages[i]
+			var dims layout.Dimensions
+			if p.section == model.SharedLinks {
+				dims = p.linkRow(gtx, m, l)
+			} else {
+				dims = p.renderer.row(gtx, m, i == 0 || !sameMessageDay(p.messages[i-1], m), 0, l, animate)
+			}
+			p.cellInput(gtx, m, dims.Size)
+			p.placeRow(i, dims.Size.Y, sharedTile{index: i})
+			return dims
 		}
 		start, end := i*cols, min(len(p.messages), (i+1)*cols)
 		gap := gtx.Dp(3)
@@ -891,6 +1028,8 @@ func (p *chatInfo) layoutMediaRows(gtx layout.Context, l localization.Catalog, a
 			height = min(height, gtx.Dp(240))
 		}
 		x := 0
+		var tiles [8]sharedTile
+		placed := tiles[:0]
 		for j, m := range p.messages[start:end] {
 			w := max(1, int(float64(height)*aspects[j]))
 			if p.section != model.SharedGIFs {
@@ -912,12 +1051,19 @@ func (p *chatInfo) layoutMediaRows(gtx layout.Context, l localization.Catalog, a
 				}
 				// Videos alone need not say they are.
 				p.renderer.videoTimeOnly = p.section == model.SharedVideos
-				return p.renderer.mediaTile(gtx, r, m, image.Pt(w, height), true, l, animate)
+				dims := p.renderer.mediaTile(gtx, r, m, image.Pt(w, height), true, l, animate)
+				p.selectedMark(gtx, m, gtx.Constraints.Max)
+				p.cellInput(gtx, m, gtx.Constraints.Max)
+				return dims
 			})
+			placed = append(placed, sharedTile{index: start + j, x0: x, x1: x + w})
 			x += w + gap
 		}
+		p.placeRow(i, height+gap, placed...)
 		return layout.Dimensions{Size: image.Pt(width, height+gap)}
 	})
+	p.placeFiles(gtx.Constraints.Max.X, gtx.Constraints.Max.Y)
+	p.dragArea(gtx, gtx.Constraints.Max)
 	if p.more && !p.loading && p.problem == nil && p.list.Position.First+p.list.Position.Count >= rows-2 {
 		p.load(false)
 	}
@@ -947,6 +1093,21 @@ func (p *chatInfo) chatUsername() string {
 // registrationMonthSpread is how far from its estimate a registration may
 // be for the info to tell its month rather than its year alone.
 const registrationMonthSpread = 92 * 24 * time.Hour
+
+// userIDText is the ID of a user or a bot, the first of the details; empty
+// for another chat.
+func (p *chatInfo) userIDText() string {
+	if p.chat.ID <= 0 || p.chat.Kind != model.KindUser && p.chat.Kind != model.KindBot {
+		return ""
+	}
+	return strconv.FormatInt(p.chat.ID, 10)
+}
+
+// phoneText is a user's phone number as it is read, "+7 900 123 45 67",
+// empty when the profile tells none.
+func (p *chatInfo) phoneText() string {
+	return countries.Format(countries.Digits(p.profile.Phone))
+}
 
 // detailTexts are the rows of the chat's details: when a user registered,
 // and where the chat's photo is kept; empty when not known.

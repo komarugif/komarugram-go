@@ -409,11 +409,13 @@ func (p *chatPage) audioBarInput(gtx layout.Context, away bool) {
 		p.audio.setVolume(volume, keep)
 	}
 	if b.bar.Clicked(gtx) {
+		// Over the chat of what plays, the history goes to it; over
+		// another, or another page, that chat opens at it.
 		switch {
-		case away && p.openAudio != nil:
-			p.openAudio(m)
 		case !away && p.audio.shownIn() == p.chat:
 			p.jumpTo(m.Key.MessageID)
+		case p.openAudio != nil:
+			p.openAudio(m)
 		}
 	}
 }

@@ -85,8 +85,16 @@ func (p *chatInfo) linkRow(gtx layout.Context, m model.Message, l localization.C
 			snippet = w.Description
 		}
 	}
+	// On the chat's wallpaper, a card is as its incoming messages are.
+	fill := scheme(gtx).Surface.Color
+	if p.renderer.appearance != nil && p.themes != nil {
+		if c, ok := p.themes.incoming(); ok {
+			fill = c
+			gtx = p.themes.messageContext(gtx, false)
+		}
+	}
 	return layout.Inset{Top: 4, Bottom: 4, Left: 16, Right: 16}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return card(gtx, func(gtx layout.Context) layout.Dimensions {
+		return cardIn(gtx, fill, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Alignment: layout.Start}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return r.open.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

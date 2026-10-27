@@ -148,3 +148,53 @@ type PickerRefresher interface {
 type PickerRecentStore interface {
 	RememberPicker(context.Context, PickerTab, PickerItem) error
 }
+
+// SavedGIFStore is a ComposerStore that keeps the account's saved GIFs, the
+// GIF tab's list, as Telegram Desktop's panel does (messages.saveGif).
+type SavedGIFStore interface {
+	// SavedGIF reports whether the GIF of media id is among the saved
+	// ones, as the store last knew them.
+	SavedGIF(id string) bool
+	// SaveGIF puts the GIF m shows first among the saved ones, or, with
+	// unsave, removes it. A save over the limit drops the last one, and
+	// reports it with ErrSavedGIFLimit, the save done.
+	SaveGIF(ctx context.Context, m Message, unsave bool) error
+}
+
+// ErrSavedGIFLimit tells that a GIF saved took the place of the oldest, the
+// saved ones being as many as the account may keep.
+var ErrSavedGIFLimit = errors.New("saved GIFs limit reached")
+
+// SavedGIFLimit is how many GIFs an account may keep, by its Premium, as
+// Telegram Desktop counts them (saved_gifs_limit).
+func SavedGIFLimit(p Premium) int {
+	return p.Limit("saved_gifs_limit")
+}
+
+// RecentStickerStore is a ComposerStore whose recent stickers can be taken
+// off the list (messages.saveRecentSticker with unsave).
+type RecentStickerStore interface {
+	RemoveRecentSticker(ctx context.Context, item PickerItem) error
+}
+
+// PickerItemOf is the item a picker shows of the media of m, a GIF or a
+// sticker of a message.
+func PickerItemOf(m Message) PickerItem {
+	item := PickerItem{Media: Message{Kind: m.Kind, Media: m.Media}}
+	if m.Media != nil {
+		item.ID, item.Emoji = m.Media.ID, m.Media.Emoji
+	}
+	return item
+}
+
+// WithoutItem is items without the one of id, items itself when none is.
+func WithoutItem(items []PickerItem, id string) []PickerItem {
+	for i, item := range items {
+		if item.ID == id {
+			out := make([]PickerItem, 0, len(items)-1)
+			out = append(out, items[:i]...)
+			return append(out, WithoutItem(items[i+1:], id)...)
+		}
+	}
+	return items
+}

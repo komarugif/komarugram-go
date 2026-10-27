@@ -118,6 +118,17 @@ func (s *Store) PeerStories(_ context.Context, peer int64) ([]model.Message, err
 	return slices.Clone(d.stories), nil
 }
 
+// PeerStoryRing implements model.PeerStoryRing: the demo's stories are
+// all in its list.
+func (s *Store) PeerStoryRing(peer int64) (model.StoryPeer, bool) {
+	for _, p := range s.StoryPeers() {
+		if p.ID == peer {
+			return p, true
+		}
+	}
+	return model.StoryPeer{}, false
+}
+
 // ReadStory implements model.StorySource.
 func (s *Store) ReadStory(peer int64, id model.MessageID) {
 	s.mu.Lock()

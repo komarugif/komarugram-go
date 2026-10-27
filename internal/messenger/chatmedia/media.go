@@ -131,6 +131,9 @@ func (e *entry) setPosition(at time.Duration) {
 }
 
 type Manager struct {
+	// loadingSeen counts the media asked for that were still loading,
+	// since LoadingSeen was last called.
+	loadingSeen int
 	// wasm plays video stickers in the VP9 sandbox, and gifWASM GIFs and
 	// animated avatars in the H.264 one, even with an FFmpeg.
 	wasm, gifWASM                 bool
@@ -300,11 +303,15 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 	if e == nil || restart {
 		var previous, preview, still image.Image
 		var clip *stickerClip
+		var textColor bool
 		wasm := m.wasm
 		if restart {
 			e.cancel()
 			e.mu.Lock()
 			previous, preview, still = e.frame, e.preview, e.still
+			// A clip kept is played without the emoji asked for again,
+			// which alone tells its color.
+			textColor = e.textColor
 			wasm = wasm || e.wasm
 			if !grown {
 				clip = e.clip
@@ -321,7 +328,7 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 			m.evict(true)
 		}
 		ctx, cancel := context.WithCancel(m.ctx)
-		e = &entry{wake: make(chan struct{}, 1), consumed: make(chan struct{}, 1), wasm: wasm, ffmpeg: m.ffmpeg, sandboxGIF: m.SandboxGIFs() && !m.ffmpegGIFs[key], seen: m.generation, animate: animate, cancel: cancel, cancelled: m.cancelled[key], frame: previous, preview: preview, still: still, clip: clip, box: box, cover: cover, sticker: animatedSticker || msg.Kind == model.MessageSticker}
+		e = &entry{wake: make(chan struct{}, 1), consumed: make(chan struct{}, 1), wasm: wasm, ffmpeg: m.ffmpeg, sandboxGIF: m.SandboxGIFs() && !m.ffmpegGIFs[key], seen: m.generation, animate: animate, cancel: cancel, cancelled: m.cancelled[key], frame: previous, preview: preview, still: still, clip: clip, textColor: textColor, box: box, cover: cover, sticker: animatedSticker || msg.Kind == model.MessageSticker}
 		m.entries[key] = e
 		if at, ok := m.seeks[key]; ok {
 			delete(m.seeks, key)
@@ -476,6 +483,12 @@ func (m *Manager) clipFrame(e *entry) image.Image {
 	}
 	step := e.clip.frameDuration
 	elapsed := now.Sub(e.clipStart)
+	if elapsed < 0 {
+		// The ticks are of the wall clock, which a time sync can set back:
+		// the loop goes on from where it is, not from before its start.
+		e.clipStart = now.Add(-e.clipAt)
+		elapsed = e.clipAt
+	}
 	index := pictureAt(elapsed, step)
 	e.clipAt = elapsed % (step * time.Duration(len(e.clip.frames)))
 	e.frame = e.clip.frames[index%int64(len(e.clip.frames))]
@@ -1744,11 +1757,25 @@ func (m *Manager) status(msg model.Message, animate bool, want image.Point, cove
 	}
 	e := m.entries[msg.Media.ID]
 	if e == nil {
+		m.loadingSeen++
 		return Status{Loading: true}
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return Status{Frame: frame, Preview: e.preview, Err: e.err, Downloaded: e.downloaded, Total: e.total, Loading: e.frame == nil && e.err == nil && !e.cancelled && !e.waiting, Cancelled: e.cancelled}
+	st := Status{Frame: frame, Preview: e.preview, Err: e.err, Downloaded: e.downloaded, Total: e.total, Loading: e.frame == nil && e.err == nil && !e.cancelled && !e.waiting, Cancelled: e.cancelled}
+	if st.Loading {
+		m.loadingSeen++
+	}
+	return st
+}
+
+// LoadingSeen tells how many of the media asked for since it was last
+// called were still loading, and starts counting anew: what draws them
+// once, as a snapshot, draws them again until none is.
+func (m *Manager) LoadingSeen() int {
+	n := m.loadingSeen
+	m.loadingSeen = 0
+	return n
 }
 func (m *Manager) Cancel(msg model.Message) {
 	if msg.Media == nil {

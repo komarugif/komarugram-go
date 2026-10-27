@@ -274,6 +274,44 @@ func (c Catalog) Service(m model.Message, ctx ServiceContext) string {
 	case model.ServiceWebViewData:
 		args["text"] = s.Title
 		return f("webview_data_done")
+	case model.ServiceCommunity:
+		// As Telegram Desktop words it: what the chat did itself, or one of
+		// its admins.
+		self := m.SenderID == 0 || m.SenderID == m.Key.ChatID || channel
+		args["community"] = s.Title
+		key := "community_added"
+		switch {
+		case s.Reason == "removed":
+			key = "community_removed"
+		case s.Title == "":
+			key = "community_added_unknown"
+		}
+		switch {
+		case self && channel:
+			key += "_channel"
+		case self:
+			key += "_chat"
+		}
+		return f(key)
+	case model.ServicePaidMessages:
+		// As Telegram Desktop words it: of a channel, its direct messages.
+		switch {
+		case channel && s.Count > 0:
+			return c.Count("service.direct_messages_paid", int(s.Count), args)
+		case channel && s.Reason == "allowed":
+			return f("direct_messages_enabled")
+		case channel:
+			return f("direct_messages_disabled")
+		case s.Count > 0:
+			return c.Count("service.message_price_paid", int(s.Count), args)
+		}
+		return f("message_price_free")
+	case model.ServiceJoinedViaCommunity:
+		if s.Title == "" {
+			return f("joined_via_community_unknown")
+		}
+		args["community"] = s.Title
+		return f("joined_via_community")
 	}
 	return c.T("history.service")
 }
@@ -332,6 +370,9 @@ func PinnedQuote(text string) string {
 // pinnedMedia names what a pinned message's media is, or nothing for a
 // message of text.
 func (c Catalog) pinnedMedia(m model.Message) string {
+	if m.Todo != nil {
+		return "«" + m.Todo.Title + "»"
+	}
 	switch m.Kind {
 	case model.MessagePhoto:
 		return c.T("service.pinned_media_photo")

@@ -93,7 +93,6 @@
 "badge.extera_supporter" = "{name} поддержал exteraGram или AyuGram и получил уникальный значок.";
 "badge.komaru_developer" = "{name} — участник команды разработки KomaruGram.";
 "badge.komaru_official" = "{name} — официальный ресурс KomaruGram.";
-"badge.komaru_partner" = "{name} — партнёр из KomaruGif.";
 "badge.komaru_supporter" = "{name} поддержал KomaruGram и получил уникальный значок.";
 
 "badges.hide" = "Скрыть значки exteraGram, AyuGram и KomaruGram";
@@ -137,11 +136,13 @@
 "chat_menu.search" = "Поиск сообщений";
 "chat_menu.show_filtered" = "Показать отфильтрованные";
 
+"chat_row.community" = "О сообществе";
 "chat_row.pin" = "Закрепить";
 "chat_row.pin_failed" = "Не удалось изменить закрепы";
 "chat_row.pin_limit" = "Закрепить можно не больше {limit} чатов.";
 "chat_row.pin_limit_pro" = "Закрепить можно не больше {limit} чатов. С Telegram Premium — до {premium}.";
 "chat_row.read" = "Прочитано";
+"chat_row.ungroup" = "Разгруппировать";
 "chat_row.unpin" = "Открепить";
 
 "chat_search.close" = "Закрыть поиск";
@@ -192,11 +193,28 @@
 "comments.open#many" = "{count} комментариев";
 "comments.open#one" = "{count} комментарий";
 
+"community.collapse_failed" = "Не удалось изменить, как показано сообщество";
+"community.failed" = "Не удалось открыть сообщество";
+"community.hidden" = "Скрытый";
+"community.hidden_chats" = "Скрытые чаты";
+"community.hidden_unavailable" = "Вы не сможете вступить в эту группу или посмотреть её, пока вас не пригласит администратор.";
+"community.hidden_unavailable_channel" = "Вы не сможете подписаться на этот канал или посмотреть его, пока вас не пригласит администратор.";
+"community.joined" = "Чаты, в которых вы состоите";
+"community.requestable" = "Чаты, в которые можно подать заявку";
+"community.show_as_one" = "Показывать как один чат";
+"community.show_as_one_about" = "Все чаты сообщества будут одним пунктом в списке чатов.";
+"community.status" = "Сообщество, {count} чатов";
+"community.status#few" = "Сообщество, {count} чата";
+"community.status#many" = "Сообщество, {count} чатов";
+"community.status#one" = "Сообщество, {count} чат";
+"community.viewable" = "Чаты, которые можно посмотреть";
+
 "composer.all" = "Все эмодзи";
 "composer.attach" = "Вложения";
 "composer.browse" = "Выбрать…";
 "composer.cancel" = "Отмена";
 "composer.close" = "Закрыть";
+"composer.delete_gif" = "Удалить";
 "composer.direct_messages" = "Личные сообщения";
 "composer.discussion" = "Обсуждение";
 "composer.edit_cancel" = "Отмена";
@@ -219,6 +237,9 @@
 "composer.featured" = "Популярные";
 "composer.file" = "Файл";
 "composer.gif" = "GIF";
+"composer.gif_limit" = "Достигнут лимит в {count} GIF";
+"composer.gif_limit_link" = "увеличить лимит";
+"composer.gif_limit_more" = "Самая старая GIF заменена новой.\nВы можете {link} до {count} GIF.";
 "composer.gift" = "Отправить подарок";
 "composer.gift_stub" = "Подарки каналам пока не реализованы";
 "composer.items" = "Задачи — по одной в строке";
@@ -230,11 +251,13 @@
 "composer.path" = "Путь к файлу";
 "composer.photo" = "Фото или видео";
 "composer.recent" = "Недавние";
+"composer.recent_remove" = "Удалить из недавних";
 "composer.reply_remove" = "Не отвечать";
 "composer.reply_to" = "Ответ {name}";
 "composer.results" = "Результаты поиска";
 "composer.retry" = "Повторить";
 "composer.save" = "Сохранить";
+"composer.save_gif" = "Сохранить в GIF";
 "composer.saving" = "Сохранение…";
 "composer.search" = "Поиск…";
 "composer.send" = "Отправить";
@@ -861,6 +884,7 @@
 "history.voice" = "Голосовое сообщение";
 "history.you" = "Вы";
 
+"info.about" = "О себе";
 "info.collectible_copy" = "Копировать ссылку";
 "info.collectible_info" = "Это имя было куплено на **Fragment** {date} за {price}";
 "info.collectible_more" = "Подробнее";
@@ -868,13 +892,16 @@
 "info.copied" = "Скопировано.";
 "info.copy_link" = "Копировать ссылку";
 "info.dc" = "Дата-центр фото профиля";
+"info.description" = "Описание";
 "info.link_copied" = "Ссылка скопирована.";
 "info.open_chat" = "Перейти в личный чат с пользователем";
 "info.open_chat_new" = "Вы ещё не переписывались";
+"info.phone" = "Телефон · нажмите, чтобы скопировать";
 "info.registered_about" = "~ {date}";
 "info.registered_after" = "позже {date}";
 "info.registered_before" = "раньше {date}";
 "info.registration" = "Дата регистрации (примерно, по ID)";
+"info.user_id" = "ID · нажмите, чтобы скопировать";
 "info.username" = "Имя пользователя · нажмите, чтобы скопировать";
 "info.username_copied" = "Имя пользователя скопировано.";
 
@@ -1077,6 +1104,7 @@
 "menu.filter" = "Добавить фильтр";
 "menu.forward" = "Переслать";
 "menu.forward_selected" = "Переслать выбранные";
+"menu.go_to_message" = "Перейти к сообщению";
 "menu.link_copied" = "Ссылка скопирована в буфер обмена.";
 "menu.private_link" = "Эта ссылка будет работать только для участников чата.";
 "menu.reacted#few" = "{count} реакции";
@@ -1111,6 +1139,7 @@
 "menus.leave" = "Выйти из группы или канала";
 "menus.message" = "Меню сообщения";
 "menus.phone" = "Меню номера телефона";
+"menus.picker" = "Меню стикера или GIF в панели";
 "menus.reactions" = "Кто поставил реакции";
 "menus.recent" = "Меню недавних поисков";
 "menus.reset" = "Сбросить";
@@ -1221,14 +1250,49 @@
 "player.title" = "Внешний плеер";
 "player.undecided" = "Приложение спросит при первом открытии видео и запомнит выбор.";
 
-"poll.closed" = "Опрос завершён";
-"poll.count" = "Голосов: {count}";
+"poll.admin_back" = "{arrow} Голосовать";
+"poll.admin_votes" = "{count} голоса {arrow}";
+"poll.admin_votes#few" = "{count} голоса {arrow}";
+"poll.admin_votes#many" = "{count} голосов {arrow}";
+"poll.admin_votes#one" = "{count} голос {arrow}";
+"poll.anonymous" = "Анонимный опрос";
+"poll.anonymous_quiz" = "Анонимная викторина";
+"poll.answers" = "{count} ответа";
+"poll.answers#few" = "{count} ответа";
+"poll.answers#many" = "{count} ответов";
+"poll.answers#one" = "{count} ответ";
+"poll.answers_none" = "Нет ответов";
+"poll.closed" = "Окончательные результаты";
+"poll.count" = "{count} голоса";
 "poll.count#few" = "{count} голоса";
 "poll.count#many" = "{count} голосов";
 "poll.count#one" = "{count} голос";
-"poll.open" = "Опрос";
-"poll.quiz" = "Викторина";
-"poll.votes" = "Голосов: %d";
+"poll.ends_days" = "завершится через {count} дня";
+"poll.ends_days#few" = "завершится через {count} дня";
+"poll.ends_days#many" = "завершится через {count} дней";
+"poll.ends_days#one" = "завершится через {count} день";
+"poll.ends_time" = "завершится через {time}";
+"poll.public" = "Опрос";
+"poll.public_quiz" = "Викторина";
+"poll.quiz_results_title" = "Результаты викторины";
+"poll.results_after_close" = "Результаты появятся после завершения опроса.";
+"poll.results_days" = "результаты через {count} дня";
+"poll.results_days#few" = "результаты через {count} дня";
+"poll.results_days#many" = "результаты через {count} дней";
+"poll.results_days#one" = "результаты через {count} день";
+"poll.results_time" = "результаты через {time}";
+"poll.results_title" = "Результаты опроса";
+"poll.retract" = "Отменить голос";
+"poll.show_more" = "Показать ещё ({count})";
+"poll.solution" = "Объяснение";
+"poll.stop" = "Остановить опрос";
+"poll.stop_sure" = "Остановить";
+"poll.stop_warning" = "Если остановить опрос сейчас, никто больше не сможет в нём проголосовать. Это действие нельзя отменить.";
+"poll.view_results" = "Результаты";
+"poll.view_votes" = "Голоса ({count})";
+"poll.vote" = "Голосовать";
+"poll.votes_failed" = "Не удалось загрузить голоса";
+"poll.votes_none" = "Нет голосов";
 
 "premium.active" = "Подписка Telegram Premium активна: лимиты ниже — в правом столбце.";
 "premium.blocked" = "Сервер не разрешает оформлять Premium из этого приложения. Подключите его в официальном приложении Telegram.";
@@ -1294,6 +1358,7 @@
 "preview.story" = "История";
 "preview.story_expired" = "Истёкшая история";
 "preview.table" = "Таблица";
+"preview.todo" = "Список задач";
 "preview.video" = "Видео";
 "preview.videos" = "{count} видео";
 "preview.videos#few" = "{count} видео";
@@ -1359,7 +1424,6 @@
 "proxy.websocket_hint" = "Как заход на web.telegram.org";
 "reacted.all" = "Все";
 "reacted.failed" = "Не удалось загрузить список";
-"reacted.title" = "Реакции";
 
 "record.audio_files" = "Аудиофайлы";
 "record.bad_file" = "Этот файл не отправить голосовым сообщением: нужен Opus в OGG, MP3 или M4A.";
@@ -1541,9 +1605,24 @@
 "service.changed_photo_channel" = "Фото канала обновлено";
 "service.changed_title" = "{from} изменил(а) название группы на «{title}»";
 "service.changed_title_channel" = "Название канала изменено на «{title}»";
+"service.community_added" = "{from} добавил(а) эту группу в сообщество «{community}».";
+"service.community_added_channel" = "Этот канал добавлен в сообщество «{community}».";
+"service.community_added_chat" = "Этот чат добавлен в сообщество «{community}».";
+"service.community_added_unknown" = "{from} добавил(а) эту группу в сообщество.";
+"service.community_added_unknown_channel" = "Этот канал добавлен в сообщество.";
+"service.community_added_unknown_chat" = "Этот чат добавлен в сообщество.";
+"service.community_removed" = "{from} убрал(а) эту группу из сообщества.";
+"service.community_removed_channel" = "Этот канал убран из сообщества.";
+"service.community_removed_chat" = "Этот чат убран из сообщества.";
 "service.created_channel" = "Канал создан";
 "service.created_chat" = "{from} создал(а) группу «{title}»";
 "service.deleted_message" = "Удалённое сообщение";
+"service.direct_messages_disabled" = "Канал отключил личные сообщения.";
+"service.direct_messages_enabled" = "Канал включил личные сообщения.";
+"service.direct_messages_paid" = "Личные сообщения каналу стоят {count} звёзд.";
+"service.direct_messages_paid#few" = "Личные сообщения каналу стоят {count} звезды.";
+"service.direct_messages_paid#many" = "Личные сообщения каналу стоят {count} звёзд.";
+"service.direct_messages_paid#one" = "Личные сообщения каналу стоят {count} звезду.";
 "service.game_score_no_game" = "{from} набрал(а) {count} очков";
 "service.game_score_no_game#few" = "{from} набрал(а) {count} очка";
 "service.game_score_no_game#many" = "{from} набрал(а) {count} очков";
@@ -1571,8 +1650,15 @@
 "service.invite_users_and_last" = "{accumulated} и {user}";
 "service.invite_users_and_one" = "{accumulated}, {user}";
 "service.invite_users_many" = "{from} пригласил(а) {users} в {chat}";
+"service.joined_via_community" = "{from} вступил(а) в группу через сообщество «{community}»";
+"service.joined_via_community_unknown" = "{from} вступил(а) в группу через сообщество";
 "service.kick_user" = "{from} удалил(а) {user}";
 "service.loading" = "Загрузка…";
+"service.message_price_free" = "Сообщения в этой группе теперь бесплатные.";
+"service.message_price_paid" = "Сообщение в этой группе теперь стоит {count} звёзд.";
+"service.message_price_paid#few" = "Сообщение в этой группе теперь стоит {count} звезды.";
+"service.message_price_paid#many" = "Сообщение в этой группе теперь стоит {count} звёзд.";
+"service.message_price_paid#one" = "Сообщение в этой группе теперь стоит {count} звезду.";
 "service.no_forwards_disabled" = "{from} запретил(а) пересылку в этом чате";
 "service.no_forwards_enabled" = "{from} разрешил(а) пересылку в этом чате";
 "service.no_forwards_still_disabled" = "Пересылка в этом чате по-прежнему запрещена";
@@ -1731,6 +1817,7 @@
 "settings.window_transparency" = "Прозрачность основного окна";
 "settings.window_transparency_hint" = "Фон бокового меню, списка чатов и заголовка чата. Текст и аватарки остаются непрозрачными. Работает на Wayland, Windows и macOS. Размытие на Wayland зависит от композитора, а на Windows 10 и 11 окно с ним рисует свою рамку вместо системной.";
 
+"shared.columns" = "Миниатюр в ряду";
 "shared.count.files" = "{count} · Файлы";
 "shared.count.gifs" = "{count} · GIF";
 "shared.count.gifts" = "{count} · Подарки";
@@ -1761,6 +1848,9 @@
 "shared.photos" = "Фото";
 "shared.polls" = "Опросы";
 "shared.saved" = "Сохранённые сообщения";
+"shared.select_cursor" = "Выборка вслед за курсором";
+"shared.select_range" = "Последовательная выборка";
+"shared.selection" = "Выборка";
 "shared.stories" = "Публикации";
 "shared.total" = "Всего: %s";
 "shared.videos" = "Видео";
@@ -1869,6 +1959,16 @@
 "text.copy_code" = "Копировать";
 "text.expand_quote" = "Развернуть цитату";
 
+"todo.completed" = "Выполнено {count} из {total}";
+"todo.completed_none" = "Не выполнено ни одной из {total}";
+"todo.mark_forwarded" = "Пересланные списки задач изменять нельзя.";
+"todo.mark_premium" = "Отмечать задачи могут только подписчики {link}.";
+"todo.mark_restricted" = "{user} не разрешает другим отмечать задачи.";
+"todo.premium_link" = "Telegram Premium";
+"todo.title" = "Список задач";
+"todo.title_group" = "Общий список задач";
+"todo.title_user" = "Список задач";
+
 "translate.failed" = "Не удалось перевести.";
 "translate.title" = "Перевод";
 "translate.to" = "Перевод на русский";
@@ -1900,6 +2000,23 @@
 "viewer.recovered" = "Не удалось показать фото. Просмотрщик закрыт.";
 "viewer.counter" = "%d из %d";
 "viewer.failed" = "Не удалось загрузить фото · нажмите, чтобы повторить";
+"viewer.gif_about" = "Видео сохраняется в ваши GIF так, как Telegram играет GIF: без звука, не больше HD и 10 МБ.";
+"viewer.gif_about_bot" = "FFmpeg здесь нет, поэтому видео пересылается боту {bot}, и он его конвертирует.";
+"viewer.gif_bot_busy" = "Бот конвертирует другие ваши видео. Попробуйте позже.";
+"viewer.gif_bot_failed" = "Бот не смог конвертировать видео.";
+"viewer.gif_bot_silent" = "Бот не ответил.";
+"viewer.gif_cancel" = "Отмена";
+"viewer.gif_downloading" = "Бот скачивает видео…";
+"viewer.gif_encoding" = "Конвертация видео…";
+"viewer.gif_encoding_again" = "GIF больше 10 МБ: конвертация заново (проход {pass})…";
+"viewer.gif_failed" = "Не удалось сохранить GIF";
+"viewer.gif_probing" = "Бот читает видео…";
+"viewer.gif_queued" = "В очереди бота: {place}";
+"viewer.gif_saved" = "Сохранено в GIF.";
+"viewer.gif_sending" = "Сохранение GIF…";
+"viewer.gif_starting" = "Начинаем…";
+"viewer.gif_title" = "Сохранить как GIF";
+"viewer.gif_too_large" = "GIF больше 10 МБ даже при самом низком качестве.";
 "viewer.keep_failed" = "Не удалось сохранить фото";
 "viewer.loading_more" = "Загрузка фотографий…";
 "viewer.photo" = "Фотография";

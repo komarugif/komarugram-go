@@ -142,8 +142,8 @@ func TestSendChecklistAndRender(t *testing.T) {
 		t.Fatal(err)
 	}
 	msg, _ := convertMessage("a", &tg.Message{ID: 1, PeerID: &tg.PeerUser{UserID: 5}, Media: &tg.MessageMediaToDo{Todo: tg.TodoList{Title: tg.TextWithEntities{Text: "Shopping"}, List: []tg.TodoItem{{ID: 1, Title: tg.TextWithEntities{Text: "Milk"}}}}, Completions: []tg.TodoCompletion{{ID: 1}}}}, nil)
-	if msg.Text != "Shopping\n☑ Milk" {
-		t.Fatalf("checklist missing from history %q", msg.Text)
+	if msg.Todo == nil || msg.Todo.Title != "Shopping" || len(msg.Todo.Items) != 1 || msg.Todo.Items[0].Text != "Milk" || !msg.Todo.Items[0].Done() {
+		t.Fatalf("checklist missing from history %+v", msg.Todo)
 	}
 }
 func TestPickerSavedFirstAndPagination(t *testing.T) {

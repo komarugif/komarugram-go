@@ -6,6 +6,7 @@
 package crash
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -202,11 +203,37 @@ func Report(p *Panic) {
 }
 
 func Dir() (string, error) {
+	if testBinary() {
+		return testDir()
+	}
 	cache, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(cache, "komarugram-go", "crashes"), nil
+}
+
+// testBinary tells whether the process is a test's, which go test starts
+// with its flags registered: the panics its tests make on purpose, or in
+// their fakes, are no reports of the user's, whose directory they would
+// fill and whose own reports they would push out.
+func testBinary() bool {
+	return flag.Lookup("test.v") != nil
+}
+
+var (
+	testDirOnce sync.Once
+	testDirPath string
+	testDirErr  error
+)
+
+// testDir is a directory of the process's own for the reports of a test
+// binary, made in the system's temporary directory when first asked for.
+func testDir() (string, error) {
+	testDirOnce.Do(func() {
+		testDirPath, testDirErr = os.MkdirTemp("", "komarugram-go-crashes-")
+	})
+	return testDirPath, testDirErr
 }
 
 // fatalName is the file the runtime writes to when the process dies.

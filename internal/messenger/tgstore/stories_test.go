@@ -244,3 +244,36 @@ func TestStoryReferenceRenewed(t *testing.T) {
 		t.Fatalf("told %q", told)
 	}
 }
+
+// A story told in full in an earlier run is kept without where its media
+// download from, unless it was opened then: opened in the next, it is
+// asked for again, and its media are located, not "location unavailable".
+func TestStoryKeptWithoutLocationIsAskedAgain(t *testing.T) {
+	s, api := storyStore(t)
+	anna := peerID(&tg.PeerUser{UserID: 7})
+	now := int(time.Now().Unix())
+	api.byID = []tg.StoryItemClass{storyItem(1, now-7200), storyItem(2, now-3600)}
+	// The next run: the store knows story 1 in full, from the cache, and
+	// nothing of where its media are.
+	s.history.mu.Lock()
+	clear(s.history.refs)
+	s.history.mu.Unlock()
+	s.stories.mu.Lock()
+	clear(s.stories.unsaved)
+	s.stories.mu.Unlock()
+	stories, err := s.PeerStories(context.Background(), anna)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if told := api.requests(); !slices.Equal(told, []string{"by id 7 [2 1]"}) {
+		t.Fatalf("told %q", told)
+	}
+	if len(stories) != 2 {
+		t.Fatalf("%d stories", len(stories))
+	}
+	for _, m := range stories {
+		if !s.storyLocated(context.Background(), m.Media) {
+			t.Fatalf("story %d's media has no location", model.StoryID(m.Key.MessageID))
+		}
+	}
+}

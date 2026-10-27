@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -27,7 +28,6 @@ import (
 	"gio-mw/wdk"
 	"gio-mw/widget/scroll"
 
-	"gioui.org/f32"
 	"gioui.org/font"
 	"gioui.org/gesture"
 	"gioui.org/layout"
@@ -98,7 +98,10 @@ type messageRow struct {
 	plate wdk.FloatTween
 	// avatar is the sender's avatar the row draws for its group of
 	// messages, which opens the chat with them.
-	avatar   widget.Clickable
+	avatar widget.Clickable
+	// forward is the line of whom the message was forwarded from, which
+	// opens their chat when Telegram told who they are.
+	forward  widget.Clickable
 	sticker  surface
 	audio    audioRow
 	revealed bool
@@ -150,6 +153,12 @@ type chatPage struct {
 	// edited one.
 	reacted reactedDialog
 	edits   editsDialog
+	// polls keep the state of the polls and checklists shown; pollVotes
+	// lists who voted in a public poll, and pollStop asks before one is
+	// closed.
+	polls     map[model.MessageID]*pollState
+	pollVotes pollVotesDialog
+	pollStop  pollStop
 	// translation shows a message translated.
 	translation translateDialog
 	// chatSearch searches the chat; chatMenu is the menu of its header.
@@ -206,14 +215,22 @@ type chatPage struct {
 	composer   *messageComposer
 	header     widget.Clickable
 	headAvatar widget.Clickable
-	appearance *chatThemeController
-	files      *attachmentFiles
-	trace      *diagnostics.Trace
-	selection  messageSelection
-	keyboard   struct{}
-	activeText *messageRow
-	actions    selectionBar
-	forwarding forwardPicker
+	// stories tells the stories of the chat's peer now, whose ring the
+	// header's avatar is drawn in and which a click on it opens; nil for a
+	// store without them.
+	stories model.PeerStoryRing
+	// communityOf is the community a chat is one of, 0 for none, whose
+	// badge over the header's avatar communityBadge clicks; nil for none.
+	communityOf    func(chat int64) int64
+	communityBadge widget.Clickable
+	appearance     *chatThemeController
+	files          *attachmentFiles
+	trace          *diagnostics.Trace
+	selection      messageSelection
+	keyboard       struct{}
+	activeText     *messageRow
+	actions        selectionBar
+	forwarding     forwardPicker
 	// toast tells, over the end of the history, what was done in the chat
 	// and what failed there.
 	toast    toast
@@ -225,6 +242,12 @@ type chatPage struct {
 	nextDay  []int
 	avatar   avatarLayout
 	kind     model.ChatKind
+	// senderBadges are the marks beside the name of a message's sender, the
+	// user or channel id called name; nil draws none.
+	senderBadges func(id int64, name string) (before, after layout.Widget)
+	// statusSet brings the set of the emoji status clicked beside a
+	// sender's name.
+	statusSet chan emojiSetResult
 	// readOutbox is the newest of the account's messages the chat read.
 	readOutbox model.MessageID
 	direct     bool // the chat of a channel's direct messages
@@ -345,9 +368,8 @@ type chatPage struct {
 	blur func() bool
 	// frozen replaces the composer when the account is frozen.
 	frozen *frozenView
-	// loader shows that history is loading; fileLoader, that a file is
-	// being downloaded to open.
-	loader, fileLoader loadingIndicator
+	// loader shows that history is loading.
+	loader loadingIndicator
 	// chats are the account's chats, which messages can be forwarded to.
 	chats func() []model.Chat
 	// title is the open chat's, for the initials of its avatar.
@@ -358,6 +380,9 @@ type chatPage struct {
 	snapshotting bool
 	shot         shotDialog
 	historyWidth int
+	// deleted is told the messages the page deleted, for a list of them
+	// that is not the history, as a chat's shared files.
+	deleted func([]model.MessageID)
 	// stickerVideo saves a Lottie sticker as a video.
 	stickerVideo stickerVideoDialog
 	// albumSave asks what of an album to save.
@@ -417,7 +442,19 @@ func (p *chatPage) blurComposer() bool {
 }
 
 func newChatPage(source model.ConversationStore, changed func()) *chatPage {
-	return &chatPage{composer: newMessageComposer(source, changed), source: source, media: chatmedia.New(source, changed), invalidate: changed, audio: newAudioPlayer()}
+	p := &chatPage{composer: newMessageComposer(source, changed), source: source, media: chatmedia.New(source, changed), invalidate: changed, audio: newAudioPlayer()}
+	p.stories, _ = source.(model.PeerStoryRing)
+	return p
+}
+
+// headStories are the stories of chat c's peer now, whose ring its header's
+// avatar is drawn in, as Telegram Desktop's top bar draws them; ok false for
+// none, and for Saved Messages, whose avatar is not the account's.
+func (p *chatPage) headStories(c model.Chat) (model.StoryPeer, bool) {
+	if p == nil || p.stories == nil || c.Kind == model.KindSaved || c.Kind == model.KindCommunity {
+		return model.StoryPeer{}, false
+	}
+	return p.stories.PeerStoryRing(c.ID)
 }
 
 // dropStickerLoops drops, at the end of the frame, the decoded loops of the
@@ -610,6 +647,8 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 			p.stickers.stop()
 			p.emojiPacks.stop()
 			p.reacted.stop()
+			p.pollVotes.stop()
+			p.pollStop.modal.Hide()
 			p.edits.stop()
 			p.shot.stop()
 			p.stickerVideo.close()
@@ -631,6 +670,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.list = scroll.List{List: layout.List{Axis: layout.Vertical, ScrollToEnd: true}}
 		p.messages = nil
 		p.rows = map[model.MessageID]*messageRow{}
+		p.polls = nil
 		p.measures = nil
 		p.dirty = map[model.MessageID]model.MessageLayout{}
 		p.restored = false
@@ -641,6 +681,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	}
 	p.keyboardEvents(gtx, l)
 	p.kind, p.title, p.direct, p.readOutbox = c.Kind, c.Title, c.DirectMessages, c.ReadOutbox
+	p.updateStatusSet()
 	p.menuUpdate(gtx, l)
 	p.updateForward(l)
 	p.source.OpenChat(c.ID)
@@ -744,6 +785,11 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.restored = true
 	}
 	p.finishJump(history)
+	if p.composer != nil && p.composer.takeSentJump(c.ID) {
+		// A message sent goes to the end of the history, wherever it was
+		// scrolled, as in Telegram's clients.
+		p.scrollToEnd(history)
+	}
 	classic := p.classicComposer()
 	// The floating composer covers the end of the history, which scrolls
 	// out from under it; the classic one takes its height from the history.
@@ -934,6 +980,8 @@ func (p *chatPage) layoutDialogs(gtx layout.Context, l localization.Catalog) {
 	p.emojiPacks.layout(gtx, p, l)
 	p.stickers.layout(gtx, p, l)
 	p.reacted.layout(gtx, p, l)
+	p.pollVotes.layout(gtx, p, l)
+	p.pollStop.layout(gtx, p, l)
 	p.edits.layout(gtx, p, l)
 	p.shot.layout(gtx, p, l)
 	p.stickerVideo.layout(gtx, p, l)
@@ -1012,7 +1060,7 @@ func (p *chatPage) rebuild(messages []model.Message, env model.RenderEnvironment
 	p.messages = messages
 	p.dates = make([]string, len(messages))
 	p.dayStart = make([]bool, len(messages))
-	p.joins = messageJoins(messages)
+	p.joins = messageJoins(messages, p.kind == model.KindSaved)
 	p.nextDay = make([]int, len(messages))
 	next := len(messages)
 	for i := len(messages) - 1; i >= 0; i-- {
@@ -1055,6 +1103,11 @@ func (p *chatPage) rebuild(messages []model.Message, env model.RenderEnvironment
 	for id := range p.rows {
 		if !alive[id] {
 			delete(p.rows, id)
+		}
+	}
+	for id := range p.polls {
+		if !alive[id] {
+			delete(p.polls, id)
 		}
 	}
 	for id := range p.textRunes {
@@ -1159,10 +1212,12 @@ func (p *chatPage) textFlow(gtx layout.Context, r *messageRow, block *messageTex
 		if run.Sub {
 			st.Shift = unit.Sp(float32(size) * .45)
 		}
-		if run.Emoji != 0 && (!run.Spoiler || r.revealed || !r.text.reveal.started.IsZero()) {
-			msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d", run.Emoji), MIMEType: "application/x-custom-emoji"}}
-			if frames[i] = emojiFrame(p.media, p.images, msg, animate, st.Color); frames[i] != nil {
-				st.Color.A = 0
+		if run.Emoji != 0 {
+			// A square of its own, as a custom emoji has in any text: see
+			// emojiBox.
+			st.Box = emojiBox(gtx, st.Size)
+			if !run.Spoiler || r.revealed || !r.text.reveal.started.IsZero() {
+				frames[i] = customEmoji(p.media, p.images, run.Emoji, st.Box.Size.X, animate, st.Color)
 			}
 		}
 		if run.Math {
@@ -1233,10 +1288,21 @@ func (p *chatPage) textFlow(gtx layout.Context, r *messageRow, block *messageTex
 	}
 	text.Clusters = &block.clusters
 	text.MaxLines = block.maxLines
+	var edges []int
+	if !r.revealed && slices.ContainsFunc(runs, func(run model.TextRun) bool { return run.Spoiler }) {
+		sc.edges = runEdges(runs, sc.edges)
+		edges = sc.edges
+	}
 	text.Decorate = func(gtx layout.Context, f styledtext.Fragment, draw func()) {
 		i := flowRuns[f.Index]
+		var join spoilerJoin
+		if edges != nil && runs[i].Spoiler {
+			// Taken in the text's own coordinates and runes.
+			join = fragmentJoin(runs, edges, i, f)
+		}
 		f.Index = i + block.first
 		f.Bounds = f.Bounds.Add(origin)
+		f.Line = f.Line.Add(origin)
 		for j := range f.Clusters {
 			f.Clusters[j].Bounds = f.Clusters[j].Bounds.Add(origin)
 			f.Clusters[j].Start += runeStart
@@ -1270,8 +1336,7 @@ func (p *chatPage) textFlow(gtx layout.Context, r *messageRow, block *messageTex
 			if !r.text.reveal.started.IsZero() {
 				radius = r.text.reveal.radius(gtx.Now, r.text.size)
 			}
-			center := r.text.reveal.center.Sub(f32.Pt(float32(f.Bounds.Min.X), float32(f.Bounds.Min.Y)))
-			paintSpoiler(gtx, size, center, radius, scheme(gtx).OutlineVariant.AsNRGBA(), paintContent)
+			paintLineSpoiler(gtx, f, r.text.reveal.center, radius, scheme(gtx).OutlineVariant.AsNRGBA(), join, paintContent)
 		} else {
 			paintContent()
 		}

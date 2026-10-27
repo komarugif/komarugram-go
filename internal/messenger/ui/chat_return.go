@@ -12,7 +12,8 @@ import (
 
 // chatReturn is a step of the way back through chats: chat was opened
 // from from, as the chat of a sender whose avatar was clicked from their
-// group, or a channel's discussion from the channel; thread, when set, is
+// group, a channel's discussion from the channel, or the chat of a link,
+// a mention or the audio bar; thread, when set, is
 // the comments or the forum's topic open over from, which the way back
 // opens again.
 type chatReturn struct {
@@ -29,20 +30,44 @@ const returnsMax = 32
 // from, when it was opened so too. From thread, chat may be from itself,
 // as the channel of the comments: they close over it.
 func (a *App) openReturning(chat, from model.Chat, thread *commentsView) {
+	a.openReturningAt(chat, from, thread, 0)
+}
+
+// openReturningAt is openReturning with chat open at message, 0 for where
+// it would open: a channel's post a message was forwarded from.
+func (a *App) openReturningAt(chat, from model.Chat, thread *commentsView, message model.MessageID) {
+	a.openPickReturning(chatPick{ID: chat.ID, Chat: &chat, Message: message}, from, thread)
+}
+
+// openFromHere opens pick with a way back to the chat open, and to the
+// comments or topic open over it, as openReturning does: what a link, a
+// mention or the audio bar opens. With no chat open it only opens pick.
+func (a *App) openFromHere(pick chatPick) {
+	from, ok := a.selectedChat()
+	if !ok {
+		a.thread = nil
+		a.open(pick)
+		return
+	}
+	a.openPickReturning(pick, from, a.thread)
+}
+
+// openPickReturning is openReturningAt with the chat to open as pick.
+func (a *App) openPickReturning(pick chatPick, from model.Chat, thread *commentsView) {
 	if n := len(a.returns); n > 0 && a.returns[n-1].chat != from.ID {
 		a.returns = nil
 	}
-	a.open(chatPick{ID: chat.ID, Chat: &chat})
+	a.open(pick)
 	if thread != nil && a.thread == thread {
 		a.closeComments()
 	}
-	if chat.ID == from.ID && thread == nil {
+	if pick.ID == from.ID && thread == nil {
 		return
 	}
 	if len(a.returns) == returnsMax {
 		a.returns = append(a.returns[:0], a.returns[1:]...)
 	}
-	a.returns = append(a.returns, chatReturn{from: from, chat: chat.ID, thread: thread})
+	a.returns = append(a.returns, chatReturn{from: from, chat: pick.ID, thread: thread})
 	if a.returnBack == nil {
 		a.returnBack = button.Text()
 	}

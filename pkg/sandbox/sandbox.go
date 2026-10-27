@@ -27,6 +27,7 @@ package sandbox
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sync"
@@ -100,7 +101,10 @@ func (r *Runtime) Wazero() wazero.Runtime { return r.wazero }
 // go: with a shared cache, closing the runtime alone would keep its code in
 // memory for the rest of the process.
 func (r *Runtime) CompileModule(ctx context.Context, binary []byte) (wazero.CompiledModule, error) {
-	compiled, err := r.wazero.CompileModule(ctx, binary)
+	compiled, err := func() (wazero.CompiledModule, error) {
+		defer lockCompile(binary)()
+		return r.wazero.CompileModule(ctx, binary)
+	}()
 	if err != nil {
 		return nil, err
 	}
@@ -108,6 +112,50 @@ func (r *Runtime) CompileModule(ctx context.Context, binary []byte) (wazero.Comp
 	r.compiled = append(r.compiled, compiled)
 	r.mu.Unlock()
 	return compiled, nil
+}
+
+// compiling holds a lock for each module compiled now, by the hash of its
+// binary. wazero (1.12) shares a module it reads from its file cache with
+// every runtime of the cache before it made the module's entries into its
+// code (engine.getCompiledModule: addCompiledModuleToMemory, then
+// compileEntryPreambles): a runtime that compiled the same module then took
+// it from memory at once, and calling it ran into no entry, an index out
+// of range in wazevo's moduleEngine.NewFunction. One compiling of a module
+// at a time lets the next take it whole; modules apart compile together.
+var compiling struct {
+	sync.Mutex
+	modules map[[sha256.Size]byte]*compileLock
+}
+
+type compileLock struct {
+	sync.Mutex
+	users int
+}
+
+// lockCompile waits for any compiling of binary to end, and returns what
+// ends this one.
+func lockCompile(binary []byte) (unlock func()) {
+	key := sha256.Sum256(binary)
+	compiling.Lock()
+	if compiling.modules == nil {
+		compiling.modules = map[[sha256.Size]byte]*compileLock{}
+	}
+	l := compiling.modules[key]
+	if l == nil {
+		l = &compileLock{}
+		compiling.modules[key] = l
+	}
+	l.users++
+	compiling.Unlock()
+	l.Lock()
+	return func() {
+		l.Unlock()
+		compiling.Lock()
+		if l.users--; l.users == 0 {
+			delete(compiling.modules, key)
+		}
+		compiling.Unlock()
+	}
 }
 
 // CompileZstdModule compiles a module embedded zstd-compressed, as the

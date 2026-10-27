@@ -13,11 +13,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"gio-mw/token"
 	"gio-mw/wdk"
 
 	"gioui.org/f32"
+	"gioui.org/gesture"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
@@ -66,6 +68,10 @@ const (
 type mediaViewer struct {
 	shortcuts shortcutPreferences
 	source    model.ConversationStore
+	// caption takes the clicks on a caption with spoilers, which uncover
+	// them on the message captionRevealed.
+	caption         gesture.Click
+	captionRevealed model.MessageKey
 	// photos, gifs and profiles page the galleries of viewerGallery.
 	photos     model.PhotoGallery
 	gifs       model.GIFGallery
@@ -169,6 +175,8 @@ type mediaViewer struct {
 	alone bool
 	// share is what the viewer forwards: see viewer_share.go.
 	share viewerShare
+	// gif saves a video as a GIF: see viewer_gif.go.
+	gif viewerGIF
 }
 
 type viewerThumbState struct {
@@ -284,6 +292,7 @@ func newMediaViewer(source model.ConversationStore, images *imageOps, invalidate
 	v.shared, _ = source.(model.SharedMediaSource)
 	v.share.forwarder, _ = source.(model.MessageForwarder)
 	v.share.rights, _ = source.(model.RightsSource)
+	v.gif.maker, _ = source.(model.GIFMaker)
 	v.full = chatmedia.NewSized(source, invalidate, viewerFullLimit, 4096)
 	v.mid = chatmedia.NewSized(source, invalidate, 3, 1024)
 	v.thumbs = chatmedia.NewSized(source, invalidate, 96, 256)
@@ -416,6 +425,7 @@ func (v *mediaViewer) Close() {
 	v.mu.Unlock()
 	v.open = false
 	v.video.stop()
+	v.closeGIF()
 	v.autoplay = 0
 	// A closed viewer keeps no decoded pixels.
 	v.full.Clear()
@@ -727,6 +737,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	}
 	v.updateKept(gtx)
 	v.updateShare(gtx, items[indexOf(items, v.current)], l)
+	v.updateGIF(gtx, items[indexOf(items, v.current)], l)
 	select {
 	case err := <-v.playErrs:
 		v.toast.Show(mediaErrorText(err))
@@ -808,7 +819,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 		// The caption goes over the controls.
 		captionStage.Max.Y = top
 	}
-	captionTop := v.layoutCaption(gtx, items[i], captionStage)
+	captionTop := v.layoutCaption(gtx, items[i], captionStage, l, animate)
 	v.layoutSides(gtx, view, i > 0, i < len(items)-1)
 	// Over the side zones, so that the wheel works there too; it passes
 	// clicks on to them.
@@ -825,6 +836,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 		}
 	}
 	v.layoutShare(gtx, l)
+	v.layoutGIF(gtx, l)
 }
 
 func (v *mediaViewer) keyEvents(gtx layout.Context, items []model.Message, i int, photo, stage image.Point) {
@@ -1041,17 +1053,53 @@ func (v *mediaViewer) reportPlay(err error) {
 	}
 }
 
-// layoutCaption draws m's caption over the bottom of the stage, and returns
-// where its top is.
-func (v *mediaViewer) layoutCaption(gtx layout.Context, m model.Message, stage image.Rectangle) int {
-	text := strings.TrimSpace(m.Text)
-	if text == "" {
+// captionLink is the color of the caption's links: Telegram Desktop's
+// mediaviewTextLinkFg.
+var captionLink = token.NewMatColorFromHexRGB(0x91d9ff)
+
+// captionRuns are the runs of m's caption, as its text is in the history,
+// without the spaces around it; none for no caption.
+func captionRuns(m model.Message, l localization.Catalog, now time.Time) []model.TextRun {
+	runs, _ := messageRuns(m, l, now, 0)
+	for len(runs) > 0 && runs[0].Emoji == 0 && strings.TrimSpace(runs[0].Text) == "" {
+		runs = runs[1:]
+	}
+	for len(runs) > 0 && runs[len(runs)-1].Emoji == 0 && strings.TrimSpace(runs[len(runs)-1].Text) == "" {
+		runs = runs[:len(runs)-1]
+	}
+	if len(runs) == 0 {
+		return nil
+	}
+	runs = slices.Clone(runs)
+	runs[0].Text = strings.TrimLeftFunc(runs[0].Text, unicode.IsSpace)
+	last := &runs[len(runs)-1]
+	last.Text = strings.TrimRightFunc(last.Text, unicode.IsSpace)
+	return runs
+}
+
+// layoutCaption draws m's caption over the bottom of the stage, with its
+// formatting and custom emoji, as Telegram Desktop's viewer does, and
+// returns where its top is. A click on it uncovers its spoilers.
+func (v *mediaViewer) layoutCaption(gtx layout.Context, m model.Message, stage image.Rectangle, l localization.Catalog, animate bool) int {
+	runs := captionRuns(m, l, time.Now())
+	if len(runs) == 0 {
 		return math.MaxInt
 	}
+	spoilers := slices.ContainsFunc(runs, func(r model.TextRun) bool { return r.Spoiler })
+	for {
+		e, ok := v.caption.Update(gtx.Source)
+		if !ok {
+			break
+		}
+		if e.Kind == gesture.KindClick && spoilers {
+			v.captionRevealed = m.Key
+		}
+	}
+	revealed := v.captionRevealed == m.Key
 	pad, margin := gtx.Dp(12), gtx.Dp(12)
 	gtx.Constraints = layout.Constraints{Max: image.Pt(max(0, min(stage.Dx()-2*margin, gtx.Dp(640))-2*pad), stage.Dy()/3)}
 	macro := op.Record(gtx.Ops)
-	dims := label(gtx, text, token.TypestyleBodyLarge, token.NewMatColorFromHexRGB(0xffffff), 4)
+	dims := richLabel{runs: runs, style: token.TypestyleBodyLarge, color: token.NewMatColorFromHexRGB(0xffffff), link: &captionLink, maxLines: 4, revealed: revealed, media: v.thumbs, images: v.images, animate: animate}.Layout(gtx)
 	call := macro.Stop()
 	size := dims.Size.Add(image.Pt(2*pad, 2*gtx.Dp(8)))
 	at := image.Pt(stage.Min.X+(stage.Dx()-size.X)/2, stage.Max.Y-margin-size.Y)
@@ -1061,6 +1109,11 @@ func (v *mediaViewer) layoutCaption(gtx layout.Context, m model.Message, stage i
 			call.Add(gtx.Ops)
 			return dims
 		})
+		if spoilers && !revealed {
+			defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
+			pointer.CursorPointer.Add(gtx.Ops)
+			v.caption.Add(gtx.Ops)
+		}
 		return layout.Dimensions{Size: size}
 	})
 	return at.Y
@@ -1172,6 +1225,14 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 				}
 				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return viewerButton(gtx, &v.share.forward, iconForward, d)
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if !v.canMakeGIF(m) {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return viewerButton(gtx, &v.gif.button, iconGIF, d)
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {

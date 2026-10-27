@@ -3,7 +3,6 @@
 package ui
 
 import (
-	"fmt"
 	"image"
 	"strings"
 	"unicode/utf8"
@@ -41,7 +40,7 @@ const (
 // unwrapped reports whether m is drawn without a bubble. What needs a bubble
 // to sit in — a caption, buttons, the comments bar — keeps it.
 func (p *chatPage) unwrapped(m model.Message) bool {
-	if len(m.Buttons) > 0 || m.Poll != nil || m.WebPage != nil || len(m.Attachments) > 1 || p.showsComments(m) {
+	if len(m.Buttons) > 0 || m.Poll != nil || m.Todo != nil || m.WebPage != nil || len(m.Attachments) > 1 || p.showsComments(m) {
 		return false
 	}
 	if m.Kind == model.MessageSticker || m.Kind == model.MessageRound {
@@ -222,7 +221,7 @@ func (p *chatPage) unwrappedSide(m *model.Message, join bubbleJoin, l localizati
 		var children []layout.FlexChild
 		if m.SenderName != "" && !m.Outgoing && join&joinAbove == 0 {
 			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, m.SenderName, token.TypestyleLabelLargeEmphasized, senderColor(gtx, m.SenderID), 1)
+				return p.layoutSenderName(gtx, m)
 			}), vspace(3))
 		}
 		if forward {
@@ -264,13 +263,8 @@ func (p *chatPage) largeEmoji(gtx layout.Context, m model.Message, animate bool)
 	side := gtx.Dp(largeEmojiSize)
 	size := image.Pt(side, side)
 	if doc != 0 {
-		if p.media != nil && p.images != nil {
-			msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d", doc), MIMEType: "application/x-custom-emoji"}}
-			if frame := emojiFrame(p.media, p.images, msg, animate, scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
-				return exact(gtx, size, func(gtx layout.Context) layout.Dimensions {
-					return widget.Image{Src: p.images.Op(frame), Fit: widget.Contain}.Layout(gtx)
-				})
-			}
+		if frame := customEmoji(p.media, p.images, doc, side, animate, scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
+			return drawImage(gtx, p.images, frame, size)
 		}
 		return layout.Dimensions{Size: size}
 	}

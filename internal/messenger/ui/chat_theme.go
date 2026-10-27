@@ -518,6 +518,15 @@ func serviceColor(average uint32, dark bool) token.MatColor {
 	return token.NewMatColorFromHexRGBA(v)
 }
 
+// incoming is the color of the theme's incoming bubbles; false for the
+// application's colors.
+func (t *chatThemeController) incoming() (token.MatColor, bool) {
+	if t.style == nil {
+		return token.MatColor{}, false
+	}
+	return token.NewMatColorFromHexRGBA(t.style.Incoming), true
+}
+
 // messageContext is gtx for a message's bubble: its text, time and links
 // in the theme's colors.
 func (t *chatThemeController) messageContext(gtx layout.Context, outgoing bool) layout.Context {

@@ -80,6 +80,9 @@ type App struct {
 	// the Komaru faces and the arrow beside names are taken from
 	// (peer_badges.go).
 	premiumSet, komaruSet, arrowSet emojiSet
+	// statusSets are the emoji sets KomaruGram's emoji statuses are taken
+	// from, by their names; only the window's goroutine reads them.
+	statusSets map[string]*emojiSet
 	// focused is set while the window has the focus.
 	focused bool
 	// shownChat and shownFocus tell other goroutines the open chat and the
@@ -157,8 +160,11 @@ type App struct {
 	mini *webApps
 	// forum is the list of topics that shows in place of the history of a
 	// forum; a topic opens as thread, like comments.
-	forum  *forumPage
-	viewer *mediaViewer
+	forum *forumPage
+	// community is the page of the community open, nil when the store has
+	// none.
+	community *communityPage
+	viewer    *mediaViewer
 	// openWindow is the host of the windows the viewer and articles open
 	// in; viewerWindows and articleWindows, their lists, which close with
 	// this window and when it locks.
@@ -260,6 +266,13 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	a.chats.menu.store, _ = store.(model.ChatListActions)
 	a.chats.menu.premium, _ = store.(model.PremiumSource)
 	a.chats.menu.invalidate = w.Invalidate
+	a.chats.reorder.store, _ = store.(model.PinReorderer)
+	a.chats.reorder.invalidate = w.Invalidate
+	if _, ok := store.(model.CommunitySource); ok {
+		a.community = newCommunityPage()
+		a.chats.menu.ungroup = func(id int64) { a.setCommunityCollapsed(id, false) }
+		a.chats.menu.openCommunity = a.openCommunity
+	}
 	if searcher, ok := store.(model.Searcher); ok {
 		a.chats.panel = newSearchPanel(searcher)
 	}
@@ -645,10 +658,15 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 				a.openReturning(chat, from, nil)
 			}
 		}
+		if source, ok := store.(model.CommunitySource); ok {
+			a.history.communityOf = source.LinkedCommunity
+		}
 		// A user's channel in their info opens with a way back, as a
 		// channel's discussion does.
 		a.info.openChannel = a.history.openReturning
-		a.info.badges = a.badges
+		// What a click on a mark in the info tells shows under the dialog,
+		// not in the chat behind it.
+		a.info.badges = a.badgesTelling(func(text string) { a.info.modal.Toast(text) })
 		a.statusClicked = a.info.openEmojiSet
 		a.info.renderer.stickers.menus = a.menuPrefs
 		a.info.avatarSprite = a.avatarSprite
@@ -690,9 +708,31 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 				a.comments.openSender = func(m model.Message) { a.openSender(senders, m, a.thread) }
 			}
 		}
-		// The audio of the info's sections plays in the same player, under
-		// the same bar, as the chat's.
+		// The audio of the info's sections plays in the same player as the
+		// chat's, told in the chat's bar.
 		a.info.renderer.audio = a.history.audio
+		// The files of the sections are selected, forwarded and deleted as
+		// the chat's messages are, and a file goes to its message.
+		a.info.renderer.chats = store.Chats
+		a.info.renderer.avatar = a.layoutAvatar
+		a.info.renderer.menus = a.menuPrefs
+		a.info.renderer.frozen = a.frozen
+		a.info.renderer.files = a.attachments
+		a.info.selectionMode = func() string { return a.preferences.Global().SharedSelection }
+		a.info.setSelectionMode = a.preferences.SetSharedSelection
+		a.info.columns = func() int { return a.preferences.Global().SharedGridColumns() }
+		a.info.setColumns = a.preferences.SetSharedColumns
+		// A mention or a link in the info, as its bio has, opens its chat
+		// over the dialog, which closes, with the way back.
+		a.info.renderer.openChat = func(chat model.Chat, post model.MessageID) {
+			a.info.modal.Close()
+			a.history.openChat(chat, post)
+		}
+		a.info.openMessage = func(m model.Message) {
+			chat := a.info.chat
+			a.openFromHere(chatPick{ID: chat.ID, Chat: &chat, Message: m.Key.MessageID})
+			a.window.Invalidate()
+		}
 		// A section's photo or video goes through the section's kind alone.
 		a.info.renderer.openPhoto = func(m model.Message) {
 			a.viewer.OpenShared(m.Key.ChatID, m, a.info.messages, a.info.section, -1)
@@ -727,6 +767,16 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 		a.attachments = newAttachmentFiles()
 	}
 	p.files = a.attachments
+	if badges, ok := store.(model.PeerBadgesSource); ok {
+		p.senderBadges = func(id int64, name string) (before, after layout.Widget) {
+			b, ok := badges.PeerBadges(id)
+			if !ok {
+				return nil, nil
+			}
+			// A click on the status shows its set over the chat.
+			return a.clickedBadges(b, name, senderBadgeSize, false, badgeClicks{openStatus: p.openStatusSet})
+		}
+	}
 	p.menus = a.menuPrefs
 	p.shortcuts = a.shortcutPrefs
 	p.composer.shortcuts = a.shortcutPrefs
@@ -745,13 +795,14 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 	p.audioExternal = func() bool { return a.preferences.Global().AudioPlayer == "external" }
 	p.appearance = a.themes
 	p.avatar = a.layoutAvatar
+	// A chat a link, a mention or the audio bar opens goes back to the one
+	// it was opened from, as the chat of a group member does.
 	p.openChat = func(chat model.Chat, post model.MessageID) {
-		a.open(chatPick{ID: chat.ID, Chat: &chat, Message: post})
+		a.openFromHere(chatPick{ID: chat.ID, Chat: &chat, Message: post})
 		a.window.Invalidate()
 	}
 	p.openAudio = func(m model.Message) {
-		a.thread = nil
-		a.open(chatPick{ID: m.Key.ChatID, Message: m.Key.MessageID})
+		a.openFromHere(chatPick{ID: m.Key.ChatID, Message: m.Key.MessageID})
 		a.window.Invalidate()
 	}
 	p.openPhoto = func(m model.Message) { a.viewer.Open(p.chat, m, p.viewerItems()) }
@@ -1038,7 +1089,11 @@ func (a *App) Update(gtx layout.Context) {
 	}
 	if a.section.showsChats() {
 		if pick, ok := a.chats.Update(gtx, a.section, a.catalog()); ok {
-			a.open(pick)
+			if pick.Community {
+				a.openCommunity(pick.ID)
+			} else {
+				a.open(pick)
+			}
 		}
 	}
 	if a.section.kind == sectionProfile {
@@ -1163,6 +1218,10 @@ func (a *App) open(pick chatPick) {
 	a.selected = pick.ID
 	if pick.Chat != nil {
 		a.found = *pick.Chat
+	} else if c, ok := chatByID(a.store.Chats(), pick.ID); ok && c.Kind == model.KindCommunity {
+		// Shown apart, a community has no row: its page stays open.
+		c.Collapsed = false
+		a.found = c
 	}
 	if a.section.kind == sectionSaved && pick.ID != a.savedChat() {
 		a.section = section{kind: sectionAll}
@@ -1288,7 +1347,19 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	if a.comments != nil {
 		a.comments.filter = a.history.filter
 	}
-	if a.viewer != nil && (a.history.headAvatar.Clicked(gtx) || a.forum != nil && a.forum.avatar.Clicked(gtx)) {
+	if a.history.communityBadge.Clicked(gtx) && a.history.communityOf != nil {
+		if c, ok := a.selectedChat(); ok {
+			if id := a.history.communityOf(c.ID); id != 0 {
+				a.openCommunity(id)
+			}
+		}
+	}
+	if a.viewer != nil && a.history.headAvatar.Clicked(gtx) {
+		if c, ok := a.selectedChat(); ok {
+			openHeadAvatar(a.viewer, a.history, c)
+		}
+	}
+	if a.viewer != nil && a.forum != nil && a.forum.avatar.Clicked(gtx) {
 		if c, ok := a.selectedChat(); ok {
 			a.viewer.OpenProfile(c.ID)
 		}
@@ -1312,6 +1383,11 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	var under op.MacroOp
 	if overlays.toasts {
 		under = op.Record(gtx.Ops)
+	}
+	// The chat list's menu, drawn over the window, blurs all of it.
+	var underMenu op.MacroOp
+	if overlays.menus {
+		underMenu = op.Record(gtx.Ops)
 	}
 	size := gtx.Constraints.Max
 	folders := a.store.Folders()
@@ -1338,6 +1414,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 		x = sidebarPx
 	}
 
+	var listAt image.Point
 	if a.section.showsChats() {
 		available := toDp(size.X - x)
 		width, narrow := listWidth(a.listRequest, available)
@@ -1361,6 +1438,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 			})
 			top += bar
 		}
+		listAt = image.Pt(x, top)
 		column(x, top, listPx, size.Y-top, func(gtx layout.Context) layout.Dimensions {
 			return a.chats.Layout(gtx, a.section, folders, chats, a.selected, narrow, a.catalog())
 		})
@@ -1392,6 +1470,15 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	// The splitter goes last so that it takes the pointer over the columns.
 	if a.section.showsChats() {
 		a.splitter.Layout(gtx, x, size.Y)
+	}
+	var menuBackdrop *blurBackdrop
+	if overlays.menus {
+		call := underMenu.Stop()
+		call.Add(gtx.Ops)
+		menuBackdrop = newBackdrop(call, overlays.opacity)
+	}
+	if a.section.showsChats() {
+		a.chats.layoutMenu(gtx, listAt, menuBackdrop, a.catalog())
 	}
 	a.drop.layout(gtx, a.catalog())
 	if !a.overlayUpdated {
@@ -1461,7 +1548,7 @@ func (a *App) pageToast() *toast {
 	if a.thread != nil && a.comments != nil {
 		return &a.comments.toast
 	}
-	if c, chat := a.selectedChat(); chat && !(c.Forum && a.forum != nil) && a.history != nil {
+	if c, chat := a.selectedChat(); chat && !a.listPage(c) && a.history != nil {
 		return &a.history.toast
 	}
 	return nil
@@ -1485,7 +1572,7 @@ func (a *App) layoutPage(gtx layout.Context) layout.Dimensions {
 			a.drop.page = a.comments
 		}
 		return a.layoutComments(gtx, l)
-	case a.section.showsChats() && chat && !(c.Forum && a.forum != nil):
+	case a.section.showsChats() && chat && !a.listPage(c):
 		if a.history.takesFiles() {
 			a.drop.page = a.history
 		}
@@ -1504,11 +1591,19 @@ func (a *App) layoutPage(gtx layout.Context) layout.Dimensions {
 			return a.settings.Layout(gtx, a.themeMode(), a.window.Appearance.Scheme(), a.dark(), l)
 		case a.section.kind == sectionDownloads && a.downloads != nil:
 			return a.downloads.Layout(gtx, l, a.window.Motion.AnimationsEnabled())
+		case chat && c.Kind == model.KindCommunity:
+			return a.layoutCommunity(gtx, c, l)
 		case chat:
 			return a.layoutForum(gtx, c, l)
 		}
 		return layoutEmptyPage(gtx, l)
 	})
+}
+
+// listPage reports whether c opens as a list in place of a history: a
+// forum's topics, a community's chats.
+func (a *App) listPage(c model.Chat) bool {
+	return c.Forum && a.forum != nil || c.Kind == model.KindCommunity
 }
 
 // withAudioBar draws the bar of what plays over a page that is not a chat's,

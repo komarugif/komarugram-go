@@ -122,6 +122,23 @@ func serviceAction(action tg.MessageActionClass, names map[int64]string) *model.
 		a.Kind = model.ServiceSuggestPhoto
 	case *tg.MessageActionWebViewDataSent:
 		a.Kind, a.Title = model.ServiceWebViewData, action.Text
+	case *tg.MessageActionChangeCommunity:
+		a.Kind = model.ServiceCommunity
+		if id, ok := action.GetCommunityID(); ok && id != 0 {
+			a.Count = peerID(&tg.PeerChannel{ChannelID: id})
+			a.Title = names[a.Count]
+		} else {
+			a.Reason = "removed"
+		}
+	case *tg.MessageActionPaidMessagesPrice:
+		a.Kind, a.Count = model.ServicePaidMessages, action.Stars
+		if action.BroadcastMessagesAllowed {
+			a.Reason = "allowed"
+		}
+	case *tg.MessageActionChatJoinedViaCommunity:
+		a.Kind = model.ServiceJoinedViaCommunity
+		a.Count = peerID(&tg.PeerChannel{ChannelID: action.CommunityID})
+		a.Title = names[a.Count]
 	}
 	return a
 }
@@ -131,6 +148,10 @@ func (l *list) serviceMessage(m *tg.MessageService) *model.Message {
 	names := map[int64]string{}
 	for id, u := range l.users {
 		names[id] = personName(u)
+	}
+	// The communities an action names.
+	for id, c := range l.communities {
+		names[peerID(&tg.PeerChannel{ChannelID: id})] = c.Title
 	}
 	msg, _ := convertMessage("", m, names)
 	return &msg

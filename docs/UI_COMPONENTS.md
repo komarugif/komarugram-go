@@ -327,13 +327,34 @@ size-stability fixes remain in place.
   nothing. It takes no pointer: a pass-through area over the grid reads
   it, and the grid tells its rows' heights and its items' places, Gio
   telling no item of the pointer over it while the button is held on
-  another. A grid that uses it calls `Update`, `row`, `tile` and `area`.
+  another. A grid that uses it calls `Update`, `row`, `tile` and `area`;
+  `Menu` tells the tile right-clicked, by the same places.
+- **Menu of an item of the picker** (`composer_picker_menu.go`): a right
+  click on a GIF or a recent sticker of the panel opens a `contextMenu`
+  over the panel, its items drawn by the message menu's `menuRow`: a saved
+  GIF is deleted, one a search found added to the saved ones, a recent
+  sticker taken off the recent, as Telegram Desktop's panel offers
+  (`model.SavedGIFStore`, `model.RecentStickerStore`). The list changes at
+  once; a failure is told and the list asked for again. The message menu
+  adds a GIF to the saved ones too (`actionSaveGIF`).
 - **Forwarding** (`forward_picker.go`): `forwardPicker` is the dialog that
   picks the chat to forward to, Saved Messages first, with a search:
   the history's selected messages and its message menu use it, and so does
   the media viewer, whose button beside copy forwards what it shows, a
   message or a story (`viewer_share.go`), unless it protects its content;
   a story has its heart there too, red once put, with how many put theirs.
+- **Saving a video as a GIF** (`viewer_gif.go`): the viewer's GIF button,
+  beside forwarding, on a video that does not protect its content, saves it
+  among the saved GIFs (`model.GIFMaker`): `video.ConvertGIF` encodes it
+  with FFmpeg (H.264 without sound, within 1280×720 and 10 MB, as the GIF
+  bot does), or, without FFmpeg, it is forwarded to `model.GIFBot`, whose
+  edited status message tells the progress (`model.ParseGIFBot`). The
+  dialog is a `modal` with `progressRows`, the rows of the dialog that saves
+  a Lottie sticker as a video (`sticker_video.go`); its Cancel stops FFmpeg
+  or the wait, and sends the bot `/cancel`. The bot's messages are marked
+  read once done with (as Ghost's ReadOnInteract allows), and a video made
+  again saves the GIF it made (`MadeGIF`), which Telegram keeps once.
+  `VIEWER_SAVE_GIF` renders it.
 - **Devices** (`sessions.go`): the settings section of the account's
   sessions, grouped as Telegram Desktop's Active Sessions, with a dialog of a
   session's details; it asks again every minute while it is open.
@@ -488,6 +509,28 @@ size-stability fixes remain in place.
   topic's row draws its last one; a click opens the topic at the message
   (`OpenTopicAt`), tinted. Going back finds the search as it was.
   `FORUM_PNG` saves the list.
+- **Communities** (`community.go`, `model.CommunitySource`): a community
+  shown as one chat (`Chat.Collapsed`) has one row in the list of all
+  chats in place of its chats (`communityRows`), where the newest of them
+  would be: the number of them with something unread, their names for its
+  line, as Telegram Desktop's; shown apart, it has none, and its chats'
+  menus and the badge with an arrow on their avatars open it ("View
+  community info"), as does the badge over the avatar in the header of a
+  chat of one not in the list, found or opened by a link
+  (`LinkedCommunity`). It opens, as a forum does, as a
+  page in place of a history (`communityPage`): its description, the
+  "Show as One Chat" switch, then its chats as Telegram for Android
+  divides them (`CommunityPeer.Type`, the maintainer's choice over
+  Telegram Desktop): those the account is in, those it can read (users and
+  bots always, public groups and channels, hidden or not), those it can ask
+  to join, and the hidden ones, which only tell, in the toast, that they
+  cannot be opened; the others open with the way back to the community. A
+  community shown apart has no chat in the list: its page is made of what
+  the store knows of it (`App.openCommunity`), with a spinner while it is
+  read, the toast and a retry when it cannot be.
+  The row's menu marks all its chats read and ungroups it. Folders and the
+  search list the chats as they are. `COMMUNITY_PNG` saves the page, and
+  the lists beside it, as one chat and apart.
 - **Message sent** (`history_send.go`): a message the composer sent, when it
   shows at the end of a history that is at its end, flies up from the
   composer to its place while it fades in (300 ms); the rest of the history
@@ -748,7 +791,7 @@ new piece sits next to its neighbours.
   and emoji pack states; `TestRenderMessageMenu`, the message menu over a
   reply, with a floating and a classic composer. They are skipped unless their
   variable (`COMPOSER_PNG`, `COMPOSER_MOTION_PNG`, `SETTINGS_PNG`,
-  `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `CHAT_PREVIEW_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
+  `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `POLL_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `COMMUNITY_PNG`, `CHAT_PREVIEW_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
   first dialog exists. `COMPOSER_VIEW=emoji-search`, the picker's emoji found for a word;
   `COMPOSER_VIEW=featured-stickers` or `featured-emoji`
   with `COMPOSER_PNG` shows the picker's recommendations; `COMPOSER_VIEW=voice`,
@@ -771,9 +814,12 @@ new piece sits next to its neighbours.
   animations, and the switch that pauses them in an inactive window.
   `SETTINGS_SECTION=integrations` with `SETTINGS_PNG` shows the choice of the
   external player; `PLAYER_PNG`, the dialog that asks for it. `MENU_PNG` also
-  saves the menu with reactions (`-reactions*.png`); `COMMENTS_PNG`, the
+  saves the menu with reactions (`-reactions*.png`), and the menu of a
+  recent sticker and of a saved GIF over the picker (`-picker*.png`); `COMMENTS_PNG`, the
   header of the comments page; `UNWRAPPED_PNG`, stickers and lone emoji; `SERVICE_PNG`, service messages
-  and calls.
+  and calls; `POLL_PNG`, polls, a quiz and checklists in their states (and
+  `.2.png`, the rest of them; `.reveal.png`, a poll a moment after a vote, its
+  results coming in; `.votes.png`, the dialog of who voted).
 - **The app itself.** `go run ./cmd/messenger -demo` runs without an account.
   On Linux under X11, `xdotool` drives a window (`mousemove --window … click`)
   and `xfce4-screenshooter -w` saves the active one.

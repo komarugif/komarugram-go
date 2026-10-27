@@ -68,6 +68,8 @@ var (
 	iconMic           = wdk.RequireIconWidget(icons.AVMic)
 	iconCalendar      = wdk.RequireIconWidget(icons.ActionEvent)
 	iconDataCenter    = wdk.RequireIconWidget(icons.ActionDNS)
+	iconUserID        = wdk.RequireIconWidget(icons.ActionPermIdentity)
+	iconPhone         = wdk.RequireIconWidget(icons.CommunicationCall)
 	iconDevices       = wdk.RequireIconWidget(icons.DeviceDevices)
 	iconChevronLeft   = wdk.RequireIconWidget(icons.NavigationChevronLeft)
 	iconOpenInNew     = wdk.RequireIconWidget(icons.ActionOpenInNew)
@@ -88,6 +90,7 @@ var (
 	iconPlace         = wdk.RequireIconWidget(icons.MapsPlace)
 	iconForward       = wdk.RequireIconWidget(icons.ContentForward)
 	iconDelete        = wdk.RequireIconWidget(icons.ActionDelete)
+	iconGIF           = wdk.RequireIconWidget(icons.ActionGIF)
 	iconSelect        = wdk.RequireIconWidget(icons.ActionCheckCircle)
 	iconReacted       = wdk.RequireIconWidget(icons.ActionFavoriteBorder)
 	iconLiked         = wdk.RequireIconWidget(icons.ActionFavorite)
@@ -100,6 +103,16 @@ var (
 	iconNotificationsOn  = wdk.RequireIconWidget(icons.SocialNotificationsNone)
 	iconNotificationsOff = wdk.RequireIconWidget(icons.SocialNotificationsOff)
 	iconGift             = wdk.RequireIconWidget(icons.ActionCardGiftcard)
+
+	// Polls: a quiz's explanation, a wrong answer, and the menu's items
+	// that take a vote back and close a poll.
+	iconSolution  = wdk.RequireIconWidget(icons.ActionLightbulbOutline)
+	iconPollWrong = wdk.RequireIconWidget(icons.NavigationClose)
+	iconRetract   = wdk.RequireIconWidget(icons.ContentUndo)
+	iconStopPoll  = wdk.RequireIconWidget(icons.AVStop)
+	// The mini icons of a poll and a checklist in the chat list.
+	iconPollMini = wdk.RequireIconWidget(icons.SocialPoll)
+	iconTodoMini = wdk.RequireIconWidget(icons.ActionAssignmentTurnedIn)
 )
 
 // folderIcon picks an icon for a folder by the kinds of chats it holds.

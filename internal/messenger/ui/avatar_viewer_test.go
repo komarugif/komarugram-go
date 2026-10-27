@@ -239,3 +239,41 @@ func TestProfileAvatarOpensPhoto(t *testing.T) {
 		t.Fatalf("the avatar asked for the photos of %d, not of the account %d", asked, store.Me().ID)
 	}
 }
+
+// The avatar of a chat whose peer has stories now opens them, as Telegram
+// Desktop's top bar does; of one without, its photos.
+func TestHeaderAvatarOpensStories(t *testing.T) {
+	store := mockstore.New(time.Now(), 0)
+	page := newChatPage(store, func() {})
+	defer page.Close()
+	var images imageOps
+	var withStories, without model.Chat
+	for _, c := range store.Chats() {
+		if c.Kind == model.KindSaved || c.Kind == model.KindCommunity {
+			continue
+		}
+		if _, ok := store.PeerStoryRing(c.ID); ok {
+			withStories = c
+		} else {
+			without = c
+		}
+	}
+	if withStories.ID == 0 || without.ID == 0 {
+		t.Fatal("the demo has no chat with stories, or none without")
+	}
+	v := newMediaViewer(store, &images, func() {})
+	defer v.Destroy()
+	openHeadAvatar(v, page, withStories)
+	if !v.open || v.gallery != galleryStories {
+		t.Fatalf("the avatar of a chat with stories opened %v (open %v)", v.gallery, v.open)
+	}
+	// Its stories alone, not the others of the list beside them.
+	if len(v.storyRows) != 1 || v.storyRows[0] != withStories.ID {
+		t.Fatalf("the stories opened go through %v, not %d's alone", v.storyRows, withStories.ID)
+	}
+	v.Close()
+	openHeadAvatar(v, page, without)
+	if !v.open || v.gallery != galleryProfile {
+		t.Fatalf("the avatar of a chat without stories opened %v (open %v)", v.gallery, v.open)
+	}
+}

@@ -84,7 +84,6 @@
 "badge.extera_supporter" = "{name} supported exteraGram or AyuGram and received a unique badge.";
 "badge.komaru_developer" = "{name} is a member of the KomaruGram development team.";
 "badge.komaru_official" = "{name} is an official resource of KomaruGram.";
-"badge.komaru_partner" = "{name} is a partner from KomaruGif.";
 "badge.komaru_supporter" = "{name} supported KomaruGram and received a unique badge.";
 
 "badges.hide" = "Hide badges of exteraGram, AyuGram and KomaruGram";
@@ -128,11 +127,13 @@
 "chat_menu.search" = "Search for messages";
 "chat_menu.show_filtered" = "Show Filtered Messages";
 
+"chat_row.community" = "View community info";
 "chat_row.pin" = "Pin to top";
 "chat_row.pin_failed" = "Could not change the pinned chats";
 "chat_row.pin_limit" = "You can pin no more than {limit} chats.";
 "chat_row.pin_limit_pro" = "You can pin no more than {limit} chats. With Telegram Premium, up to {premium}.";
 "chat_row.read" = "Mark as read";
+"chat_row.ungroup" = "Ungroup";
 "chat_row.unpin" = "Unpin from top";
 
 "chat_search.close" = "Close search";
@@ -179,11 +180,26 @@
 "comments.open" = "{count} comments";
 "comments.open#one" = "{count} comment";
 
+"community.collapse_failed" = "Could not change how the community is shown";
+"community.failed" = "Could not open the community";
+"community.hidden" = "Hidden";
+"community.hidden_chats" = "Hidden chats";
+"community.hidden_unavailable" = "You can't join or view this group until an admin invites you.";
+"community.hidden_unavailable_channel" = "You can't join or view this channel until an admin invites you.";
+"community.joined" = "Chats you are in";
+"community.requestable" = "Chats you can request to join";
+"community.show_as_one" = "Show as One Chat";
+"community.show_as_one_about" = "Group all community chats into one item in the chat list.";
+"community.status" = "Community with {count} chats";
+"community.status#one" = "Community with {count} chat";
+"community.viewable" = "Chats you can view";
+
 "composer.all" = "All emoji";
 "composer.attach" = "Attachments";
 "composer.browse" = "Browse…";
 "composer.cancel" = "Cancel";
 "composer.close" = "Close";
+"composer.delete_gif" = "Delete";
 "composer.direct_messages" = "Direct messages";
 "composer.discussion" = "Discussion";
 "composer.edit_cancel" = "Cancel";
@@ -204,6 +220,11 @@
 "composer.featured" = "Trending";
 "composer.file" = "File";
 "composer.gif" = "GIF";
+"composer.gif_limit#one" = "Limit of {count} GIF Reached";
+"composer.gif_limit#other" = "Limit of {count} GIFs Reached";
+"composer.gif_limit_link" = "increase the limit";
+"composer.gif_limit_more#one" = "An older GIF was replaced with this one.\nYou can {link} to {count} GIF.";
+"composer.gif_limit_more#other" = "An older GIF was replaced with this one.\nYou can {link} to {count} GIFs.";
 "composer.gift" = "Send a gift";
 "composer.gift_stub" = "Gifts to channels are not implemented yet";
 "composer.items" = "Tasks — one per line";
@@ -215,11 +236,13 @@
 "composer.path" = "File path";
 "composer.photo" = "Photo or video";
 "composer.recent" = "Recent";
+"composer.recent_remove" = "Remove from Recent";
 "composer.reply_remove" = "Do Not Reply";
 "composer.reply_to" = "Reply to {name}";
 "composer.results" = "Search results";
 "composer.retry" = "Retry";
 "composer.save" = "Save";
+"composer.save_gif" = "Add to GIFs";
 "composer.saving" = "Saving…";
 "composer.search" = "Search…";
 "composer.send" = "Send";
@@ -812,6 +835,7 @@
 "history.voice" = "Voice message";
 "history.you" = "You";
 
+"info.about" = "Bio";
 "info.collectible_copy" = "Copy Link";
 "info.collectible_info" = "This username was bought on **Fragment** on {date} for {price}";
 "info.collectible_more" = "Learn More";
@@ -819,13 +843,16 @@
 "info.copied" = "Copied to clipboard.";
 "info.copy_link" = "Copy Link";
 "info.dc" = "Profile photo's data center";
+"info.description" = "Description";
 "info.link_copied" = "Link copied to clipboard.";
 "info.open_chat" = "Go to private chat with user";
 "info.open_chat_new" = "You have no chat yet";
+"info.phone" = "Phone · click to copy";
 "info.registered_about" = "~ {date}";
 "info.registered_after" = "after {date}";
 "info.registered_before" = "before {date}";
 "info.registration" = "Registration date (estimated from the ID)";
+"info.user_id" = "ID · click to copy";
 "info.username" = "Username · click to copy";
 "info.username_copied" = "Username copied to clipboard.";
 
@@ -1024,6 +1051,7 @@
 "menu.filter" = "Add Filter";
 "menu.forward" = "Forward";
 "menu.forward_selected" = "Forward Selected";
+"menu.go_to_message" = "Go To Message";
 "menu.link_copied" = "Link copied to clipboard.";
 "menu.private_link" = "This link will only work for members of this chat.";
 "menu.reacted#one" = "{count} Reacted";
@@ -1057,6 +1085,7 @@
 "menus.leave" = "Leave group or channel";
 "menus.message" = "Message menu";
 "menus.phone" = "Phone number menu";
+"menus.picker" = "Menu of a sticker or GIF in the panel";
 "menus.reactions" = "Who reacted";
 "menus.recent" = "Recent searches menu";
 "menus.reset" = "Reset";
@@ -1167,12 +1196,39 @@
 "player.title" = "External player";
 "player.undecided" = "The app will ask when you first open a video and remember the choice.";
 
-"poll.closed" = "Poll closed";
-"poll.count" = "Votes: {count}";
+"poll.admin_back" = "{arrow} Vote";
+"poll.admin_votes" = "{count} votes {arrow}";
+"poll.admin_votes#one" = "{count} vote {arrow}";
+"poll.anonymous" = "Anonymous Poll";
+"poll.anonymous_quiz" = "Anonymous Quiz";
+"poll.answers" = "{count} answers";
+"poll.answers#one" = "{count} answer";
+"poll.answers_none" = "No answers";
+"poll.closed" = "Final results";
+"poll.count" = "{count} votes";
 "poll.count#one" = "{count} vote";
-"poll.open" = "Poll";
-"poll.quiz" = "Quiz";
-"poll.votes" = "Votes: %d";
+"poll.ends_days" = "ends in {count} days";
+"poll.ends_days#one" = "ends in {count} day";
+"poll.ends_time" = "ends in {time}";
+"poll.public" = "Poll";
+"poll.public_quiz" = "Quiz";
+"poll.quiz_results_title" = "Quiz results";
+"poll.results_after_close" = "Results will appear after the poll ends.";
+"poll.results_days" = "results in {count} days";
+"poll.results_days#one" = "results in {count} day";
+"poll.results_time" = "results in {time}";
+"poll.results_title" = "Poll results";
+"poll.retract" = "Retract vote";
+"poll.show_more" = "Show more ({count})";
+"poll.solution" = "Explanation";
+"poll.stop" = "Stop poll";
+"poll.stop_sure" = "Stop";
+"poll.stop_warning" = "If you stop this poll now, nobody will be able to vote in it anymore. This action cannot be undone.";
+"poll.view_results" = "View results";
+"poll.view_votes" = "View Votes ({count})";
+"poll.vote" = "Vote";
+"poll.votes_failed" = "Couldn't load the votes";
+"poll.votes_none" = "No votes";
 
 "premium.active" = "Your Telegram Premium subscription is active: the limits below are those on the right.";
 "premium.blocked" = "The server does not allow subscribing to Premium from this app. Subscribe in an official Telegram app.";
@@ -1230,6 +1286,7 @@
 "preview.story" = "Story";
 "preview.story_expired" = "Expired story";
 "preview.table" = "Table";
+"preview.todo" = "Checklist";
 "preview.video" = "Video";
 "preview.videos" = "{count} videos";
 "preview.videos#one" = "{count} video";
@@ -1293,7 +1350,6 @@
 "proxy.websocket_hint" = "Like a visit to web.telegram.org";
 "reacted.all" = "All";
 "reacted.failed" = "Could not load the list";
-"reacted.title" = "Reactions";
 
 "record.audio_files" = "Audio files";
 "record.bad_file" = "This file cannot be sent as a voice message: it must be Opus in OGG, MP3 or M4A.";
@@ -1472,9 +1528,22 @@
 "service.changed_photo_channel" = "Channel photo updated";
 "service.changed_title" = "{from} changed group name to «{title}»";
 "service.changed_title_channel" = "Channel name was changed to «{title}»";
+"service.community_added" = "{from} added this group to the {community} community.";
+"service.community_added_channel" = "This channel was added to the {community} community.";
+"service.community_added_chat" = "This chat was added to the {community} community.";
+"service.community_added_unknown" = "{from} added this group to a community.";
+"service.community_added_unknown_channel" = "This channel was added to a community.";
+"service.community_added_unknown_chat" = "This chat was added to a community.";
+"service.community_removed" = "{from} removed this group from the community.";
+"service.community_removed_channel" = "This channel was removed from the community.";
+"service.community_removed_chat" = "This chat was removed from the community.";
 "service.created_channel" = "Channel created";
 "service.created_chat" = "{from} created the group «{title}»";
 "service.deleted_message" = "Deleted message";
+"service.direct_messages_disabled" = "Channel disabled Direct Messages.";
+"service.direct_messages_enabled" = "Channel enabled Direct Messages.";
+"service.direct_messages_paid" = "Channel allows Direct Messages for {count} Stars each.";
+"service.direct_messages_paid#one" = "Channel allows Direct Messages for {count} Star each.";
 "service.game_score_no_game" = "{from} scored {count}";
 "service.game_score_no_game#one" = "{from} scored {count}";
 "service.game_score_no_game#other" = "{from} scored {count}";
@@ -1499,8 +1568,13 @@
 "service.invite_users_and_last" = "{accumulated} and {user}";
 "service.invite_users_and_one" = "{accumulated}, {user}";
 "service.invite_users_many" = "{from} invited {users} to {chat}";
+"service.joined_via_community" = "{from} joined the group via the {community} community";
+"service.joined_via_community_unknown" = "{from} joined the group via a community";
 "service.kick_user" = "{from} removed {user}";
 "service.loading" = "Loading...";
+"service.message_price_free" = "Messages are now free in this group.";
+"service.message_price_paid" = "Messages now cost {count} Stars each in this group.";
+"service.message_price_paid#one" = "Messages now cost {count} Star each in this group.";
 "service.no_forwards_disabled" = "{from} disabled sharing in this chat";
 "service.no_forwards_enabled" = "{from} enabled sharing in this chat";
 "service.no_forwards_still_disabled" = "Sharing in this chat is still disabled";
@@ -1657,6 +1731,7 @@
 "settings.window_transparency" = "Main window transparency";
 "settings.window_transparency_hint" = "The backgrounds of the sidebar, chat list and chat header. Text and avatars stay opaque. Works on Wayland, Windows and macOS. On Wayland blur depends on the compositor; on Windows 10 and 11 a window with it draws its own frame in place of the system one.";
 
+"shared.columns" = "Thumbnails per Row";
 "shared.count.files" = "{count} · Files";
 "shared.count.gifs" = "{count} · GIFs";
 "shared.count.gifts" = "{count} · Gifts";
@@ -1687,6 +1762,9 @@
 "shared.photos" = "Photos";
 "shared.polls" = "Polls";
 "shared.saved" = "Saved messages";
+"shared.select_cursor" = "Select after the Cursor";
+"shared.select_range" = "Select in Order";
+"shared.selection" = "Selection";
 "shared.stories" = "Stories";
 "shared.total" = "Total: %s";
 "shared.videos" = "Videos";
@@ -1786,6 +1864,16 @@
 "text.copy_code" = "Copy";
 "text.expand_quote" = "Expand quote";
 
+"todo.completed" = "{count} of {total} completed";
+"todo.completed_none" = "None of {total} completed";
+"todo.mark_forwarded" = "You can't change forwarded checklists.";
+"todo.mark_premium" = "Only subscribers of {link} can mark tasks as done.";
+"todo.mark_restricted" = "{user} has restricted others from marking tasks as done.";
+"todo.premium_link" = "Telegram Premium";
+"todo.title" = "Checklist";
+"todo.title_group" = "Group Checklist";
+"todo.title_user" = "Checklist";
+
 "translate.failed" = "Translate failed.";
 "translate.title" = "Translate";
 "translate.to" = "Translation to English";
@@ -1817,6 +1905,23 @@
 "viewer.recovered" = "Could not display the photo. The viewer was closed.";
 "viewer.counter" = "%d of %d";
 "viewer.failed" = "Could not load the photo · click to retry";
+"viewer.gif_about" = "The video is saved to your GIFs as Telegram plays a GIF: without sound, at most HD and 10 MB.";
+"viewer.gif_about_bot" = "There is no FFmpeg here, so the video is forwarded to {bot}, which converts it.";
+"viewer.gif_bot_busy" = "The bot is converting your other videos. Try again later.";
+"viewer.gif_bot_failed" = "The bot could not convert the video.";
+"viewer.gif_bot_silent" = "The bot did not answer.";
+"viewer.gif_cancel" = "Cancel";
+"viewer.gif_downloading" = "The bot is downloading the video…";
+"viewer.gif_encoding" = "Converting the video…";
+"viewer.gif_encoding_again" = "The GIF is over 10 MB: converting again (pass {pass})…";
+"viewer.gif_failed" = "Could not save the GIF";
+"viewer.gif_probing" = "The bot is reading the video…";
+"viewer.gif_queued" = "In the bot's queue: {place}";
+"viewer.gif_saved" = "Saved to GIFs.";
+"viewer.gif_sending" = "Saving the GIF…";
+"viewer.gif_starting" = "Starting…";
+"viewer.gif_title" = "Save as GIF";
+"viewer.gif_too_large" = "The GIF is over 10 MB even at the lowest quality.";
 "viewer.keep_failed" = "Could not keep the photo";
 "viewer.loading_more" = "Loading photos…";
 "viewer.photo" = "Photo";

@@ -23,6 +23,58 @@ type ChatListActions interface {
 	MarkChatRead(chat int64)
 }
 
+// ErrPinnedChanged is what a new order of the pinned chats comes to when the
+// chats it orders are no longer the pinned ones: one was pinned or unpinned
+// meanwhile.
+var ErrPinnedChanged = errors.New("chats: the pinned chats changed")
+
+// PinReorderer is a Store whose pinned chats can be put in another order, as
+// the list's pinned rows are dragged.
+type PinReorderer interface {
+	// ReorderPinned puts the pinned chats of the list in order, which has
+	// each of them once: on success the list has that order, on an error
+	// the one it had. ErrPinnedChanged tells that order is not the pinned
+	// chats any more.
+	ReorderPinned(ctx context.Context, order []int64) error
+}
+
+// PinnedOrder is the ids of the pinned chats of chats, in their order.
+func PinnedOrder(chats []Chat) []int64 {
+	var pinned []Chat
+	for _, c := range chats {
+		if c.Pinned {
+			pinned = append(pinned, c)
+		}
+	}
+	sort.SliceStable(pinned, func(i, j int) bool { return pinned[i].PinRank < pinned[j].PinRank })
+	out := make([]int64, len(pinned))
+	for i, c := range pinned {
+		out[i] = c.ID
+	}
+	return out
+}
+
+// SamePinned reports whether order has exactly the pinned chats of chats,
+// each once.
+func SamePinned(chats []Chat, order []int64) bool {
+	pinned := map[int64]bool{}
+	for _, c := range chats {
+		if c.Pinned {
+			pinned[c.ID] = true
+		}
+	}
+	if len(pinned) != len(order) {
+		return false
+	}
+	for _, id := range order {
+		if !pinned[id] {
+			return false
+		}
+		delete(pinned, id)
+	}
+	return true
+}
+
 // SortChats puts chats in the order of the list: the pinned ones first, in
 // their pin order, then by the last message, the newest first.
 func SortChats(chats []Chat) {

@@ -49,7 +49,7 @@ func TestMessageStories(t *testing.T) {
 		t.Fatalf("a reply previewed as %q", p.Media)
 	}
 	forwarded, _ := convertMessage("", msg(&tg.MessageMediaStory{Peer: from, ID: 3, Story: storyItem(3, 50)}), names)
-	if p := messagePreview(forwarded, false); p.Media != "preview.story" || len(p.Thumbs) != 0 || p.Text != "story 3" {
+	if p := messagePreview(forwarded, false); p.Media != "preview.story" || len(p.Thumbs) != 1 || p.Text != "story 3" {
 		t.Fatalf("previewed %+v", p)
 	}
 }

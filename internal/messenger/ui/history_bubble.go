@@ -3,7 +3,7 @@
 package ui
 
 import (
-	"fmt"
+	"context"
 	"image"
 	"strconv"
 	"strings"
@@ -14,14 +14,15 @@ import (
 	"gio-mw/wdk"
 
 	"gioui.org/gesture"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/unit"
-	"gioui.org/widget"
 	"golang.org/x/exp/shiny/materialdesign/icons"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -62,19 +63,25 @@ const (
 	joinBelow
 )
 
-// joinable reports whether b, the message after a, continues a's group.
-func joinable(a, b model.Message) bool {
+// joinable reports whether b, the message after a, continues a's group. In
+// Saved Messages, whose messages tell no sender, the group is of whom they
+// were forwarded from, whose avatar each group shows, as Telegram
+// Desktop's.
+func joinable(a, b model.Message, saved bool) bool {
+	if saved && (a.ForwardFromID != b.ForwardFromID || a.ForwardName != b.ForwardName) {
+		return false
+	}
 	return a.Kind != model.MessageService && b.Kind != model.MessageService &&
 		a.Outgoing == b.Outgoing && a.SenderID == b.SenderID && a.SenderName == b.SenderName &&
 		sameDay(a.Date, b.Date) && b.Date.Sub(a.Date) < joinGap
 }
 
 // messageJoins tells for each message of msgs, in order, how it joins its
-// neighbours.
-func messageJoins(msgs []model.Message) []bubbleJoin {
+// neighbours; saved for those of Saved Messages.
+func messageJoins(msgs []model.Message, saved bool) []bubbleJoin {
 	joins := make([]bubbleJoin, len(msgs))
 	for i := 1; i < len(msgs); i++ {
-		if joinable(msgs[i-1], msgs[i]) {
+		if joinable(msgs[i-1], msgs[i], saved) {
 			joins[i-1] |= joinBelow
 			joins[i] |= joinAbove
 		}
@@ -166,7 +173,10 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 		r.viewTop = p.rowTop + r.bodyTop + gtx.Dp(bubblePadTop) + r.articleAbove
 	}
 	if r.avatar.Clicked(gtx) && p.senderOpens(m) {
-		p.openSender(m)
+		p.openSender(p.avatarSender(m))
+	}
+	if r.forward.Clicked(gtx) && p.forwardOpens(m) {
+		p.openSender(forwardSender(m))
 	}
 	if m.ReplyToMessageID != 0 && r.reply.Clicked(gtx) {
 		p.jumpPending = m.ReplyToMessageID
@@ -333,9 +343,13 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 	// from nothing, the list was made anew in each frame.
 	children := r.children[:0]
 	defer func() { r.children = children[:0] }()
-	if msg.SenderName != "" && !msg.Outgoing && join&joinAbove == 0 {
+	// As Telegram Desktop's Message::hasFromName: a chat with one person,
+	// a bot or Saved Messages names no sender over a message, whatever
+	// Telegram told of it; where a forward came from says the rest.
+	private := p.kind == model.KindUser || p.kind == model.KindBot || p.kind == model.KindSaved
+	if msg.SenderName != "" && !msg.Outgoing && !private && join&joinAbove == 0 {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, msg.SenderName, token.TypestyleLabelLargeEmphasized, senderColor(gtx, msg.SenderID), 1)
+			return p.layoutSenderName(gtx, msg)
 		}), vspace(3))
 	}
 	if msg.StoryOf != nil && !msg.StoryOf.Mention {
@@ -347,11 +361,7 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 		}), vspace(4))
 	} else if !msg.ForwardDate.IsZero() {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			text := l.T("history.forward")
-			if msg.ForwardName != "" {
-				text = l.Format("history.forwarded_from", map[string]string{"name": msg.ForwardName, "user": msg.ForwardName})
-			}
-			return label(gtx, text, token.TypestyleLabelMedium, sc.Primary.Color, 1)
+			return p.forwardLine(gtx, r, *msg, l)
 		}), vspace(4))
 	}
 	// In a thread, as the comments to a post, what replies to its root
@@ -367,7 +377,10 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.mediaLayout(gtx, r, *msg, l, animate) }), vspace(6))
 	}
 	if msg.Poll != nil {
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return pollLayout(gtx, msg.Poll, l) }))
+		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.pollLayout(gtx, msg, l) }))
+	}
+	if msg.Todo != nil {
+		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.todoLayout(gtx, msg, l) }))
 	}
 	if r.article != nil {
 		// What is over the article is measured, for links to its anchors.
@@ -397,7 +410,7 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.richText(gtx, r, l, animate) }))
 		// The time may go on its last line; not while a bot streams it.
 		r.textLast = !msg.Streaming
-	} else if msg.Media == nil && msg.Poll == nil {
+	} else if msg.Media == nil && msg.Poll == nil && msg.Todo == nil {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			if msg.Kind == model.MessageService {
 				return label(gtx, p.serviceText(*msg, l), token.TypestyleBodyMedium, sc.Surface.OnColor, 0)
@@ -699,14 +712,8 @@ func reactionChipColors(sc *token.Scheme, chosen, outgoing bool) (background, co
 func (p *chatPage) reactionIcon(gtx layout.Context, reaction model.Reaction, animate bool) layout.Dimensions {
 	size := gtx.Dp(18)
 	if reaction.DocumentID != 0 && p.media != nil {
-		msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d", reaction.DocumentID), MIMEType: "application/x-custom-emoji"}}
-		if p.images == nil {
-			return layout.Dimensions{Size: image.Pt(size, size)}
-		}
-		if frame := emojiFrame(p.media, p.images, msg, animate, scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
-			return exact(gtx, image.Pt(size, size), func(gtx layout.Context) layout.Dimensions {
-				return widget.Image{Src: p.images.Op(frame), Fit: widget.Contain}.Layout(gtx)
-			})
+		if frame := customEmoji(p.media, p.images, reaction.DocumentID, size, animate, scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
+			return drawImage(gtx, p.images, frame, image.Pt(size, size))
 		}
 		return layout.Dimensions{Size: image.Pt(size, size)}
 	}
@@ -831,6 +838,9 @@ func quoteRuns(m model.Message, l localization.Catalog) []model.TextRun {
 		}
 		runs = append([]model.TextRun{{Text: media}}, runs...)
 	}
+	if len(runs) == 0 && m.Todo != nil {
+		return []model.TextRun{{Text: m.Todo.Title}}
+	}
 	if len(runs) == 0 {
 		return []model.TextRun{}
 	}
@@ -887,5 +897,97 @@ func (p *chatPage) jumpTo(id model.MessageID) {
 		r.Reveal(p.chat, id)
 		p.forget()
 		p.invalidate()
+	}
+}
+
+// forwardLine is the line of whom m, a forward, came from. Before the name
+// is their avatar, as big as a custom emoji in the text, when Telegram told who
+// they are, but in Saved Messages, which draws it beside the bubble, as
+// Telegram Desktop's; a click on it opens their chat, as a group member's
+// avatar does.
+func (p *chatPage) forwardLine(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog) layout.Dimensions {
+	sc := scheme(gtx)
+	text := l.T("history.forward")
+	if m.ForwardName != "" {
+		text = l.Format("history.forwarded_from", map[string]string{"name": m.ForwardName, "user": m.ForwardName})
+	}
+	line := func(gtx layout.Context) layout.Dimensions {
+		if m.ForwardFromID == 0 || p.kind == model.KindSaved || p.avatar == nil {
+			return label(gtx, text, token.TypestyleLabelMedium, sc.Primary.Color, 1)
+		}
+		// As big as a custom emoji in the message's text: one of this
+		// small line's size was much smaller than those beside it.
+		ty := wdk.GetMaterialTheme(gtx).Typescale[token.TypestyleBodyLarge]
+		side := emojiBox(gtx, ty.Size).Size.X
+		kind := model.KindUser
+		if model.IsChannelID(m.ForwardFromID) {
+			kind = model.KindChannel
+		}
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return p.avatar(gtx, m.ForwardFromID, kind, m.ForwardName, unit.Dp(float32(side)/gtx.Metric.PxPerDp))
+			}),
+			layout.Rigid(layout.Spacer{Width: 4}.Layout),
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, text, token.TypestyleLabelMedium, sc.Primary.Color, 1)
+			}),
+		)
+	}
+	if !p.forwardOpens(m) || p.selectionCount() > 0 {
+		return line(gtx)
+	}
+	return r.forward.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		pointer.CursorPointer.Add(gtx.Ops)
+		return line(gtx)
+	})
+}
+
+// layoutSenderName draws the name of msg's sender over the message, in the
+// sender's color, with all the marks beside it a chat's name has in the
+// list: Telegram Desktop shows only the emoji status or the Premium star.
+func (p *chatPage) layoutSenderName(gtx layout.Context, msg *model.Message) layout.Dimensions {
+	name := func(gtx layout.Context) layout.Dimensions {
+		return label(gtx, msg.SenderName, token.TypestyleLabelLargeEmphasized, senderColor(gtx, msg.SenderID), 1)
+	}
+	if p.senderBadges == nil {
+		return name(gtx)
+	}
+	before, after := p.senderBadges(msg.SenderID, msg.SenderName)
+	return withBadges(gtx, before, name, after)
+}
+
+// openStatusSet shows the set the emoji status emoji, clicked beside a
+// sender's name, belongs to, once the emoji tells it.
+func (p *chatPage) openStatusSet(emoji int64) {
+	source, ok := p.source.(customEmojiSource)
+	if !ok || emoji == 0 {
+		return
+	}
+	ch := make(chan emojiSetResult, 1)
+	p.statusSet = ch
+	chat, invalidate := p.chat, p.invalidate
+	go func() {
+		defer crash.Recover("emoji set of a status", func(*crash.Panic) { ch <- emojiSetResult{chat: chat} })
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		var ref *model.StickerSetRef
+		if m, err := source.CustomEmoji(ctx, emoji); err == nil && m.Media != nil {
+			ref = m.Media.StickerSet
+		}
+		ch <- emojiSetResult{chat: chat, ref: ref}
+		invalidate()
+	}()
+}
+
+// updateStatusSet opens the set openStatusSet found, if the page is still
+// of the chat it was asked in.
+func (p *chatPage) updateStatusSet() {
+	select {
+	case r := <-p.statusSet:
+		p.statusSet = nil
+		if r.chat == p.chat && r.ref != nil {
+			p.stickers.open(p, *r.ref)
+		}
+	default:
 	}
 }

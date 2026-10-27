@@ -5,12 +5,16 @@ package ui
 import (
 	"image"
 	"math"
+	"slices"
 	"testing"
 	"time"
 
 	"gioui.org/f32"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
+
+	"komarugram/internal/messenger/model"
+	"komarugram/internal/messenger/styledtext"
 )
 
 func TestSpoilerUncoversOnClick(t *testing.T) {
@@ -72,5 +76,37 @@ func TestSmallSpoilerIsNotSlowed(t *testing.T) {
 	speed := reveal.reach(word) / reveal.duration(word).Seconds()
 	if speed < spoilerSpeed*0.75 {
 		t.Fatalf("the wave crosses a word at %.0f dp/s, want about %d", speed, spoilerSpeed)
+	}
+}
+
+// A spoiler over runs of several styles, a custom emoji among them, is one
+// band in a line: the parts are square where it goes on beside them, and
+// round at its ends and where a line breaks it.
+func TestSpoilerPartsJoin(t *testing.T) {
+	runs := []model.TextRun{{Text: "Ответ: "}, {Text: "это был ", Spoiler: true}, {Text: "🔥", Emoji: 7, Spoiler: true}, {Text: " дворецкий", Spoiler: true}}
+	edges := runEdges(runs, nil)
+	if want := []int{0, 7, 15, 16, 26}; !slices.Equal(edges, want) {
+		t.Fatalf("edges %v, want %v", edges, want)
+	}
+	frag := func(x, start, end int) styledtext.Fragment {
+		return styledtext.Fragment{Bounds: image.Rect(x, 0, x+10, 20), Clusters: []styledtext.Cluster{{Start: start, End: end}}}
+	}
+	for _, c := range []struct {
+		name string
+		run  int
+		f    styledtext.Fragment
+		want spoilerJoin
+	}{
+		{"after plain text", 1, frag(50, 7, 15), spoilerJoin{right: true}},
+		{"the emoji between", 2, frag(100, 15, 16), spoilerJoin{left: true, right: true}},
+		{"the last", 3, frag(120, 16, 26), spoilerJoin{left: true}},
+		{"cut by the line's end", 1, frag(50, 7, 12), spoilerJoin{}},
+		{"at a line's start", 3, frag(0, 16, 20), spoilerJoin{}},
+		{"the rest on the next line", 3, frag(0, 20, 26), spoilerJoin{}},
+		{"with no clusters", 2, styledtext.Fragment{Bounds: image.Rect(100, 0, 110, 20)}, spoilerJoin{}},
+	} {
+		if got := fragmentJoin(runs, edges, c.run, c.f); got != c.want {
+			t.Errorf("%s: %+v, want %+v", c.name, got, c.want)
+		}
 	}
 }

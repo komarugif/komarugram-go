@@ -117,6 +117,8 @@ type Message struct {
 	WebPage *WebPreview `json:",omitempty"`
 	Gift    *Gift       `json:",omitempty"`
 	Poll    *Poll       `json:",omitempty"`
+	// Todo is the message's checklist.
+	Todo *Todo `json:",omitempty"`
 	// Service is what a service message tells. Messages cached before
 	// it existed have none, and show as a service message only.
 	Service     *ServiceAction `json:",omitempty"`
@@ -138,9 +140,12 @@ type Message struct {
 	ReplyToMessageID MessageID
 	ForwardFromID    int64
 	ForwardDate      time.Time
-	GroupedID        int64
-	Media            *MessageMedia
-	ContentRevision  uint64
+	// ForwardPostID is the post of ForwardFromID, a channel, the message
+	// was forwarded from (fwd_from.channel_post), 0 for none.
+	ForwardPostID   MessageID `json:",omitempty"`
+	GroupedID       int64
+	Media           *MessageMedia
+	ContentRevision uint64
 	// NoForwards is set when the message protects its content: it cannot
 	// be forwarded or saved.
 	NoForwards bool `json:",omitempty"`

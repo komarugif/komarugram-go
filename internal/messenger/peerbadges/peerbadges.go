@@ -3,10 +3,11 @@
 // Package peerbadges knows who wears the marks the forks of Telegram clients
 // put beside a name: the arrow of exteraGram and AyuGram's developers,
 // supporters and official channels, a custom emoji exteraGram gives to some
-// people, and the Komaru faces of KomaruGram's developers, supporters and
-// partners. The lists are not Telegram's: they are kept by those projects and
-// read from their servers, as their clients do, and the last ones received
-// are saved, so that the marks show from the first frame.
+// people, and the Komaru faces of KomaruGram's developers and supporters,
+// with the emoji statuses it gives to some. The lists are not Telegram's:
+// they are kept by those projects and read from their servers, as their
+// clients do, and the last ones received are saved, so that the marks show
+// from the first frame.
 package peerbadges
 
 import (
@@ -19,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -56,10 +58,23 @@ const (
 )
 
 // Face is how a Komaru face is painted: in Color, and, with Theme, in the
-// color of the badges around it instead.
+// color of the badges around it instead; the sparkles that circle it are
+// in Particles, or with ParticlesTheme in that color too.
 type Face struct {
-	Color color.NRGBA
-	Theme bool
+	Color          color.NRGBA
+	Theme          bool
+	Particles      color.NRGBA
+	ParticlesTheme bool
+}
+
+// Status is the emoji status KomaruGram gives a person: the custom emoji
+// Emoji, or, when it is 0, the Index-th emoji, from 1, of the emoji set
+// called Set. Text is what its popup says, empty for the supporter's text.
+type Status struct {
+	Emoji int64
+	Set   string
+	Index int
+	Text  string
 }
 
 // Mark is the marks one peer has.
@@ -69,15 +84,15 @@ type Mark struct {
 	// for none, and Text what its popup says.
 	Emoji int64
 	Text  string
-	// Developer and Supporter are the Komaru faces; Partner marks a supporter
-	// that is a partner of the project.
+	// Developer and Supporter are the Komaru faces, and Status KomaruGram's
+	// emoji status, drawn after them.
 	Developer, Supporter *Face
-	Partner              bool
+	Status               *Status
 }
 
 // Empty reports whether the peer has no mark.
 func (m Mark) Empty() bool {
-	return m.Arrow == NoArrow && m.Emoji == 0 && m.Developer == nil && m.Supporter == nil
+	return m.Arrow == NoArrow && m.Emoji == 0 && m.Developer == nil && m.Supporter == nil && m.Status == nil
 }
 
 type custom struct {
@@ -89,7 +104,8 @@ type custom struct {
 type lists struct {
 	developers, channels, supporters, supporterChannels map[int64]bool
 	custom                                              map[int64]custom
-	komaruDevelopers, komaruSupporters, komaruPartners  map[int64]Face
+	komaruDevelopers, komaruSupporters                  map[int64]Face
+	komaruStatuses                                      map[int64]Status
 }
 
 // Registry holds the lists. It is safe for concurrent use: every window
@@ -167,10 +183,10 @@ func (r *Registry) Lookup(id int64) Mark {
 	}
 	if f, ok := d.komaruSupporters[id]; ok {
 		m.Supporter = &f
-	} else if f, ok := d.komaruPartners[id]; ok {
-		m.Supporter = &f
 	}
-	_, m.Partner = d.komaruPartners[id]
+	if s, ok := d.komaruStatuses[id]; ok {
+		m.Status = &s
+	}
 	return m
 }
 
@@ -279,15 +295,18 @@ func (r *Registry) loadCached() {
 			r.applyKomaru(name, body)
 		}
 	}
+	// KomaruGram no longer keeps a list of partners.
+	os.Remove(filepath.Join(r.dir, "komaru_partner.txt"))
 }
 
 // The three lists of KomaruGram, a file each.
-var komaruNames = []string{"badges.txt", "donates.txt", "partner.txt"}
+var komaruNames = []string{"badges.txt", "donates.txt", "statuses.txt"}
 
 // Apply takes body as the list called name, one of the files the lists are
 // saved in: "ayu_rc.json" for the arrow and the custom badges, and
-// "komaru_badges.txt", "komaru_donates.txt" and "komaru_partner.txt" for the
-// Komaru faces of developers, supporters and partners. It reports whether
+// "komaru_badges.txt", "komaru_donates.txt" and "komaru_statuses.txt" for
+// the Komaru faces of developers and supporters and the emoji statuses
+// KomaruGram gives. It reports whether
 // the list was taken. Subscribers are not told: Refresh does that.
 func (r *Registry) Apply(name string, body []byte) bool {
 	if name == "ayu_rc.json" {
@@ -312,16 +331,15 @@ func (r *Registry) applyAyu(body []byte) bool {
 }
 
 func (r *Registry) applyKomaru(name string, body []byte) bool {
-	parsed := parseKomaru(body)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	switch name {
 	case "badges.txt":
-		r.data.komaruDevelopers = parsed
+		r.data.komaruDevelopers = parseKomaru(body)
 	case "donates.txt":
-		r.data.komaruSupporters = parsed
-	case "partner.txt":
-		r.data.komaruPartners = parsed
+		r.data.komaruSupporters = parseKomaru(body)
+	case "statuses.txt":
+		r.data.komaruStatuses = parseStatuses(body)
 	}
 	return true
 }
@@ -380,7 +398,7 @@ var komaruOrange = color.NRGBA{R: 0xff, G: 0xad, B: 0x32, A: 0xff}
 // face,alpha", the colors "#rrggbb" or "#md3" for the color of the
 // surrounding badges, the alpha 0 to 255; all but the id may be left out.
 // Lines starting with '#' are comments. The face takes the particles' color
-// when its own is left out, as KomaruGram's.
+// when its own is left out, as KomaruGram's; the alpha is both's.
 func parseKomaru(body []byte) map[int64]Face {
 	out := map[int64]Face{}
 	for _, line := range strings.Split(string(body), "\n") {
@@ -408,8 +426,6 @@ func parseKomaru(body []byte) map[int64]Face {
 			}
 			return fallback
 		}
-		// The first color is the particles', which this client does not
-		// draw; the face's is the second.
 		particles := col(1, Face{Color: komaruOrange})
 		face := col(2, particles)
 		alpha := 255
@@ -419,7 +435,49 @@ func parseKomaru(body []byte) map[int64]Face {
 			}
 		}
 		face.Color.A = uint8(alpha)
+		face.Particles, face.ParticlesTheme = particles.Color, particles.Theme
+		face.Particles.A = uint8(alpha)
 		out[id] = face
+	}
+	return out
+}
+
+// statusPack is an emoji set and a position in it, as statuses.txt names a
+// status: "https://t.me/addemoji/EmojiKomaru/1", or "EmojiKomaru/1".
+var statusPack = regexp.MustCompile(`^(?:(?:https?://)?(?:t|telegram)\.me/addemoji/)?([A-Za-z0-9_]+)/(\d+)/?$`)
+
+// parseStatuses reads KomaruGram's list of emoji statuses: a person a line,
+// "id,status,text", the status a custom emoji's id or an emoji set and a
+// position in it, the text what the popup says, which may have commas or be
+// left out. Lines starting with '#' are comments.
+func parseStatuses(body []byte) map[int64]Status {
+	out := map[int64]Status{}
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, ",", 3)
+		id, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
+		if err != nil || id == 0 || len(parts) < 2 {
+			continue
+		}
+		var s Status
+		ref := strings.TrimSpace(parts[1])
+		if emoji, err := strconv.ParseInt(ref, 10, 64); err == nil {
+			s.Emoji = emoji
+		} else if m := statusPack.FindStringSubmatch(ref); m != nil {
+			if i, err := strconv.Atoi(m[2]); err == nil && i > 0 {
+				s.Set, s.Index = m[1], i
+			}
+		}
+		if s.Emoji <= 0 && s.Index == 0 {
+			continue
+		}
+		if len(parts) > 2 {
+			s.Text = strings.TrimSpace(parts[2])
+		}
+		out[id] = s
 	}
 	return out
 }

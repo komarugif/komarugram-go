@@ -157,6 +157,10 @@ type messageComposer struct {
 	hover              hoverPlay
 	// preview shows an item of the picker held large.
 	preview holdPreview
+	// itemMenu is the menu of an item of the picker right-clicked;
+	// pickerEdits brings what came of its actions.
+	itemMenu    pickerItemMenu
+	pickerEdits chan pickerEdit
 	// pickerDrawn is whether the picker was drawn in the last frame.
 	pickerDrawn bool
 	stripDrag   stripDrag
@@ -168,7 +172,10 @@ type messageComposer struct {
 	// localQuery, in localLanguage.
 	pageLoaded bool
 	// sentNotes are the messages sent that the history has not shown yet.
-	sentNotes                 []sentNote
+	sentNotes []sentNote
+	// sentJump is the chat a message was just sent to, whose history goes
+	// to its end in the next frame; 0 for none.
+	sentJump                  int64
 	localQuery, localLanguage string
 	local                     []model.PickerItem
 	itemClicks                map[string]*surface
@@ -233,6 +240,7 @@ func newMessageComposer(source model.ConversationStore, invalidate func()) *mess
 	c.discussions = make(chan discussionResult, 2)
 	c.edits = make(chan editResult, 2)
 	c.mutes = make(chan error, 1)
+	c.pickerEdits = make(chan pickerEdit, 4)
 	c.search.SingleLine = true
 	c.path.SingleLine = true
 	c.title.SingleLine = true
@@ -565,6 +573,8 @@ func (c *messageComposer) update(gtx layout.Context, chat int64, l localization.
 			}
 		case r := <-c.edits:
 			c.editDone(r)
+		case e := <-c.pickerEdits:
+			c.itemEdited(e, l)
 		case r := <-c.results:
 			if r.generation != c.generation {
 				continue
@@ -778,11 +788,20 @@ drained:
 			break
 		}
 		if e, ok := ev.(key.Event); ok && e.State == key.Press {
+			if c.itemMenu.open {
+				// The menu of an item closes, the picker stays.
+				c.itemMenu.open = false
+				continue
+			}
 			c.pickerOpen = false
 			c.attachOpen = false
 			c.form = 0
 			gtx.Execute(key.FocusCmd{Tag: &d.editor})
 		}
+	}
+	if !c.pickerOpen {
+		// A picker opened again shows no menu of before.
+		c.itemMenu.open = false
 	}
 	if c.pickerOpen && !c.due.IsZero() {
 		if !gtx.Now.Before(c.due) {

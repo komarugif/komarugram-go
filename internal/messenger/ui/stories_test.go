@@ -192,6 +192,10 @@ func TestViewerStories(t *testing.T) {
 	}
 	v.share.like.Click()
 	h.frame()
+	// The heart and the forwarding each go to the store on their own: the
+	// heart is told before the forwarding is asked for, or their order is
+	// the scheduler's.
+	h.until("the heart told", func() bool { return slices.Contains(src.recorded(), "like 8 1 true") })
 	v.share.forward.Click()
 	h.frame()
 	if !v.share.picker.modal.Shown() {

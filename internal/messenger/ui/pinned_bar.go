@@ -161,12 +161,12 @@ func (p *chatPage) layoutPinned(gtx layout.Context, chat int64, l localization.C
 		title += " #" + strconv.Itoa(index+1)
 	}
 	m, state, _ := p.referenced(chat, shown)
-	text := l.T("service.loading")
+	runs := []model.TextRun{{Text: l.T("service.loading")}}
 	switch state {
 	case model.LookupFound:
-		text = p.pinnedText(m, l)
+		runs = p.pinnedRuns(m, l)
 	case model.LookupGone:
-		text = l.T("service.deleted_message")
+		runs = []model.TextRun{{Text: l.T("service.deleted_message")}}
 	}
 	hidePx := gtx.Dp(48)
 	pad := gtx.Dp(16)
@@ -182,7 +182,7 @@ func (p *chatPage) layoutPinned(gtx layout.Context, chat int64, l localization.C
 		return label(gtx, title, token.TypestyleLabelLargeEmphasized, sc.Primary.Color, 1)
 	})
 	offset(textGtx, image.Pt(textX, gtx.Dp(27)), func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, text, token.TypestyleBodyMedium, sc.Surface.OnColor, 1)
+		return richLabel{runs: runs, style: token.TypestyleBodyMedium, color: sc.Surface.OnColor, maxLines: 1, media: p.media, images: p.images, animate: p.animate}.Layout(gtx)
 	})
 	offset(gtx, image.Pt(size.X-hidePx-gtx.Dp(4), (size.Y-hidePx)/2), func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints = layout.Exact(image.Pt(hidePx, hidePx))
@@ -197,20 +197,21 @@ func (p *chatPage) layoutPinned(gtx layout.Context, chat int64, l localization.C
 	})
 }
 
-// pinnedText is a pinned message's words on the bar: its text, or what
+// pinnedRuns are a pinned message's words on the bar: its text, or what
 // its media is.
-func (p *chatPage) pinnedText(m model.Message, l localization.Catalog) string {
+func (p *chatPage) pinnedRuns(m model.Message, l localization.Catalog) []model.TextRun {
 	if m.Kind == model.MessageService {
-		return p.serviceText(m, l)
+		return []model.TextRun{{Text: p.serviceText(m, l)}}
 	}
 	if m.Poll != nil && strings.TrimSpace(m.Text) == "" {
-		return m.Poll.Question
+		return []model.TextRun{{Text: m.Poll.Question}}
 	}
-	text := foundText(m, l)
-	if m.SenderName != "" {
-		text = strings.TrimPrefix(text, m.SenderName+": ")
+	if m.Todo != nil && strings.TrimSpace(m.Text) == "" {
+		return []model.TextRun{{Text: m.Todo.Title}}
 	}
-	return text
+	// As a reply's quote: what media it has, and its text with its custom
+	// emoji, as Telegram Desktop's pinned bar draws them.
+	return quoteRuns(m, l)
 }
 
 // pinnedLine draws the bar's line: a segment for each pinned message, up

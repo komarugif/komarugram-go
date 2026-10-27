@@ -27,6 +27,9 @@ func TestPreviewLine(t *testing.T) {
 		{model.Preview{Text: "trip", Media: "preview.photo", Album: &model.PreviewAlbum{Photos: 2, Captions: 2}}, "", "2 photos", ""},
 		{model.Preview{Media: "preview.file", Album: &model.PreviewAlbum{Files: 1}}, "", "File", ""},
 		{model.Preview{Outgoing: true, Media: "preview.sticker", Emoji: "😀"}, "You", "😀 Sticker", ""},
+		// A poll's question and a checklist's title in place of the word.
+		{model.Preview{Media: "preview.poll", Title: "Lunch?"}, "", "Lunch?", ""},
+		{model.Preview{Media: "preview.todo", Title: "Trip", Text: "see you"}, "", "Trip", "see you"},
 	} {
 		sender, media, text := l.PreviewLine(c.p, "", false)
 		if sender != c.sender || media != c.media || text != c.text {

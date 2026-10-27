@@ -85,10 +85,13 @@ func utf16Units(s string) int {
 
 // previewThumb is the small picture of what m carries, as Telegram
 // Desktop's list draws before the text: of a photo, a video, a GIF, a
-// video message, a file with a thumbnail, a link's photo or video.
+// video message, a file with a thumbnail, a link's photo or video; and of
+// a forwarded story's photo or video, as Telegram for Android's list draws
+// it, where Telegram Desktop's has none.
 func previewThumb(m model.Message) (model.PreviewThumb, bool) {
-	if m.StoryOf != nil {
-		// A story's, as Telegram Desktop's list shows it, has none.
+	if s := m.StoryOf; s != nil && (s.Mention || s.Expired) {
+		// A mention is a line of the history; an expired story has
+		// nothing to show.
 		return model.PreviewThumb{}, false
 	}
 	t := model.PreviewThumb{Message: m.Key.MessageID, Spoiler: m.MediaSpoiler}
@@ -304,6 +307,14 @@ func previewContent(p *model.Preview, m model.Message) {
 	}
 	if t, ok := previewThumb(m); ok {
 		p.Thumbs = []model.PreviewThumb{t}
+	}
+	// A poll or a checklist shows its question or title, as Telegram
+	// Desktop's MediaPoll::toPreview and MediaTodoList::toPreview do.
+	switch {
+	case m.Poll != nil:
+		p.Title = strings.Join(strings.Fields(m.Poll.Question), " ")
+	case m.Todo != nil:
+		p.Title = strings.Join(strings.Fields(m.Todo.Title), " ")
 	}
 	if m.GroupedID != 0 {
 		a := &model.PreviewAlbum{ID: m.GroupedID, Last: m.Key.MessageID}

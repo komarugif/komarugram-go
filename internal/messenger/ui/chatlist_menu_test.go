@@ -32,6 +32,8 @@ type pinStore struct {
 	read    []int64
 	fail    error
 	premium model.Premium
+	// orders are the orders of the pinned chats saved.
+	orders [][]int64
 }
 
 func (s *pinStore) PinChat(_ context.Context, chat int64, pin bool) error {
@@ -59,6 +61,16 @@ func (s *pinStore) asked() []int64 {
 	return append([]int64(nil), s.pinned...)
 }
 
+// waitAsked is what the store was asked once it was asked n times, or
+// after a while: the menu asks it in the background.
+func (s *pinStore) waitAsked(n int) []int64 {
+	deadline := time.Now().Add(2 * time.Second)
+	for len(s.asked()) < n && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	return s.asked()
+}
+
 // listHarness draws the chat list on a router of its own.
 type listHarness struct {
 	t      *testing.T
@@ -69,6 +81,11 @@ type listHarness struct {
 	sec    section
 	now    time.Time
 	l      localization.Catalog
+	// picks are the chats picked in the list.
+	picks []int64
+	// wake is when the list asked for its next frame, if wakes.
+	wake  time.Time
+	wakes bool
 }
 
 func newListHarness(t *testing.T, chats []model.Chat) *listHarness {
@@ -84,7 +101,11 @@ func (h *listHarness) frames(n int) {
 	for range n {
 		gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(320, 700)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
 		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		if p, ok := h.list.Update(gtx, h.sec, h.l); ok {
+			h.picks = append(h.picks, p.ID)
+		}
 		h.list.Layout(gtx, h.sec, nil, h.chats, 0, false, h.l)
+		h.list.layoutMenu(gtx, image.Point{}, h.list.menuBackdrop(), h.l)
 		h.router.Frame(gtx.Ops)
 		h.now = h.now.Add(16 * time.Millisecond)
 	}
@@ -137,7 +158,7 @@ func TestChatRowMenuPins(t *testing.T) {
 	}
 	h.press(pointer.ButtonPrimary, first)
 	h.frames(5)
-	if got := h.store.asked(); len(got) != 1 || got[0] != 4 {
+	if got := h.store.waitAsked(1); len(got) != 1 || got[0] != 4 {
 		t.Fatalf("asked to pin %v, want chat 4", got)
 	}
 	h.frames(30)
@@ -151,7 +172,7 @@ func TestChatRowMenuPins(t *testing.T) {
 	}
 	h.press(pointer.ButtonPrimary, first)
 	h.frames(5)
-	if got := h.store.asked(); len(got) != 2 || got[1] != -1 {
+	if got := h.store.waitAsked(2); len(got) != 2 || got[1] != -1 {
 		t.Fatalf("asked %v, want chat 1 unpinned", got)
 	}
 }
@@ -176,7 +197,7 @@ func TestChatRowMenuLimit(t *testing.T) {
 	first = h.rightClick(7)
 	h.press(pointer.ButtonPrimary, first)
 	h.frames(5)
-	if got := h.store.asked(); len(got) != 1 {
+	if got := h.store.waitAsked(1); len(got) != 1 {
 		t.Fatalf("asked %v with Premium and five pinned", got)
 	}
 }
@@ -242,5 +263,60 @@ func TestChatRowMenuOnlyInAllChats(t *testing.T) {
 	h.frames(30)
 	if h.list.menu.open {
 		t.Fatal("a menu opened with nothing to offer")
+	}
+}
+
+// TestChatRowMenuOverWindow narrows the list to its avatars, beside the
+// rest of the window, and opens a chat's menu: it takes its own width over
+// the window, from where it was opened, and its item still works.
+func TestChatRowMenuOverWindow(t *testing.T) {
+	var router input.Router
+	list := newChatList()
+	store := &pinStore{premium: model.PremiumFromConfig(false, nil)}
+	list.menu.store, list.menu.premium = store, store
+	l := localization.For("en")
+	chats := testChats(0)
+	window := image.Pt(800, 700)
+	listAt, listWidth := image.Pt(40, 0), 72
+	now := time.Unix(100000, 0)
+	frames := func(n int) {
+		for range n {
+			gtx := layout.Context{Ops: new(op.Ops), Source: router.Source(), Now: now, Constraints: layout.Exact(window), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
+			wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+			listGtx := gtx
+			listGtx.Constraints = layout.Exact(image.Pt(listWidth, window.Y))
+			offset(listGtx, listAt, func(gtx layout.Context) layout.Dimensions {
+				return list.Layout(gtx, section{}, nil, chats, 0, true, l)
+			})
+			list.layoutMenu(gtx, listAt, nil, l)
+			router.Frame(gtx.Ops)
+			now = now.Add(16 * time.Millisecond)
+		}
+	}
+	press := func(button pointer.Buttons, pos f32.Point) {
+		for _, kind := range []pointer.Kind{pointer.Press, pointer.Release} {
+			router.Queue(pointer.Event{Kind: kind, Source: pointer.Mouse, Buttons: button, Position: pos, Time: time.Duration(now.UnixNano())})
+			frames(1)
+		}
+	}
+	frames(2)
+	at := f32.Pt(float32(listAt.X+36), float32(6+64*2+32))
+	press(pointer.ButtonSecondary, at)
+	frames(30)
+	if !list.menu.open {
+		t.Fatal("the menu did not open")
+	}
+	rect := list.menu.rect
+	if rect.Dx() != menuWidth || rect.Min.X != int(at.X) || rect.Min.Y != int(at.Y) {
+		t.Fatalf("the menu is at %v, want %d wide from %v", rect, menuWidth, at)
+	}
+	if !rect.In(image.Rectangle{Max: window}) || rect.Max.X <= listAt.X+listWidth {
+		t.Fatalf("the menu at %v is not over the window beside the list", rect)
+	}
+	// Its first item, beyond the list.
+	press(pointer.ButtonPrimary, f32.Pt(float32(rect.Max.X-20), float32(rect.Min.Y+menuPadding+menuItemHeight/2)))
+	frames(5)
+	if got := store.waitAsked(1); len(got) != 1 || got[0] != 3 {
+		t.Fatalf("asked %v, want chat 3 pinned", got)
 	}
 }

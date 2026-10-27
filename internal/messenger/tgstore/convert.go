@@ -98,6 +98,9 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 			if f.FromName != "" {
 				out.ForwardName = f.FromName
 			}
+			if post, ok := f.GetChannelPost(); ok && model.IsChannelID(out.ForwardFromID) {
+				out.ForwardPostID = model.MessageID(post)
+			}
 			out.ForwardDate = time.Unix(int64(f.Date), 0)
 		}
 		out.Views, _ = m.GetViews()
@@ -151,23 +154,10 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 				}
 			}
 		case *tg.MessageMediaToDo:
-			out.Kind = model.MessageText
-			out.Text = media.Todo.Title.Text
-			out.Entities = nil
-			done := map[int]bool{}
-			for _, item := range media.Completions {
-				done[item.ID] = true
-			}
-			for _, item := range media.Todo.List {
-				mark := "☐ "
-				if done[item.ID] {
-					mark = "☑ "
-				}
-				out.Text += "\n" + mark + item.Title.Text
-			}
+			out.Todo = convertTodo(media, names)
 		case *tg.MessageMediaPoll:
 			out.Kind = model.MessagePoll
-			out.Poll = convertPoll(media)
+			out.Poll = convertPoll(media.Poll, media.Results, names)
 		case *tg.MessageMediaDocument:
 			if d, ok := media.Document.(*tg.Document); ok {
 				out.Kind, out.Media, loc = documentMedia(d)
@@ -325,7 +315,11 @@ func documentMedia(d *tg.Document) (model.MessageKind, *model.MessageMedia, *fil
 	if m.Thumbnail != nil {
 		m.Preview = m.Thumbnail.Preview
 	}
-	sticker, animated := false, false
+	// The attributes make the kind in their order, as Telegram Desktop's
+	// DocumentData::setattributes: a video or an audio names the kind of a
+	// file only, so that a video message with an audio attribute after its
+	// video's stays a video message; an animation is a file's or a video's,
+	// a sticker a file's, a video's or an animation's.
 	for _, a := range d.Attributes {
 		switch a := a.(type) {
 		case *tg.DocumentAttributeFilename:
@@ -333,37 +327,49 @@ func documentMedia(d *tg.Document) (model.MessageKind, *model.MessageMedia, *fil
 		case *tg.DocumentAttributeImageSize:
 			m.Width, m.Height = a.W, a.H
 		case *tg.DocumentAttributeVideo:
-			k = model.MessageVideo
-			if a.RoundMessage {
-				k = model.MessageRound
+			if k == model.MessageFile {
+				k = model.MessageVideo
+				if a.RoundMessage {
+					k = model.MessageRound
+				}
 			}
 			m.Width, m.Height = a.W, a.H
 			m.Duration = time.Duration(a.Duration * float64(time.Second))
 		case *tg.DocumentAttributeAudio:
-			if a.Voice {
-				k = model.MessageVoice
-				m.Waveform = a.Waveform
-			} else {
+			if k == model.MessageFile {
 				k = model.MessageMusic
+				if a.Voice {
+					k = model.MessageVoice
+				}
 			}
-			m.Title, m.Performer = a.Title, a.Performer
-			m.Duration = time.Duration(a.Duration) * time.Second
+			switch k {
+			case model.MessageVoice, model.MessageRound:
+				m.Waveform = a.Waveform
+			case model.MessageMusic:
+				m.Title, m.Performer = a.Title, a.Performer
+			}
+			if m.Duration == 0 {
+				m.Duration = time.Duration(a.Duration) * time.Second
+			}
 		case *tg.DocumentAttributeAnimated:
-			animated = true
+			if k == model.MessageFile || k == model.MessageVideo {
+				k = model.MessageGIF
+			}
 		case *tg.DocumentAttributeSticker:
-			sticker = true
+			if k == model.MessageFile || k == model.MessageVideo || k == model.MessageGIF {
+				k = model.MessageSticker
+			}
 			m.StickerSet, m.Emoji = stickerSetRef(a.Stickerset), a.Alt
 		case *tg.DocumentAttributeCustomEmoji:
-			sticker = true
+			if k == model.MessageFile || k == model.MessageVideo || k == model.MessageGIF {
+				k = model.MessageSticker
+			}
 			m.StickerSet = stickerSetRef(a.Stickerset)
 			m.TextColor = a.TextColor
 		}
 	}
-	if animated || d.MimeType == "image/gif" {
+	if k == model.MessageFile && d.MimeType == "image/gif" {
 		k = model.MessageGIF
-	}
-	if sticker {
-		k = model.MessageSticker
 	}
 	return k, m, &fileLocation{ID: d.ID, Hash: d.AccessHash, Reference: d.FileReference, DC: d.DCID}
 }
@@ -423,16 +429,26 @@ func photoThumbnail(sizes []tg.PhotoSizeClass, id string) *model.MessageMedia {
 	return best
 }
 
-func convertPoll(media *tg.MessageMediaPoll) *model.Poll {
-	p := &model.Poll{Question: media.Poll.Question.Text, Total: media.Results.TotalVoters, Closed: media.Poll.Closed, Quiz: media.Poll.Quiz, Multiple: media.Poll.MultipleChoice}
-	for _, raw := range media.Poll.Answers {
+// convertPoll is the model's poll of poll with its results, names naming
+// who voted.
+func convertPoll(poll tg.Poll, results tg.PollResults, names map[int64]string) *model.Poll {
+	p := &model.Poll{
+		ID: poll.ID, Question: poll.Question.Text, Total: results.TotalVoters,
+		Closed: poll.Closed, Quiz: poll.Quiz, Multiple: poll.MultipleChoice, Public: poll.PublicVoters,
+		HideResults: poll.HideResultsUntilClose, Creator: poll.Creator, NoRevote: poll.RevotingDisabled,
+		Solution: results.Solution,
+	}
+	if poll.CloseDate != 0 {
+		p.CloseDate = time.Unix(int64(poll.CloseDate), 0)
+	}
+	for _, raw := range poll.Answers {
 		a, ok := raw.(*tg.PollAnswer)
 		if !ok {
 			continue
 		}
-		answer := model.PollAnswer{Text: a.GetText().Text}
-		for _, r := range media.Results.Results {
-			if string(r.Option) == string(a.GetOption()) {
+		answer := model.PollAnswer{Text: a.Text.Text, Option: a.Option}
+		for _, r := range results.Results {
+			if string(r.Option) == string(a.Option) {
 				answer.Voters = r.Voters
 				answer.Chosen = r.Chosen
 				answer.Correct = r.Correct
@@ -440,7 +456,29 @@ func convertPoll(media *tg.MessageMediaPoll) *model.Poll {
 		}
 		p.Answers = append(p.Answers, answer)
 	}
+	for _, peer := range results.RecentVoters {
+		id := peerID(peer)
+		p.Recent = append(p.Recent, model.PollVoter{ID: id, Name: names[id]})
+	}
 	return p
+}
+
+// convertTodo is the model's checklist of media, names naming who
+// completed its tasks.
+func convertTodo(media *tg.MessageMediaToDo, names map[int64]string) *model.Todo {
+	t := &model.Todo{Title: media.Todo.Title.Text, OthersCanAppend: media.Todo.OthersCanAppend, OthersCanComplete: media.Todo.OthersCanComplete}
+	for _, item := range media.Todo.List {
+		one := model.TodoItem{ID: item.ID, Text: item.Title.Text}
+		for _, c := range media.Completions {
+			if c.ID == item.ID {
+				one.CompletedBy = peerID(c.CompletedBy)
+				one.CompletedByName = names[one.CompletedBy]
+				one.Completed = time.Unix(int64(c.Date), 0)
+			}
+		}
+		t.Items = append(t.Items, one)
+	}
+	return t
 }
 
 // convertInlineKeyboard turns the rows of the keyboard under a bot's message

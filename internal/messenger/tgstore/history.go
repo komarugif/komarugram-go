@@ -43,6 +43,27 @@ type peerRecord struct {
 	// StoriesHidden: the account moved the peer's stories to the archive,
 	// out of the list over the chats.
 	StoriesHidden bool `json:",omitempty"`
+	// StoriesMax is the latest of the peer's stories now, 0 for none, as
+	// Telegram tells it with the peer (stories_max_id): whether it has
+	// stories, before they are asked for.
+	StoriesMax int `json:",omitempty"`
+	// Community is the chat id of the community a channel or user is linked
+	// to, 0 for none: also of those not in the list, found or opened by a
+	// link.
+	Community int64 `json:",omitempty"`
+	// Collapsed: a community shown as one chat.
+	Collapsed bool `json:",omitempty"`
+}
+
+// key is the chat id of the peer p records.
+func (p peerRecord) key() int64 {
+	switch p.Kind {
+	case "user":
+		return peerID(&tg.PeerUser{UserID: p.ID})
+	case "chat":
+		return peerID(&tg.PeerChat{ChatID: p.ID})
+	}
+	return peerID(&tg.PeerChannel{ChannelID: p.ID})
 }
 
 // peerRights are what MessageRights and CanSend need of a peer.
@@ -89,7 +110,8 @@ func (p peerRecord) input() tg.InputPeerClass {
 		return &tg.InputPeerUser{UserID: p.ID, AccessHash: p.Hash}
 	case "chat":
 		return &tg.InputPeerChat{ChatID: p.ID}
-	case "channel":
+	case "channel", "community":
+		// A community is a channel of a kind: its photo is asked for so.
 		return &tg.InputPeerChannel{ChannelID: p.ID, AccessHash: p.Hash}
 	}
 	return &tg.InputPeerEmpty{}
@@ -403,6 +425,11 @@ func (s *Store) rememberPeers(users []tg.UserClass, chats []tg.ChatClass) {
 			p.First = strings.TrimSpace(u.FirstName)
 			if !u.Min {
 				p.StoriesHidden = u.StoriesHidden
+				p.Community = linkedCommunity(u.GetLinkedCommunityID())
+				p.StoriesMax = storiesMax(u.GetStoriesMaxID())
+				if u.StoriesUnavailable {
+					p.StoriesMax = 0
+				}
 			}
 			if photo, ok := u.Photo.(*tg.UserProfilePhoto); ok {
 				p.Photo = &avatarRecord{photo.PhotoID, photo.DCID, photo.HasVideo, photo.StrippedThumb}
@@ -438,6 +465,13 @@ func (s *Store) rememberPeers(users []tg.UserClass, chats []tg.ChatClass) {
 			if !ch.Min && !ch.StoriesHiddenMin {
 				p.StoriesHidden = ch.StoriesHidden
 			}
+			if !ch.Min {
+				p.Community = linkedCommunity(ch.GetLinkedCommunityID())
+				p.StoriesMax = storiesMax(ch.GetStoriesMaxID())
+				if ch.StoriesUnavailable {
+					p.StoriesMax = 0
+				}
+			}
 			if ch.Min && p.Rights.Known {
 				p.Rights.Default = bannedKinds(ch.DefaultBannedRights)
 				p.Rights.JoinToSend = ch.JoinToSend
@@ -452,6 +486,18 @@ func (s *Store) rememberPeers(users []tg.UserClass, chats []tg.ChatClass) {
 				p.Photo = chatAvatar(ch.Photo)
 			}
 			c.peers[key] = p
+		case *tg.Community:
+			key := peerID(&tg.PeerChannel{ChannelID: ch.ID})
+			if old, ok := c.peers[key]; ch.Min && ok {
+				// A min community has no access hash of its own.
+				old.Name, old.Photo = ch.Title, chatAvatar(ch.Photo)
+				c.peers[key] = old
+				continue
+			}
+			c.peers[key] = peerRecord{ID: ch.ID, Hash: ch.AccessHash, Kind: "community", Name: ch.Title, Photo: chatAvatar(ch.Photo), Rights: peerRights{Known: true, Left: ch.Left, Creator: ch.Creator, Muted: true}, Collapsed: ch.CollapsedInDialogs}
+		case *tg.CommunityForbidden:
+			key := peerID(&tg.PeerChannel{ChannelID: ch.ID})
+			c.peers[key] = peerRecord{ID: ch.ID, Hash: ch.AccessHash, Kind: "community", Name: ch.Title, Rights: peerRights{Muted: true}}
 		}
 	}
 }
@@ -1347,9 +1393,11 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 	switch u := u.(type) {
 	case *tg.Updates:
 		s.rememberPeers(u.Users, u.Chats)
+		s.applyCommunities(u.Users, u.Chats)
 		all = u.Updates
 	case *tg.UpdatesCombined:
 		s.rememberPeers(u.Users, u.Chats)
+		s.applyCommunities(u.Users, u.Chats)
 		all = u.Updates
 	case *tg.UpdateShort:
 		all = []tg.UpdateClass{u.Update}
@@ -1424,6 +1472,8 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			chat = peerID(&tg.PeerChannel{ChannelID: u.ChannelID})
 		case *tg.UpdateMessageReactions:
 			s.applyReactions(peerID(u.Peer), u.MsgID, u.Reactions)
+		case *tg.UpdateMessagePoll:
+			s.applyPoll(u)
 		case *tg.UpdateLangPack:
 			langpack.Changed(u.Difference.LangCode)
 		case *tg.UpdateLangPackTooLong:
@@ -1484,6 +1534,7 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 				}
 			}
 			for _, m := range ms {
+				s.watch.deliver(m)
 				if fresh {
 					s.adoptDraft(m)
 					if !m.Outgoing {
@@ -1796,6 +1847,12 @@ func messageKindKey(m model.Message) string {
 	}
 	if m.Rich != nil && strings.TrimSpace(m.Text) == "" {
 		return richFallbackKey(*m.Rich)
+	}
+	switch {
+	case m.Poll != nil:
+		return "preview.poll"
+	case m.Todo != nil:
+		return "preview.todo"
 	}
 	switch m.Kind {
 	case model.MessagePhoto:

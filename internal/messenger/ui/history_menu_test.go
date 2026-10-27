@@ -84,6 +84,8 @@ type menuHarness struct {
 	store  *menuStore
 	page   *chatPage
 	now    time.Time
+	// still turns animations off.
+	still bool
 }
 
 func newMenuHarness(t *testing.T, edit func(*menuStore, []model.Message)) *menuHarness {
@@ -119,6 +121,9 @@ func newMenuHarnessOn(t *testing.T, edit func(*menuStore, []model.Message), wrap
 func (h *menuHarness) frame() {
 	gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(500, 700)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
 	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	if h.still {
+		wdk.SetAnimationsEnabled(gtx, false)
+	}
 	h.page.images.BeginFrame()
 	h.page.media.BeginFrame()
 	h.page.Layout(gtx, model.Chat{ID: 1, Title: "Chat", Kind: model.KindGroup}, localization.For("en"), false)

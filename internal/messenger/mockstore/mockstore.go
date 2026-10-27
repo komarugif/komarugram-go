@@ -59,6 +59,16 @@ type Store struct {
 
 	// stories are the demo's stories, by peer, made when first asked for.
 	stories map[int64]*demoStories
+
+	// gifs are the saved GIFs, once one was saved or deleted; recentGone,
+	// the recent stickers taken off the list (composer.go).
+	gifs       []model.PickerItem
+	gifsKept   bool
+	recentGone map[string]bool
+	// gifsMade counts the GIFs made of videos, which name them; gifsOf
+	// are those made, by the media ID of their video (gif_maker.go).
+	gifsMade int
+	gifsOf   map[string]model.Message
 }
 
 // New returns a store with demo chats whose times are relative to now, and
@@ -86,6 +96,7 @@ func New(now time.Time, extra int) *Store {
 		{ID: DemoForum, Kind: model.KindGroup, Forum: true, Title: "Клуб Go: обсуждения", Last: model.Preview{Sender: "Игорь", Text: "Релиз в пятницу, кто берёт заметки?"}, LastTime: ago(35 * time.Minute), Unread: 9, Members: 240},
 	}
 	chats = append(chats, generate(now, extra, int64(len(chats)+1))...)
+	chats = withDemoCommunities(chats)
 	model.Renumbered(chats)
 	return &Store{chats: chats, created: now, presence: demoPresence(now),
 		// A chat of the demo has a theme set for all in it, as from Telegram.
@@ -183,6 +194,23 @@ func (s *Store) PinChat(ctx context.Context, chat int64, pin bool) error {
 		return model.ErrPinnedTooMuch
 	}
 	s.chats = model.WithPinned(s.chats, chat, pin)
+	return nil
+}
+
+// ReorderPinned implements model.PinReorderer in memory, after as long as a
+// round trip.
+func (s *Store) ReorderPinned(ctx context.Context, order []int64) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(200 * time.Millisecond):
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !model.SamePinned(s.chats, order) {
+		return model.ErrPinnedChanged
+	}
+	s.chats = model.WithPinOrder(s.chats, order)
 	return nil
 }
 

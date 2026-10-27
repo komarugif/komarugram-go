@@ -111,6 +111,73 @@ func TestPinChat(t *testing.T) {
 	}
 }
 
+// A new order of the pinned chats is the list's at once, and Telegram is
+// told it, forced, for the main list; one it refuses goes, and one of chats
+// that are not all the pinned ones is not asked.
+func TestReorderPinned(t *testing.T) {
+	s := pinStore(t)
+	s.chats = model.WithPinned(s.chats, 3, true) // 3, 1, 2 pinned.
+	var asked []*tg.MessagesReorderPinnedDialogsRequest
+	var fail error
+	var during []int64
+	s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
+		r, ok := in.(*tg.MessagesReorderPinnedDialogsRequest)
+		if !ok {
+			return nil, errors.New("unexpected request")
+		}
+		asked = append(asked, r)
+		during = pinnedIDs(s)
+		if fail != nil {
+			return nil, fail
+		}
+		return &tg.BoolTrue{}, nil
+	})
+	ctx := context.Background()
+
+	if err := s.ReorderPinned(ctx, []int64{1, 2, 3}); err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 1 || !asked[0].Force || asked[0].FolderID != 0 || len(asked[0].Order) != 3 {
+		t.Fatalf("asked %+v", asked)
+	}
+	var told []int64
+	for _, p := range asked[0].Order {
+		user := p.(*tg.InputDialogPeer).Peer.(*tg.InputPeerUser)
+		if user.AccessHash != user.UserID*11 {
+			t.Fatalf("peer %+v", user)
+		}
+		told = append(told, user.UserID)
+	}
+	if !equal(told, []int64{1, 2, 3}) {
+		t.Fatalf("told the order %v", told)
+	}
+	if !equal(during, []int64{1, 2, 3}) {
+		t.Fatalf("the list had %v before Telegram answered", during)
+	}
+	if got := chatOrder(s); !equal(got, []int64{1, 2, 3, 4}) {
+		t.Fatalf("order %v", got)
+	}
+
+	fail = errors.New("boom")
+	if err := s.ReorderPinned(ctx, []int64{2, 3, 1}); err == nil {
+		t.Fatal("a refused order came to no error")
+	}
+	if got := pinnedIDs(s); !equal(got, []int64{1, 2, 3}) {
+		t.Fatalf("pinned %v after a refused order, want the one before", got)
+	}
+
+	fail = nil
+	if err := s.ReorderPinned(ctx, []int64{2, 1}); !errors.Is(err, model.ErrPinnedChanged) {
+		t.Fatalf("an order without a pinned chat: %v", err)
+	}
+	if err := s.ReorderPinned(ctx, []int64{2, 1, 4}); !errors.Is(err, model.ErrPinnedChanged) {
+		t.Fatalf("an order with a chat not pinned: %v", err)
+	}
+	if len(asked) != 2 {
+		t.Fatalf("asked %d times, want orders of other chats not asked", len(asked))
+	}
+}
+
 // Pins made elsewhere come in updates: one chat, or the whole order.
 func TestPinUpdates(t *testing.T) {
 	s := pinStore(t)

@@ -5,11 +5,21 @@ package ui
 import (
 	"context"
 	"image"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"gio-mw/defaults"
+	"gio-mw/defaults/schemes"
+	"gio-mw/wdk"
+
+	"gioui.org/f32"
+	"gioui.org/io/input"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/unit"
 
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
@@ -44,7 +54,7 @@ func TestPeerMarksFollowTheLists(t *testing.T) {
 	}
 	// The arrows and the faces are hidden apart.
 	registry.Apply("komaru_badges.txt", []byte("1,#ff0000\n"))
-	count := func() int { return len(a.peerMarks(model.Badges{User: 1}, "Name", 16)) }
+	count := func() int { return len(a.peerMarks(model.Badges{User: 1}, "Name", 16, nil)) }
 	if err := prefs.SetKeepPeerBadges(true, false); err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +86,7 @@ func TestBadgeTextsAreWorded(t *testing.T) {
 		l := localization.For(code)
 		for _, key := range []string{
 			"badge.extera_developer", "badge.extera_official", "badge.extera_supporter",
-			"badge.komaru_developer", "badge.komaru_official", "badge.komaru_partner", "badge.komaru_supporter",
+			"badge.komaru_developer", "badge.komaru_official", "badge.komaru_supporter",
 		} {
 			if got := l.Format(key, map[string]string{"name": "Ada"}); got == key || !strings.Contains(got, "Ada") {
 				t.Errorf("%s %s: %q", code, key, got)
@@ -132,15 +142,22 @@ func TestPremiumStarComesFromTheSet(t *testing.T) {
 	if store.calls != 1 {
 		t.Fatalf("the set was asked for %d times", store.calls)
 	}
-	// The Komaru faces come from their own set: the first is the developer's.
+	// The Komaru faces come from their own set: the third is the developer's,
+	// its rosette turning, the second the supporter's.
 	if id := a.komaruEmoji(true); id != 0 {
 		t.Fatalf("a face %d before the set is loaded", id)
 	}
 	for a.komaruSet.items.Load() == nil && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if dev, sup := a.komaruEmoji(true), a.komaruEmoji(false); dev != 20 || sup != 21 {
-		t.Fatalf("faces %d and %d, want 20 and 21", dev, sup)
+	if dev, sup := a.komaruEmoji(true), a.komaruEmoji(false); dev != 22 || sup != 21 {
+		t.Fatalf("faces %d and %d, want 22 and 21", dev, sup)
+	}
+	// A set without the turning rosette has the developer's face still.
+	two := []model.PickerItem{{DocumentID: 40}, {DocumentID: 41}}
+	a.komaruSet.items.Store(&two)
+	if dev := a.komaruEmoji(true); dev != 40 {
+		t.Fatalf("the developer's face is %d in a set of two, want 40", dev)
 	}
 	// The arrow too: the first is the supporter's, the second the official one's.
 	// Until it is loaded nothing is drawn in its place, nor in the star's.
@@ -160,5 +177,128 @@ func TestPremiumStarComesFromTheSet(t *testing.T) {
 	}
 	if dims := bare.layoutPremiumMark(layout.Context{}, 16); dims.Size != (image.Point{}) {
 		t.Fatalf("a star of %v from a store without sets", dims.Size)
+	}
+}
+
+// The name of a message's sender has the marks of the sender beside it, as
+// a chat's name in the list: the store's badges of that sender, through the
+// window's.
+func TestSenderNameHasBadges(t *testing.T) {
+	store := mockstore.New(time.Now(), 0)
+	var asked []int64
+	a := &App{preferences: preferences.Memory()}
+	p := newChatPage(store, func() {})
+	p.senderBadges = func(id int64, name string) (before, after layout.Widget) {
+		asked = append(asked, id)
+		b, ok := store.PeerBadges(id)
+		if !ok {
+			return nil, nil
+		}
+		before, after = a.badges(b, name, senderBadgeSize, false)
+		if after != nil {
+			// The star of a store without sets takes no room: a mark that does.
+			after = func(gtx layout.Context) layout.Dimensions {
+				return layout.Dimensions{Size: image.Pt(gtx.Dp(senderBadgeSize), gtx.Dp(senderBadgeSize))}
+			}
+		}
+		return before, after
+	}
+	width := func(sender int64) int {
+		gtx := layout.Context{Ops: new(op.Ops), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Constraints{Max: image.Pt(400, 100)}, Values: map[string]any{}}
+		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		return p.layoutSenderName(gtx, &model.Message{SenderID: sender, SenderName: "Анна"}).Size.X
+	}
+	plain, premium := width(1), width(42)
+	if premium != plain+4+int(senderBadgeSize) {
+		t.Fatalf("the name is %d wide with the Premium star, %d without", premium, plain)
+	}
+	if !slices.Equal(asked, []int64{1, 42}) {
+		t.Fatalf("badges asked of %v", asked)
+	}
+	p.senderBadges = nil
+	if width(42) != plain {
+		t.Fatal("a page without badges draws some")
+	}
+}
+
+// statusSetStore tells the set of every custom emoji.
+type statusSetStore struct{ *mockstore.Store }
+
+func (s statusSetStore) CustomEmoji(context.Context, int64) (model.Message, error) {
+	return model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "status", StickerSet: &model.StickerSetRef{Type: "short_name", ShortName: "Statuses"}}}, nil
+}
+
+// A click on the emoji status beside a sender's name shows its set over the
+// chat, as the profile does, but not in another chat opened meanwhile.
+func TestSenderStatusOpensItsSet(t *testing.T) {
+	p := newChatPage(statusSetStore{mockstore.New(time.Now(), 0)}, func() {})
+	opened := func(chat int64) bool {
+		p.chat = chat
+		deadline := time.Now().Add(5 * time.Second)
+		for p.statusSet != nil && time.Now().Before(deadline) {
+			p.updateStatusSet()
+			time.Sleep(5 * time.Millisecond)
+		}
+		return p.stickers.modal.Shown() && p.stickers.ref.ShortName == "Statuses"
+	}
+	p.chat = 3
+	p.openStatusSet(77)
+	if !opened(3) {
+		t.Fatal("the status's set is not shown")
+	}
+	p.stickers.modal.Hide()
+	p.openStatusSet(77)
+	if opened(4) {
+		t.Fatal("the set is shown in the chat opened after the click")
+	}
+	clicks := (&App{}).clicksOf(false, nil)
+	if clicks.openStatus != nil {
+		t.Fatal("a status in the list opens its set")
+	}
+}
+
+// A click on a mark tells what it means where the badges were asked to: in
+// a dialog's toast, which the chat list's would lie under, or the chat
+// list's. The Markdown of a text from the lists is left out.
+func TestBadgeClickTellsWhereAsked(t *testing.T) {
+	registry := peerbadges.New("")
+	registry.Apply("komaru_badges.txt", []byte("1,#ff0000\n"))
+	a := &App{preferences: preferences.Memory(), peerBadges: registry, chats: newChatList()}
+	faces := []model.PickerItem{{DocumentID: 20}, {DocumentID: 21}}
+	a.komaruSet.items.Store(&faces)
+	click := func(badges badgesLayout, b model.Badges) {
+		t.Helper()
+		var r input.Router
+		frame := func() {
+			ops := new(op.Ops)
+			gtx := layout.Context{Ops: ops, Source: r.Source(), Now: time.Now(), Constraints: layout.Exact(image.Pt(100, 16))}
+			_, after := badges(b, "Ada", 16, true)
+			after(gtx)
+			r.Frame(ops)
+		}
+		frame()
+		pos := f32.Pt(8, 8)
+		r.Queue(pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: pos},
+			pointer.Event{Kind: pointer.Release, Source: pointer.Mouse, Position: pos})
+		frame()
+	}
+	var told []string
+	dialog := a.badgesTelling(func(text string) { told = append(told, text) })
+	click(dialog, model.Badges{User: 1})
+	// A status's text from the list, on a status that has loaded and takes
+	// room.
+	status := a.badgeButton(badgeKey{2, badgeKomaruStatus}, func(text string) { told = append(told, text) }, "Ada", "badge.komaru_supporter", "**Komaru** cat", func(gtx layout.Context) layout.Dimensions {
+		return layout.Dimensions{Size: image.Pt(16, 16)}
+	})
+	click(func(model.Badges, string, unit.Dp, bool) (layout.Widget, layout.Widget) { return nil, status }, model.Badges{})
+	if len(told) != 2 || !strings.Contains(told[0], "Ada") || told[1] != "Komaru cat" {
+		t.Fatalf("the dialog was told %q", told)
+	}
+	if text := a.chats.toast.Text(); text != "" {
+		t.Fatalf("the chat list was told %q too", text)
+	}
+	click(a.badges, model.Badges{User: 1})
+	if text := a.chats.toast.Text(); !strings.Contains(text, "Ada") || len(told) != 2 {
+		t.Fatalf("the chat list was told %q, the dialog %q", text, told)
 	}
 }

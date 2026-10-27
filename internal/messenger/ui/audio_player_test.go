@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"image"
 	"io"
 	"os"
 	"sync"
@@ -16,6 +17,17 @@ import (
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/audio"
 	"komarugram/pkg/voice"
+
+	"gio-mw/defaults"
+	"gio-mw/defaults/schemes"
+	"gio-mw/wdk"
+
+	"gioui.org/f32"
+	"gioui.org/io/input"
+	"gioui.org/io/pointer"
+	"gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/unit"
 )
 
 // silentPlayback stands for the system's output in tests: nothing is heard,
@@ -103,6 +115,41 @@ func waitAudio(t *testing.T, what string, done func() bool) {
 		if time.Now().After(deadline) {
 			t.Fatal(what)
 		}
+	}
+}
+
+// While its file opens, the button of an audio row draws the ring of a
+// file's download, and a click on its cross cancels the opening.
+func TestAudioButtonCancelsOpening(t *testing.T) {
+	p, _, find := audioHarnessPage(t)
+	m := find("demo/voice")
+	play := p.audio.play
+	opened := make(chan struct{})
+	t.Cleanup(func() { close(opened) })
+	p.audio.play = func(src audio.Source) (audioPlayback, error) {
+		<-opened
+		return play(src)
+	}
+	var router input.Router
+	vr := &audioRow{}
+	frame := func() {
+		gtx := layout.Context{Ops: new(op.Ops), Source: router.Source(), Now: time.Now(), Constraints: layout.Exact(image.Pt(100, 100)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
+		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		state, _ := vr.update(gtx, p, m)
+		p.audioButton(gtx, vr, state)
+		router.Frame(gtx.Ops)
+	}
+	p.audio.toggle(p, m, -1)
+	if !p.audio.state(m).loading {
+		t.Fatal("it does not open")
+	}
+	frame()
+	for _, kind := range []pointer.Kind{pointer.Press, pointer.Release} {
+		router.Queue(pointer.Event{Kind: kind, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: f32.Pt(22, 22)})
+		frame()
+	}
+	if s := p.audio.state(m); s.active || s.loading {
+		t.Fatalf("the click left it %+v", s)
 	}
 }
 

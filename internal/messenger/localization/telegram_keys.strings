@@ -62,8 +62,10 @@
 "chat_menu.profile" = "lng_context_view_profile";
 "chat_menu.search" = "lng_dlg_search_for_messages";
 
+"chat_row.community" = "lng_context_view_community";
 "chat_row.pin" = "lng_context_pin_to_top";
 "chat_row.read" = "lng_context_mark_read";
+"chat_row.ungroup" = "lng_community_ungroup";
 "chat_row.unpin" = "lng_context_unpin_from_top";
 
 "chat_search.hint" = "lng_dlg_search_for_messages";
@@ -100,6 +102,17 @@
 "comments.none" = "lng_comments_open_none";
 "comments.open" = "lng_comments_open_count";
 
+"community.hidden" = "lng_community_hidden_status";
+"community.hidden_chats" = "lng_community_chats_requestable";
+"community.hidden_unavailable" = "lng_community_hidden_not_accessible";
+"community.hidden_unavailable_channel" = "lng_community_hidden_not_accessible_channel";
+"community.joined" = "lng_community_chats_joined";
+"community.show_as_one" = "lng_community_show_as_one";
+"community.show_as_one_about" = "lng_community_show_as_one_about";
+"community.status" = "lng_community_profile_status";
+"community.viewable" = "lng_community_chats_viewable";
+
+"composer.delete_gif" = "lng_context_delete_gif";
 "composer.direct_messages" = "lng_profile_direct_messages";
 "composer.discussion" = "lng_profile_view_discussion";
 "composer.edit_cancel" = "lng_cancel";
@@ -115,10 +128,15 @@
 "composer.emoji_category6" = "lng_emoji_category6";
 "composer.emoji_category7" = "lng_emoji_category7";
 "composer.featured" = "lng_stickers_featured_tab";
+"composer.gif_limit" = "lng_saved_gif_limit_title";
+"composer.gif_limit_link" = "lng_saved_gif_limit_link";
+"composer.gif_limit_more" = "lng_saved_gif_limit_more";
 "composer.gift" = "lng_gift_channel_title";
+"composer.recent_remove" = "lng_recent_stickers_remove";
 "composer.reply_remove" = "lng_reply_remove";
 "composer.reply_to" = "lng_preview_reply_to";
 "composer.save" = "lng_settings_save";
+"composer.save_gif" = "lng_context_save_gif";
 
 "date.calendar" = "lng_context_add_to_calendar";
 "date.copied" = "lng_date_copied";
@@ -288,10 +306,12 @@
 "history.video" = "lng_in_dlg_video";
 "history.voice" = "lng_in_dlg_audio";
 
+"info.about" = "lng_info_bio_label";
 "info.collectible_copy" = "lng_collectible_username_copy";
 "info.collectible_info" = "lng_collectible_username_info";
 "info.collectible_more" = "lng_collectible_learn_more";
 "info.collectible_title" = "lng_collectible_username_title";
+"info.description" = "lng_info_about_label";
 
 "links.channel_not_accessible" = "lng_channel_not_accessible";
 "links.group_not_accessible" = "lng_group_not_accessible";
@@ -341,6 +361,7 @@
 "menu.emoji_packs" = "lng_context_animated_emoji_many";
 "menu.forward" = "lng_context_forward_msg";
 "menu.forward_selected" = "lng_context_forward_selected";
+"menu.go_to_message" = "lng_context_to_msg";
 "menu.link_copied" = "lng_channel_public_link_copied";
 "menu.private_link" = "lng_context_about_private_link";
 "menu.reacted" = "lng_context_seen_reacted";
@@ -378,10 +399,33 @@
 "pinned.previous" = "lng_pinned_previous";
 "pinned.title" = "lng_pinned_message";
 
+"poll.admin_back" = "lng_polls_admin_back_vote";
+"poll.admin_votes" = "lng_polls_admin_votes";
+"poll.anonymous" = "lng_polls_anonymous";
+"poll.anonymous_quiz" = "lng_polls_anonymous_quiz";
+"poll.answers" = "lng_polls_answers_count";
+"poll.answers_none" = "lng_polls_answers_none";
 "poll.closed" = "lng_polls_closed";
 "poll.count" = "lng_polls_votes_count";
-"poll.open" = "lng_polls_public";
-"poll.quiz" = "lng_polls_public_quiz";
+"poll.ends_days" = "lng_polls_ends_in_days";
+"poll.ends_time" = "lng_polls_ends_in_time";
+"poll.public" = "lng_polls_public";
+"poll.public_quiz" = "lng_polls_public_quiz";
+"poll.quiz_results_title" = "lng_polls_quiz_results_title";
+"poll.results_after_close" = "lng_polls_results_after_close";
+"poll.results_days" = "lng_polls_results_in_days";
+"poll.results_time" = "lng_polls_results_in_time";
+"poll.results_title" = "lng_polls_poll_results_title";
+"poll.retract" = "lng_polls_retract";
+"poll.show_more" = "lng_polls_show_more";
+"poll.solution" = "lng_polls_solution_title";
+"poll.stop" = "lng_polls_stop";
+"poll.stop_sure" = "lng_polls_stop_sure";
+"poll.stop_warning" = "lng_polls_stop_warning";
+"poll.view_results" = "lng_polls_view_results";
+"poll.view_votes" = "lng_polls_view_votes";
+"poll.vote" = "lng_polls_submit_votes";
+"poll.votes_none" = "lng_polls_votes_none";
 
 "preview.album" = "lng_in_dlg_album";
 "preview.audio" = "lng_in_dlg_audio_file";
@@ -400,11 +444,11 @@
 "preview.story" = "lng_in_dlg_story";
 "preview.story_expired" = "lng_in_dlg_story_expired";
 "preview.table" = "lng_in_dlg_table";
+"preview.todo" = "lng_in_dlg_todo_list";
 "preview.video" = "lng_in_dlg_video";
 "preview.videos" = "lng_in_dlg_video_count";
 "preview.voice" = "lng_in_dlg_audio";
 
-"reacted.title" = "lng_manage_peer_reactions";
 
 "record.cancel" = "lng_record_cancel_recording";
 "record.problem" = "lng_record_audio_problem";
@@ -500,9 +544,21 @@
 "service.changed_photo_channel" = "lng_action_changed_photo_channel";
 "service.changed_title" = "lng_action_changed_title";
 "service.changed_title_channel" = "lng_action_changed_title_channel";
+"service.community_added" = "lng_action_community_added";
+"service.community_added_channel" = "lng_action_community_added_channel";
+"service.community_added_chat" = "lng_action_community_added_chat";
+"service.community_added_unknown" = "lng_action_community_added_unknown";
+"service.community_added_unknown_channel" = "lng_action_community_added_unknown_channel";
+"service.community_added_unknown_chat" = "lng_action_community_added_unknown_chat";
+"service.community_removed" = "lng_action_community_removed";
+"service.community_removed_channel" = "lng_action_community_removed_channel";
+"service.community_removed_chat" = "lng_action_community_removed_chat";
 "service.created_channel" = "lng_action_created_channel";
 "service.created_chat" = "lng_action_created_chat";
 "service.deleted_message" = "lng_deleted_message";
+"service.direct_messages_disabled" = "lng_action_direct_messages_disabled";
+"service.direct_messages_enabled" = "lng_action_direct_messages_enabled";
+"service.direct_messages_paid" = "lng_action_direct_messages_paid";
 "service.game_score_no_game" = "lng_action_game_score_no_game";
 "service.game_you_scored_no_game" = "lng_action_game_you_scored_no_game";
 "service.gift_for_stars" = "lng_action_gift_for_stars";
@@ -521,8 +577,12 @@
 "service.invite_users_and_last" = "lng_action_invite_users_and_last";
 "service.invite_users_and_one" = "lng_action_invite_users_and_one";
 "service.invite_users_many" = "lng_action_invite_users_many";
+"service.joined_via_community" = "lng_action_user_joined_via_community";
+"service.joined_via_community_unknown" = "lng_action_user_joined_via_community_unknown";
 "service.kick_user" = "lng_action_kick_user";
 "service.loading" = "lng_contacts_loading";
+"service.message_price_free" = "lng_action_message_price_free";
+"service.message_price_paid" = "lng_action_message_price_paid";
 "service.no_forwards_disabled" = "lng_action_no_forwards_disabled";
 "service.no_forwards_enabled" = "lng_action_no_forwards_enabled";
 "service.no_forwards_still_disabled" = "lng_action_no_forwards_still_disabled";
@@ -658,10 +718,21 @@
 "text.copied" = "lng_text_copied";
 "text.copy_code" = "lng_code_block_header_copy";
 
+"todo.completed" = "lng_todo_completed";
+"todo.completed_none" = "lng_todo_completed_none";
+"todo.mark_forwarded" = "lng_todo_mark_forwarded";
+"todo.mark_premium" = "lng_todo_mark_premium";
+"todo.mark_restricted" = "lng_todo_mark_restricted";
+"todo.premium_link" = "lng_todo_premium_link";
+"todo.title" = "lng_todo_title";
+"todo.title_group" = "lng_todo_title_group";
+"todo.title_user" = "lng_todo_title_user";
+
 "translate.failed" = "lng_translate_box_error";
 "translate.title" = "lng_context_translate";
 
 "viewer.close" = "lng_close";
+"viewer.gif_cancel" = "lng_cancel";
 "viewer.file_position" = "lng_mediaview_file_n_of_amount";
 "viewer.photo" = "lng_mediaview_single_photo";
 "viewer.position" = "lng_mediaview_n_of_amount";

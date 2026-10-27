@@ -24,6 +24,7 @@ import (
 	"komarugram/pkg/voice"
 
 	"gio-mw/token"
+	"gio-mw/wdk"
 
 	"gioui.org/io/event"
 	"gioui.org/io/pointer"
@@ -756,6 +757,9 @@ func (s *audioSource) close() {
 // frames: where its waveform or bar was, and where a drag across it is.
 type audioRow struct {
 	button widget.Clickable
+	// ring turns on the button while the file opens, as a file's
+	// download does.
+	ring downloadRing
 	// width is the waveform's or the bar's on the last frame; drag is where
 	// a press on it is, from 0 to 1, below 0 when there is none.
 	width   int
@@ -813,7 +817,12 @@ func (vr *audioRow) update(gtx layout.Context, p *chatPage, m model.Message) (au
 		}
 	}
 	if vr.button.Clicked(gtx) {
-		p.audio.toggle(p, m, -1)
+		if p.audio.state(m).loading {
+			// The cross in the ring cancels it, as a file's download.
+			p.audio.stop()
+		} else {
+			p.audio.toggle(p, m, -1)
+		}
 	}
 	state := p.audio.state(m)
 	if state.playing || state.loading {
@@ -837,19 +846,20 @@ func (vr *audioRow) seekArea(gtx layout.Context, size image.Point) {
 	area.Pop()
 }
 
-// audioButton is the round button of an audio row: play, pause, or a ring
-// while the file opens.
-func (p *chatPage) audioButton(gtx layout.Context, vr *audioRow, state audioState, l localization.Catalog) layout.Dimensions {
+// audioButton is the round button of an audio row: play, pause, or, while
+// the file opens, the ring of a file's download, whose cross cancels it.
+func (p *chatPage) audioButton(gtx layout.Context, vr *audioRow, state audioState) layout.Dimensions {
 	sc := scheme(gtx)
 	d := gtx.Dp(44)
 	size := image.Pt(d, d)
 	return vr.button.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		paint.FillShape(gtx.Ops, sc.Primary.Color.AsNRGBA(), clip.Ellipse{Max: size}.Op(gtx.Ops))
 		gtx.Constraints = layout.Exact(size)
+		if state.loading {
+			return vr.ring.layout(gtx, d, true, -1, iconClear, sc.Primary.OnColor, wdk.AnimationsEnabled(gtx))
+		}
+		vr.ring.reset()
 		layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			if state.loading {
-				return p.fileLoader.sized(gtx, l, 26)
-			}
 			icon := iconPlayFile
 			if state.playing {
 				icon = iconPauseFile
@@ -881,7 +891,7 @@ func (p *chatPage) voiceLayout(gtx layout.Context, r *messageRow, m model.Messag
 	p.audio.showWaveform(p, m)
 	sc := scheme(gtx)
 	return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.audioButton(gtx, vr, state, l) }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.audioButton(gtx, vr, state) }),
 		layout.Rigid(layout.Spacer{Width: 12}.Layout),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
@@ -930,7 +940,7 @@ func (p *chatPage) musicLayout(gtx layout.Context, r *messageRow, m model.Messag
 	}
 	performer := m.Media.Performer
 	return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.audioButton(gtx, vr, state, l) }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.audioButton(gtx, vr, state) }),
 		layout.Rigid(layout.Spacer{Width: 12}.Layout),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,

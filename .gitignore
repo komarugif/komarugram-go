@@ -8,6 +8,7 @@ profiles/
 /tdesktop/
 /ayugram/
 /materialgram/
+/komarugram/
 /telegram-android/
 # Binaries the README's build commands leave in the root, and the resource
 # file with the icon gogio leaves beside the package it builds.
@@ -18,3 +19,5 @@ profiles/
 # What the grammar generator of pkg/prism installs to run.
 /pkg/prism/generate/node_modules/
 /pkg/prism/generate/bun.lock
+# What Claude Code keeps of its own in the project: worktrees, settings.
+/.claude/

@@ -196,3 +196,29 @@ func TestBoxSitsOnTheBaseline(t *testing.T) {
 		t.Fatalf("a box that does not fit stays at %v", wrapped[1].Bounds)
 	}
 }
+
+// The fragments of a line, a box's and the text's, are as high as the line
+// in Line, whatever their own heights: a spoiler over them is one band. A
+// wrapped line has its own.
+func TestFragmentsShareTheirLine(t *testing.T) {
+	shaper := text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
+	for _, box := range []*Box{{Size: image.Pt(14, 14), Ascent: 11}, {Size: image.Pt(30, 40), Ascent: 30}} {
+		frags, _ := layoutFragments(t, shaper, nil, 120, SpanStyle{Size: 16, Content: "ab "}, SpanStyle{Size: 16, Content: "x", Box: box}, SpanStyle{Size: 16, Content: " cd efgh ijkl mnop"})
+		first := frags[0].Line
+		for _, f := range frags {
+			if f.Line.Min.X != f.Bounds.Min.X || f.Line.Max.X != f.Bounds.Max.X || !f.Bounds.In(f.Line) {
+				t.Fatalf("fragment %v has the line %v", f.Bounds, f.Line)
+			}
+			if f.Bounds.Min.Y < first.Max.Y {
+				if f.Line.Min.Y != first.Min.Y || f.Line.Max.Y != first.Max.Y {
+					t.Fatalf("box %v: lines %v and %v in one line", box.Size, first, f.Line)
+				}
+			} else if f.Line.Min.Y < first.Max.Y {
+				t.Fatalf("box %v: the wrapped line %v overlaps the first, %v", box.Size, f.Line, first)
+			}
+		}
+		if last := frags[len(frags)-1]; last.Line.Min.Y < first.Max.Y {
+			t.Fatalf("box %v: the text did not wrap: %v", box.Size, last.Line)
+		}
+	}
+}

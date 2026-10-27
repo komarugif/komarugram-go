@@ -4,7 +4,6 @@ package ui
 
 import (
 	"bytes"
-	"fmt"
 	"image"
 	"image/color"
 	_ "image/jpeg"
@@ -84,6 +83,9 @@ type previewLine struct {
 	// set then, as its line begins; forwarded marks a forward.
 	sender             string
 	drafted, forwarded bool
+	// mini is the icon of a poll or a checklist, before its question or
+	// title, nil for other messages.
+	mini wdk.IconWidget
 	// runs are the line's text: the media words first, words runs of
 	// them, then the message's text.
 	runs  []model.TextRun
@@ -123,6 +125,10 @@ func (p *previewLine) update(c model.Chat, title string, catalog localization.Ca
 	sender, words, text := catalog.PreviewLine(c.Last, title, channel)
 	entities, thumbs := c.Last.Entities, c.Last.Thumbs
 	p.drafted, p.forwarded = draft != nil, c.Last.Forwarded
+	p.mini = nil
+	if c.Last.Title != "" && draft == nil {
+		p.mini = previewMini(c.Last.Media)
+	}
 	if draft != nil {
 		sender, words, thumbs, p.forwarded = catalog.T("preview.draft"), "", nil, false
 		text, entities = model.PreviewText(draft.Text, draft.Entities)
@@ -146,7 +152,7 @@ func (p *previewLine) update(c model.Chat, title string, catalog localization.Ca
 	for i, r := range p.runs {
 		if r.Emoji != 0 {
 			// Decoded in the pixels it takes, as the badges' are.
-			p.emoji[i] = model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: fmt.Sprintf("emoji/%d@%d", r.Emoji, emojiPx), MIMEType: "application/x-custom-emoji"}}
+			p.emoji[i] = customEmojiMessage(r.Emoji, emojiPx)
 		}
 	}
 	p.thumbs = p.thumbs[:0]
@@ -154,6 +160,18 @@ func (p *previewLine) update(c model.Chat, title string, catalog localization.Ca
 		p.thumbs = append(p.thumbs, model.Message{Key: model.MessageKey{ChatID: c.ID, MessageID: t.Message}, Kind: model.MessagePhoto, Media: &model.MessageMedia{ID: t.ID, MIMEType: "image/jpeg"}})
 	}
 	p.blurred, p.decoded = zeroed(p.blurred, len(p.thumbs)), zeroed(p.decoded, len(p.thumbs))
+}
+
+// previewMini is the mini icon of a preview whose media is key, a poll's or
+// a checklist's, or nil.
+func previewMini(key string) wdk.IconWidget {
+	switch key {
+	case "preview.poll":
+		return iconPollMini
+	case "preview.todo":
+		return iconTodoMini
+	}
+	return nil
 }
 
 // decodeBlurred is the picture of b, a preview's blurred one: a stripped
@@ -215,6 +233,23 @@ func (p *previewLine) layout(gtx layout.Context, pm *previewMedia, fg, accent, d
 			x += px + gap
 		}
 		x += gtx.Dp(3)
+	}
+	if p.mini != nil {
+		// As Telegram Desktop's dialogsMiniPollIcon and
+		// dialogsMiniTodoListIcon, in the color of the media words.
+		px := gtx.Dp(16)
+		if x+px <= width {
+			col := accent
+			if p.drafted {
+				col = drafted
+			}
+			offset(gtx, image.Pt(x, gtx.Dp(2)), func(gtx layout.Context) layout.Dimensions {
+				return exact(gtx, image.Pt(px, px), func(gtx layout.Context) layout.Dimensions {
+					return p.mini(gtx, col)
+				})
+			})
+			x += px + gtx.Dp(2)
+		}
 	}
 	if len(p.runs) == 0 || x >= width {
 		return layout.Dimensions{Size: image.Pt(x, gtx.Dp(20))}
@@ -400,8 +435,11 @@ func (p *previewLine) layoutText(gtx layout.Context, pm *previewMedia, fg, accen
 		offset(gtx, image.Pt(x, 0), func(gtx layout.Context) layout.Dimensions {
 			if run.Spoiler {
 				// Covered, as the history covers a spoiler not revealed:
-				// the list reveals none.
-				fillRounded(gtx, fg.SetOpacity(.28), size, gtx.Dp(3))
+				// the list reveals none. The cover is as high as the line,
+				// whatever the run's own height, a custom emoji's fallback
+				// lower than the text, and goes on in the runs beside it.
+				join := spoilerJoin{left: i > 0 && p.runs[i-1].Spoiler, right: i+1 < len(p.runs) && p.runs[i+1].Spoiler}
+				paint.FillShape(gtx.Ops, fg.SetOpacity(.28).AsNRGBA(), spoilerShape(gtx, image.Pt(size.X, lineHeight), join).Op(gtx.Ops))
 				return dims
 			}
 			call.Add(gtx.Ops)

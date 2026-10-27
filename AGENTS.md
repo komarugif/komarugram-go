@@ -30,7 +30,7 @@ Russian; code, comments and docs are in English.
 | `internal/messenger/mockstore` | Demo store for `-demo` |
 | `pkg/*` | Reusable parts: `dcpool` (download connections), `tdata`, media decoders |
 | `third_party/gio`, `third_party/gio-mw` | Forks, wired with `replace`; changes to each go in its `LOCAL_CHANGES.md` (`third_party/gio/…`, `third_party/gio-mw/…`) |
-| `tdesktop`, `ayugram`, `materialgram`, `telegram-android` | Not in the repository, and ignored by git: local clones of Telegram Desktop, two of its forks and Telegram for Android, made when needed (see "Telegram sources") |
+| `tdesktop`, `ayugram`, `materialgram`, `komarugram`, `telegram-android` | Not in the repository, and ignored by git: local clones of Telegram Desktop, three of its forks and Telegram for Android, made when needed (see "Telegram sources") |
 
 ## Read before
 
@@ -81,10 +81,10 @@ it does not require cgo, whereas the other builds do—though they are not manda
 Render tests save PNGs when their variable is set, and are skipped
 otherwise, so `go test` never runs them: `COMPOSER_PNG` (with
 `COMPOSER_VIEW`), `COMPOSER_MOTION_PNG`, `SETTINGS_PNG` (with
-`SETTINGS_SECTION`), `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `CHAT_PREVIEW_PNG`,
+`SETTINGS_SECTION`), `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `COMMUNITY_PNG`, `CHAT_PREVIEW_PNG`,
 `STICKER_SET_PNG_DIR`, `MENU_PNG`, `REACTED_PNG`, `VIEWER_PNG` (with
-`VIEWER_ZOOM`, `VIEWER_PROFILE`, `VIEWER_GIFS`, `VIEWER_STORIES`), `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`,
-`SERVICE_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`,
+`VIEWER_ZOOM`, `VIEWER_PROFILE`, `VIEWER_GIFS`, `VIEWER_STORIES`, `VIEWER_SAVE_GIF`), `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`,
+`SERVICE_PNG`, `POLL_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`,
 `SAVED_EMPTY_PNG`, `SHARED_PNG`, `REGISTRATION_OFFER_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`,
 `FRAME_PNG_DIR` (the window's own frame, in `internal/appwindow`), `PANIC_PNG_DIR` (the window of a panic, there too) (see
 `docs/UI_COMPONENTS.md`). Run the one of the screen you changed, and look
@@ -259,7 +259,7 @@ On Linux under X11 (XFCE here):
 ## Telegram sources
 
 Telegram Desktop is the reference for Telegram's behavior, texts and UI,
-AyuGram and materialgram are the forks features are ported from
+AyuGram, materialgram and KomaruGram are the forks features are ported from
 (`docs/PLAN.md`), and Telegram for Android is the second reference, for
 what Telegram Desktop lacks or does differently. They are not in the
 repository. When a task needs one, clone it into the root under the name
@@ -274,6 +274,7 @@ others, and `ThirdParty`, are large and can stay empty.
 | `tdesktop` | https://github.com/telegramdesktop/tdesktop |
 | `ayugram` | https://github.com/AyuGram/AyuGramDesktop (adds features such as message snapshots, `ayu/features/message_shot`) |
 | `materialgram` | https://github.com/kukuruzka165/materialgram (restyles the UI) |
+| `komarugram` | https://github.com/SvatoshGPT/komarugram (KomaruGram for Desktop, a fork of AyuGram: the Komaru faces beside names, `ayu/features/komaru`) |
 | `telegram-android` | https://github.com/DrKLO/Telegram (Telegram for Android) |
 
 ```sh

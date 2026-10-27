@@ -82,13 +82,19 @@ func (f *messageFilter) hides(m model.Message, chat int64, kind model.ChatKind, 
 }
 
 // filterText is all the text of m that filters look at: its text or
-// caption, a poll, a file's name and a link's preview.
+// caption, a poll, a checklist, a file's name and a link's preview.
 func filterText(m model.Message) string {
 	parts := []string{m.Text}
 	if m.Poll != nil {
 		parts = append(parts, m.Poll.Question)
 		for _, a := range m.Poll.Answers {
 			parts = append(parts, a.Text)
+		}
+	}
+	if m.Todo != nil {
+		parts = append(parts, m.Todo.Title)
+		for _, item := range m.Todo.Items {
+			parts = append(parts, item.Text)
 		}
 	}
 	if m.Media != nil && m.Media.FileName != "" {

@@ -56,12 +56,12 @@ func (s *spoiler) Layout(gtx layout.Context, covered, animate bool, w layout.Wid
 	color := scheme(gtx).OutlineVariant.AsNRGBA()
 	if s.shown {
 		radius := s.reveal.radius(gtx.Now, dims.Size)
-		paintSpoiler(gtx, dims.Size, s.reveal.center, radius, color, func() { call.Add(gtx.Ops) })
+		paintSpoiler(gtx, dims.Size, s.reveal.center, radius, color, spoilerJoin{}, func() { call.Add(gtx.Ops) })
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 60)})
 		return dims
 	}
 	// Nothing of the value is drawn while it is covered.
-	paintSpoiler(gtx, dims.Size, f32.Point{}, 0, color, nil)
+	paintSpoiler(gtx, dims.Size, f32.Point{}, 0, color, spoilerJoin{}, nil)
 	area := clip.Rect(image.Rectangle{Max: dims.Size}).Push(gtx.Ops)
 	pointer.CursorPointer.Add(gtx.Ops)
 	s.click.Add(gtx.Ops)

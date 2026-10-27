@@ -112,9 +112,11 @@ func (s *Store) fetchProfile(ctx context.Context, chat int64) (model.PeerProfile
 			if u, ok := raw.(*tg.User); ok && u.ID == peer.ID {
 				status, color, usernames, username = u.EmojiStatus, u.ProfileColor, u.Usernames, u.Username
 				out.Badges, out.BadgesKnown = userBadges(u, time.Now()), true
+				out.Phone = u.Phone
 			}
 		}
 		channelID, channelMsg = full.FullUser.PersonalChannelID, full.FullUser.PersonalChannelMessage
+		out.About = full.FullUser.About
 	case "channel":
 		full, e := api.ChannelsGetFullChannel(ctx, &tg.InputChannel{ChannelID: peer.ID, AccessHash: peer.Hash})
 		if e != nil {
@@ -126,6 +128,9 @@ func (s *Store) fetchProfile(ctx context.Context, chat int64) (model.PeerProfile
 				status, color, usernames, username = ch.EmojiStatus, ch.ProfileColor, ch.Usernames, ch.Username
 				out.Badges, out.BadgesKnown = channelBadges(ch, time.Now()), true
 			}
+		}
+		if f, ok := full.FullChat.(*tg.ChannelFull); ok {
+			out.About = f.About
 		}
 	default:
 		// A basic group has none of a profile's own.

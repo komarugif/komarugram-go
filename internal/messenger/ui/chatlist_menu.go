@@ -29,7 +29,9 @@ import (
 
 // A right click on a chat of the list opens its menu, as Telegram Desktop's
 // (window_peer_menu.cpp): pin it to the top of the list or unpin it, and
-// mark it read when it has unread messages. The chats a store pins are
+// mark it read when it has unread messages; a community shown as one chat
+// can be shown apart (Ungroup), and a chat of one shown apart opens it. The
+// chats a store pins are
 // limited (dialogs_pinned_limit, which Premium raises): a pin over the limit
 // is not asked of Telegram, the list tells the limit instead.
 
@@ -40,6 +42,8 @@ const (
 	chatRowPin chatRowAction = iota
 	chatRowUnpin
 	chatRowRead
+	chatRowUngroup
+	chatRowCommunity
 	chatRowActions
 )
 
@@ -58,6 +62,13 @@ type chatRowMenu struct {
 	premium model.PremiumSource
 	// invalidate redraws the window when a pin is answered.
 	invalidate func()
+	// ungroup shows a community apart, openCommunity opens one; nil for a
+	// store without communities.
+	ungroup       func(community int64)
+	openCommunity func(community int64)
+	// all are the chats of the list before a community shown as one chat
+	// took the place of its own: those a read of it marks read.
+	all []model.Chat
 
 	menu  contextMenu
 	open  bool
@@ -111,6 +122,12 @@ func (m *chatRowMenu) actions(c model.Chat, sec section) []chatRowAction {
 	if c.Unread > 0 {
 		out = append(out, chatRowRead)
 	}
+	if c.Kind == model.KindCommunity && c.Collapsed && m.ungroup != nil {
+		out = append(out, chatRowUngroup)
+	}
+	if c.Community != 0 && c.Kind != model.KindCommunity && m.openCommunity != nil {
+		out = append(out, chatRowCommunity)
+	}
 	return arrangeMenu(m.menus, menuChatRow, out, chatRowActionID)
 }
 
@@ -120,13 +137,22 @@ func chatRowLabel(a chatRowAction, l localization.Catalog) string {
 		return l.T("chat_row.pin")
 	case chatRowUnpin:
 		return l.T("chat_row.unpin")
+	case chatRowUngroup:
+		return l.T("chat_row.ungroup")
+	case chatRowCommunity:
+		return l.T("chat_row.community")
 	}
 	return l.T("chat_row.read")
 }
 
 func chatRowIcon(a chatRowAction) wdk.IconWidget {
-	if a == chatRowRead {
+	switch a {
+	case chatRowRead:
 		return iconRead
+	case chatRowUngroup:
+		return iconUngroup
+	case chatRowCommunity:
+		return iconKindCommunity
 	}
 	return iconPinChat
 }
@@ -202,7 +228,20 @@ func (m *chatRowMenu) update(gtx layout.Context, sec section, chats []model.Chat
 		case chatRowPin, chatRowUnpin:
 			m.pin(c, a == chatRowPin, chats, toast, l)
 		case chatRowRead:
-			m.store.MarkChatRead(c.ID)
+			if c.Kind != model.KindCommunity {
+				m.store.MarkChatRead(c.ID)
+				break
+			}
+			// Every chat of it, as Telegram Desktop marks a community read.
+			for _, member := range model.CommunityMembers(m.all, c.ID) {
+				if member.Unread > 0 {
+					m.store.MarkChatRead(member.ID)
+				}
+			}
+		case chatRowUngroup:
+			m.ungroup(c.ID)
+		case chatRowCommunity:
+			m.openCommunity(c.Community)
 		}
 	}
 }
@@ -301,8 +340,9 @@ func (m *chatRowMenu) rowOp(gtx layout.Context, chat int64, size image.Point) {
 	event.Op(gtx.Ops, m.row(chat))
 }
 
-// layout draws the menu over the list of size, while it is open or closing.
-func (m *chatRowMenu) layout(gtx layout.Context, bd *blurBackdrop, l localization.Catalog) {
+// layout draws the menu over the window of size, in which the rows the menu
+// is of start at origin, while it is open or closing.
+func (m *chatRowMenu) layout(gtx layout.Context, origin image.Point, bd *blurBackdrop, l localization.Catalog) {
 	if m.store == nil {
 		return
 	}
@@ -326,7 +366,7 @@ func (m *chatRowMenu) layout(gtx layout.Context, bd *blurBackdrop, l localizatio
 	margin := gtx.Dp(8)
 	w := min(gtx.Dp(menuWidth), max(0, size.X-2*margin))
 	h := 2*gtx.Dp(menuPadding) + len(actions)*gtx.Dp(menuItemHeight)
-	rect, corner := m.menu.Place(gtx, m.at, size, image.Pt(w, h))
+	rect, corner := m.menu.Place(gtx, m.at.Add(origin), size, image.Pt(w, h))
 	m.rect = rect
 	radius := gtx.Dp(12)
 	m.menu.Layout(gtx, m.open, m.rect, corner, radius, func(gtx layout.Context) layout.Dimensions {
