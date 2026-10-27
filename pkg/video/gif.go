@@ -38,6 +38,14 @@ const (
 	gifFill = 0.9
 	// gifEncodeMemory is what x264 may take besides decoding.
 	gifEncodeMemory = 768 << 20
+	// gifDecodeThreads and gifEncodeThreads are the threads of the decoder
+	// and of x264, which by default take as many as the machine has cores,
+	// x264 half again as many: on Linux RLIMIT_DATA counts the stack each
+	// one reserves, 8 MiB, and the pictures x264 keeps for each, so on a
+	// machine of many cores the encoding failed its allocations within
+	// the bound ("x264 [error]: malloc of size 16176 failed"). The decoder
+	// takes as many as a player's.
+	gifDecodeThreads, gifEncodeThreads = 2, 4
 )
 
 // ErrGIFTooLarge is a GIF that weighs more than GIFMaxBytes after every
@@ -98,10 +106,12 @@ func (p GIFPlan) Again(size int64, duration time.Duration) GIFPlan {
 func (p GIFPlan) Args(in, out string) []string {
 	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin", "-y",
 		"-format_whitelist", "mov,matroska,webm,gif",
+		"-threads", strconv.Itoa(gifDecodeThreads),
 		"-i", in,
 		"-map", "0:v:0", "-an", "-sn", "-dn", "-map_metadata", "-1",
 		"-vf", fmt.Sprintf("scale=%d:%d:flags=lanczos,format=yuv420p", p.Width, p.Height),
 		"-c:v", "libx264", "-preset", p.Preset, "-crf", strconv.Itoa(p.CRF),
+		"-threads", strconv.Itoa(gifEncodeThreads),
 	}
 	if p.MaxRate > 0 {
 		args = append(args, "-maxrate", strconv.Itoa(p.MaxRate), "-bufsize", strconv.Itoa(2*p.MaxRate))

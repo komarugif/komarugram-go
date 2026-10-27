@@ -79,6 +79,8 @@ type GIFProgress struct {
 	Queue int
 	// Pass is the encoding, from 1: a GIF too large is encoded again.
 	Pass int
+	// Bot is set while GIFBot converts the video, as when FFmpeg could not.
+	Bot bool
 }
 
 // GIFMaker is a store that saves a video as a GIF among the saved ones,

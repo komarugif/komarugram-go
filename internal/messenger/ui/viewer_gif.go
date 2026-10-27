@@ -117,7 +117,9 @@ func (v *mediaViewer) makeGIF(m model.Message) {
 }
 
 // makeGIF converts the video of m with ffmpeg, or by the bot for "", and
-// saves the GIF; a video made before saves the GIF it made.
+// saves the GIF; a video made before saves the GIF it made. A video FFmpeg
+// fails to convert, such as one whose encoding fails within its memory, is
+// converted by the bot, which takes it if it is not too large for it.
 func makeGIF(ctx context.Context, maker model.GIFMaker, source model.ConversationStore, m model.Message, ffmpeg string, report func(model.GIFProgress)) error {
 	if gif, ok := maker.MadeGIF(ctx, m); ok {
 		report(model.GIFProgress{Stage: model.GIFSending, Share: -1})
@@ -128,42 +130,66 @@ func makeGIF(ctx context.Context, maker model.GIFMaker, source model.Conversatio
 		// Gone from Telegram, it is made again.
 	}
 	if ffmpeg == "" {
-		gif, err := maker.ConvertGIFByBot(ctx, m, report)
-		if err != nil {
-			return err
-		}
-		report(model.GIFProgress{Stage: model.GIFSending, Share: -1})
-		return maker.SaveGIF(ctx, gif, false)
+		return makeGIFByBot(ctx, maker, m, report)
 	}
-	f, err := openFile(ctx, source, m)
-	if err != nil {
-		return err
-	}
-	defer f.close()
-	// FFmpeg reads the file over a loopback stream, as it plays one: it
-	// downloads as it is read.
-	stream, err := player.Serve("video", f.r, f.size)
-	if err != nil {
-		return err
-	}
-	defer stream.Close()
 	dir, err := os.MkdirTemp("", "komarugram-go-gif-*")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(dir)
 	out := filepath.Join(dir, fmt.Sprintf("komarugram-go-gif-%d.mp4", m.Key.MessageID))
-	gif, err := video.ConvertGIF(ctx, ffmpeg, stream.URL(), out, func(p video.GIFProgress) {
-		report(model.GIFProgress{Stage: model.GIFEncoding, Share: p.Share(), Pass: p.Pass})
-	})
-	if errors.Is(err, video.ErrGIFTooLarge) {
+	gif, err := convertGIF(ctx, source, m, ffmpeg, out, report)
+	switch {
+	case errors.Is(err, video.ErrGIFTooLarge):
+		// The bot encodes as FFmpeg does: it would not make it smaller.
 		return model.ErrGIFTooLarge
-	}
-	if err != nil {
+	case err != nil && ctx.Err() == nil && m.Media != nil && m.Media.Size <= model.GIFBotMaxBytes:
+		if botErr := makeGIFByBot(ctx, maker, m, report); botErr != nil {
+			// The bot's own failures have words of their own; FFmpeg's
+			// stays in the rest.
+			return errors.Join(err, botErr)
+		}
+		return nil
+	case err != nil:
 		return err
 	}
 	report(model.GIFProgress{Stage: model.GIFSending, Share: -1})
 	return maker.SaveGIFFile(ctx, m, out, gif.Width, gif.Height, gif.Duration)
+}
+
+// makeGIFByBot converts the video of m by the bot, and saves the GIF; what
+// it reports tells the bot converts it.
+func makeGIFByBot(ctx context.Context, maker model.GIFMaker, m model.Message, report func(model.GIFProgress)) error {
+	byBot := func(p model.GIFProgress) {
+		p.Bot = true
+		report(p)
+	}
+	byBot(model.GIFProgress{Share: -1})
+	gif, err := maker.ConvertGIFByBot(ctx, m, byBot)
+	if err != nil {
+		return err
+	}
+	byBot(model.GIFProgress{Stage: model.GIFSending, Share: -1})
+	return maker.SaveGIF(ctx, gif, false)
+}
+
+// convertGIF converts the video of m with ffmpeg to a GIF at out.
+func convertGIF(ctx context.Context, source model.ConversationStore, m model.Message, ffmpeg, out string, report func(model.GIFProgress)) (video.GIF, error) {
+	f, err := openFile(ctx, source, m)
+	if err != nil {
+		return video.GIF{}, err
+	}
+	defer f.close()
+	// FFmpeg reads the file over a loopback stream, as it plays one: it
+	// downloads as it is read.
+	stream, err := player.Serve("video", f.r, f.size)
+	if err != nil {
+		return video.GIF{}, err
+	}
+	defer stream.Close()
+	return video.ConvertGIF(ctx, ffmpeg, stream.URL(), out, func(p video.GIFProgress) {
+		report(model.GIFProgress{Stage: model.GIFEncoding, Share: p.Share(), Pass: p.Pass})
+	})
 }
 
 // gifResultText tells what came of a conversion: "" for one cancelled.
@@ -233,7 +259,9 @@ func (v *mediaViewer) layoutGIF(gtx layout.Context, l localization.Catalog) {
 	var progress model.GIFProgress
 	bot := false
 	if g.work != nil {
-		progress, bot = g.work.state(), g.work.bot
+		progress = g.work.state()
+		// Chosen at the start, or taken for FFmpeg that could not.
+		bot = g.work.bot || progress.Bot
 	}
 	shown := g.modal.Layout(gtx, g.work != nil, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(420))

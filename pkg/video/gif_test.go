@@ -38,7 +38,9 @@ func TestPlanGIF(t *testing.T) {
 		t.Fatalf("cap %d b/s makes %.0f bytes in 20 s", p.MaxRate, bytes)
 	}
 	args := strings.Join(p.Args("in.mp4", "out.mp4"), " ")
-	for _, want := range []string{"-i in.mp4", "-map 0:v:0 -an", "scale=1280:720", "-c:v libx264", "-preset slow", "-crf 28", "-maxrate ", "-progress pipe:1", "-f mp4"} {
+	for _, want := range []string{"-i in.mp4", "-map 0:v:0 -an", "scale=1280:720", "-c:v libx264", "-preset slow", "-crf 28", "-maxrate ", "-progress pipe:1", "-f mp4",
+		// The threads bounded, the decoder's before the input, x264's after it.
+		"-threads 2 -i in.mp4", "-crf 28 -threads 4"} {
 		if !strings.Contains(args, want) {
 			t.Errorf("args lack %q: %s", want, args)
 		}

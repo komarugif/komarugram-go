@@ -4,11 +4,13 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"komarugram/internal/messenger/localization"
+	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 )
 
@@ -141,5 +143,41 @@ func TestGIFResultText(t *testing.T) {
 	}
 	if gifResultText(context.Canceled, nil, l) != "" || gifResultText(model.ErrGIFBotCancelled, nil, l) != "" {
 		t.Error("a cancel is told")
+	}
+}
+
+// A video FFmpeg fails to convert is converted by the bot instead, where
+// the bot takes it; one too large for the bot tells FFmpeg's failure, and
+// one cancelled goes to no bot.
+func TestGIFFallsBackToTheBot(t *testing.T) {
+	source := mockstore.New(time.Now(), 0)
+	maker := &fakeGIFMaker{gifs: make(chan model.Message, 1), cancelled: make(chan struct{}), made: map[string]model.Message{}}
+	// Its file cannot be had here: the conversion fails before FFmpeg's end.
+	clip := model.Message{Key: model.MessageKey{ChatID: 1, MessageID: 8}, Kind: model.MessageVideo, Media: &model.MessageMedia{ID: "unavailable", MIMEType: "video/mp4", Size: 1 << 20, Width: 640, Height: 360, Duration: 5 * time.Second}}
+	maker.gifs <- model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "gif"}}
+	byBot := false
+	if err := makeGIF(context.Background(), maker, source, clip, "ffmpeg", func(p model.GIFProgress) { byBot = byBot || p.Bot }); err != nil {
+		t.Fatalf("the bot's GIF failed: %v", err)
+	}
+	if !byBot {
+		t.Fatal("the dialog is not told the bot converts the video")
+	}
+	if maker.converted != 1 || len(maker.saved) != 1 || maker.saved[0].Media.ID != "gif" {
+		t.Fatalf("converted %d times, saved %v", maker.converted, maker.saved)
+	}
+	large := clip
+	large.Media = &model.MessageMedia{ID: "unavailable-large", Size: model.GIFBotMaxBytes + 1}
+	if err := makeGIF(context.Background(), maker, source, large, "ffmpeg", func(model.GIFProgress) {}); err == nil || errors.Is(err, model.ErrGIFTooLarge) {
+		t.Fatalf("a video too large for the bot: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cancelled := clip
+	cancelled.Media = &model.MessageMedia{ID: "unavailable-cancelled", Size: 1 << 20}
+	if err := makeGIF(ctx, maker, source, cancelled, "ffmpeg", func(model.GIFProgress) {}); err == nil {
+		t.Fatal("a cancelled conversion succeeded")
+	}
+	if maker.converted != 1 {
+		t.Fatalf("the bot converted %d times", maker.converted)
 	}
 }
