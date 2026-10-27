@@ -4,12 +4,18 @@ package ui
 
 import (
 	"context"
+	"image"
 	"image/color"
+	"math"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"gioui.org/f32"
 	"gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
 	"gioui.org/unit"
 	"gioui.org/widget"
 
@@ -28,6 +34,7 @@ type badgeKey struct {
 const (
 	badgeKomaruDeveloper uint8 = iota
 	badgeKomaruSupporter
+	badgeKomaruStatus
 	badgeExtera
 	badgeStatus
 )
@@ -47,10 +54,11 @@ func (a *App) badgeClickable(key badgeKey) *widget.Clickable {
 }
 
 // peerMarks are the marks of the forks of Telegram clients for the peer b
-// belongs to, in the order they are drawn: the Komaru faces, then the arrow
-// of exteraGram and AyuGram, or the custom emoji it gives. A click on one
-// tells what it means in a toast.
-func (a *App) peerMarks(b model.Badges, name string, size unit.Dp) []layout.Widget {
+// belongs to, in the order they are drawn: the Komaru faces and the emoji
+// status KomaruGram gives, then the arrow of exteraGram and AyuGram, or the
+// custom emoji it gives. A click on one tells what it means through tell,
+// nil for the chat list's toast.
+func (a *App) peerMarks(b model.Badges, name string, size unit.Dp, tell func(text string)) []layout.Widget {
 	if a.peerBadges == nil {
 		return nil
 	}
@@ -70,7 +78,7 @@ func (a *App) peerMarks(b model.Badges, name string, size unit.Dp) []layout.Widg
 	channel := b.Channel != 0
 	var marks []layout.Widget
 	if hideFaces {
-		mark.Developer, mark.Supporter = nil, nil
+		mark.Developer, mark.Supporter, mark.Status = nil, nil, nil
 	}
 	if hideArrows {
 		mark.Arrow, mark.Emoji = peerbadges.NoArrow, 0
@@ -80,19 +88,21 @@ func (a *App) peerMarks(b model.Badges, name string, size unit.Dp) []layout.Widg
 		if channel {
 			text = "badge.komaru_official"
 		}
-		col := faceColor(*face)
-		marks = append(marks, a.badgeButton(badgeKey{id, badgeKomaruDeveloper}, name, text, "", func(gtx layout.Context) layout.Dimensions {
-			return a.layoutKomaruMark(gtx, size, true, col)
+		face := *face
+		marks = append(marks, a.badgeButton(badgeKey{id, badgeKomaruDeveloper}, tell, name, text, "", func(gtx layout.Context) layout.Dimensions {
+			return a.layoutKomaruMark(gtx, size, true, face)
 		}))
 	}
 	if face := mark.Supporter; face != nil {
-		text := "badge.komaru_supporter"
-		if mark.Partner {
-			text = "badge.komaru_partner"
-		}
-		col := faceColor(*face)
-		marks = append(marks, a.badgeButton(badgeKey{id, badgeKomaruSupporter}, name, text, "", func(gtx layout.Context) layout.Dimensions {
-			return a.layoutKomaruMark(gtx, size, false, col)
+		face := *face
+		marks = append(marks, a.badgeButton(badgeKey{id, badgeKomaruSupporter}, tell, name, "badge.komaru_supporter", "", func(gtx layout.Context) layout.Dimensions {
+			return a.layoutKomaruMark(gtx, size, false, face)
+		}))
+	}
+	if status := mark.Status; status != nil {
+		status := *status
+		marks = append(marks, a.badgeButton(badgeKey{id, badgeKomaruStatus}, tell, name, "badge.komaru_supporter", status.Text, func(gtx layout.Context) layout.Dimensions {
+			return a.layoutKomaruStatus(gtx, size, status)
 		}))
 	}
 	if mark.Arrow != peerbadges.NoArrow || mark.Emoji != 0 {
@@ -104,34 +114,39 @@ func (a *App) peerMarks(b model.Badges, name string, size unit.Dp) []layout.Widg
 		case official:
 			text = "badge.extera_developer"
 		}
-		marks = append(marks, a.badgeButton(badgeKey{id, badgeExtera}, name, text, mark.Text, func(gtx layout.Context) layout.Dimensions {
+		marks = append(marks, a.badgeButton(badgeKey{id, badgeExtera}, tell, name, text, mark.Text, func(gtx layout.Context) layout.Dimensions {
 			return a.layoutExteraMark(gtx, size, official, mark.Emoji)
 		}))
 	}
 	return marks
 }
 
-// faceColor is the color a Komaru face is painted in: the list's, or the
-// color of the badges around it, with the list's opacity.
-func faceColor(f peerbadges.Face) color.NRGBA {
-	if f.Theme {
-		c := telegramBlue
-		c.A = f.Color.A
-		return c
+// faceColor is the color a part of a Komaru face is painted in: the list's,
+// or with theme the color of the badges around it, with the list's opacity.
+func faceColor(c color.NRGBA, theme bool) color.NRGBA {
+	if theme {
+		t := telegramBlue
+		t.A = c.A
+		return t
 	}
-	return f.Color
+	return c
 }
 
-// badgeButton makes mark a click that tells, in a toast, what the mark means
-// for the peer called name: the text of key, or custom, which the list may
-// bring in its place.
-func (a *App) badgeButton(key badgeKey, name, text, custom string, mark layout.Widget) layout.Widget {
+// badgeButton makes mark a click that tells, through tell or in the chat
+// list's toast when it is nil, what the mark means for the peer called
+// name: the text of key, or custom, which the list may bring in its place.
+func (a *App) badgeButton(key badgeKey, tell func(text string), name, text, custom string, mark layout.Widget) layout.Widget {
 	return a.badgeClick(key, mark, func() {
-		message := custom
-		if message == "" {
+		// The lists write their texts in Markdown, which a toast does not
+		// draw: their bold is left out.
+		message := strings.ReplaceAll(custom, "**", "")
+		if strings.TrimSpace(message) == "" {
 			message = a.catalog().Format(text, map[string]string{"name": name})
 		}
-		a.chats.toast.Show(strings.TrimSpace(message))
+		if tell == nil {
+			tell = a.chats.toast.Show
+		}
+		tell(strings.TrimSpace(message))
 	})
 }
 
@@ -156,10 +171,14 @@ const (
 	premiumIconSet = "TgAndroidIcons"
 	premiumIconAlt = "⭐"
 	// komaruIconSet has the faces of KomaruGram, in the order of
-	// komaruFaceDeveloper and komaruFaceSupporter.
+	// komaruFaceStill, komaruFaceSupporter and komaruFaceDeveloper: the
+	// developer's face in a rosette, the supporter's alone, and the
+	// developer's again, its rosette turning, which is drawn, the still one
+	// only where the set lacks it.
 	komaruIconSet       = "KomaruGramAdaptive"
-	komaruFaceDeveloper = 0
+	komaruFaceStill     = 0
 	komaruFaceSupporter = 1
+	komaruFaceDeveloper = 2
 	// exteraIconSet has the arrow of exteraGram and AyuGram, in the order of
 	// exteraArrowSupporter and exteraArrowOfficial: the arrow alone, and the
 	// arrow in a rosette.
@@ -243,6 +262,9 @@ func (a *App) komaruEmoji(developer bool) int64 {
 	i := komaruFaceSupporter
 	if developer {
 		i = komaruFaceDeveloper
+		if i >= len(items) {
+			i = komaruFaceStill
+		}
 	}
 	if i < len(items) {
 		return items[i].DocumentID
@@ -250,13 +272,118 @@ func (a *App) komaruEmoji(developer bool) int64 {
 	return 0
 }
 
-// layoutKomaruMark draws a Komaru face in a square of size, in col, nothing
-// until it is loaded.
-func (a *App) layoutKomaruMark(gtx layout.Context, size unit.Dp, developer bool, col color.NRGBA) layout.Dimensions {
-	if id := a.komaruEmoji(developer); id != 0 {
-		return a.layoutTintedEmoji(gtx, id, size, col)
+// How a Komaru face is drawn, as KomaruGram does: the face in the middle of
+// the mark, a supporter's smaller than a developer's, whose rosette leaves
+// a margin of its own, and four sparkles circling it, growing and fading.
+const (
+	komaruFaceShare      = 0.74
+	komaruDeveloperShare = 0.92
+	komaruSparkles       = 4
+	komaruSparkleOrbit   = 0.47
+	komaruSparkleRadius  = 0.13
+	// komaruSparkleRoom is how far the sparkles reach out of the face's
+	// square, at their largest: the room the mark leaves around it, so that
+	// they do not run into the name, the next mark or the lines around.
+	komaruSparkleRoom = komaruSparkleOrbit + komaruSparkleRadius - 0.5
+	komaruOrbit       = 6 * time.Second
+	komaruTwinkle     = 1400 * time.Millisecond
+	komaruFrame       = 50 * time.Millisecond
+)
+
+// layoutKomaruMark draws a Komaru face in a square of size, in the colors
+// of face, with room for the sparkles around it, nothing until it is
+// loaded. The sparkles stand still while animations are off.
+func (a *App) layoutKomaruMark(gtx layout.Context, size unit.Dp, developer bool, face peerbadges.Face) layout.Dimensions {
+	id := a.komaruEmoji(developer)
+	if id == 0 {
+		return layout.Dimensions{}
+	}
+	side := gtx.Dp(size)
+	share := float32(komaruFaceShare)
+	if developer {
+		share = komaruDeveloperShare
+	}
+	inner := unit.Dp(float32(size) * share)
+	skip := (side - gtx.Dp(inner)) / 2
+	faceGtx := gtx
+	faceGtx.Constraints = layout.Exact(image.Pt(gtx.Dp(inner), gtx.Dp(inner)))
+	room := int(math.Ceil(float64(side) * komaruSparkleRoom))
+	defer op.Offset(image.Pt(room, room)).Push(gtx.Ops).Pop()
+	t := op.Offset(image.Pt(skip, skip)).Push(gtx.Ops)
+	a.layoutTintedEmoji(faceGtx, id, inner, faceColor(face.Color, face.Theme))
+	t.Pop()
+	var now time.Duration
+	if a.window != nil && a.window.Motion.AnimationsEnabled() {
+		now = time.Duration(gtx.Now.UnixNano())
+		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(komaruFrame)})
+	}
+	drawKomaruSparkles(gtx.Ops, side, faceColor(face.Particles, face.ParticlesTheme), now)
+	return layout.Dimensions{Size: image.Pt(side+2*room, side+2*room)}
+}
+
+// drawKomaruSparkles draws the sparkles around a Komaru face in a square
+// of side pixels, as they are at now: they go round once in komaruOrbit,
+// and each grows and brightens, then shrinks and fades, in komaruTwinkle.
+func drawKomaruSparkles(ops *op.Ops, side int, col color.NRGBA, now time.Duration) {
+	phase := func(period time.Duration) float64 {
+		return float64(now%period) / float64(period)
+	}
+	s := float64(side)
+	center := s / 2
+	turn, twinkle := phase(komaruOrbit), phase(komaruTwinkle)
+	for i := range komaruSparkles {
+		angle := 2 * math.Pi * (turn + (float64(i)+0.5)/komaruSparkles)
+		grow := 0.5 + 0.5*math.Sin(2*math.Pi*(twinkle+float64(i)*0.27))
+		radius := s * komaruSparkleRadius * (0.55 + 0.45*grow)
+		orbit := s * komaruSparkleOrbit
+		at := f32.Pt(float32(center+math.Cos(angle)*orbit), float32(center+math.Sin(angle)*orbit))
+		c := col
+		c.A = uint8(float64(c.A) * (0.35 + 0.65*grow))
+		paint.FillShape(ops, c, clip.Outline{Path: sparkle(ops, at, float32(radius))}.Op())
+	}
+}
+
+// sparkle is a star of four points around center, radius from a point to
+// the center.
+func sparkle(ops *op.Ops, center f32.Point, radius float32) clip.PathSpec {
+	inner := radius * 0.3
+	var p clip.Path
+	p.Begin(ops)
+	p.MoveTo(center.Add(f32.Pt(0, -radius)))
+	for _, d := range []f32.Point{{X: inner, Y: -inner}, {X: radius}, {X: inner, Y: inner}, {Y: radius}, {X: -inner, Y: inner}, {X: -radius}, {X: -inner, Y: -inner}} {
+		p.LineTo(center.Add(d))
+	}
+	p.Close()
+	return p.End()
+}
+
+// layoutKomaruStatus draws the emoji status KomaruGram gives in a square of
+// size, nothing until its emoji, or the set it is in, is loaded.
+func (a *App) layoutKomaruStatus(gtx layout.Context, size unit.Dp, status peerbadges.Status) layout.Dimensions {
+	if id := a.komaruStatusEmoji(status); id != 0 {
+		return a.layoutCustomEmoji(gtx, id, size)
 	}
 	return layout.Dimensions{}
+}
+
+// komaruStatusEmoji is the custom emoji of status, 0 until the set it is
+// taken from is loaded, or if the set has no emoji at its place.
+func (a *App) komaruStatusEmoji(status peerbadges.Status) int64 {
+	if status.Emoji != 0 {
+		return status.Emoji
+	}
+	set := a.statusSets[status.Set]
+	if set == nil {
+		if a.statusSets == nil {
+			a.statusSets = map[string]*emojiSet{}
+		}
+		set = new(emojiSet)
+		a.statusSets[status.Set] = set
+	}
+	if items := set.load(a, status.Set); status.Index <= len(items) {
+		return items[status.Index-1].DocumentID
+	}
+	return 0
 }
 
 // layoutExteraMark draws the arrow of exteraGram and AyuGram in a square of

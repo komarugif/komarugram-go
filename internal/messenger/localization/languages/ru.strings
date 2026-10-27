@@ -93,7 +93,6 @@
 "badge.extera_supporter" = "{name} поддержал exteraGram или AyuGram и получил уникальный значок.";
 "badge.komaru_developer" = "{name} — участник команды разработки KomaruGram.";
 "badge.komaru_official" = "{name} — официальный ресурс KomaruGram.";
-"badge.komaru_partner" = "{name} — партнёр из KomaruGif.";
 "badge.komaru_supporter" = "{name} поддержал KomaruGram и получил уникальный значок.";
 
 "badges.hide" = "Скрыть значки exteraGram, AyuGram и KomaruGram";

@@ -80,6 +80,9 @@ type App struct {
 	// the Komaru faces and the arrow beside names are taken from
 	// (peer_badges.go).
 	premiumSet, komaruSet, arrowSet emojiSet
+	// statusSets are the emoji sets KomaruGram's emoji statuses are taken
+	// from, by their names; only the window's goroutine reads them.
+	statusSets map[string]*emojiSet
 	// focused is set while the window has the focus.
 	focused bool
 	// shownChat and shownFocus tell other goroutines the open chat and the
@@ -661,7 +664,9 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		// A user's channel in their info opens with a way back, as a
 		// channel's discussion does.
 		a.info.openChannel = a.history.openReturning
-		a.info.badges = a.badges
+		// What a click on a mark in the info tells shows under the dialog,
+		// not in the chat behind it.
+		a.info.badges = a.badgesTelling(func(text string) { a.info.modal.Toast(text) })
 		a.statusClicked = a.info.openEmojiSet
 		a.info.renderer.stickers.menus = a.menuPrefs
 		a.info.avatarSprite = a.avatarSprite
