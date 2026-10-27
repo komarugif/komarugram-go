@@ -43,6 +43,9 @@ type Preview struct {
 	// or what a dice message carries when Media is empty.
 	Media string `json:",omitempty"`
 	Emoji string `json:",omitempty"`
+	// Title is a poll's question or a checklist's title, which a list
+	// shows in place of Media's word, after the mini icon of its kind.
+	Title string `json:",omitempty"`
 	// Service is the message when it is a service one.
 	Service *Message `json:",omitempty"`
 	// ID is the message's; Sent is set when the account sent it, in any
@@ -66,14 +69,14 @@ type Preview struct {
 
 // IsZero reports whether p tells nothing: a chat without a last message.
 func (p Preview) IsZero() bool {
-	return p.Text == "" && p.Sender == "" && !p.Outgoing && p.Media == "" && p.Emoji == "" && p.Service == nil &&
+	return p.Text == "" && p.Sender == "" && !p.Outgoing && p.Media == "" && p.Emoji == "" && p.Title == "" && p.Service == nil &&
 		p.ID == 0 && !p.Sent && len(p.Entities) == 0 && len(p.Thumbs) == 0 && p.Album == nil && !p.Forwarded
 }
 
 // Equal reports whether p and o show the same, a service message by the
 // same pointer.
 func (p Preview) Equal(o Preview) bool {
-	return p.Text == o.Text && p.Sender == o.Sender && p.Outgoing == o.Outgoing && p.Media == o.Media && p.Emoji == o.Emoji &&
+	return p.Text == o.Text && p.Sender == o.Sender && p.Outgoing == o.Outgoing && p.Media == o.Media && p.Emoji == o.Emoji && p.Title == o.Title &&
 		p.Service == o.Service && p.ID == o.ID && p.Sent == o.Sent && p.Forwarded == o.Forwarded &&
 		slices.Equal(p.Entities, o.Entities) && slices.EqualFunc(p.Thumbs, o.Thumbs, PreviewThumb.Equal) &&
 		(p.Album == o.Album || p.Album != nil && o.Album != nil && *p.Album == *o.Album)

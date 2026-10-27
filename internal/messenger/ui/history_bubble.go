@@ -377,7 +377,10 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.mediaLayout(gtx, r, *msg, l, animate) }), vspace(6))
 	}
 	if msg.Poll != nil {
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return pollLayout(gtx, msg.Poll, l) }))
+		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.pollLayout(gtx, msg, l) }))
+	}
+	if msg.Todo != nil {
+		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.todoLayout(gtx, msg, l) }))
 	}
 	if r.article != nil {
 		// What is over the article is measured, for links to its anchors.
@@ -407,7 +410,7 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.richText(gtx, r, l, animate) }))
 		// The time may go on its last line; not while a bot streams it.
 		r.textLast = !msg.Streaming
-	} else if msg.Media == nil && msg.Poll == nil {
+	} else if msg.Media == nil && msg.Poll == nil && msg.Todo == nil {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			if msg.Kind == model.MessageService {
 				return label(gtx, p.serviceText(*msg, l), token.TypestyleBodyMedium, sc.Surface.OnColor, 0)
@@ -834,6 +837,9 @@ func quoteRuns(m model.Message, l localization.Catalog) []model.TextRun {
 			media += ", "
 		}
 		runs = append([]model.TextRun{{Text: media}}, runs...)
+	}
+	if len(runs) == 0 && m.Todo != nil {
+		return []model.TextRun{{Text: m.Todo.Title}}
 	}
 	if len(runs) == 0 {
 		return []model.TextRun{}

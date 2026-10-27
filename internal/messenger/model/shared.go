@@ -34,18 +34,6 @@ type SharedMediaSource interface {
 	SharedMedia(context.Context, int64, SharedKind, MessageID, int) (SharedPage, error)
 }
 
-type Poll struct {
-	Question               string
-	Answers                []PollAnswer
-	Total                  int
-	Closed, Quiz, Multiple bool
-}
-type PollAnswer struct {
-	Text            string
-	Voters          int
-	Chosen, Correct bool
-}
-
 const (
 	SharedStories SharedKind = "stories"
 	SharedGifts   SharedKind = "gifts"

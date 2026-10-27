@@ -1472,6 +1472,8 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			chat = peerID(&tg.PeerChannel{ChannelID: u.ChannelID})
 		case *tg.UpdateMessageReactions:
 			s.applyReactions(peerID(u.Peer), u.MsgID, u.Reactions)
+		case *tg.UpdateMessagePoll:
+			s.applyPoll(u)
 		case *tg.UpdateLangPack:
 			langpack.Changed(u.Difference.LangCode)
 		case *tg.UpdateLangPackTooLong:
@@ -1845,6 +1847,12 @@ func messageKindKey(m model.Message) string {
 	}
 	if m.Rich != nil && strings.TrimSpace(m.Text) == "" {
 		return richFallbackKey(*m.Rich)
+	}
+	switch {
+	case m.Poll != nil:
+		return "preview.poll"
+	case m.Todo != nil:
+		return "preview.todo"
 	}
 	switch m.Kind {
 	case model.MessagePhoto:

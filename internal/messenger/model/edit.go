@@ -72,8 +72,8 @@ func CheckEdit(m Message, text string) error {
 // Editable tells whether the account may edit m, a message of a chat of
 // kind, at now, with limit for Telegram's edit time limit, as Telegram
 // Desktop's HistoryItem::allowsEdit: its own message, not a service one,
-// not forwarded, not a rich message, not a sticker, a poll or a round
-// video, and not older than the limit, which Saved Messages have none of.
+// not forwarded, not a rich message, not a sticker, a poll, a checklist or
+// a round video, and not older than the limit, which Saved Messages have none of.
 func Editable(m Message, kind ChatKind, now time.Time, limit time.Duration) bool {
 	if m.Key.MessageID <= 0 || m.Local() || m.Deleted || m.Service != nil || m.Rich != nil {
 		return false
@@ -88,7 +88,7 @@ func Editable(m Message, kind ChatKind, now time.Time, limit time.Duration) bool
 	case MessageService, MessageSticker, MessagePoll, MessageRound:
 		return false
 	}
-	if m.Poll != nil || m.Gift != nil {
+	if m.Poll != nil || m.Todo != nil || m.Gift != nil {
 		return false
 	}
 	if kind == KindSaved {

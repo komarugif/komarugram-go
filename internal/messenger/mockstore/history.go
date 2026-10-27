@@ -93,8 +93,12 @@ func (s *Store) History(chat int64) model.History {
 	add(demoRichText, model.MessageText, nil, demoEntities(demoRichText, [][2]string{{"bold", "Жирный"}, {"italic", "курсив"}, {"code", "код"}, {"spoiler", "спойлер"}, {"url", "Telegram"}}), nil)
 	messages[len(messages)-1].EditedAt = messages[len(messages)-1].Date.Add(3 * time.Minute)
 	messages[len(messages)-1].WebPage = &model.WebPreview{URL: "https://telegram.org", Title: "Telegram", Description: "Telegram Messenger", Photo: &model.MessageMedia{ID: "demo/photo", MIMEType: "image/png", Width: 640, Height: 360}}
-	add("", model.MessagePoll, nil, nil, nil)
-	messages[len(messages)-1].Poll = &model.Poll{Question: "Какое оформление выберем?", Total: 10, Answers: []model.PollAnswer{{Text: "Светлое", Voters: 6}, {Text: "Тёмное", Voters: 4, Chosen: true}}}
+	// Polls, a quiz and checklists, to vote in and mark.
+	for _, poll := range demoPolls() {
+		add("", poll.Kind, nil, nil, nil)
+		m := &messages[len(messages)-1]
+		m.Poll, m.Todo, m.Outgoing = poll.Poll, poll.Todo, poll.Outgoing
+	}
 
 	add(demoPhotoCaption, model.MessagePhoto, &model.MessageMedia{ID: "demo/photo", MIMEType: "image/png", Width: 640, Height: 360}, demoEntities(demoPhotoCaption, [][2]string{{"bold", "Изображение"}, {"italic", "кеша"}, {"spoiler", "сюрприз"}, {"emoji", "☀"}}), nil)
 	// A GIF, as Telegram keeps them: a silent MP4, assets/video.mp4, 720×1280.

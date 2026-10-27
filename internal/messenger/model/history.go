@@ -117,6 +117,8 @@ type Message struct {
 	WebPage *WebPreview `json:",omitempty"`
 	Gift    *Gift       `json:",omitempty"`
 	Poll    *Poll       `json:",omitempty"`
+	// Todo is the message's checklist.
+	Todo *Todo `json:",omitempty"`
 	// Service is what a service message tells. Messages cached before
 	// it existed have none, and show as a service message only.
 	Service     *ServiceAction `json:",omitempty"`

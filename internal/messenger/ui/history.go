@@ -153,6 +153,12 @@ type chatPage struct {
 	// edited one.
 	reacted reactedDialog
 	edits   editsDialog
+	// polls keep the state of the polls and checklists shown; pollVotes
+	// lists who voted in a public poll, and pollStop asks before one is
+	// closed.
+	polls     map[model.MessageID]*pollState
+	pollVotes pollVotesDialog
+	pollStop  pollStop
 	// translation shows a message translated.
 	translation translateDialog
 	// chatSearch searches the chat; chatMenu is the menu of its header.
@@ -641,6 +647,8 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 			p.stickers.stop()
 			p.emojiPacks.stop()
 			p.reacted.stop()
+			p.pollVotes.stop()
+			p.pollStop.modal.Hide()
 			p.edits.stop()
 			p.shot.stop()
 			p.stickerVideo.close()
@@ -662,6 +670,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.list = scroll.List{List: layout.List{Axis: layout.Vertical, ScrollToEnd: true}}
 		p.messages = nil
 		p.rows = map[model.MessageID]*messageRow{}
+		p.polls = nil
 		p.measures = nil
 		p.dirty = map[model.MessageID]model.MessageLayout{}
 		p.restored = false
@@ -966,6 +975,8 @@ func (p *chatPage) layoutDialogs(gtx layout.Context, l localization.Catalog) {
 	p.emojiPacks.layout(gtx, p, l)
 	p.stickers.layout(gtx, p, l)
 	p.reacted.layout(gtx, p, l)
+	p.pollVotes.layout(gtx, p, l)
+	p.pollStop.layout(gtx, p, l)
 	p.edits.layout(gtx, p, l)
 	p.shot.layout(gtx, p, l)
 	p.stickerVideo.layout(gtx, p, l)
@@ -1087,6 +1098,11 @@ func (p *chatPage) rebuild(messages []model.Message, env model.RenderEnvironment
 	for id := range p.rows {
 		if !alive[id] {
 			delete(p.rows, id)
+		}
+	}
+	for id := range p.polls {
+		if !alive[id] {
+			delete(p.polls, id)
 		}
 	}
 	for id := range p.textRunes {

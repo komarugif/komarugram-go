@@ -154,23 +154,10 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 				}
 			}
 		case *tg.MessageMediaToDo:
-			out.Kind = model.MessageText
-			out.Text = media.Todo.Title.Text
-			out.Entities = nil
-			done := map[int]bool{}
-			for _, item := range media.Completions {
-				done[item.ID] = true
-			}
-			for _, item := range media.Todo.List {
-				mark := "☐ "
-				if done[item.ID] {
-					mark = "☑ "
-				}
-				out.Text += "\n" + mark + item.Title.Text
-			}
+			out.Todo = convertTodo(media, names)
 		case *tg.MessageMediaPoll:
 			out.Kind = model.MessagePoll
-			out.Poll = convertPoll(media)
+			out.Poll = convertPoll(media.Poll, media.Results, names)
 		case *tg.MessageMediaDocument:
 			if d, ok := media.Document.(*tg.Document); ok {
 				out.Kind, out.Media, loc = documentMedia(d)
@@ -442,16 +429,26 @@ func photoThumbnail(sizes []tg.PhotoSizeClass, id string) *model.MessageMedia {
 	return best
 }
 
-func convertPoll(media *tg.MessageMediaPoll) *model.Poll {
-	p := &model.Poll{Question: media.Poll.Question.Text, Total: media.Results.TotalVoters, Closed: media.Poll.Closed, Quiz: media.Poll.Quiz, Multiple: media.Poll.MultipleChoice}
-	for _, raw := range media.Poll.Answers {
+// convertPoll is the model's poll of poll with its results, names naming
+// who voted.
+func convertPoll(poll tg.Poll, results tg.PollResults, names map[int64]string) *model.Poll {
+	p := &model.Poll{
+		ID: poll.ID, Question: poll.Question.Text, Total: results.TotalVoters,
+		Closed: poll.Closed, Quiz: poll.Quiz, Multiple: poll.MultipleChoice, Public: poll.PublicVoters,
+		HideResults: poll.HideResultsUntilClose, Creator: poll.Creator, NoRevote: poll.RevotingDisabled,
+		Solution: results.Solution,
+	}
+	if poll.CloseDate != 0 {
+		p.CloseDate = time.Unix(int64(poll.CloseDate), 0)
+	}
+	for _, raw := range poll.Answers {
 		a, ok := raw.(*tg.PollAnswer)
 		if !ok {
 			continue
 		}
-		answer := model.PollAnswer{Text: a.GetText().Text}
-		for _, r := range media.Results.Results {
-			if string(r.Option) == string(a.GetOption()) {
+		answer := model.PollAnswer{Text: a.Text.Text, Option: a.Option}
+		for _, r := range results.Results {
+			if string(r.Option) == string(a.Option) {
 				answer.Voters = r.Voters
 				answer.Chosen = r.Chosen
 				answer.Correct = r.Correct
@@ -459,7 +456,29 @@ func convertPoll(media *tg.MessageMediaPoll) *model.Poll {
 		}
 		p.Answers = append(p.Answers, answer)
 	}
+	for _, peer := range results.RecentVoters {
+		id := peerID(peer)
+		p.Recent = append(p.Recent, model.PollVoter{ID: id, Name: names[id]})
+	}
 	return p
+}
+
+// convertTodo is the model's checklist of media, names naming who
+// completed its tasks.
+func convertTodo(media *tg.MessageMediaToDo, names map[int64]string) *model.Todo {
+	t := &model.Todo{Title: media.Todo.Title.Text, OthersCanAppend: media.Todo.OthersCanAppend, OthersCanComplete: media.Todo.OthersCanComplete}
+	for _, item := range media.Todo.List {
+		one := model.TodoItem{ID: item.ID, Text: item.Title.Text}
+		for _, c := range media.Completions {
+			if c.ID == item.ID {
+				one.CompletedBy = peerID(c.CompletedBy)
+				one.CompletedByName = names[one.CompletedBy]
+				one.Completed = time.Unix(int64(c.Date), 0)
+			}
+		}
+		t.Items = append(t.Items, one)
+	}
+	return t
 }
 
 // convertInlineKeyboard turns the rows of the keyboard under a bot's message

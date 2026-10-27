@@ -138,6 +138,8 @@ func previewChats(now time.Time, inline func(n int) []byte) []model.Chat {
 		{ID: 13, Kind: model.KindUser, Title: "Фото под спойлером", Last: hidden, LastTime: ago(time.Hour)},
 		{ID: 14, Kind: model.KindUser, Title: "Пересланное", Last: forward, LastTime: ago(2 * time.Hour)},
 		{ID: 15, Kind: model.KindChannel, Title: "Пересланное фото", Last: forwardPhoto, LastTime: ago(3 * time.Hour), Unread: 3, Muted: true},
+		{ID: 16, Kind: model.KindGroup, Title: "Опрос", Last: model.Preview{Media: "preview.poll", Title: "Какое оформление выберем?", Sender: "Анна"}, LastTime: ago(4 * time.Hour)},
+		{ID: 17, Kind: model.KindUser, Title: "Список задач", Last: model.Preview{Media: "preview.todo", Title: "Подготовка к релизу"}, LastTime: ago(5 * time.Hour)},
 		{ID: 16, Kind: model.KindUser, Title: "Ссылка с картинкой", Last: link, LastTime: ago(4 * time.Hour)},
 		{ID: 17, Kind: model.KindUser, Title: "Длинный текст", Last: long, LastTime: ago(5 * time.Hour), Pinned: true, PinRank: 1},
 		{ID: 18, Kind: model.KindGroup, Title: "Служебное", Last: model.Preview{Service: &service}, LastTime: ago(6 * time.Hour)},

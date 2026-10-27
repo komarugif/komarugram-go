@@ -40,7 +40,7 @@ const (
 // unwrapped reports whether m is drawn without a bubble. What needs a bubble
 // to sit in — a caption, buttons, the comments bar — keeps it.
 func (p *chatPage) unwrapped(m model.Message) bool {
-	if len(m.Buttons) > 0 || m.Poll != nil || m.WebPage != nil || len(m.Attachments) > 1 || p.showsComments(m) {
+	if len(m.Buttons) > 0 || m.Poll != nil || m.Todo != nil || m.WebPage != nil || len(m.Attachments) > 1 || p.showsComments(m) {
 		return false
 	}
 	if m.Kind == model.MessageSticker || m.Kind == model.MessageRound {

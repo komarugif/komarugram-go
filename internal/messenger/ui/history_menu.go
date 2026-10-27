@@ -40,6 +40,8 @@ const (
 	actionCopySelected
 	actionCopyText
 	actionCopyLink
+	actionRetractVote
+	actionStopPoll
 	actionForward
 	actionForwardSelected
 	actionDelete
@@ -232,6 +234,14 @@ func (p *chatPage) menuActions(m model.Message) []menuAction {
 	if _, _, ok := p.menuLink(m); ok {
 		out = append(out, actionCopyLink)
 	}
+	if _, ok := p.source.(model.PollStore); ok && m.Poll != nil && m.Key.MessageID > 0 && !m.Local() {
+		if m.Poll.CanRetract() {
+			out = append(out, actionRetractVote)
+		}
+		if model.CanClosePoll(m, p.kind) {
+			out = append(out, actionStopPoll)
+		}
+	}
 	if selected {
 		rights := p.selectionRights()
 		if rights.Forward {
@@ -361,6 +371,12 @@ func (p *chatPage) menuDo(gtx layout.Context, a menuAction, m model.Message, l l
 				p.toast.Show(l.T("menu.private_link"))
 			}
 		}
+	case actionRetractVote:
+		if store, ok := p.source.(model.PollStore); ok {
+			store.Vote(m, nil, p.reportMedia)
+		}
+	case actionStopPoll:
+		p.pollStop.ask(m)
 	case actionForward:
 		p.openForwardParts(gtx, parts, false)
 	case actionForwardSelected:
@@ -437,6 +453,10 @@ func (p *chatPage) menuLabel(a menuAction, l localization.Catalog) string {
 			return l.T("menu.copy_post_link")
 		}
 		return l.T("menu.copy_message_link")
+	case actionRetractVote:
+		return l.T("poll.retract")
+	case actionStopPoll:
+		return l.T("poll.stop")
 	case actionForward:
 		return l.T("menu.forward")
 	case actionForwardSelected:
@@ -505,6 +525,10 @@ func menuIcon(a menuAction) wdk.IconWidget {
 		return iconCopy
 	case actionCopyLink:
 		return iconLink
+	case actionRetractVote:
+		return iconRetract
+	case actionStopPoll:
+		return iconStopPoll
 	case actionForward, actionForwardSelected:
 		return iconForward
 	case actionDelete, actionDeleteSelected:

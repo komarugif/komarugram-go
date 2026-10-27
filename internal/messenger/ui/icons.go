@@ -101,6 +101,16 @@ var (
 	iconNotificationsOn  = wdk.RequireIconWidget(icons.SocialNotificationsNone)
 	iconNotificationsOff = wdk.RequireIconWidget(icons.SocialNotificationsOff)
 	iconGift             = wdk.RequireIconWidget(icons.ActionCardGiftcard)
+
+	// Polls: a quiz's explanation, a wrong answer, and the menu's items
+	// that take a vote back and close a poll.
+	iconSolution  = wdk.RequireIconWidget(icons.ActionLightbulbOutline)
+	iconPollWrong = wdk.RequireIconWidget(icons.NavigationClose)
+	iconRetract   = wdk.RequireIconWidget(icons.ContentUndo)
+	iconStopPoll  = wdk.RequireIconWidget(icons.AVStop)
+	// The mini icons of a poll and a checklist in the chat list.
+	iconPollMini = wdk.RequireIconWidget(icons.SocialPoll)
+	iconTodoMini = wdk.RequireIconWidget(icons.ActionAssignmentTurnedIn)
 )
 
 // folderIcon picks an icon for a folder by the kinds of chats it holds.

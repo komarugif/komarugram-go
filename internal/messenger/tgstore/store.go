@@ -634,6 +634,12 @@ func preview(m tg.MessageClass) (model.Preview, time.Time) {
 		if media, emoji := mediaKey(m.Media); media != "" || emoji != "" {
 			p.Media, p.Emoji = media, emoji
 		}
+		switch media := m.Media.(type) {
+		case *tg.MessageMediaPoll:
+			p.Title = strings.Join(strings.Fields(media.Poll.Question.Text), " ")
+		case *tg.MessageMediaToDo:
+			p.Title = strings.Join(strings.Fields(media.Todo.Title.Text), " ")
+		}
 		return p, time.Unix(int64(m.Date), 0)
 	case *tg.MessageService:
 		return model.Preview{Media: "preview.service"}, time.Unix(int64(m.Date), 0)
@@ -655,6 +661,8 @@ func mediaKey(media tg.MessageMediaClass) (key, emoji string) {
 		return "preview.contact", ""
 	case *tg.MessageMediaPoll:
 		return "preview.poll", ""
+	case *tg.MessageMediaToDo:
+		return "preview.todo", ""
 	case *tg.MessageMediaDice:
 		return "", media.Emoticon
 	case *tg.MessageMediaStory:

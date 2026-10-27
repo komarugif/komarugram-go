@@ -206,6 +206,9 @@ func (p *chatPage) pinnedRuns(m model.Message, l localization.Catalog) []model.T
 	if m.Poll != nil && strings.TrimSpace(m.Text) == "" {
 		return []model.TextRun{{Text: m.Poll.Question}}
 	}
+	if m.Todo != nil && strings.TrimSpace(m.Text) == "" {
+		return []model.TextRun{{Text: m.Todo.Title}}
+	}
 	// As a reply's quote: what media it has, and its text with its custom
 	// emoji, as Telegram Desktop's pinned bar draws them.
 	return quoteRuns(m, l)

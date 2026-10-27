@@ -397,36 +397,3 @@ func (p *chatPage) fileLayout(gtx layout.Context, r *messageRow, m model.Message
 		)
 	})
 }
-func pollLayout(gtx layout.Context, p *model.Poll, l localization.Catalog) layout.Dimensions {
-	sc := scheme(gtx)
-	rows := []layout.FlexChild{layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, p.Question, token.TypestyleTitleMedium, sc.Surface.OnColor, 0)
-	})}
-	for _, a := range p.Answers {
-		rows = append(rows, vspace(8), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			mark := "○ "
-			if a.Chosen {
-				mark = "● "
-			}
-			if a.Correct {
-				mark = "✓ "
-			}
-			pct := 0
-			if p.Total > 0 {
-				pct = a.Voters * 100 / p.Total
-			}
-			return label(gtx, fmt.Sprintf("%s%s   %d%%", mark, a.Text, pct), token.TypestyleBodyMedium, sc.Surface.OnColor, 0)
-		}))
-	}
-	rows = append(rows, vspace(8), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-		state := l.T("poll.open")
-		if p.Quiz {
-			state = l.T("poll.quiz")
-		}
-		if p.Closed {
-			state = l.T("poll.closed")
-		}
-		return label(gtx, l.Count("poll.count", p.Total, nil)+" · "+state, token.TypestyleLabelSmall, sc.SurfaceVariant.OnColor, 2)
-	}))
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, rows...)
-}

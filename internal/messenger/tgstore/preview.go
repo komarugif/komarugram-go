@@ -308,6 +308,14 @@ func previewContent(p *model.Preview, m model.Message) {
 	if t, ok := previewThumb(m); ok {
 		p.Thumbs = []model.PreviewThumb{t}
 	}
+	// A poll or a checklist shows its question or title, as Telegram
+	// Desktop's MediaPoll::toPreview and MediaTodoList::toPreview do.
+	switch {
+	case m.Poll != nil:
+		p.Title = strings.Join(strings.Fields(m.Poll.Question), " ")
+	case m.Todo != nil:
+		p.Title = strings.Join(strings.Fields(m.Todo.Title), " ")
+	}
 	if m.GroupedID != 0 {
 		a := &model.PreviewAlbum{ID: m.GroupedID, Last: m.Key.MessageID}
 		albumCounts(a, m)

@@ -1193,12 +1193,39 @@
 "player.title" = "External player";
 "player.undecided" = "The app will ask when you first open a video and remember the choice.";
 
-"poll.closed" = "Poll closed";
-"poll.count" = "Votes: {count}";
+"poll.admin_back" = "{arrow} Vote";
+"poll.admin_votes" = "{count} votes {arrow}";
+"poll.admin_votes#one" = "{count} vote {arrow}";
+"poll.anonymous" = "Anonymous Poll";
+"poll.anonymous_quiz" = "Anonymous Quiz";
+"poll.answers" = "{count} answers";
+"poll.answers#one" = "{count} answer";
+"poll.answers_none" = "No answers";
+"poll.closed" = "Final results";
+"poll.count" = "{count} votes";
 "poll.count#one" = "{count} vote";
-"poll.open" = "Poll";
-"poll.quiz" = "Quiz";
-"poll.votes" = "Votes: %d";
+"poll.ends_days" = "ends in {count} days";
+"poll.ends_days#one" = "ends in {count} day";
+"poll.ends_time" = "ends in {time}";
+"poll.public" = "Poll";
+"poll.public_quiz" = "Quiz";
+"poll.quiz_results_title" = "Quiz results";
+"poll.results_after_close" = "Results will appear after the poll ends.";
+"poll.results_days" = "results in {count} days";
+"poll.results_days#one" = "results in {count} day";
+"poll.results_time" = "results in {time}";
+"poll.results_title" = "Poll results";
+"poll.retract" = "Retract vote";
+"poll.show_more" = "Show more ({count})";
+"poll.solution" = "Explanation";
+"poll.stop" = "Stop poll";
+"poll.stop_sure" = "Stop";
+"poll.stop_warning" = "If you stop this poll now, nobody will be able to vote in it anymore. This action cannot be undone.";
+"poll.view_results" = "View results";
+"poll.view_votes" = "View Votes ({count})";
+"poll.vote" = "Vote";
+"poll.votes_failed" = "Couldn't load the votes";
+"poll.votes_none" = "No votes";
 
 "premium.active" = "Your Telegram Premium subscription is active: the limits below are those on the right.";
 "premium.blocked" = "The server does not allow subscribing to Premium from this app. Subscribe in an official Telegram app.";
@@ -1256,6 +1283,7 @@
 "preview.story" = "Story";
 "preview.story_expired" = "Expired story";
 "preview.table" = "Table";
+"preview.todo" = "Checklist";
 "preview.video" = "Video";
 "preview.videos" = "{count} videos";
 "preview.videos#one" = "{count} video";
@@ -1832,6 +1860,16 @@
 "text.copied" = "Text copied";
 "text.copy_code" = "Copy";
 "text.expand_quote" = "Expand quote";
+
+"todo.completed" = "{count} of {total} completed";
+"todo.completed_none" = "None of {total} completed";
+"todo.mark_forwarded" = "You can't change forwarded checklists.";
+"todo.mark_premium" = "Only subscribers of {link} can mark tasks as done.";
+"todo.mark_restricted" = "{user} has restricted others from marking tasks as done.";
+"todo.premium_link" = "Telegram Premium";
+"todo.title" = "Checklist";
+"todo.title_group" = "Group Checklist";
+"todo.title_user" = "Checklist";
 
 "translate.failed" = "Translate failed.";
 "translate.title" = "Translate";

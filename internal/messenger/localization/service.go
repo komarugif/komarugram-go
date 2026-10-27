@@ -370,6 +370,9 @@ func PinnedQuote(text string) string {
 // pinnedMedia names what a pinned message's media is, or nothing for a
 // message of text.
 func (c Catalog) pinnedMedia(m model.Message) string {
+	if m.Todo != nil {
+		return "«" + m.Todo.Title + "»"
+	}
 	switch m.Kind {
 	case model.MessagePhoto:
 		return c.T("service.pinned_media_photo")

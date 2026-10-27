@@ -398,10 +398,33 @@
 "pinned.previous" = "lng_pinned_previous";
 "pinned.title" = "lng_pinned_message";
 
+"poll.admin_back" = "lng_polls_admin_back_vote";
+"poll.admin_votes" = "lng_polls_admin_votes";
+"poll.anonymous" = "lng_polls_anonymous";
+"poll.anonymous_quiz" = "lng_polls_anonymous_quiz";
+"poll.answers" = "lng_polls_answers_count";
+"poll.answers_none" = "lng_polls_answers_none";
 "poll.closed" = "lng_polls_closed";
 "poll.count" = "lng_polls_votes_count";
-"poll.open" = "lng_polls_public";
-"poll.quiz" = "lng_polls_public_quiz";
+"poll.ends_days" = "lng_polls_ends_in_days";
+"poll.ends_time" = "lng_polls_ends_in_time";
+"poll.public" = "lng_polls_public";
+"poll.public_quiz" = "lng_polls_public_quiz";
+"poll.quiz_results_title" = "lng_polls_quiz_results_title";
+"poll.results_after_close" = "lng_polls_results_after_close";
+"poll.results_days" = "lng_polls_results_in_days";
+"poll.results_time" = "lng_polls_results_in_time";
+"poll.results_title" = "lng_polls_poll_results_title";
+"poll.retract" = "lng_polls_retract";
+"poll.show_more" = "lng_polls_show_more";
+"poll.solution" = "lng_polls_solution_title";
+"poll.stop" = "lng_polls_stop";
+"poll.stop_sure" = "lng_polls_stop_sure";
+"poll.stop_warning" = "lng_polls_stop_warning";
+"poll.view_results" = "lng_polls_view_results";
+"poll.view_votes" = "lng_polls_view_votes";
+"poll.vote" = "lng_polls_submit_votes";
+"poll.votes_none" = "lng_polls_votes_none";
 
 "preview.album" = "lng_in_dlg_album";
 "preview.audio" = "lng_in_dlg_audio_file";
@@ -420,6 +443,7 @@
 "preview.story" = "lng_in_dlg_story";
 "preview.story_expired" = "lng_in_dlg_story_expired";
 "preview.table" = "lng_in_dlg_table";
+"preview.todo" = "lng_in_dlg_todo_list";
 "preview.video" = "lng_in_dlg_video";
 "preview.videos" = "lng_in_dlg_video_count";
 "preview.voice" = "lng_in_dlg_audio";
@@ -692,6 +716,16 @@
 
 "text.copied" = "lng_text_copied";
 "text.copy_code" = "lng_code_block_header_copy";
+
+"todo.completed" = "lng_todo_completed";
+"todo.completed_none" = "lng_todo_completed_none";
+"todo.mark_forwarded" = "lng_todo_mark_forwarded";
+"todo.mark_premium" = "lng_todo_mark_premium";
+"todo.mark_restricted" = "lng_todo_mark_restricted";
+"todo.premium_link" = "lng_todo_premium_link";
+"todo.title" = "lng_todo_title";
+"todo.title_group" = "lng_todo_title_group";
+"todo.title_user" = "lng_todo_title_user";
 
 "translate.failed" = "lng_translate_box_error";
 "translate.title" = "lng_context_translate";
