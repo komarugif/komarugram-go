@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"image"
@@ -331,5 +332,45 @@ func TestJumpButtonsGiveWayToThePicker(t *testing.T) {
 	h.click(h.jumpButton(0))
 	if !h.page.list.Position.BeforeEnd {
 		t.Fatal("the button to the end was there under the picker")
+	}
+}
+
+// sendingJumpSource is a jumpSource with a composer, which takes what is
+// sent.
+type sendingJumpSource struct{ jumpSource }
+
+func (s sendingJumpSource) Send(context.Context, int64, model.OutgoingMessage) error { return nil }
+func (s sendingJumpSource) Picker(context.Context, model.PickerRequest) (model.PickerPage, error) {
+	return model.PickerPage{}, nil
+}
+
+// A message sent takes the history to its end, wherever it was scrolled,
+// as the button to the end does: loaded again from the newest message
+// when the end is not loaded.
+func TestSendJumpsToTheEnd(t *testing.T) {
+	for _, unloaded := range []bool{false, true} {
+		var calls []string
+		h := newChatInputHarnessOf(t, 100, func(m model.History) model.ConversationStore {
+			m.HasNewer = unloaded
+			return sendingJumpSource{jumpSource{benchmarkHistory{h: m}, &calls, nil}}
+		})
+		p := h.page
+		h.seek(10, 0)
+		p.composer.submit(1, model.OutgoingMessage{Text: "hi"})
+		h.frame()
+		h.frame()
+		switch {
+		case unloaded && (len(calls) != 1 || calls[0] != "last"):
+			t.Fatalf("the store was asked for %v, want the last message", calls)
+		case !unloaded && p.list.Position.BeforeEnd:
+			t.Fatal("the history stayed where it was scrolled")
+		}
+		// Another chat's message leaves this one where it is.
+		h.seek(10, 0)
+		p.composer.noteSent(2)
+		h.frame()
+		if !p.list.Position.BeforeEnd || p.list.Position.First != 10 {
+			t.Fatalf("a message to another chat moved the history to %+v", p.list.Position)
+		}
 	}
 }

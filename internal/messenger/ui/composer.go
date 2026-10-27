@@ -172,7 +172,10 @@ type messageComposer struct {
 	// localQuery, in localLanguage.
 	pageLoaded bool
 	// sentNotes are the messages sent that the history has not shown yet.
-	sentNotes                 []sentNote
+	sentNotes []sentNote
+	// sentJump is the chat a message was just sent to, whose history goes
+	// to its end in the next frame; 0 for none.
+	sentJump                  int64
 	localQuery, localLanguage string
 	local                     []model.PickerItem
 	itemClicks                map[string]*surface

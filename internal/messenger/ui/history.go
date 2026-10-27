@@ -785,6 +785,11 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.restored = true
 	}
 	p.finishJump(history)
+	if p.composer != nil && p.composer.takeSentJump(c.ID) {
+		// A message sent goes to the end of the history, wherever it was
+		// scrolled, as in Telegram's clients.
+		p.scrollToEnd(history)
+	}
 	classic := p.classicComposer()
 	// The floating composer covers the end of the history, which scrolls
 	// out from under it; the classic one takes its height from the history.

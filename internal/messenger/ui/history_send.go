@@ -28,9 +28,22 @@ type sentNote struct {
 	at   time.Time
 }
 
-// noteSent notes that a message was sent to chat.
+// noteSent notes that a message was sent to chat, and has its history go
+// to its end, as the button at its corner does: the message shows there.
 func (c *messageComposer) noteSent(chat int64) {
 	c.sentNotes = append(c.sentNotes, sentNote{chat, time.Now()})
+	c.sentJump = chat
+	c.invalidate()
+}
+
+// takeSentJump reports whether a message was just sent to chat, whose
+// history goes to its end, and forgets it.
+func (c *messageComposer) takeSentJump(chat int64) bool {
+	if c.sentJump != chat {
+		return false
+	}
+	c.sentJump = 0
+	return true
 }
 
 // forgetSent drops the note of a message to chat that was not sent.
