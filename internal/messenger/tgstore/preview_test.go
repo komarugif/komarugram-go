@@ -224,3 +224,58 @@ func TestStickerPreviewEmoji(t *testing.T) {
 		t.Fatalf("previewed %+v", p)
 	}
 }
+
+// A forwarded story is named a story in the chat list, as the history's
+// previews name it, not an attachment; one deleted, or of a kind not shown,
+// an expired story.
+func TestPreviewOfStory(t *testing.T) {
+	video := &tg.MessageMediaDocument{Document: &tg.Document{ID: 1, MimeType: "video/mp4", Attributes: []tg.DocumentAttributeClass{&tg.DocumentAttributeVideo{W: 720, H: 1280}}}}
+	for _, c := range []struct {
+		name  string
+		story tg.StoryItemClass
+		want  string
+	}{
+		{"photo", &tg.StoryItem{ID: 1, Media: &tg.MessageMediaPhoto{Photo: &tg.Photo{ID: 1}}}, "preview.story"},
+		{"video", &tg.StoryItem{ID: 2, Media: video}, "preview.story"},
+		{"left out", &tg.StoryItemSkipped{ID: 3}, "preview.story"},
+		{"not told", nil, "preview.story"},
+		{"deleted", &tg.StoryItemDeleted{ID: 4}, "preview.story_expired"},
+		{"of another kind", &tg.StoryItem{ID: 5, Media: &tg.MessageMediaGeo{}}, "preview.story_expired"},
+	} {
+		m := &tg.Message{Media: &tg.MessageMediaStory{Peer: &tg.PeerUser{UserID: 7}, ID: 1, Story: c.story}}
+		if p, _ := preview(m); p.Media != c.want {
+			t.Errorf("%s: %q, want %q", c.name, p.Media, c.want)
+		}
+	}
+}
+
+// A forwarded story's photo is its thumbnail in the chat list, as Telegram
+// for Android draws it, downloaded by the story; a mention of the account
+// in a story, and a story deleted, have none.
+func TestDialogPreviewOfStoryHasThumb(t *testing.T) {
+	photo := &tg.Photo{ID: 43, AccessHash: 1, FileReference: []byte{1}, DCID: 2, Sizes: []tg.PhotoSizeClass{
+		&tg.PhotoSize{Type: "s", W: 90, H: 90, Size: 900}, &tg.PhotoSize{Type: "y", W: 720, H: 1280, Size: 90000}}}
+	story := func(item tg.StoryItemClass, mention bool) *tg.Message {
+		return &tg.Message{ID: 8, PeerID: &tg.PeerUser{UserID: 5}, Date: 1000,
+			Media: &tg.MessageMediaStory{Peer: &tg.PeerUser{UserID: 9}, ID: 3, Story: item, ViaMention: mention}}
+	}
+	l := newList(1)
+	var p model.Preview
+	l.previewContent(&p, story(&tg.StoryItem{ID: 3, Media: &tg.MessageMediaPhoto{Photo: photo}}, false))
+	if len(p.Thumbs) != 1 || p.Thumbs[0].ID != "photo/43/s" {
+		t.Fatalf("preview %+v", p)
+	}
+	if ref, ok := l.refs["photo/43/s"]; !ok || ref.Story != 3 || ref.StoryPeer != peerID(&tg.PeerUser{UserID: 9}) {
+		t.Fatalf("refs %+v", l.refs)
+	}
+	for name, msg := range map[string]*tg.Message{
+		"a mention": story(&tg.StoryItem{ID: 3, Media: &tg.MessageMediaPhoto{Photo: photo}}, true),
+		"deleted":   story(&tg.StoryItemDeleted{ID: 3}, false),
+	} {
+		var p model.Preview
+		newList(1).previewContent(&p, msg)
+		if len(p.Thumbs) != 0 {
+			t.Errorf("%s has the thumbnail %+v", name, p.Thumbs)
+		}
+	}
+}

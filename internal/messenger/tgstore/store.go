@@ -657,6 +657,18 @@ func mediaKey(media tg.MessageMediaClass) (key, emoji string) {
 		return "preview.poll", ""
 	case *tg.MessageMediaDice:
 		return "", media.Emoticon
+	case *tg.MessageMediaStory:
+		// As the history's previews of a story (messageKindKey): one
+		// deleted, or of a kind the history does not show, is expired.
+		switch item := media.Story.(type) {
+		case *tg.StoryItemDeleted:
+			return "preview.story_expired", ""
+		case *tg.StoryItem:
+			if kind, _ := mediaKey(item.Media); kind != "preview.photo" && kind != "preview.video" {
+				return "preview.story_expired", ""
+			}
+		}
+		return "preview.story", ""
 	case *tg.MessageMediaDocument:
 		doc, ok := media.Document.(*tg.Document)
 		if !ok {
