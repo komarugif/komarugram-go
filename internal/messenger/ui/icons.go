@@ -68,6 +68,8 @@ var (
 	iconMic           = wdk.RequireIconWidget(icons.AVMic)
 	iconCalendar      = wdk.RequireIconWidget(icons.ActionEvent)
 	iconDataCenter    = wdk.RequireIconWidget(icons.ActionDNS)
+	iconUserID        = wdk.RequireIconWidget(icons.ActionPermIdentity)
+	iconPhone         = wdk.RequireIconWidget(icons.CommunicationCall)
 	iconDevices       = wdk.RequireIconWidget(icons.DeviceDevices)
 	iconChevronLeft   = wdk.RequireIconWidget(icons.NavigationChevronLeft)
 	iconOpenInNew     = wdk.RequireIconWidget(icons.ActionOpenInNew)

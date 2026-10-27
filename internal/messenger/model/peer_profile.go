@@ -23,6 +23,9 @@ type PeerProfile struct {
 	// About is what a user tells of themselves: plain text, whose links
 	// and mentions PlainEntities finds.
 	About string
+	// Phone is a user's phone number, its digits, where they let the
+	// account see it; empty otherwise.
+	Phone string
 	// Badges are the marks beside the name as Telegram says now, when
 	// BadgesKnown: a chat's own may be older, as the emoji status of someone
 	// with no dialog, which no update reaches.

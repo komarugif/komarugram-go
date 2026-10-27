@@ -505,6 +505,46 @@ func TestChatInfoDetails(t *testing.T) {
 	}
 }
 
+// A user's info tells their ID over the registration, and their phone
+// number, where Telegram tells it, over the username; a click copies each.
+// A group has neither.
+func TestChatInfoIDAndPhone(t *testing.T) {
+	store := mockstore.New(time.Now(), 0)
+	var images imageOps
+	p := newChatInfo(store, &images, func() {})
+	defer p.Destroy()
+	l := localization.For("en")
+	var router input.Router
+	frame := func() {
+		ops := new(op.Ops)
+		gtx := sharedContext(ops, image.Pt(900, 2000))
+		gtx.Source = router.Source()
+		p.Layout(gtx, l, false)
+		router.Frame(ops)
+	}
+	p.Open(model.Chat{ID: 2, Kind: model.KindUser})
+	awaitShared(t, p)
+	frame()
+	if id, phone := p.userIDText(), p.phoneText(); id != "2" || phone != "+7 900 123 45 67" {
+		t.Fatalf("ID %q, phone %q", id, phone)
+	}
+	for _, c := range []struct {
+		item *settingsItem
+		want string
+	}{{&p.userID, "2"}, {&p.phone, "+7 900 123 45 67"}} {
+		c.item.click.Click()
+		frame()
+		if _, text, ok := router.WriteClipboard(); !ok || string(text) != c.want {
+			t.Fatalf("copied %q, want %q", text, c.want)
+		}
+	}
+	p.Open(model.Chat{ID: 3, Kind: model.KindGroup})
+	awaitShared(t, p)
+	if id, phone := p.userIDText(), p.phoneText(); id != "" || phone != "" {
+		t.Fatalf("a group's ID %q, phone %q", id, phone)
+	}
+}
+
 // TestOwnUsernameFollowsCollectibles shows a channel that put its
 // collectible username first: its own follows the chips, which the card
 // above does not show then, and the username of the card is not repeated.

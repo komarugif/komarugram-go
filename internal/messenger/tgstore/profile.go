@@ -112,6 +112,7 @@ func (s *Store) fetchProfile(ctx context.Context, chat int64) (model.PeerProfile
 			if u, ok := raw.(*tg.User); ok && u.ID == peer.ID {
 				status, color, usernames, username = u.EmojiStatus, u.ProfileColor, u.Usernames, u.Username
 				out.Badges, out.BadgesKnown = userBadges(u, time.Now()), true
+				out.Phone = u.Phone
 			}
 		}
 		channelID, channelMsg = full.FullUser.PersonalChannelID, full.FullUser.PersonalChannelMessage

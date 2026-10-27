@@ -895,10 +895,12 @@
 "info.link_copied" = "Ссылка скопирована.";
 "info.open_chat" = "Перейти в личный чат с пользователем";
 "info.open_chat_new" = "Вы ещё не переписывались";
+"info.phone" = "Телефон · нажмите, чтобы скопировать";
 "info.registered_about" = "~ {date}";
 "info.registered_after" = "позже {date}";
 "info.registered_before" = "раньше {date}";
 "info.registration" = "Дата регистрации (примерно, по ID)";
+"info.user_id" = "ID · нажмите, чтобы скопировать";
 "info.username" = "Имя пользователя · нажмите, чтобы скопировать";
 "info.username_copied" = "Имя пользователя скопировано.";
 

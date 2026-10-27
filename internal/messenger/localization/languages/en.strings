@@ -846,10 +846,12 @@
 "info.link_copied" = "Link copied to clipboard.";
 "info.open_chat" = "Go to private chat with user";
 "info.open_chat_new" = "You have no chat yet";
+"info.phone" = "Phone · click to copy";
 "info.registered_about" = "~ {date}";
 "info.registered_after" = "after {date}";
 "info.registered_before" = "before {date}";
 "info.registration" = "Registration date (estimated from the ID)";
+"info.user_id" = "ID · click to copy";
 "info.username" = "Username · click to copy";
 "info.username_copied" = "Username copied to clipboard.";
 

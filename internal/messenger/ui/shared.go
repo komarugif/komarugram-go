@@ -13,6 +13,7 @@ import (
 
 	"komarugram/internal/crash"
 	"komarugram/internal/messenger/chatmedia"
+	"komarugram/internal/messenger/countries"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
@@ -72,14 +73,17 @@ type chatInfo struct {
 	// AyuGram's Copy Username and Copy Username as Link.
 	usernames              model.UsernameSource
 	username, usernameLink settingsItem
+	// phone is a user's phone number, over the username; a click copies it.
+	phone settingsItem
 	// told is the failure to load told in the toast last.
 	told error
 	// details tells the registration of a user and the data center of a
-	// chat's photo, as materialgram's profile; each row copies its text.
-	details                  model.ChatDetailer
-	registration, dataCenter settingsItem
-	themePage                bool
-	themes                   *chatThemeController
+	// chat's photo, as materialgram's profile, under a user's ID; each row
+	// copies its text.
+	details                          model.ChatDetailer
+	userID, registration, dataCenter settingsItem
+	themePage                        bool
+	themes                           *chatThemeController
 	// openChat, when set, goes to the chat shown, which is not open: the
 	// info of a group's member who has no chat with the account yet.
 	openChat func()
@@ -469,7 +473,7 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 	for _, row := range []struct {
 		item *settingsItem
 		text string
-	}{{&p.registration, registration}, {&p.dataCenter, dataCenter}} {
+	}{{&p.phone, p.phoneText()}, {&p.userID, p.userIDText()}, {&p.registration, registration}, {&p.dataCenter, dataCenter}} {
 		if row.text != "" && row.item.click.Clicked(gtx) {
 			gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(row.text))})
 			p.modal.Toast(l.T("info.copied"))
@@ -677,18 +681,29 @@ func (p *chatInfo) layoutCards(gtx layout.Context, l localization.Catalog, anima
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutChannel(gtx, l, animate) }),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutAbout(gtx, l, animate) }),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				name := p.chatUsername()
-				if name == "" {
+				name, phone := p.chatUsername(), p.phoneText()
+				if name == "" && phone == "" {
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return p.cardHeights[0].Card(gtx, func(gtx layout.Context) layout.Dimensions {
-						subtitle := l.T("info.username")
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return p.username.Layout(gtx, iconCopy, "@"+name, subtitle)
+								if phone == "" {
+									return layout.Dimensions{}
+								}
+								return p.phone.Layout(gtx, iconPhone, phone, l.T("info.phone"))
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								if name == "" {
+									return layout.Dimensions{}
+								}
+								return p.username.Layout(gtx, iconCopy, "@"+name, l.T("info.username"))
+							}),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								if name == "" {
+									return layout.Dimensions{}
+								}
 								return p.usernameLink.Layout(gtx, iconLink, l.T("info.copy_link"), "t.me/"+name)
 							}),
 						)
@@ -697,13 +712,20 @@ func (p *chatInfo) layoutCards(gtx layout.Context, l localization.Catalog, anima
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutCollectibles(gtx) }),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				id := p.userIDText()
 				registration, dataCenter := p.detailTexts(l)
-				if registration == "" && dataCenter == "" {
+				if id == "" && registration == "" && dataCenter == "" {
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return p.cardHeights[1].Card(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								if id == "" {
+									return layout.Dimensions{}
+								}
+								return p.userID.Layout(gtx, iconUserID, id, l.T("info.user_id"))
+							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								if registration == "" {
 									return layout.Dimensions{}
@@ -1061,6 +1083,21 @@ func (p *chatInfo) chatUsername() string {
 // registrationMonthSpread is how far from its estimate a registration may
 // be for the info to tell its month rather than its year alone.
 const registrationMonthSpread = 92 * 24 * time.Hour
+
+// userIDText is the ID of a user or a bot, the first of the details; empty
+// for another chat.
+func (p *chatInfo) userIDText() string {
+	if p.chat.ID <= 0 || p.chat.Kind != model.KindUser && p.chat.Kind != model.KindBot {
+		return ""
+	}
+	return strconv.FormatInt(p.chat.ID, 10)
+}
+
+// phoneText is a user's phone number as it is read, "+7 900 123 45 67",
+// empty when the profile tells none.
+func (p *chatInfo) phoneText() string {
+	return countries.Format(countries.Digits(p.profile.Phone))
+}
 
 // detailTexts are the rows of the chat's details: when a user registered,
 // and where the chat's photo is kept; empty when not known.
