@@ -1159,6 +1159,57 @@ func (s textColorEmojiSource) CustomEmoji(context.Context, int64) (model.Message
 	return model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "emoji-document", MIMEType: "application/x-tgsticker", TextColor: true}}, nil
 }
 
+// onceTextColorEmojiSource answers once that the emoji is of the text's
+// color, and never again: as a clip kept is played without asking.
+type onceTextColorEmojiSource struct {
+	*fakeSource
+	asked *atomic.Int32
+}
+
+func (s onceTextColorEmojiSource) CustomEmoji(ctx context.Context, _ int64) (model.Message, error) {
+	if s.asked.Add(1) > 1 {
+		<-ctx.Done()
+		return model.Message{}, ctx.Err()
+	}
+	return model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "emoji-document", MIMEType: "application/x-tgsticker", TextColor: true}}, nil
+}
+
+// An emoji loaded again, once it expired off screen, stays of the text's
+// color though it is not asked for again: it was drawn white, at random.
+func TestCustomEmojiStaysTextColoredWhenRestarted(t *testing.T) {
+	data, err := os.ReadFile("../../../assets/stickers/sample.tgs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewShared(onceTextColorEmojiSource{&fakeSource{data: data}, new(atomic.Int32)}, func() {})
+	defer m.Close()
+	msg := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "emoji/1", MIMEType: "application/x-custom-emoji"}}
+	deadline := time.Now().Add(5 * time.Second)
+	var frame image.Image
+	for frame == nil && time.Now().Before(deadline) {
+		m.BeginFrame()
+		frame, _ = m.Frame(msg, false)
+		m.EndFrame()
+		time.Sleep(10 * time.Millisecond)
+	}
+	if frame == nil || !m.TextColored(msg) {
+		t.Fatalf("frame %v, text colored %v", frame != nil, m.TextColored(msg))
+	}
+	e := m.entries[msg.Media.ID]
+	e.mu.Lock()
+	e.expired = true
+	e.mu.Unlock()
+	m.BeginFrame()
+	m.Frame(msg, false)
+	m.EndFrame()
+	if m.entries[msg.Media.ID] == e {
+		t.Fatal("the expired emoji was not loaded again")
+	}
+	if !m.TextColored(msg) {
+		t.Fatal("the emoji loaded again lost the text's color")
+	}
+}
+
 // A custom emoji Telegram marks of the text's color is known as one by the
 // time its first frame is, for the caller to color; another is not.
 func TestCustomEmojiTextColored(t *testing.T) {

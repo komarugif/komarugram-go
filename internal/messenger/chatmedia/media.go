@@ -303,11 +303,15 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 	if e == nil || restart {
 		var previous, preview, still image.Image
 		var clip *stickerClip
+		var textColor bool
 		wasm := m.wasm
 		if restart {
 			e.cancel()
 			e.mu.Lock()
 			previous, preview, still = e.frame, e.preview, e.still
+			// A clip kept is played without the emoji asked for again,
+			// which alone tells its color.
+			textColor = e.textColor
 			wasm = wasm || e.wasm
 			if !grown {
 				clip = e.clip
@@ -324,7 +328,7 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 			m.evict(true)
 		}
 		ctx, cancel := context.WithCancel(m.ctx)
-		e = &entry{wake: make(chan struct{}, 1), consumed: make(chan struct{}, 1), wasm: wasm, ffmpeg: m.ffmpeg, sandboxGIF: m.SandboxGIFs() && !m.ffmpegGIFs[key], seen: m.generation, animate: animate, cancel: cancel, cancelled: m.cancelled[key], frame: previous, preview: preview, still: still, clip: clip, box: box, cover: cover, sticker: animatedSticker || msg.Kind == model.MessageSticker}
+		e = &entry{wake: make(chan struct{}, 1), consumed: make(chan struct{}, 1), wasm: wasm, ffmpeg: m.ffmpeg, sandboxGIF: m.SandboxGIFs() && !m.ffmpegGIFs[key], seen: m.generation, animate: animate, cancel: cancel, cancelled: m.cancelled[key], frame: previous, preview: preview, still: still, clip: clip, textColor: textColor, box: box, cover: cover, sticker: animatedSticker || msg.Kind == model.MessageSticker}
 		m.entries[key] = e
 		if at, ok := m.seeks[key]; ok {
 			delete(m.seeks, key)
