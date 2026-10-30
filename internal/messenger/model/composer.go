@@ -122,6 +122,20 @@ type ComposerStore interface {
 	Send(context.Context, int64, OutgoingMessage) error
 }
 
+// OutboxStore accepts a message once its request and attachments are durable.
+// Delivery continues independently of the composer and its window.
+type OutboxStore interface {
+	QueueMessage(context.Context, int64, OutgoingMessage) error
+	RetryOutgoing(MessageKey)
+	CancelOutgoing(MessageKey)
+}
+
+// LocalPremiumStore controls client-only presentation and collections. It never
+// changes the account's actual Telegram subscription.
+type LocalPremiumStore interface{ SetLocalPremium(bool) }
+
+type LocalPremiumSource interface{ LocalPremiumEnabled() bool }
+
 // PreferSaved deduplicates global search results while retaining saved-pack order.
 func PreferSaved(saved, global []PickerItem) []PickerItem {
 	out := make([]PickerItem, 0, len(saved)+len(global))

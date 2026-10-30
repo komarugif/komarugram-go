@@ -58,6 +58,8 @@ const (
 	actionSaveHTML
 	actionSave
 	actionSaveGIF
+	actionRetryOutgoing
+	actionCancelOutgoing
 	menuActions
 )
 
@@ -126,7 +128,7 @@ func (p *chatPage) openMenu(gtx layout.Context, pos f32.Point, pressed time.Dura
 	m := &p.messageMenu
 	m.open = false
 	i := p.rowAt(pos.Y)
-	if i < 0 || i >= len(p.messages) || p.messages[i].Kind == model.MessageService || p.messages[i].Local() {
+	if i < 0 || i >= len(p.messages) || p.messages[i].Kind == model.MessageService || p.messages[i].Local() && p.messages[i].SendError == "" && !p.messages[i].LocalPremium {
 		return
 	}
 	msg := p.messages[i]
@@ -213,6 +215,15 @@ func (p *chatPage) menuLink(m model.Message) (link string, public, ok bool) {
 // menuActions are the actions the menu of m shows, as Telegram Desktop's
 // shows them: those for the selection when m is selected.
 func (p *chatPage) menuActions(m model.Message) []menuAction {
+	if m.LocalPremium && m.Key.MessageID < 0 && !m.Sending {
+		return []menuAction{actionCancelOutgoing}
+	}
+	if m.Sending {
+		if _, ok := p.source.(model.OutboxStore); ok && m.SendError != "" {
+			return []menuAction{actionRetryOutgoing, actionCancelOutgoing}
+		}
+		return nil
+	}
 	var out []menuAction
 	parts := messageParts(m)
 	if p.canReply(m) {
@@ -350,6 +361,14 @@ func (p *chatPage) menuDo(gtx layout.Context, a menuAction, m model.Message, l l
 		gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(text))})
 	}
 	switch a {
+	case actionRetryOutgoing:
+		if queue, ok := p.source.(model.OutboxStore); ok {
+			go func() { defer crash.Recover("retry outgoing", nil); queue.RetryOutgoing(m.Key) }()
+		}
+	case actionCancelOutgoing:
+		if queue, ok := p.source.(model.OutboxStore); ok {
+			go func() { defer crash.Recover("cancel outgoing", nil); queue.CancelOutgoing(m.Key) }()
+		}
 	case actionReply:
 		p.composer.replyTo(gtx, p.chat, m)
 	case actionEdit:
@@ -440,6 +459,10 @@ func (p *chatPage) menuDo(gtx layout.Context, a menuAction, m model.Message, l l
 // menuLabel is the text of a, an action of m's menu.
 func (p *chatPage) menuLabel(a menuAction, l localization.Catalog) string {
 	switch a {
+	case actionRetryOutgoing:
+		return l.T("outbox.retry")
+	case actionCancelOutgoing:
+		return l.T("outbox.cancel")
 	case actionReply:
 		return l.T("menu.reply")
 	case actionEdit:
@@ -517,6 +540,10 @@ func (p *chatPage) menuLabel(a menuAction, l localization.Catalog) string {
 
 func menuIcon(a menuAction) wdk.IconWidget {
 	switch a {
+	case actionRetryOutgoing:
+		return iconRepeat
+	case actionCancelOutgoing:
+		return iconDelete
 	case actionReply:
 		return iconReply
 	case actionEdit:

@@ -402,6 +402,11 @@ size-stability fixes remain in place.
   (the Gio fork's `Editor.HideText` and `PaintText`), run by run: links in
   the accent color, plates under code and spoilers, lines under and through,
   bold thickened and italic slanted from the one face the field has.
+  Custom emoji use the history's media manager, clipped to the editor's
+  visible rune regions, with the ordinary emoji as fallback while loading.
+  `COMPOSER_VIEW=custom-emoji` with `COMPOSER_PNG` renders this field;
+  `OUTBOX_PNG` renders pending photos, files, stickers and voice with delivery
+  marks. Durable delivery and Local Premium: `docs/LOCAL_PREMIUM.md`.
 - **Bots** (`bot.go`): `botPage` on the chat page. The buttons under a message
   are `textButton`s in the bubble (`history_bubble.go`); a callback asks the store
   (`model.BotStore`) in a goroutine and comes back through `botUpdate` to the

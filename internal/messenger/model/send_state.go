@@ -15,6 +15,7 @@ const (
 	SendSent
 	// SendRead: the other side read it, two checks.
 	SendRead
+	SendFailed
 )
 
 // MessageSendState is the state of m, a message of a chat of kind whose
@@ -23,9 +24,11 @@ const (
 // Saved Messages and to bots are read as they come.
 func MessageSendState(m Message, kind ChatKind, readOutbox MessageID) SendState {
 	switch {
+	case m.SendError != "":
+		return SendFailed
 	case m.Sending:
 		return SendSending
-	case !m.Outgoing || m.Post || m.Kind == MessageService || m.Streaming:
+	case !m.Outgoing || m.Post || m.Kind == MessageService || m.Streaming || m.LocalPremium && m.Key.MessageID < 0:
 		return SendNone
 	}
 	return sentState(m.Key.MessageID, kind, readOutbox)
@@ -34,6 +37,12 @@ func MessageSendState(m Message, kind ChatKind, readOutbox MessageID) SendState 
 // LastSendState is the state of the last message of c, as its list shows
 // it.
 func (c Chat) LastSendState() SendState {
+	if c.Last.SendFailed {
+		return SendFailed
+	}
+	if c.Last.Sending {
+		return SendSending
+	}
 	if !c.Last.Sent || c.Last.Service != nil || c.Kind == KindChannel {
 		return SendNone
 	}

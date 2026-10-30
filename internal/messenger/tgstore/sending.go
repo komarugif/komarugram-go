@@ -3,18 +3,15 @@
 package tgstore
 
 import (
-	"time"
+	"sort"
 
 	"github.com/gotd/td/tg"
 
 	"komarugram/internal/messenger/model"
 )
 
-// A text message the account sends shows at the end of its history while
-// Telegram has not taken it, with the clock of Telegram Desktop's sending
-// messages, and goes once the message Telegram made of it is there. The
-// cache keeps none of it. Files are left out: their upload shows nothing
-// yet to stand in for them.
+// Outgoing messages stand in for their eventual Telegram IDs. Durable
+// requests and their lifetime are managed by the account's outbox.
 
 // pendingIDBase keeps the ids of messages on their way below those of the
 // drafts bots stream, which count down from -1.
@@ -37,45 +34,6 @@ type pendingMessage struct {
 type pendingMessages struct {
 	seq  int
 	list []*pendingMessage
-}
-
-// pendingText reports whether msg is one that shows while it is on its
-// way: text alone.
-func pendingText(msg model.OutgoingMessage) bool {
-	return msg.Files == nil && msg.Item == nil && msg.Path == "" && msg.Voice == nil && len(msg.Tasks) == 0
-}
-
-// addPending shows msg, sent to chat, at the end of its history until
-// dropPending.
-func (s *Store) addPending(chat int64, msg model.OutgoingMessage) *pendingMessage {
-	me := s.Me()
-	c := s.history
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.pending.seq++
-	p := &pendingMessage{chat: chat, seq: c.pending.seq}
-	p.msg = model.Message{
-		Key:              model.MessageKey{AccountID: c.account, ChatID: chat, MessageID: model.MessageID(-(pendingIDBase + p.seq))},
-		SenderID:         me.ID,
-		SenderName:       me.Name(),
-		Text:             msg.Text,
-		Entities:         msg.Entities,
-		Date:             time.Now(),
-		Outgoing:         true,
-		ReplyToMessageID: msg.ReplyTo,
-		Sending:          true,
-	}
-	real, _ := c.threadChat(chat)
-	if real != 0 && (real == me.ID || c.peers[real].Rights.Self) {
-		// In Saved Messages Telegram does not mark the user's messages as
-		// outgoing, nor tell who sent them: the message on its way is as
-		// the one it makes of it will be, on its side, without a name.
-		p.msg.Outgoing, p.msg.SenderID, p.msg.SenderName = false, 0, ""
-	}
-	p.msg.ContentRevision = model.Revision(p.msg)
-	c.pending.list = append(c.pending.list, p)
-	c.touchPending(chat)
-	return p
 }
 
 // sentPending notes that Telegram took p as message id. The caller holds
@@ -118,6 +76,89 @@ func (c *conversation) pendingMessagesOf(chat int64, have []model.Message) []mod
 		}
 		out = append(out, p.msg)
 	}
+	return out
+}
+
+// shownMessages merges device-only stickers by their time, keeping them outside
+// Telegram's ID-ordered history and its cache spans.
+func (c *conversation) shownMessages(chat int64, h *model.History) []model.Message {
+	out := append([]model.Message(nil), h.Messages...)
+	for _, m := range c.localStickers {
+		if m.Key.ChatID != chat {
+			continue
+		}
+		queued := false
+		for _, p := range c.pending.list {
+			if p.msg.Key == m.Key {
+				queued = true
+				break
+			}
+		}
+		if queued {
+			continue
+		}
+		if len(h.Messages) > 0 && (h.HasOlder && m.Date.Before(h.Messages[0].Date) || h.HasNewer && m.Date.After(h.Messages[len(h.Messages)-1].Date)) {
+			continue
+		}
+		out = append(out, m)
+	}
+	if len(out) > len(h.Messages) {
+		sort.SliceStable(out, func(i, j int) bool { return out[i].Date.Before(out[j].Date) })
+	}
+	return append(out, c.pendingMessagesOf(chat, h.Messages)...)
+}
+
+func (s *Store) withOutgoingPreviews(chats []model.Chat) []model.Chat {
+	c := s.history
+	c.mu.Lock()
+	if len(c.pending.list) == 0 && len(c.localStickers) == 0 {
+		c.mu.Unlock()
+		return chats
+	}
+	last := map[int64]model.Message{}
+	peers := map[int64]peerRecord{}
+	for _, m := range c.localStickers {
+		if !isThread(m.Key.ChatID) && !m.Date.Before(last[m.Key.ChatID].Date) {
+			last[m.Key.ChatID] = m
+		}
+	}
+	for _, p := range c.pending.list {
+		real, _ := c.threadChat(p.chat)
+		if real == 0 {
+			continue
+		}
+		if !p.msg.Date.Before(last[real].Date) {
+			last[real] = p.msg
+		}
+	}
+	for chat := range last {
+		peers[chat] = c.peers[chat]
+	}
+	c.mu.Unlock()
+	out := append([]model.Chat(nil), chats...)
+	for id, m := range last {
+		index := -1
+		for i := range out {
+			if out[i].ID == id {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			out = append(out, peers[id].withMetadata(model.Chat{ID: id}))
+			index = len(out) - 1
+		}
+		if m.Date.Before(out[index].LastTime) {
+			continue
+		}
+		setPreview(&out[index], m)
+		out[index].Last.Sending = m.Sending
+		out[index].Last.SendFailed = m.SendError != ""
+		if m.LocalPremium && m.Key.MessageID < 0 {
+			out[index].Last.Sent = false
+		}
+	}
+	model.SortChats(out)
 	return out
 }
 

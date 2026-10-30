@@ -121,9 +121,12 @@ func (s *Store) SaveDraft(chat int64, d *model.Draft) {
 	}()
 }
 
-// hasDraft reports whether chat has a draft: a message sent to it clears it
-// (clear_draft), as Telegram Desktop's do. A thread's, which is not kept, is
-// Telegram's to clear.
-func (s *Store) hasDraft(chat int64) bool {
-	return !isThread(chat) && s.draft(chat) != nil
+// Delivery can happen after a different draft was written. Only the snapshot
+// taken when this request entered the queue may be cleared by it.
+func (s *Store) outgoingClearDraft(e *outgoingEntry) bool {
+	if e.Draft == nil || isThread(e.Chat) {
+		return false
+	}
+	current := s.draft(e.Chat)
+	return current.Equal(e.Draft) && current.Date.Equal(e.Draft.Date)
 }

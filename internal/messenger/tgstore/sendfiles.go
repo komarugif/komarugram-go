@@ -22,7 +22,7 @@ import (
 // caption on the last message. Each message has an identity of its own, made
 // from msg's, so that sending it all again after a failure sends nothing
 // twice. chat is the one shown: a thread's, which the uploads are told in.
-func (s *Store) sendFiles(ctx context.Context, api *tg.Client, chat int64, peer peerRecord, replyTo tg.InputReplyToClass, msg model.OutgoingMessage) error {
+func (s *Store) sendFiles(ctx context.Context, api *tg.Client, chat int64, peer peerRecord, replyTo tg.InputReplyToClass, msg model.OutgoingMessage, outgoing *outgoingEntry) error {
 	out := msg.Files
 	way := sendfiles.Way{Documents: out.Documents, Group: out.Group, HighQuality: out.HighQuality}
 	files := make([]sendfiles.File, 0, len(out.Paths))
@@ -35,8 +35,9 @@ func (s *Store) sendFiles(ctx context.Context, api *tg.Client, chat int64, peer 
 	}
 	groups := sendfiles.Divide(files, way)
 	captioned, captionedFile := sendfiles.CaptionTarget(groups)
-	caption := strings.TrimSpace(msg.Text)
-	entities := inputEntities(msg.Entities)
+	trimmed := (model.RichText{Text: msg.Text, Entities: msg.Entities}).Trimmed()
+	caption := trimmed.Text
+	entities := inputEntities(outgoing.wireEntities(trimmed.Entities))
 	// captionOf is the caption of file i of group g, and its entities.
 	captionOf := func(g, i int) (string, []tg.MessageEntityClass) {
 		if g == captioned && i == captionedFile {
@@ -45,29 +46,41 @@ func (s *Store) sendFiles(ctx context.Context, api *tg.Client, chat int64, peer 
 		return "", nil
 	}
 	// The first message sent clears the chat's draft, as the composer sent it.
-	clearDraft := s.hasDraft(chat)
+	clearDraft := s.outgoingClearDraft(outgoing)
 	sent := 0
 	identity := func() int64 {
-		id := msg.RandomID + int64(sent)
+		id := outgoingRandomID(msg.RandomID, sent)
 		sent++
-		if id == 0 {
-			id = 1
-		}
 		return id
 	}
 	for gi, g := range groups {
+		ids := make([]int64, len(g.Files))
+		complete := true
+		for i := range ids {
+			ids[i] = identity()
+			if _, ok := outgoing.Done[ids[i]]; !ok {
+				complete = false
+			}
+		}
+		if complete {
+			continue
+		}
 		if len(g.Files) == 1 {
 			media, err := s.uploadFile(ctx, api, chat, g.Files[0], way, msg.FFmpeg)
 			if err != nil {
 				return err
 			}
 			text, ents := captionOf(gi, 0)
-			res, err := api.MessagesSendMedia(ctx, &tg.MessagesSendMediaRequest{Peer: peer.input(), RandomID: identity(), Message: text, Entities: ents, Media: media, ReplyTo: replyTo, ClearDraft: clearDraft})
+			clearDraft = s.outgoingClearDraft(outgoing)
+			res, err := api.MessagesSendMedia(ctx, &tg.MessagesSendMediaRequest{Peer: peer.input(), RandomID: ids[0], Message: text, Entities: ents, Media: media, ReplyTo: replyTo, ClearDraft: clearDraft})
 			if err != nil {
 				return fmt.Errorf("send: %w", err)
 			}
-			s.draftCleared(chat, &clearDraft)
-			_ = s.Handle(ctx, res)
+			if err := s.acceptOutgoing(ctx, outgoing, res, ids); err != nil {
+				return err
+			}
+			s.draftCleared(chat, &clearDraft, outgoing)
+			s.handleOutgoingMedia(ctx, outgoing, res, ids[0], text)
 			continue
 		}
 		items := make([]tg.InputSingleMedia, 0, len(g.Files))
@@ -86,13 +99,17 @@ func (s *Store) sendFiles(ctx context.Context, api *tg.Client, chat int64, peer 
 				return fmt.Errorf("%s: %w", f.Name, err)
 			}
 			text, ents := captionOf(gi, i)
-			items = append(items, tg.InputSingleMedia{Media: input, RandomID: identity(), Message: text, Entities: ents})
+			items = append(items, tg.InputSingleMedia{Media: input, RandomID: ids[i], Message: text, Entities: ents})
 		}
+		clearDraft = s.outgoingClearDraft(outgoing)
 		res, err := api.MessagesSendMultiMedia(ctx, &tg.MessagesSendMultiMediaRequest{Peer: peer.input(), MultiMedia: items, ReplyTo: replyTo, ClearDraft: clearDraft})
 		if err != nil {
 			return fmt.Errorf("send: %w", err)
 		}
-		s.draftCleared(chat, &clearDraft)
+		if err := s.acceptOutgoing(ctx, outgoing, res, ids); err != nil {
+			return err
+		}
+		s.draftCleared(chat, &clearDraft, outgoing)
 		_ = s.Handle(ctx, res)
 	}
 	s.readOnInteract(chat)
@@ -209,8 +226,8 @@ func (s *Store) uploader(api *tg.Client, chat int64, action model.ChatAction) *u
 
 // draftCleared forgets the draft of chat when
 // *clear: a message sent cleared it. Then nothing more is to clear.
-func (s *Store) draftCleared(chat int64, clear *bool) {
-	if *clear {
+func (s *Store) draftCleared(chat int64, clear *bool, outgoing *outgoingEntry) {
+	if *clear && s.outgoingClearDraft(outgoing) {
 		s.setDraft(chat, nil)
 		*clear = false
 	}

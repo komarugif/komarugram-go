@@ -19,9 +19,10 @@ import (
 // The marks of how far a message the account sent has gone: a clock while
 // it is on its way, a check once Telegram has it, two once it was read.
 var (
-	iconSending  = wdk.RequireIconWidget(icons.DeviceAccessTime)
-	iconSentMark = wdk.RequireIconWidget(icons.ActionDone)
-	iconReadMark = wdk.RequireIconWidget(icons.ActionDoneAll)
+	iconSending    = wdk.RequireIconWidget(icons.DeviceAccessTime)
+	iconSentMark   = wdk.RequireIconWidget(icons.ActionDone)
+	iconReadMark   = wdk.RequireIconWidget(icons.ActionDoneAll)
+	iconSendFailed = wdk.RequireIconWidget(icons.AlertErrorOutline)
 )
 
 // onlineColor is the dot on the avatar of a user online, Telegram
@@ -44,6 +45,9 @@ func sendStateMark(gtx layout.Context, state model.SendState, size unit.Dp, col 
 		icon = iconSentMark
 	case model.SendRead:
 		icon = iconReadMark
+	case model.SendFailed:
+		icon = iconSendFailed
+		col = scheme(gtx).Error.Color
 	default:
 		return layout.Dimensions{}
 	}
@@ -67,7 +71,7 @@ func sendStateMark(gtx layout.Context, state model.SendState, size unit.Dp, col 
 // hidden, only the clock of a message on its way, which always shows.
 func (p *chatPage) sendState(gtx layout.Context, m model.Message) model.SendState {
 	state := model.MessageSendState(m, p.kind, p.readOutbox)
-	if calmOf(gtx)&calmRead != 0 && state != model.SendSending {
+	if calmOf(gtx)&calmRead != 0 && state != model.SendSending && state != model.SendFailed {
 		return model.SendNone
 	}
 	return state

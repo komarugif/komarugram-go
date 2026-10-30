@@ -48,10 +48,38 @@ func (s *Store) MediaProgress(ctx context.Context, m model.Message, progress fun
 	cache, pool := c.cache, c.pool
 	ref, ok := c.refs[m.Media.ID]
 	c.mu.Unlock()
+	if strings.HasPrefix(m.Media.ID, "outbox/") {
+		var id int64
+		var file int
+		if _, err := fmt.Sscanf(m.Media.ID, "outbox/%d/%d", &id, &file); err != nil {
+			return nil, err
+		}
+		var b cappedBuffer
+		if cache == nil {
+			return nil, errors.New("outbox: cache unavailable")
+		}
+		if err := cache.WriteOutgoingFile(ctx, id, file, &b); err != nil {
+			return nil, err
+		}
+		return b.Bytes(), nil
+	}
 	if cache == nil {
 		return nil, errors.New("media: connection not ready")
 	}
+	retain := func(b []byte) error {
+		pinned, err := cache.LocalMediaPinned(ctx, m.Media.ID)
+		if err != nil {
+			return err
+		}
+		if m.LocalPremium || pinned {
+			return cache.SaveLocalMedia(ctx, m.Media.ID, b)
+		}
+		return nil
+	}
 	start := diagnostics.Start()
+	if b, err := cache.LocalMedia(ctx, m.Media.ID); err != nil || len(b) > 0 {
+		return b, err
+	}
 	b, e := cache.Media(ctx, m.Media.ID)
 	if !start.IsZero() {
 		name := "media.cache-miss"
@@ -61,11 +89,17 @@ func (s *Store) MediaProgress(ctx context.Context, m model.Message, progress fun
 		s.profileHistory(name, m.Key.ChatID, 0, 0, len(b), start, e)
 	}
 	if e != nil || len(b) > 0 {
+		if e == nil {
+			e = retain(b)
+		}
 		return b, e
 	}
 	if b := mediaFromDownload(ctx, cache, m); b != nil {
 		// The user's download of it, every chunk as it was tagged.
-		return b, cache.SaveMedia(ctx, m.Media.ID, b)
+		if err := cache.SaveMedia(ctx, m.Media.ID, b); err != nil {
+			return nil, err
+		}
+		return b, retain(b)
 	}
 	// Telegram said to wait before this file again: asked meanwhile, it
 	// says so again, on every show of what draws it.
@@ -128,6 +162,9 @@ func (s *Store) MediaProgress(ctx context.Context, m model.Message, progress fun
 		return nil, fmt.Errorf("media size mismatch: received %d, expected %d", len(b), m.Media.Size)
 	}
 	if e = cache.SaveMedia(ctx, m.Media.ID, b); e != nil {
+		return nil, e
+	}
+	if e = retain(b); e != nil {
 		return nil, e
 	}
 	return b, nil
@@ -301,7 +338,7 @@ func (s *Store) CustomEmoji(ctx context.Context, id int64) (model.Message, error
 	if cache == nil {
 		return m, errors.New("emoji: connection not ready")
 	}
-	if ok, e := cache.Get(ctx, emojiKey(id), &m); e != nil || ok {
+	if ok, e := cache.Get(ctx, emojiKey(id), &m); e != nil || ok && (api == nil || m.Media != nil && m.Media.PremiumKnown) {
 		return m, e
 	}
 	if api == nil {

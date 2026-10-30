@@ -80,7 +80,7 @@ Mini Apps, режим призрака и сохранение удалённы�
 
 1. **Настройка папок и архив чатов** — требуется разведка и сверка с tdesktop/android.
 2. **Более гибкая настройка уведомлений**, под каждый чат отдельно — требуется разведка и сверка с tdesktop/android.
-3. **Настоящий локальный Telegram Premium** — запоминать больше закреплённых чатов и GIF, чем нам положено, их можно хранить локально в кэше. Возможность оперировать с Premium стикерами и эмодзи, которые видны только из нашего кэша, сервер о них не знает.
+3. **Local Telegram Premium** — implemented: local pins and GIFs, device-only Premium stickers and custom emoji, and a durable outgoing queue. See `docs/LOCAL_PREMIUM.md`.
 4. **Перемещение и смена позиций закреплённых чатов** — применять этот сценарий при удержании закреплённого чата.
 5. **Администрирование групповых чатов** — требуется разведка и сверка с tdesktop/android.
 6. **Администрирование каналов** — требуется разведка и сверка с tdesktop/android.
@@ -346,7 +346,9 @@ Mini Apps, режим призрака и сохранение удалённы�
       времени в списке. «Видимость → Скрывать события, которые отвлекают
       внимание» прячет их, по отдельности «в сети» и галочки; часы видны всегда.
       Статусы не кэшируются: офлайн шапка пишет «был(а) недавно», как раньше.
-      Часы только у текста: файлы и стикеры появляются после отправки.
+      Delivery clocks now cover media and files too. Failed messages remain
+      available for retry or removal; the outbox survives connection loss and
+      application restart (`docs/LOCAL_PREMIUM.md`).
       Там же, второй карточкой, — скрытие значков exteraGram/AyuGram и
       KomaruGram (было в Premium) с отдельными чекбоксами для стрелок и морд;
       список скрытых значков не скачивается. Новые чужие сообщения в конце
@@ -547,15 +549,14 @@ Mini Apps, режим призрака и сохранение удалённы�
       `readDiscussion`. Не сделано: создание, закрытие и правка тем, вид «тем
       во вкладках» и «форум как список чатов», значок форума в списке чатов,
       пересылка из темы.
-- [x] **Локальный Premium** (AyuGram, `localPremium`). Переключатель в
-      разделе «Telegram Premium» настроек. Пока он включён, аккаунты, вошедшие
-      в это приложение, видят звезду Premium у своих имён (список чатов, шапка,
-      профиль, боковое меню, список аккаунтов), а раздел Premium говорит, что
-      звезда локальная. Как в AyuGram, это только вид: Telegram об этом не
-      знает, поэтому лимиты, реакции, эмодзи и размер загрузки остаются
-      настоящими (иначе сервер отвечал бы ошибками), а другие звезды не видят.
-      Звезда рисуется у пользователей из `Badges.User` — своих аккаунтов
-      (`App.localPremium`); чужие и каналы не затронуты.
+- [x] **Local Premium** (AyuGram, `localPremium`). The Telegram Premium settings
+      switch adds the star to the accounts signed in here (`Badges.User`,
+      `App.localPremium`). Local collections keep additional pins and GIFs;
+      restricted stickers stay on the device, and custom emoji retain their
+      selected appearance over an ordinary server-side fallback. The composer
+      draws custom emoji too. Server features and upload limits still follow
+      the actual subscription. See `docs/LOCAL_PREMIUM.md` for storage, delivery
+      and verification details.
 - [x] **Голосовые сообщения:** запись и отправка (нужен захват звука).
       Звук пишет внешний `ffmpeg`, как видео играет внешний плеер
       (`pkg/voice`): PulseAudio/PipeWire, затем ALSA на Linux, DirectShow на

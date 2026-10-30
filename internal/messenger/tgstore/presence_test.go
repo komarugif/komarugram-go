@@ -114,8 +114,8 @@ func TestSendShowsMessageOnItsWay(t *testing.T) {
 	if len(during.Messages) != 2 || !during.Messages[1].Sending {
 		t.Fatalf("the second on its way: %+v", during.Messages)
 	}
-	if after, _ := s.HistorySince(5, 0); len(after.Messages) != 1 {
-		t.Fatalf("a failed message stays: %+v", after.Messages)
+	if after, _ := s.HistorySince(5, 0); len(after.Messages) != 2 || after.Messages[1].SendError == "" {
+		t.Fatalf("a failed message must remain available for retry: %+v", after.Messages)
 	}
 }
 

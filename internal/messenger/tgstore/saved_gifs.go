@@ -21,6 +21,22 @@ var (
 // SavedGIF implements model.SavedGIFStore, by the GIF tab's list kept in
 // memory: it is asked in frames, and the tab has the list once opened.
 func (s *Store) SavedGIF(id string) bool {
+	if s.localPremium.Load() {
+		l := &s.collections
+		l.mu.Lock()
+		hidden := l.hiddenGIFs[id]
+		local := false
+		for _, item := range l.gifs {
+			if item.ID == id {
+				local = true
+				break
+			}
+		}
+		l.mu.Unlock()
+		if hidden || local {
+			return local
+		}
+	}
 	p := &s.picker
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -38,6 +54,9 @@ func (s *Store) SavedGIF(id string) bool {
 func (s *Store) SaveGIF(ctx context.Context, m model.Message, unsave bool) error {
 	if m.Media == nil {
 		return errors.New("no GIF to save")
+	}
+	if s.localPremium.Load() {
+		return s.saveLocalGIF(ctx, m, unsave)
 	}
 	ref, err := s.pickerDocument(ctx, m, func(api *tg.Client, doc *tg.InputDocument) error {
 		_, err := api.MessagesSaveGif(ctx, &tg.MessagesSaveGifRequest{ID: doc, Unsave: unsave})
