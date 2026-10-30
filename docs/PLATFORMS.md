@@ -558,8 +558,8 @@ Windows 7 SP1, 64-bit. Go has not run there since 1.21: a program built
 by Go 1.27 calls a function Windows 7 lacks before `main` and dies with
 `Exception 0xc0000005` at `PC=0x0`. It is built with the Go of
 [go-legacy-win7](https://github.com/thongtech/go-legacy-win7), Go with
-what Windows 7 needs put back, released for each Go version (1.27.1-1 of
-2026-09-04 here, the toolchain the maintainer chose):
+what Windows 7 needs put back, released for each Go version (1.27.3-1 of
+2026-10-26 here, the toolchain the maintainer chose):
 
 ```sh
 # the release's archive for the system that builds, unpacked to ~/go-win7

@@ -39,7 +39,7 @@ func TestGIFFallbackOffersWhatThereIs(t *testing.T) {
 		p.media.ConfigureDecoders(false, true, ffmpeg)
 		p.playerPaths = func() map[player.Kind]string {
 			if c.player {
-				return map[player.Kind]string{player.MPV: exe}
+				return map[player.Kind]string{player.VLC: exe}
 			}
 			return nil
 		}
