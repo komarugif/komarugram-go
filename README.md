@@ -36,7 +36,7 @@ Voice messages and music play in the application itself, with no FFmpeg or exter
 
 ## How to get started
 
-Make a copy of this repository. Ensure that **[Go 1.27.3](https://go.dev/dl/)** is installed on your machine — it is the minimum required version: it fixes the checking of certificates in `crypto/x509`, which a man-in-the-middle attack exploits. [Windows 7](./docs/BUILD_WINDOWS7.md) and [Haiku](./docs/BUILD_HAIKU.md) require their own patched versions of Go. The one for Windows 7 follows Go's releases behind them: its instructions build with a copy of `go.mod` that names the version it has.
+Make a copy of this repository. Ensure that **[Go 1.27.3](https://go.dev/dl/)** is installed on your machine — it is the minimum required version: it fixes the checking of certificates in `crypto/x509`, which a man-in-the-middle attack exploits. [Windows 7](./docs/BUILD_WINDOWS7.md) and [Haiku](./docs/BUILD_HAIKU.md) require their own patched versions of Go.
 
 On Linux, Wayland and X11 development libraries may be required: `vulkan-headers mesa-egl mesa-dev libxkbcommon-dev wayland-dev`. Depending on your graphics environment, you can disable specific dependencies using build tags: `-tags nox11`, `-tags nowayland`, or `-tags novulkan`.
 

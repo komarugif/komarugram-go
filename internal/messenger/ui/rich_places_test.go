@@ -4,6 +4,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -25,6 +26,13 @@ type editsKept struct {
 }
 
 func (s *editsKept) SetKeep(model.Keep) {}
+
+// Media has nothing to load: the store under it has no source of media to
+// ask, and the emoji of an edit are loaded in a goroutine.
+func (s *editsKept) Media(context.Context, model.Message) ([]byte, error) {
+	return nil, errors.New("no media")
+}
+
 func (s *editsKept) MessageEdits(_ context.Context, m model.Message) ([]model.Message, error) {
 	old := m
 	old.Text, old.EditedAt = "Draft ☀", time.Time{}
