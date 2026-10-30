@@ -109,6 +109,7 @@ func (s *Store) savedGIFItems(ctx context.Context, docs []tg.DocumentClass) []mo
 func (s *Store) pickerItemsOf(ctx context.Context, docs []tg.DocumentClass, savedGIF bool) []model.PickerItem {
 	var out []model.PickerItem
 	refs := map[string]fileLocation{}
+	emoji := map[string]model.Message{}
 	for _, raw := range docs {
 		d, ok := raw.(*tg.Document)
 		if !ok {
@@ -134,6 +135,9 @@ func (s *Store) pickerItemsOf(ctx context.Context, docs []tg.DocumentClass, save
 			}
 		}
 		// The thumbnail is located too: a GIF shows it until played.
+		if item.Custom {
+			emoji[emojiKey(d.ID)] = item.Media
+		}
 		refs[meta.ID] = *ref
 		if thumb := meta.Thumbnail; thumb != nil {
 			if r := *ref; thumb.Width > 0 {
@@ -154,6 +158,9 @@ func (s *Store) pickerItemsOf(ctx context.Context, docs []tg.DocumentClass, save
 		values := make(map[string]any, len(refs))
 		for id, r := range refs {
 			values["ref/"+id] = r
+		}
+		for key, m := range emoji {
+			values[key] = m
 		}
 		_ = cache.PutAll(ctx, values)
 	}
@@ -218,6 +225,10 @@ func (s *Store) Picker(ctx context.Context, req model.PickerRequest) (model.Pick
 	// asked what changed, offline too.
 	base, err := s.pickerPage(ctx, api, req.Tab)
 	if req.Tab == model.PickerGIF {
+		base = s.withLocalGIFs(base)
+		if len(base.Items) > 0 {
+			err = nil
+		}
 		return base, err
 	}
 	if cache := s.Cache(); cache != nil {
@@ -562,7 +573,7 @@ func (s *Store) pickerPacks(ctx context.Context, api *tg.Client, sets []tg.Stick
 	}
 	return out, hashes, nil
 }
-func (s *Store) Send(ctx context.Context, chat int64, msg model.OutgoingMessage) error {
+func (s *Store) sendOnce(ctx context.Context, chat int64, msg model.OutgoingMessage, outgoing *outgoingEntry) error {
 	if err := s.checkSend(chat, msg); err != nil {
 		return err
 	}
@@ -582,10 +593,14 @@ func (s *Store) Send(ctx context.Context, chat int64, msg model.OutgoingMessage)
 	api := s.history.api
 	peer, ok := s.history.peers[chat]
 	s.history.mu.Unlock()
-	if api == nil {
-		return errors.New("cannot send while offline")
+	if !ok || peer.key() != outgoing.Peer.key() {
+		peer = outgoing.Peer
 	}
-	if !ok {
+	top = outgoing.Top
+	if api == nil {
+		return errNotConnected
+	}
+	if peer.ID == 0 {
 		return errors.New("unknown chat")
 	}
 	var media tg.InputMediaClass
@@ -602,12 +617,15 @@ func (s *Store) Send(ctx context.Context, chat int64, msg model.OutgoingMessage)
 		replyTo = r
 	}
 	if msg.Files != nil {
-		return s.sendFiles(ctx, api, shown, peer, replyTo, msg)
+		return s.sendFiles(ctx, api, shown, peer, replyTo, msg, outgoing)
 	}
 	if msg.Item != nil {
 		if msg.Item.ResultID != "" {
 			res, err := api.MessagesSendInlineBotResult(ctx, &tg.MessagesSendInlineBotResultRequest{Peer: peer.input(), RandomID: msg.RandomID, QueryID: msg.Item.QueryID, ID: msg.Item.ResultID, ReplyTo: replyTo})
 			if err != nil {
+				return err
+			}
+			if err := s.acceptOutgoing(ctx, outgoing, res, []int64{msg.RandomID}); err != nil {
 				return err
 			}
 			_ = s.Handle(ctx, res)
@@ -678,36 +696,29 @@ func (s *Store) Send(ctx context.Context, chat int64, msg model.OutgoingMessage)
 	}
 	var res tg.UpdatesClass
 	var err error
-	var pending *pendingMessage
-	clearDraft := s.hasDraft(shown)
-	if pendingText(msg) {
-		pending = s.addPending(shown, msg)
-		defer s.dropPending(pending)
-	}
+	clearDraft := s.outgoingClearDraft(outgoing)
+	wireEntities := outgoing.wireEntities(msg.Entities)
 	if media != nil {
 		caption := msg.Text
 		if len(msg.Tasks) > 0 {
 			caption = ""
+			wireEntities = nil
 		}
-		res, err = api.MessagesSendMedia(ctx, &tg.MessagesSendMediaRequest{Peer: peer.input(), RandomID: msg.RandomID, Message: caption, Media: media, ReplyTo: replyTo, ClearDraft: clearDraft})
+		res, err = api.MessagesSendMedia(ctx, &tg.MessagesSendMediaRequest{Peer: peer.input(), RandomID: msg.RandomID, Message: caption, Entities: inputEntities(wireEntities), Media: media, ReplyTo: replyTo, ClearDraft: clearDraft})
 	} else {
 		req := &tg.MessagesSendMessageRequest{Peer: peer.input(), RandomID: msg.RandomID, Message: msg.Text, ReplyTo: replyTo, NoWebpage: !s.SendPermissions(chat).Allows(model.SendLinkPreview), ClearDraft: clearDraft}
-		req.Entities = inputEntities(msg.Entities)
+		req.Entities = inputEntities(wireEntities)
 		res, err = api.MessagesSendMessage(ctx, req)
 	}
 	if err != nil {
 		return fmt.Errorf("send: %w", err)
 	}
-	if clearDraft {
+	if err := s.acceptOutgoing(ctx, outgoing, res, []int64{msg.RandomID}); err != nil {
+		return err
+	}
+	if clearDraft && s.outgoingClearDraft(outgoing) {
 		// Telegram cleared it, and tells the other devices.
 		s.setDraft(chat, nil)
-	}
-	if id := sentID(res, msg.RandomID); pending != nil && id != 0 {
-		// It stands in for the message only until that is in the history:
-		// never both at once.
-		s.history.mu.Lock()
-		s.history.sentPending(pending, id)
-		s.history.mu.Unlock()
 	}
 	// Once the message is in the history, the chat may be read up to it.
 	defer s.readOnInteract(chat)

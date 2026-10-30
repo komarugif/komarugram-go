@@ -171,7 +171,8 @@ type conversation struct {
 	// drafts are the messages bots stream: see drafts.go.
 	drafts streamedDrafts
 	// pending are the account's messages on their way.
-	pending pendingMessages
+	pending       pendingMessages
+	localStickers []model.Message
 }
 type viewSave struct {
 	view    model.Viewport
@@ -192,6 +193,16 @@ func (s *Store) SetMediaDir(dir string) {
 }
 
 func (s *Store) Configure(ctx context.Context, account, path string, p *security.Manager) error {
+	if err := s.configureCache(ctx, account, path, p); err != nil {
+		return err
+	}
+	if err := s.restoreOutgoing(ctx); err != nil {
+		return err
+	}
+	return s.restoreLocalCollections(ctx)
+}
+
+func (s *Store) configureCache(ctx context.Context, account, path string, p *security.Manager) error {
 	c := s.history
 	c.mu.Lock()
 	defer func() { c.mu.Unlock(); s.changed() }()
@@ -260,6 +271,7 @@ func (s *Store) Configure(ctx context.Context, account, path string, p *security
 	return nil
 }
 func (s *Store) Close() (err error) {
+	s.stopOutgoing()
 	c := s.history
 	c.mu.Lock()
 	if c.closing {
@@ -565,6 +577,9 @@ func (s *Store) OpenChat(chat int64) {
 			anchor = int(v.AnchorMessageID)
 		}
 		msgs, e := c.cache.Around(c.ctx, chat, anchor, 200)
+		for i, m := range msgs {
+			msgs[i] = s.applyLocalEmoji(c.ctx, m)
+		}
 		s.profileHistory("cache.open-around", chat, 0, anchor, len(msgs), start, e)
 		c.mu.Lock()
 		online := c.api != nil
@@ -739,7 +754,7 @@ func (s *Store) History(chat int64) model.History {
 	defer c.mu.Unlock()
 	if h := c.histories[chat]; h != nil {
 		out := *h
-		out.Messages = append(append([]model.Message(nil), h.Messages...), c.pendingMessagesOf(chat, h.Messages)...)
+		out.Messages = c.shownMessages(chat, h)
 		return out
 	}
 	return model.History{LoadingOlder: true}
@@ -1207,6 +1222,9 @@ func (s *Store) finishPage(chat int64, dir int, msgs []model.Message, more bool,
 // earlier epoch is of another part of the history, and is dropped.
 func (s *Store) finishPageAt(epoch uint64, chat int64, dir int, msgs []model.Message, more bool, err error, generation ...uint64) {
 	started := diagnostics.Start()
+	for i, m := range msgs {
+		msgs[i] = s.applyLocalEmoji(context.Background(), m)
+	}
 	c := s.history
 	c.mu.Lock()
 	if c.epochs[chat] != epoch {
@@ -1379,6 +1397,7 @@ func (s *Store) convert(ctx context.Context, raw []tg.MessageClass, live bool, s
 				}
 			}
 		}
+		m = s.applyLocalEmoji(ctx, m)
 		m.ContentRevision = model.Revision(m)
 		msgs = append(msgs, m)
 	}
@@ -2055,7 +2074,7 @@ func (s *Store) HistorySince(chat int64, revision uint64) (model.History, bool) 
 	out := *h
 	changed := revision == 0 || revision != h.Revision
 	if changed {
-		out.Messages = append(append(append([]model.Message(nil), h.Messages...), c.pendingMessagesOf(chat, h.Messages)...), c.draftMessages(chat)...)
+		out.Messages = append(c.shownMessages(chat, h), c.draftMessages(chat)...)
 	} else {
 		out.Messages = nil
 	}

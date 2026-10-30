@@ -258,7 +258,11 @@ func chatByID(chats []model.Chat, id int64) (model.Chat, bool) {
 // pin pins or unpins c: past the limit the toast tells so, and otherwise the
 // store is asked in the background.
 func (m *chatRowMenu) pin(c model.Chat, pin bool, chats []model.Chat, toast *toast, l localization.Catalog) {
-	if pin && m.premium != nil {
+	local := false
+	if source, ok := m.store.(model.LocalPremiumSource); ok {
+		local = source.LocalPremiumEnabled()
+	}
+	if pin && m.premium != nil && !local {
 		p := m.premium.Premium()
 		if limit := p.Limit("dialogs_pinned_limit"); limit > 0 && model.PinnedCount(chats) >= limit {
 			toast.Show(pinLimitText(p, limit, l))

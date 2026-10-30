@@ -9,6 +9,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
+	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/model"
 
 	"gio-mw/token"
@@ -223,15 +224,9 @@ func linkAt(entities []model.Entity, start, end int) string {
 	return ""
 }
 
-// formatted tells whether entities have anything the field draws, more
-// than custom emoji, which it shows as their emoji.
+// formatted tells whether the field draws entities over the editor's glyphs.
 func formatted(entities []model.Entity) bool {
-	for _, e := range entities {
-		if e.Kind != model.EntityEmoji {
-			return true
-		}
-	}
-	return false
+	return len(entities) > 0
 }
 
 // formatShortcuts are the key filters of the formatting shortcuts for the
@@ -277,6 +272,7 @@ func formatShortcutText(a formatAction) string {
 // fieldStyle is how a part of the text of the field is drawn.
 type fieldStyle struct {
 	bold, italic, underline, strike, code, spoiler, link, quote bool
+	emoji                                                       int64
 }
 
 // fieldRun is a part of the text of the field in one style, in runes.
@@ -291,14 +287,15 @@ func fieldRuns(text string, entities []model.Entity) []fieldRun {
 	type span struct {
 		start, end int
 		kind       string
+		document   int64
 	}
 	var spans []span
 	cuts := []int{0, n}
 	for _, e := range entities {
-		if e.Kind == model.EntityEmoji || e.Length <= 0 {
+		if e.Length <= 0 {
 			continue
 		}
-		s := span{u16ToRune(text, e.Offset), u16ToRune(text, e.Offset+e.Length), e.Kind}
+		s := span{u16ToRune(text, e.Offset), u16ToRune(text, e.Offset+e.Length), e.Kind, e.DocumentID}
 		if s.start >= s.end {
 			continue
 		}
@@ -329,6 +326,8 @@ func fieldRuns(text string, entities []model.Entity) []fieldRun {
 				continue
 			}
 			switch s.kind {
+			case model.EntityEmoji:
+				r.style.emoji = s.document
 			case model.EntityBold:
 				r.style.bold = true
 			case model.EntityItalic:
@@ -362,7 +361,13 @@ const italicShear = -0.2
 // code and spoilers on a plate, lines under and through the text, and
 // bold and italic drawn from the font's regular face, thickened and
 // slanted, the field having one face for all of its text.
-func formattedEditor(gtx layout.Context, e *widget.Editor, hint string, entities []model.Entity) layout.Dimensions {
+type fieldEmojiMedia struct {
+	media   *chatmedia.Manager
+	images  *imageOps
+	animate bool
+}
+
+func formattedEditor(gtx layout.Context, e *widget.Editor, hint string, entities []model.Entity, emojiMedia ...fieldEmojiMedia) layout.Dimensions {
 	if !formatted(entities) {
 		return flatEditor(gtx, e, hint)
 	}
@@ -428,6 +433,17 @@ func formattedEditor(gtx layout.Context, e *widget.Editor, hint string, entities
 		regions = e.Regions(r.start, r.end, regions[:0])
 		for _, g := range regions {
 			baseline := g.Bounds.Max.Y - g.Baseline
+			if r.style.emoji != 0 && len(emojiMedia) > 0 {
+				media := emojiMedia[0]
+				px := min(g.Bounds.Dx(), g.Bounds.Dy())
+				if frame := customEmoji(media.media, media.images, r.style.emoji, px, media.animate, color.AsNRGBA()); frame != nil {
+					origin := image.Pt(g.Bounds.Min.X+(g.Bounds.Dx()-px)/2, g.Bounds.Min.Y+(g.Bounds.Dy()-px)/2)
+					offset(gtx, origin, func(gtx layout.Context) layout.Dimensions {
+						return drawImage(gtx, media.images, frame, image.Pt(px, px))
+					})
+					continue
+				}
+			}
 			var stack []interface{ Pop() }
 			if r.style.italic {
 				shear := f32.AffineId().Shear(f32.Pt(0, float32(baseline)), italicShear, 0)

@@ -68,10 +68,9 @@ type Global struct {
 	// StreamerMode hides the windows from screen capture, as AyuGram's
 	// Streamer Mode, where the platform allows it.
 	StreamerMode bool `json:"streamer_mode,omitempty"`
-	// LocalPremium makes the accounts signed in here look Premium to
-	// themselves, as AyuGram's Local Premium: the star beside their names,
-	// and the Premium section of the settings. Telegram does not know of it,
-	// so nothing else changes.
+	// LocalPremium enables device-only Premium media and collections, and
+	// shows the Premium star on the accounts signed in here. It does not
+	// change their actual Telegram subscription or server-side limits.
 	LocalPremium bool `json:"local_premium,omitempty"`
 	// HidePeerBadges hides the marks of exteraGram, AyuGram and KomaruGram
 	// beside names (package peerbadges), and keeps the client from reading

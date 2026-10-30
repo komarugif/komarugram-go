@@ -587,7 +587,7 @@ func (l *chatList) layoutRowText(gtx layout.Context, c model.Chat, line *preview
 			return layout.Dimensions{} // A chat found by a search.
 		}
 		state := c.LastSendState()
-		if calmOf(gtx)&calmRead != 0 && state != model.SendSending {
+		if calmOf(gtx)&calmRead != 0 && state != model.SendSending && state != model.SendFailed {
 			state = model.SendNone
 		}
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,

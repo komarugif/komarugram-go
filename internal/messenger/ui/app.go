@@ -454,6 +454,9 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		if err := services.Preferences.SetLocalPremium(on); err != nil {
 			log.Printf("save settings: %v", err)
 		}
+		if local, ok := a.store.(model.LocalPremiumStore); ok {
+			local.SetLocalPremium(on)
+		}
 	}
 	a.settings.premiumMedia = func() bool { return a.preferences.Global().PremiumMedia }
 	a.settings.setPremiumMedia = func(on bool) {
@@ -1755,6 +1758,9 @@ func (a *App) SetFocused(focused bool) {
 // tellGhost gives the store what Ghost allows, and whether the window is
 // active.
 func (a *App) tellGhost() {
+	if local, ok := a.store.(model.LocalPremiumStore); ok {
+		local.SetLocalPremium(a.preferences.Global().LocalPremium)
+	}
 	g, ok := a.store.(model.GhostStore)
 	if !ok {
 		return

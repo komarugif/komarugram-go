@@ -427,7 +427,12 @@ func (c *messageComposer) submit(chat int64, msg model.OutgoingMessage) {
 		})
 		ctx, cancel := context.WithTimeout(c.ctx, 10*time.Minute)
 		defer cancel()
-		err := c.source.Send(ctx, chat, msg)
+		var err error
+		if queue, ok := c.source.(model.OutboxStore); ok {
+			err = queue.QueueMessage(ctx, chat, msg)
+		} else {
+			err = c.source.Send(ctx, chat, msg)
+		}
 		select {
 		case c.sends <- composerResult{chat: chat, request: msg, err: err}:
 			c.invalidate()
@@ -1232,7 +1237,7 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			inner.Constraints.Min.Y = 0
 			inner.Constraints.Max.Y = max(0, size.Y-gtx.Dp(12))
 			record := op.Record(gtx.Ops)
-			dims := formattedEditor(inner, &d.editor, l.T("composer.message"), d.entities)
+			dims := formattedEditor(inner, &d.editor, l.T("composer.message"), d.entities, fieldEmojiMedia{p.media, p.images, p.animate})
 			call := record.Stop()
 			transform := op.Offset(image.Pt(0, max(0, (size.Y-dims.Size.Y)/2))).Push(gtx.Ops)
 			call.Add(gtx.Ops)

@@ -17,6 +17,9 @@ import (
 
 // PinChat implements model.ChatListActions.
 func (s *Store) PinChat(ctx context.Context, chat int64, pin bool) error {
+	if s.localPremium.Load() {
+		return s.pinLocalChat(ctx, chat, pin)
+	}
 	c := s.history
 	c.mu.Lock()
 	api, peer := c.api, c.peers[chat]
@@ -43,6 +46,9 @@ func (s *Store) PinChat(ctx context.Context, chat int64, pin bool) error {
 // unpinned). The list has the order before Telegram answers, and the one it
 // had back when Telegram refuses it.
 func (s *Store) ReorderPinned(ctx context.Context, order []int64) error {
+	if s.localPremium.Load() {
+		return s.reorderLocalPins(ctx, order)
+	}
 	c := s.history
 	c.mu.Lock()
 	api := c.api

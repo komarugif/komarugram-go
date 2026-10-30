@@ -308,6 +308,14 @@ func TestRenderComposer(t *testing.T) {
 		h.chat = 2
 		h.frame()
 		h.p.composer.draft(2).editor.SetText("Встречаемся в субботу у фонтана")
+	case "custom-emoji":
+		h.p.composer.pickerOpen = false
+		h.chat = 2
+		h.frame()
+		d := h.p.composer.draft(2)
+		d.editor.SetText("Локальный Premium 🙂")
+		d.text = d.editor.Text()
+		d.entities = []model.Entity{{Kind: model.EntityEmoji, Offset: u16Len("Локальный Premium "), Length: 2, DocumentID: 77}}
 	case "classic-translucent", "floating-translucent":
 		// The window half transparent over stripes, as over a desktop: the
 		// classic bar shows them, as the sidebar does; the history and the

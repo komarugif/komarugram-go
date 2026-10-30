@@ -4,9 +4,6 @@ package tgstore
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/binary"
-	"errors"
 	"fmt"
 
 	"github.com/gotd/td/tg"
@@ -137,38 +134,7 @@ func (s *Store) MessageLink(chat int64, id model.MessageID) (string, bool, bool)
 
 // ForwardMessages implements model.MessageForwarder.
 func (s *Store) ForwardMessages(ctx context.Context, from int64, ids []model.MessageID, to int64) error {
-	from = s.realChat(from)
-	c := s.history
-	c.mu.Lock()
-	api := c.api
-	source, okFrom := c.peers[from]
-	target, okTo := c.peers[to]
-	c.mu.Unlock()
-	if api == nil {
-		return errors.New("cannot forward while offline")
-	}
-	if !okFrom || !okTo {
-		return errors.New("unknown chat")
-	}
-	for len(ids) > 0 {
-		batch := ids[:min(len(ids), 100)]
-		ids = ids[len(batch):]
-		req := &tg.MessagesForwardMessagesRequest{FromPeer: source.input(), ToPeer: target.input()}
-		var random [8]byte
-		for _, id := range batch {
-			if _, err := rand.Read(random[:]); err != nil {
-				return err
-			}
-			req.ID = append(req.ID, int(id))
-			req.RandomID = append(req.RandomID, int64(binary.LittleEndian.Uint64(random[:])))
-		}
-		res, err := api.MessagesForwardMessages(ctx, req)
-		if err != nil {
-			return fmt.Errorf("forward: %w", err)
-		}
-		_ = s.Handle(ctx, res)
-	}
-	return nil
+	return s.queueForward(ctx, from, ids, to, false)
 }
 
 var (

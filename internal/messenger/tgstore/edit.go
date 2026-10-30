@@ -31,13 +31,35 @@ func (s *Store) EditMessage(ctx context.Context, key model.MessageKey, text stri
 		return errors.New("unknown chat")
 	}
 	req := &tg.MessagesEditMessageRequest{Peer: peer.input(), ID: int(key.MessageID), NoWebpage: !s.SendPermissions(chat).Allows(model.SendLinkPreview)}
+	local := s.localPremium.Load()
+	if cache := s.Cache(); cache != nil {
+		var prior localEmoji
+		if ok, _ := cache.Get(ctx, localEmojiKey(chat, int(key.MessageID)), &prior); ok && len(prior.Entities) > 0 {
+			local = true
+		}
+	}
+	projection := outgoingEntry{LocalEmoji: local && !s.Premium().Active}
+	if projection.LocalEmoji {
+		projection.EmojiLocal = s.localEmojiKinds(ctx, entities)
+	}
 	req.SetMessage(text)
-	req.SetEntities(inputEntities(entities))
+	req.SetEntities(inputEntities(projection.wireEntities(entities)))
 	res, err := api.MessagesEditMessage(ctx, req)
-	if err != nil {
+	if err != nil && !(projection.LocalEmoji && tgerr.Is(err, "MESSAGE_NOT_MODIFIED")) {
 		return editError(err)
 	}
-	return s.Handle(ctx, res)
+	if err == nil {
+		if err := s.Handle(ctx, res); err != nil {
+			return err
+		}
+	}
+	if projection.LocalEmoji {
+		if err := s.editedLocalEmoji(ctx, chat, int(key.MessageID), text, entities, projection.localEmojiEntities(entities)); err != nil {
+			return err
+		}
+		s.changed()
+	}
+	return nil
 }
 
 // editError is what Telegram's error of an edit means to the client, as

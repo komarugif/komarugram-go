@@ -1168,6 +1168,9 @@
 "page.username" = "Username";
 "page.username_hint" = "5–32 characters: Latin letters, digits and _. May be left empty.";
 
+"outbox.cancel" = "Delete from This Device";
+"outbox.retry" = "Retry Sending";
+
 "phone.copy" = "Copy Phone Number";
 "phone.loading" = "Loading...";
 "phone.not_telegram" = "This number is not on Telegram";
@@ -1251,8 +1254,8 @@
 "premium.limits" = "Limits";
 "premium.limits_note" = "Values come from the server; without Premium · with Premium.";
 "premium.local" = "Local Telegram Premium";
-"premium.local_active" = "You are using local Telegram Premium. It gives no benefits: the star is shown here only.";
-"premium.local_body" = "Shows the Premium star beside the names of your accounts in this app. Telegram does not know of it: limits, emoji, reactions and upload size stay as they are, and nobody else sees the star.";
+"premium.local_active" = "Local Telegram Premium is enabled. Extra pins, saved GIFs, Premium stickers and custom emoji are kept on this device.";
+"premium.local_body" = "Keep extra pinned chats and saved GIFs locally. Premium stickers are visible only on this device; custom emoji are sent as ordinary emoji and keep their chosen appearance here. This does not change your Telegram subscription, upload limit or server features.";
 "premium.media" = "Premium address for files";
 "premium.media_body" = "Telegram's web clients take the files of Premium accounts to a separate address. With this on, the client does the same where it is connected over WebSocket, and goes back to the usual address if the connection is not taken there. It is not known whether this changes anything: try it, and see whether files come faster.";
 "premium.off" = "Not subscribed";
