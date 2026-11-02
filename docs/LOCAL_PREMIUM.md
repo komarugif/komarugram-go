@@ -18,8 +18,9 @@ them on but the last:
   (`CannotSendPaid`): with a subscription or this part on, nothing is taken out, nor
   paid emoji in Saved Messages.
 - **GIFs** and **Pins**: the lists past Telegram's limits.
-- **Sync**: the storage channel. Ticking it starts the offer; closing the offer
-  with no channel bound unticks it. A part off reads nothing of the file, and writes
+- **Sync**: the storage channel, inactive and off without GIFs or Pins, having
+  nothing to share. Ticking it, or GIFs while it is on, starts the offer; closing the
+  offer with no channel bound unticks it. A part off reads nothing of the file, and writes
   back what the file said of it.
 
 - Restricted stickers stay on this device, in a separate collection outside

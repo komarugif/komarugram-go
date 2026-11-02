@@ -424,7 +424,12 @@ func (l *LocalPremium) UnmarshalJSON(b []byte) error {
 		return nil
 	}
 	type plain LocalPremium
-	return json.Unmarshal(b, (*plain)(l))
+	if err := json.Unmarshal(b, (*plain)(l)); err != nil {
+		return err
+	}
+	// Written before it needed either: the box could not be unticked now.
+	l.Sync = l.Sync && (l.GIFs || l.Pins)
+	return nil
 }
 
 func (g Global) Equal(o Global) bool {

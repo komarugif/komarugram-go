@@ -1585,6 +1585,12 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 				want = append(want, part.name)
 			}
 		}
+		// It has nothing to share without either.
+		if parts.CanSync() {
+			p.localPremiumBoxes.EnableOption("sync")
+		} else {
+			p.localPremiumBoxes.DisableOption("sync")
+		}
 		have := p.localPremiumBoxes.GetValues()
 		if len(have) != len(want) || slices.ContainsFunc(want, func(name string) bool { return !slices.Contains(have, name) }) {
 			p.localPremiumBoxes.SetValues(want)

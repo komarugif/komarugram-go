@@ -503,3 +503,19 @@ func TestPremiumMediaIsKeptAndOffByDefault(t *testing.T) {
 		t.Error("the Premium address was not kept")
 	}
 }
+
+// Kept on with nothing to share, the box could not be unticked.
+func TestLocalPremiumReadsSyncAlone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	data := []byte(`{"version":` + strconv.Itoa(version) + `,"global":{"local_premium":{"star":true,"sync":true}}}`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Global().LocalPremium; got != (LocalPremium{Star: true}) {
+		t.Fatalf("%+v", got)
+	}
+}

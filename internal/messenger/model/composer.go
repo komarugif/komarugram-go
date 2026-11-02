@@ -143,6 +143,21 @@ type LocalPremium struct {
 	Sync bool
 }
 
+// CanSync reports whether Sync has anything to share.
+func (l LocalPremium) CanSync() bool { return l.GIFs || l.Pins }
+
+// Consistent is l without Sync when it has nothing to share.
+func (l LocalPremium) Consistent() LocalPremium {
+	l.Sync = l.Sync && l.CanSync()
+	return l
+}
+
+// AsksForChannel reports whether going from was to l has the user asked about
+// the channel: Sync just ticked, or GIFs ticked, which can then go there.
+func (l LocalPremium) AsksForChannel(was LocalPremium) bool {
+	return l.Sync && (!was.Sync || l.GIFs && !was.GIFs)
+}
+
 // Any reports whether any part is on.
 func (l LocalPremium) Any() bool { return l != LocalPremium{} }
 

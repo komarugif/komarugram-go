@@ -456,6 +456,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	}
 	a.settings.localPremium = func() model.LocalPremium { return model.LocalPremium(a.preferences.Global().LocalPremium) }
 	a.settings.setLocalPremium = func(parts model.LocalPremium) {
+		parts = parts.Consistent()
 		was := a.settings.localPremium()
 		if err := services.Preferences.SetLocalPremium(preferences.LocalPremium(parts)); err != nil {
 			log.Printf("save settings: %v", err)
@@ -463,7 +464,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		if local, ok := a.store.(model.LocalPremiumStore); ok {
 			local.SetLocalPremium(parts)
 		}
-		if parts.Sync && !was.Sync && a.storageOffer != nil {
+		if parts.AsksForChannel(was) && a.storageOffer != nil {
 			a.storageOffer.Activated(w.Invalidate)
 		}
 		w.Invalidate()
