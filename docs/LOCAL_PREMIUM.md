@@ -13,7 +13,10 @@ them on but the last:
   stickers are not shown, and the field draws a paid emoji as its ordinary one.
   Nothing is deleted, and it all comes back when it is on. Saved Messages are the
   exception: Telegram keeps paid emoji there for anyone, so they go there as they
-  are, and are always shown.
+  are, and are always shown. The panel keeps showing paid stickers and emoji unless
+  the Visibility section's calm card takes out those that cannot be sent
+  (`CannotSendPaid`): with a subscription or this part on, nothing is taken out, nor
+  paid emoji in Saved Messages.
 - **GIFs** and **Pins**: the lists past Telegram's limits.
 - **Sync**: the storage channel. Ticking it starts the offer; closing the offer
   with no channel bound unticks it. A part off reads nothing of the file, and writes

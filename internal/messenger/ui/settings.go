@@ -374,10 +374,11 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			p.setCalm(c)
 		}
 	})
-	p.calmBoxes = checkbox.NewCheckboxes([]string{"online", "read"}, nil, func(values []string) {
+	p.calmBoxes = checkbox.NewCheckboxes([]string{"online", "read", "paid"}, nil, func(values []string) {
 		if p.setCalm != nil {
 			c := p.calm()
 			c.KeepOnline, c.KeepRead = !slices.Contains(values, "online"), !slices.Contains(values, "read")
+			c.HidePaid = slices.Contains(values, "paid")
 			p.setCalm(c)
 		}
 	})

@@ -38,6 +38,9 @@ func (p *settingsPage) layoutCalm(gtx layout.Context, l localization.Catalog) la
 	if !c.KeepRead {
 		hidden = append(hidden, "read")
 	}
+	if c.HidePaid {
+		hidden = append(hidden, "paid")
+	}
 	if !slices.Equal(hidden, p.calmBoxes.GetValues()) {
 		p.calmBoxes.SetValues(hidden)
 	}
@@ -51,7 +54,7 @@ func (p *settingsPage) layoutCalm(gtx layout.Context, l localization.Catalog) la
 		}),
 		vspace(8),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return p.calmBoxes.Layout(gtx, map[string]string{"online": l.T("visibility.calm_online"), "read": l.T("visibility.calm_read")})
+			return p.calmBoxes.Layout(gtx, map[string]string{"online": l.T("visibility.calm_online"), "read": l.T("visibility.calm_read"), "paid": l.T("visibility.calm_paid")})
 		}),
 	)
 }

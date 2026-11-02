@@ -444,3 +444,19 @@ func TestLocalPremiumSavedMessagesSendRealEmoji(t *testing.T) {
 		t.Fatalf("elsewhere: %d entities on the wire", sent)
 	}
 }
+
+// Only what could not be sent is out of the panel.
+func TestCannotSendPaid(t *testing.T) {
+	s := testStore(t)
+	s.me.ID = 9
+	if !s.CannotSendPaid(5, false) || !s.CannotSendPaid(5, true) {
+		t.Fatal("with nothing to send them, they cannot be sent")
+	}
+	if !s.CannotSendPaid(9, false) || s.CannotSendPaid(9, true) {
+		t.Fatal("Saved Messages take paid emoji, not stickers")
+	}
+	s.SetLocalPremium(model.LocalPremium{Media: true})
+	if s.CannotSendPaid(5, false) || s.CannotSendPaid(5, true) {
+		t.Fatal("Local Premium's media sends them")
+	}
+}

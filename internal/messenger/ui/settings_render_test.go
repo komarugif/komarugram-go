@@ -239,7 +239,7 @@ func TestRenderSettingsAccounts(t *testing.T) {
 			p.section = settingsVisibility
 			size.Y = 2500
 		}
-		calm := preferences.Calm{On: true, KeepOnline: true}
+		calm := preferences.Calm{On: true, KeepOnline: true, HidePaid: true}
 		p.calm = func() preferences.Calm { return calm }
 		p.setCalm = func(c preferences.Calm) { calm = c }
 		hideBadges, keepArrows, keepFaces := true, false, true

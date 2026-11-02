@@ -26,6 +26,9 @@ const (
 	// calmRead hides the checks of messages delivered and read; the clock
 	// of one on its way stays.
 	calmRead
+	// calmPaid takes the paid stickers and emoji that cannot be sent out of the
+	// panel.
+	calmPaid
 )
 
 // withCalm makes c what the frame of gtx hides.
@@ -39,6 +42,9 @@ func withCalm(gtx layout.Context, c preferences.Calm) {
 	}
 	if c.HidesRead() {
 		bits |= calmRead
+	}
+	if c.HidesPaid() {
+		bits |= calmPaid
 	}
 	gtx.Values[calmKey] = bits
 }

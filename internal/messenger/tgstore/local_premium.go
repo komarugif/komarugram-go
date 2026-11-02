@@ -219,6 +219,12 @@ func (s *Store) HidesCustomEmoji(chat, id int64) bool {
 	return k.paid
 }
 
+// CannotSendPaid implements model.LocalEmojiFilter: a subscription and Local
+// Premium's media send them, and paid emoji go to Saved Messages from anyone.
+func (s *Store) CannotSendPaid(chat int64, emoji bool) bool {
+	return !s.local().Media && !s.Premium().Active && !(emoji && s.savedChat(chat))
+}
+
 // emojiPaid is what HidesCustomEmoji keeps of a custom emoji.
 type emojiPaid struct {
 	known, paid bool

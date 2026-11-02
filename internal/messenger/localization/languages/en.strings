@@ -1963,6 +1963,7 @@
 "visibility.calm" = "Hide events that distract attention";
 "visibility.calm_body" = "Hides what you choose below. The clock of a message not delivered yet always shows.";
 "visibility.calm_online" = "Online status and last seen time";
+"visibility.calm_paid" = "Paid stickers and emoji you can't send, in the panel";
 "visibility.calm_read" = "Delivery and read checks of messages";
 
 "weekday.0" = "Sun";

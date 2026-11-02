@@ -156,7 +156,40 @@ type LocalPremiumStore interface{ SetLocalPremium(LocalPremium) }
 // LocalEmojiFilter tells which custom emoji the message field of chat shows as
 // ordinary ones: those the account could not really send there. It is asked in
 // frames.
-type LocalEmojiFilter interface{ HidesCustomEmoji(chat, document int64) bool }
+type LocalEmojiFilter interface {
+	HidesCustomEmoji(chat, document int64) bool
+	// CannotSendPaid reports whether paid stickers, or with emoji paid custom
+	// emoji, could not be sent to chat, really or locally.
+	CannotSendPaid(chat int64, emoji bool) bool
+}
+
+// WithoutPaid is items without the paid stickers and custom emoji.
+func WithoutPaid(items []PickerItem) []PickerItem {
+	var out []PickerItem
+	for _, item := range items {
+		if m := item.Media.Media; m == nil || !m.Premium {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+// WithoutPaid is the page without the paid stickers and custom emoji, and the
+// packs that were nothing else.
+func (p PickerPage) WithoutPaid() PickerPage {
+	packs := func(packs []PickerPack) []PickerPack {
+		var out []PickerPack
+		for _, pack := range packs {
+			if pack.Items = WithoutPaid(pack.Items); len(pack.Items) > 0 {
+				out = append(out, pack)
+			}
+		}
+		return out
+	}
+	p.Recent, p.Items = WithoutPaid(p.Recent), WithoutPaid(p.Items)
+	p.Packs, p.Featured = packs(p.Packs), packs(p.Featured)
+	return p
+}
 
 type LocalPremiumSource interface{ LocalPinsEnabled() bool }
 

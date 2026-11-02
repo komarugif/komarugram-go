@@ -782,6 +782,10 @@ type Calm struct {
 	// messages delivered and read.
 	KeepOnline bool `json:"keep_online,omitempty"`
 	KeepRead   bool `json:"keep_read,omitempty"`
+	// HidePaid takes out of the panel the paid stickers and custom emoji that
+	// cannot be sent. Unlike what it keeps above, off by default: those who had
+	// this on before it came keep their panel.
+	HidePaid bool `json:"hide_paid,omitempty"`
 }
 
 // HidesOnline reports whether who is online is hidden.
@@ -789,6 +793,10 @@ func (c Calm) HidesOnline() bool { return c.On && !c.KeepOnline }
 
 // HidesRead reports whether the checks of messages are hidden.
 func (c Calm) HidesRead() bool { return c.On && !c.KeepRead }
+
+// HidesPaid reports whether paid stickers and emoji that cannot be sent are out
+// of the panel.
+func (c Calm) HidesPaid() bool { return c.On && c.HidePaid }
 
 // SetCalm changes what of others is hidden.
 func (s *Store) SetCalm(c Calm) error {
