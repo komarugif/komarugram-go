@@ -1237,7 +1237,11 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			inner.Constraints.Min.Y = 0
 			inner.Constraints.Max.Y = max(0, size.Y-gtx.Dp(12))
 			record := op.Record(gtx.Ops)
-			dims := formattedEditor(inner, &d.editor, l.T("composer.message"), d.entities, fieldEmojiMedia{p.media, p.images, p.animate})
+			field := fieldEmojiMedia{media: p.media, images: p.images, animate: p.animate}
+			if filter, ok := c.source.(model.LocalEmojiFilter); ok {
+				field.hidden = func(document int64) bool { return filter.HidesCustomEmoji(chat, document) }
+			}
+			dims := formattedEditor(inner, &d.editor, l.T("composer.message"), d.entities, field)
 			call := record.Stop()
 			transform := op.Offset(image.Pt(0, max(0, (size.Y-dims.Size.Y)/2))).Push(gtx.Ops)
 			call.Add(gtx.Ops)

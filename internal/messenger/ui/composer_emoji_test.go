@@ -65,7 +65,7 @@ func TestComposerDrawsCustomEmojiPixels(t *testing.T) {
 		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
 		images.BeginFrame()
 		media.BeginFrame()
-		formattedEditor(gtx, editor, "", entities, fieldEmojiMedia{media, images, false})
+		formattedEditor(gtx, editor, "", entities, fieldEmojiMedia{media: media, images: images})
 		media.EndFrame()
 		images.EndFrame()
 		if err := win.Frame(ops); err != nil {
@@ -90,6 +90,66 @@ func TestComposerDrawsCustomEmojiPixels(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("custom emoji bitmap never appeared in the editor")
+}
+
+// A custom emoji the account could not really send is its ordinary emoji in the
+// field: its picture is never drawn.
+func TestComposerHidesFakeEmoji(t *testing.T) {
+	picture := image.NewNRGBA(image.Rect(0, 0, 24, 24))
+	for y := range 24 {
+		for x := range 24 {
+			picture.SetNRGBA(x, y, color.NRGBA{G: 255, A: 255})
+		}
+	}
+	var data bytes.Buffer
+	if err := png.Encode(&data, picture); err != nil {
+		t.Fatal(err)
+	}
+	media := chatmedia.New(fieldEmojiSource{mockstore.New(time.Now(), 0), data.Bytes()}, func() {})
+	defer media.Close()
+	images := &imageOps{}
+	editor := new(widget.Editor)
+	editor.SetText("😀")
+	entities := []model.Entity{{Kind: model.EntityEmoji, Offset: 0, Length: 2, DocumentID: 77}}
+	win, err := headless.NewWindow(200, 50)
+	if err != nil {
+		t.Skip("no GPU:", err)
+	}
+	defer win.Release()
+	asked := 0
+	hidden := func(document int64) bool {
+		asked++
+		return document == 77
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		ops := new(op.Ops)
+		gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Constraints{Max: image.Pt(200, 50)}, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
+		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		images.BeginFrame()
+		media.BeginFrame()
+		formattedEditor(gtx, editor, "", entities, fieldEmojiMedia{media: media, images: images, hidden: hidden})
+		media.EndFrame()
+		images.EndFrame()
+		if err := win.Frame(ops); err != nil {
+			t.Fatal(err)
+		}
+		im := image.NewRGBA(image.Rect(0, 0, 200, 50))
+		if err := win.Screenshot(im); err != nil {
+			t.Fatal(err)
+		}
+		for y := range 50 {
+			for x := range 200 {
+				if c := im.RGBAAt(x, y); c.G > 200 && c.R < 80 && c.B < 80 {
+					t.Fatal("the picture of a hidden emoji was drawn")
+				}
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if asked == 0 {
+		t.Fatal("the field never asked")
+	}
 }
 
 // animatedEmojiSource gives a custom emoji that moves.

@@ -365,6 +365,8 @@ type fieldEmojiMedia struct {
 	media   *chatmedia.Manager
 	images  *imageOps
 	animate bool
+	// hidden, if set, tells custom emoji drawn as their ordinary emoji.
+	hidden func(document int64) bool
 }
 
 func formattedEditor(gtx layout.Context, e *widget.Editor, hint string, entities []model.Entity, emojiMedia ...fieldEmojiMedia) layout.Dimensions {
@@ -433,7 +435,7 @@ func formattedEditor(gtx layout.Context, e *widget.Editor, hint string, entities
 		regions = e.Regions(r.start, r.end, regions[:0])
 		for _, g := range regions {
 			baseline := g.Bounds.Max.Y - g.Baseline
-			if r.style.emoji != 0 && len(emojiMedia) > 0 {
+			if r.style.emoji != 0 && len(emojiMedia) > 0 && (emojiMedia[0].hidden == nil || !emojiMedia[0].hidden(r.style.emoji)) {
 				media := emojiMedia[0]
 				px := min(g.Bounds.Dx(), g.Bounds.Dy())
 				if frame := customEmoji(media.media, media.images, r.style.emoji, px, media.animate, color.AsNRGBA()); frame != nil {

@@ -419,6 +419,7 @@ func (s *Store) fetchCatalogue(ctx context.Context, api *tg.Client, tab model.Pi
 		}
 		if gifs, ok := res.(*tg.MessagesSavedGifs); ok {
 			out.Page.Items, out.Hashes.All = s.savedGIFItems(ctx, gifs.Gifs), gifs.Hash
+			s.gifsFetched(ctx, old.Page.Items, out.Page.Items)
 			return out, nil
 		}
 		return old, nil

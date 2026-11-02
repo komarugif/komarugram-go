@@ -18,7 +18,7 @@ import (
 
 func TestLocalPremiumEmojiNeverSentAndSurvivesReload(t *testing.T) {
 	s := testStore(t)
-	s.SetLocalPremium(true)
+	s.SetLocalPremium(model.AllLocalPremium)
 	s.history.peers[5] = peerRecord{Kind: "user", ID: 5}
 	s.history.histories[5] = &model.History{}
 	s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
@@ -57,7 +57,7 @@ func TestLocalPremiumStickerStaysOnlyOnDevice(t *testing.T) {
 	if err := s.Configure(ctx, "a", path, nil); err != nil {
 		t.Fatal(err)
 	}
-	s.SetLocalPremium(true)
+	s.SetLocalPremium(model.AllLocalPremium)
 	s.history.peers[5] = peerRecord{Kind: "user", ID: 5}
 	s.history.histories[5] = &model.History{}
 	m := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "document/77", MIMEType: "image/webp", Premium: true, Emoji: "🙂"}}
@@ -77,6 +77,7 @@ func TestLocalPremiumStickerStaysOnlyOnDevice(t *testing.T) {
 	}
 	t.Cleanup(func() { s.Close() })
 	s.history.histories[5] = &model.History{}
+	s.SetLocalPremium(model.AllLocalPremium)
 	got := s.History(5).Messages
 	if len(got) != 1 || got[0].Sending || !got[0].LocalPremium || got[0].Media.ID != m.Media.ID {
 		t.Fatalf("local sticker after restart: %+v", got)
@@ -93,49 +94,63 @@ func TestLocalPremiumStickerStaysOnlyOnDevice(t *testing.T) {
 	}
 }
 
-func TestLocalPremiumCollectionsSurviveServerRefresh(t *testing.T) {
-	s := pinStore(t)
-	s.SetLocalPremium(true)
+// Saved with Local Premium, a GIF is saved on Telegram as ever. What its list
+// has no room for then stays here, and goes from here alone.
+func TestLocalPremiumKeepsGIFsTelegramPushesOut(t *testing.T) {
+	s := testStore(t)
+	s.SetLocalPremium(model.AllLocalPremium)
 	ctx := context.Background()
-	if err := s.PinChat(ctx, 3, true); err != nil {
-		t.Fatal(err)
+	api := &savedGIFsAPI{}
+	s.history.api = api.client()
+	s.history.refs["document/9"] = fileLocation{ID: 9, Hash: 99}
+	gif := model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "document/9", MIMEType: "video/mp4"}}
+	limit := model.SavedGIFLimit(s.Premium())
+	items := make([]model.PickerItem, limit)
+	for i := range items {
+		items[i].ID = fmt.Sprintf("document/%d", 100+i)
 	}
-	if err := s.ReorderPinned(ctx, []int64{1, 3, 2}); err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(model.PinnedOrder(s.Chats()), []int64{1, 3, 2}) {
-		t.Fatal("local pin order lost")
-	}
-	s.SetLocalPremium(false)
-	if !slices.Equal(model.PinnedOrder(s.Chats()), []int64{1, 2}) {
-		t.Fatal("local pin changed server pins")
-	}
-	s.SetLocalPremium(true)
-	gif := model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "document/7", MIMEType: "video/mp4"}}
+	s.picker.mu.Lock()
+	s.picker.init()
+	s.picker.pages[model.PickerGIF] = model.PickerPage{Items: items}
+	s.picker.mu.Unlock()
 	if err := s.SaveGIF(ctx, gif, false); err != nil {
+		t.Fatalf("over Telegram's limit: %v", err)
+	}
+	if took := api.took(); len(took) != 1 || took[0] != "gif 9/99/ unsave=false" {
+		t.Fatalf("asked %v", took)
+	}
+	last := fmt.Sprintf("document/%d", 100+limit-1)
+	if !s.SavedGIF(gif.Media.ID) || !s.SavedGIF(last) {
+		t.Fatal("the GIF or the one it pushed out is not saved")
+	}
+	s.picker.mu.Lock()
+	server := s.picker.pages[model.PickerGIF]
+	s.picker.mu.Unlock()
+	page := s.withLocalGIFs(server)
+	if len(page.Items) != limit+1 || page.Items[0].ID != gif.Media.ID || page.Items[limit].ID != last {
+		t.Fatalf("%d GIFs, %s first, %s last", len(page.Items), page.Items[0].ID, page.Items[len(page.Items)-1].ID)
+	}
+	// Only here: offline it goes too, and Telegram hears nothing.
+	s.history.api = nil
+	pushed := model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: last}}
+	if err := s.SaveGIF(ctx, pushed, true); err != nil {
 		t.Fatal(err)
 	}
-	if !s.SavedGIF(gif.Media.ID) {
-		t.Fatal("local GIF not saved")
+	if s.SavedGIF(last) {
+		t.Fatal("the local GIF was not removed")
 	}
-	page := s.withLocalGIFs(model.PickerPage{Items: []model.PickerItem{{ID: "server"}}})
-	if len(page.Items) != 2 || page.Items[0].ID != gif.Media.ID {
-		t.Fatalf("server refresh removed local GIF: %+v", page)
-	}
-	if err := s.SaveGIF(ctx, gif, true); err != nil {
-		t.Fatal(err)
-	}
-	if s.SavedGIF(gif.Media.ID) {
-		t.Fatal("local GIF not removed")
-	}
+	s.SetLocalPremium(model.LocalPremium{})
 	if s.Premium().Active {
 		t.Fatal("local mode changed actual subscription")
+	}
+	if len(s.withLocalGIFs(server).Items) != limit {
+		t.Fatal("without Local Premium the list is not Telegram's")
 	}
 }
 
 func TestLocalPremiumKeepsFreeEmojiOnServer(t *testing.T) {
 	s := testStore(t)
-	s.SetLocalPremium(true)
+	s.SetLocalPremium(model.AllLocalPremium)
 	s.history.peers[5] = peerRecord{Kind: "user", ID: 5}
 	s.history.histories[5] = &model.History{}
 	ctx := context.Background()
@@ -165,7 +180,7 @@ func TestLocalPremiumKeepsFreeEmojiOnServer(t *testing.T) {
 
 func TestLocalPremiumResolvesOldStickerBeforeSending(t *testing.T) {
 	s := testStore(t)
-	s.SetLocalPremium(true)
+	s.SetLocalPremium(model.AllLocalPremium)
 	s.history.peers[5] = peerRecord{Kind: "user", ID: 5}
 	s.history.histories[5] = &model.History{}
 	var calls int
@@ -189,7 +204,7 @@ func TestLocalPremiumResolvesOldStickerBeforeSending(t *testing.T) {
 
 func TestLocalPremiumEmojiCanBeEditedWithoutServerChanges(t *testing.T) {
 	s := testStore(t)
-	s.SetLocalPremium(true)
+	s.SetLocalPremium(model.AllLocalPremium)
 	s.history.peers[5] = peerRecord{Kind: "user", ID: 5}
 	s.history.histories[5] = &model.History{}
 	s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
@@ -242,5 +257,190 @@ func TestLocalPremiumRetainsEmojiLoadedAfterSend(t *testing.T) {
 	}
 	if b, err := s.Cache().LocalMedia(ctx, "document/7"); err != nil || string(b) != "late emoji" {
 		t.Fatalf("late emoji was not retained: %q, %v", b, err)
+	}
+}
+
+// With Local Premium's media off the chat shows what the other side sees: the
+// ordinary emoji, and no local sticker. Everything comes back when it is on.
+func TestLocalPremiumMediaOffShowsWhatTelegramHas(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	s.SetLocalPremium(model.AllLocalPremium)
+	const chat = int64(5)
+	emoji := model.Entity{Kind: model.EntityEmoji, Offset: 0, Length: 2, DocumentID: 7}
+	free := model.Entity{Kind: model.EntityEmoji, Offset: 3, Length: 2, DocumentID: 8}
+	const text = "🙂 🙂"
+	if err := s.Cache().Put(ctx, localEmojiKey(chat, 9), localEmoji{Text: text, Entities: []model.Entity{emoji}}); err != nil {
+		t.Fatal(err)
+	}
+	key := model.MessageKey{AccountID: "a", ChatID: chat, MessageID: 9}
+	shown := s.applyLocalEmoji(ctx, model.Message{Key: key, Text: text, Entities: []model.Entity{free}})
+	if !shown.LocalPremium || !slices.Contains(shown.Entities, emoji) {
+		t.Fatalf("on: %+v", shown)
+	}
+	sticker := model.Message{Key: model.MessageKey{ChatID: chat, MessageID: -5}, Date: time.Unix(5, 0), LocalPremium: true}
+	// The same message in a chat without a sticker, as a thread's history is.
+	const plain = int64(-77)
+	s.history.mu.Lock()
+	s.history.histories[chat] = &model.History{Messages: []model.Message{shown}}
+	s.history.histories[plain] = &model.History{Messages: []model.Message{shown}}
+	s.history.localStickers = []model.Message{sticker}
+	revision := s.history.histories[plain].Revision
+	s.history.mu.Unlock()
+	if got := s.History(chat).Messages; len(got) != 2 {
+		t.Fatalf("on: %d messages", len(got))
+	}
+	s.SetLocalPremium(model.LocalPremium{})
+	waitStorage(t, "the overlay to go", func() bool {
+		got := s.History(chat).Messages
+		return len(got) == 1 && !got[0].LocalPremium && !slices.Contains(got[0].Entities, emoji)
+	})
+	got := s.History(chat)
+	if !slices.Contains(got.Messages[0].Entities, free) || got.Messages[0].Text != text {
+		t.Fatalf("off: what Telegram has went too: %+v", got.Messages[0])
+	}
+	if s.History(plain).Revision == revision {
+		t.Fatal("the history did not tell it changed")
+	}
+	// Another chat's message on its way has the previews looked over.
+	s.history.mu.Lock()
+	s.history.pending.list = append(s.history.pending.list, &pendingMessage{chat: 6, msg: model.Message{Key: model.MessageKey{ChatID: 6, MessageID: -9}, Date: time.Unix(9, 0), Sending: true}})
+	s.history.mu.Unlock()
+	if slices.ContainsFunc(s.withOutgoingPreviews(nil), func(c model.Chat) bool { return c.ID == chat }) {
+		t.Fatal("the hidden sticker is the chat's last message")
+	}
+	s.history.mu.Lock()
+	s.history.pending.list = nil
+	s.history.mu.Unlock()
+	// Read from the cache, as it was shown when on.
+	again := s.applyLocalEmoji(ctx, shown)
+	if again.LocalPremium || slices.Contains(again.Entities, emoji) {
+		t.Fatalf("off, from the cache: %+v", again)
+	}
+	// A message delivered meanwhile keeps its overlay for later, unshown.
+	s.history.mu.Lock()
+	s.history.histories[chat].Messages = append(s.history.histories[chat].Messages, model.Message{Key: model.MessageKey{ChatID: chat, MessageID: 10}, Text: "🙂"})
+	s.history.mu.Unlock()
+	if err := s.keepLocalEmoji(ctx, chat, 10, "🙂", []model.Entity{emoji}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.History(chat).Messages[1]; got.LocalPremium || len(got.Entities) != 0 {
+		t.Fatalf("off, delivered: %+v", got)
+	}
+	s.SetLocalPremium(model.LocalPremium{Media: true})
+	waitStorage(t, "the overlay to return", func() bool {
+		got := s.History(chat).Messages
+		return len(got) == 3 && got[0].LocalPremium && slices.Contains(got[0].Entities, emoji)
+	})
+}
+
+// In the field, only a paid emoji the account could not really send is hidden.
+func TestHidesCustomEmoji(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	for id, paid := range map[int64]bool{1: true, 2: false} {
+		if err := s.Cache().Put(ctx, emojiKey(id), model.Message{Media: &model.MessageMedia{PremiumKnown: true, Premium: paid}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const chat = int64(5)
+	if !s.HidesCustomEmoji(chat, 1) || s.HidesCustomEmoji(chat, 2) || !s.HidesCustomEmoji(chat, 3) {
+		t.Fatal("off: a paid or unknown emoji is hidden, a free one is not")
+	}
+	s.me.ID = 9
+	if s.HidesCustomEmoji(9, 1) || !s.HidesCustomEmoji(chat, 1) {
+		t.Fatal("Saved Messages hide nothing, and the others still do")
+	}
+	s.SetLocalPremium(model.LocalPremium{Media: true})
+	if s.HidesCustomEmoji(chat, 1) || s.HidesCustomEmoji(chat, 3) {
+		t.Fatal("with the media on nothing is hidden")
+	}
+}
+
+// The chat list follows the setting at once: the last message's overlay goes when
+// it is off and comes when it is on, and a list of dialogs, which tells none, gets
+// it too. Saved Messages keep theirs.
+func TestLocalPremiumPreviewFollowsMedia(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	s.SetLocalPremium(model.AllLocalPremium)
+	emoji := model.Entity{Kind: model.EntityEmoji, Offset: 0, Length: 2, DocumentID: 7}
+	free := model.Entity{Kind: model.EntityEmoji, Offset: 3, Length: 2, DocumentID: 8}
+	const text = "🙂 🙂"
+	const saved, other = int64(9), int64(5)
+	s.me.ID = saved
+	for _, chat := range []int64{saved, other} {
+		if err := s.Cache().Put(ctx, localEmojiKey(chat, 3), localEmoji{Text: text, Entities: []model.Entity{emoji}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.mu.Lock()
+	s.chats = []model.Chat{
+		{ID: saved, Last: model.Preview{ID: 3, Text: text, Entities: []model.Entity{free}}},
+		{ID: other, Last: model.Preview{ID: 3, Text: text, Entities: []model.Entity{free}}},
+	}
+	s.mu.Unlock()
+	hasEmoji := func(chat int64) (fake, kept bool) {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		for _, c := range s.chats {
+			if c.ID == chat {
+				return slices.Contains(c.Last.Entities, emoji), slices.Contains(c.Last.Entities, free)
+			}
+		}
+		t.Fatalf("no chat %d", chat)
+		return
+	}
+	s.dialogsRead()
+	if fake, kept := hasEmoji(other); !fake || !kept {
+		t.Fatalf("dialogs read, on: %v %v", fake, kept)
+	}
+	s.SetLocalPremium(model.LocalPremium{})
+	waitStorage(t, "the overlay to go", func() bool {
+		fake, kept := hasEmoji(other)
+		return !fake && kept
+	})
+	if fake, _ := hasEmoji(saved); !fake {
+		t.Fatal("Saved Messages lost theirs")
+	}
+	s.SetLocalPremium(model.LocalPremium{Media: true})
+	waitStorage(t, "the overlay to return", func() bool {
+		fake, kept := hasEmoji(other)
+		return fake && kept
+	})
+}
+
+// In Saved Messages a paid emoji goes as it is, Local Premium or not; elsewhere
+// Local Premium keeps it from Telegram.
+func TestLocalPremiumSavedMessagesSendRealEmoji(t *testing.T) {
+	s := testStore(t)
+	s.SetLocalPremium(model.AllLocalPremium)
+	s.me.ID = 9
+	s.history.peers[9] = peerRecord{Kind: "user", ID: 9, Rights: peerRights{Self: true}}
+	s.history.peers[5] = peerRecord{Kind: "user", ID: 5}
+	s.history.histories[9] = &model.History{}
+	s.history.histories[5] = &model.History{}
+	sent := 0
+	s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
+		r, ok := in.(*tg.MessagesSendMessageRequest)
+		if !ok {
+			return nil, fmt.Errorf("unexpected %T", in)
+		}
+		sent = len(r.Entities)
+		return &tg.UpdateShortSentMessage{ID: 7, Date: 10, Out: true}, nil
+	})
+	entities := []model.Entity{{Kind: model.EntityEmoji, Offset: 0, Length: 2, DocumentID: 7}}
+	ctx := context.Background()
+	if err := s.Send(ctx, 9, model.OutgoingMessage{RandomID: 1, Text: "🙂", Entities: entities}); err != nil {
+		t.Fatal(err)
+	}
+	if sent != 1 {
+		t.Fatalf("Saved Messages: %d entities on the wire", sent)
+	}
+	if err := s.Send(ctx, 5, model.OutgoingMessage{RandomID: 2, Text: "🙂", Entities: entities}); err != nil {
+		t.Fatal(err)
+	}
+	if sent != 0 {
+		t.Fatalf("elsewhere: %d entities on the wire", sent)
 	}
 }

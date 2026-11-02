@@ -225,12 +225,14 @@ func (s *Store) enqueueOutgoing(ctx context.Context, chat int64, msg model.Outgo
 		e.ThreadPost, e.Topic, e.ThreadTop = thread.post, thread.topic, thread.top
 	}
 	c.mu.Unlock()
-	e.LocalEmoji = s.localPremium.Load() && !s.Premium().Active
+	local := s.local().Media && !s.Premium().Active
+	// Saved Messages take paid emoji from anyone: they go as they are.
+	e.LocalEmoji = local && !s.savedChat(chat)
 	if e.LocalEmoji {
 		e.EmojiLocal = s.localEmojiKinds(ctx, msg.Entities)
 	}
-	e.LocalSticker = e.LocalEmoji && msg.Item != nil && msg.Item.Media.Kind == model.MessageSticker && msg.Item.Media.Media != nil && msg.Item.Media.Media.Premium
-	e.ResolveSticker = e.LocalEmoji && msg.Item != nil && msg.Item.Media.Kind == model.MessageSticker && msg.Item.Media.Media != nil && !msg.Item.Media.Media.PremiumKnown && !msg.Item.Media.Media.Premium
+	e.LocalSticker = local && msg.Item != nil && msg.Item.Media.Kind == model.MessageSticker && msg.Item.Media.Media != nil && msg.Item.Media.Media.Premium
+	e.ResolveSticker = local && msg.Item != nil && msg.Item.Media.Kind == model.MessageSticker && msg.Item.Media.Media != nil && !msg.Item.Media.Media.PremiumKnown && !msg.Item.Media.Media.Premium
 	paths := outgoingPaths(msg)
 	pending, err := s.outgoingMessages(chat, msg, e.Created)
 	if err != nil {

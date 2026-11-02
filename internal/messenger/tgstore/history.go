@@ -173,6 +173,8 @@ type conversation struct {
 	// pending are the account's messages on their way.
 	pending       pendingMessages
 	localStickers []model.Message
+	// showLocalStickers: Local Premium's media is on. Off, they stay kept.
+	showLocalStickers bool
 	// previewFrom and previewLast are what preview, the list with the previews
 	// of the messages on their way, was made of.
 	previewFrom, preview []model.Chat
@@ -1311,6 +1313,7 @@ func (s *Store) ingest(ctx context.Context, raw []tg.MessageClass, live bool, st
 	}
 	sort.Slice(msgs, func(i, j int) bool { return msgs[i].Key.MessageID < msgs[j].Key.MessageID })
 	s.goResolveChatStories(msgs)
+	s.gifsMet(ctx, msgs)
 	return msgs, nil
 }
 
@@ -1488,6 +1491,7 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			msg = u.Message
 		case *tg.UpdateEditChannelMessage:
 			msg = u.Message
+			s.storageEdited(u.Message)
 		case *tg.UpdateDeleteMessages:
 			ids = u.Messages
 		case *tg.UpdateDeleteChannelMessages:

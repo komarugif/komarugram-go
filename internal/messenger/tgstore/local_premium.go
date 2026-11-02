@@ -6,9 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"time"
 
 	"github.com/gotd/td/tg"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/model"
 )
 
@@ -58,14 +61,182 @@ func (s *Store) resolveOutgoingSticker(ctx context.Context, e *outgoingEntry) er
 
 // SetLocalPremium implements model.LocalPremiumStore. It is told again with
 // every focus of a window; only a change does anything.
-func (s *Store) SetLocalPremium(on bool) {
-	if s.localPremium.Swap(on) != on {
+func (s *Store) SetLocalPremium(parts model.LocalPremium) {
+	was := s.local()
+	first := s.localPremium.Load() == nil
+	if was == parts && !first {
+		return
+	}
+	s.localPremium.Store(&parts)
+	// The first time too: the dialogs kept may have been shown otherwise.
+	if was.Media != parts.Media || first {
+		s.localMediaChanged(parts.Media)
+	}
+	if parts.Sync && (!was.Sync || parts.GIFs && !was.GIFs || parts.Pins && !was.Pins) {
+		s.storageResumed()
+	}
+	s.changed()
+	s.syncPins()
+	s.wakeStorage()
+}
+
+// localMediaChanged shows what is loaded as the setting now says: local stickers
+// and local emoji with it, and without it what Telegram has, what the other side
+// sees. The overlays and the stickers stay kept, for when it is on again.
+func (s *Store) localMediaChanged(on bool) {
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.showLocalStickers = on
+	for _, m := range c.localStickers {
+		c.touchPending(m.Key.ChatID)
+	}
+	if c.closing || c.ctx == nil {
+		return
+	}
+	ctx := c.ctx
+	c.wg.Go(func() {
+		defer crash.Recover("local emoji", nil)
+		s.reapplyLocalEmoji(ctx)
+		s.reapplyLocalPreviews(ctx)
+	})
+}
+
+// savedChat reports whether chat is the account's Saved Messages. Telegram keeps
+// paid custom emoji there for anyone, so that they are nothing local.
+func (s *Store) savedChat(chat int64) bool {
+	me := s.Me().ID
+	return me != 0 && chat == me
+}
+
+// reapplyLocalPreviews has the overlays on the last messages of the chats, or
+// off them, as they are in the histories. A list of dialogs tells the previews
+// without them.
+func (s *Store) reapplyLocalPreviews(ctx context.Context) {
+	cache := s.Cache()
+	if cache == nil {
+		return
+	}
+	s.mu.RLock()
+	chats := s.chats
+	s.mu.RUnlock()
+	redone := map[int64]model.Preview{}
+	for _, c := range chats {
+		if c.Last.ID <= 0 {
+			continue
+		}
+		var local localEmoji
+		if ok, err := cache.Get(ctx, localEmojiKey(c.ID, int(c.Last.ID)), &local); !ok || err != nil {
+			continue
+		}
+		text, overlay := model.PreviewText(local.Text, local.Entities)
+		if text != c.Last.Text {
+			continue
+		}
+		p := c.Last
+		if s.local().Media || s.savedChat(c.ID) {
+			p.Entities = mergeLocalEmoji(p.Entities, overlay)
+		} else {
+			p.Entities = slices.DeleteFunc(slices.Clone(p.Entities), func(e model.Entity) bool { return slices.Contains(overlay, e) })
+		}
+		p.Entities = model.SortEntities(p.Entities)
+		if !slices.Equal(p.Entities, model.SortEntities(c.Last.Entities)) {
+			redone[c.ID] = p
+		}
+	}
+	if len(redone) == 0 {
+		return
+	}
+	s.publish(func() {
+		s.chats = slices.Clone(s.chats)
+		for i, c := range s.chats {
+			if p, ok := redone[c.ID]; ok && p.ID == c.Last.ID {
+				s.chats[i].Last = p
+			}
+		}
+	})
+	s.goPersistDialogs()
+}
+
+// reapplyLocalEmoji applies the overlays anew to the messages in memory.
+func (s *Store) reapplyLocalEmoji(ctx context.Context) {
+	c := s.history
+	c.mu.Lock()
+	loaded := make(map[int64][]model.Message, len(c.histories))
+	for chat, h := range c.histories {
+		loaded[chat] = slices.Clone(h.Messages)
+	}
+	c.mu.Unlock()
+	changed := false
+	for chat, messages := range loaded {
+		redone := make(map[model.MessageKey]model.Message)
+		for _, m := range messages {
+			if n := s.applyLocalEmoji(ctx, m); n.ContentRevision != m.ContentRevision {
+				redone[m.Key] = n
+			}
+		}
+		if len(redone) == 0 {
+			continue
+		}
+		changed = true
+		c.mu.Lock()
+		if h := c.histories[chat]; h != nil {
+			for i, m := range h.Messages {
+				if n, ok := redone[m.Key]; ok && n.Text == m.Text {
+					h.Messages[i] = n
+				}
+			}
+			h.Revision++
+		}
+		c.mu.Unlock()
+	}
+	if changed {
 		s.changed()
-		s.syncPins()
 	}
 }
 
-func (s *Store) LocalPremiumEnabled() bool { return s.localPremium.Load() }
+// HidesCustomEmoji implements model.LocalEmojiFilter: without Local Premium's
+// media or a subscription, the field shows the ordinary emoji in place of a paid
+// one. It is asked in frames: what is known is kept, and what is not asked again
+// after a while, and counts as paid, as localEmojiKinds does.
+func (s *Store) HidesCustomEmoji(chat, id int64) bool {
+	if s.local().Media || s.Premium().Active || s.savedChat(chat) {
+		return false
+	}
+	if kept, ok := s.emojiPaid.Load(id); ok {
+		if k := kept.(emojiPaid); k.known || time.Since(k.at) < emojiPaidAgain {
+			return k.paid
+		}
+	}
+	k := emojiPaid{paid: true, at: time.Now()}
+	if cache := s.Cache(); cache != nil {
+		var doc model.Message
+		if found, _ := cache.Get(context.Background(), emojiKey(id), &doc); found && doc.Media != nil && doc.Media.PremiumKnown {
+			k.known, k.paid = true, doc.Media.Premium
+		}
+	}
+	s.emojiPaid.Store(id, k)
+	return k.paid
+}
+
+// emojiPaid is what HidesCustomEmoji keeps of a custom emoji.
+type emojiPaid struct {
+	known, paid bool
+	at          time.Time
+}
+
+const emojiPaidAgain = 5 * time.Second
+
+// local is what Local Premium has on.
+func (s *Store) local() model.LocalPremium {
+	if parts := s.localPremium.Load(); parts != nil {
+		return *parts
+	}
+	return model.LocalPremium{}
+}
+
+// LocalPinsEnabled implements model.LocalPremiumSource.
+func (s *Store) LocalPinsEnabled() bool { return s.local().Pins }
 
 func (s *Store) localEmojiKinds(ctx context.Context, entities []model.Entity) map[int64]bool {
 	kinds := map[int64]bool{}
@@ -239,6 +410,10 @@ func (s *Store) keepLocalEmoji(ctx context.Context, chat int64, id int, text str
 			}
 		}
 	}
+	if !s.local().Media && !s.savedChat(chat) {
+		// Delivered after it was switched off: shown when it is on again.
+		return nil
+	}
 	// An update can arrive before its acknowledgement. Refresh loaded copies
 	// now, as well as overlaying future pages read from Telegram.
 	s.history.mu.Lock()
@@ -264,8 +439,14 @@ func (s *Store) applyLocalEmoji(ctx context.Context, m model.Message) model.Mess
 	var local localEmoji
 	if cache := s.Cache(); cache != nil {
 		if ok, err := cache.Get(ctx, localEmojiKey(m.Key.ChatID, int(m.Key.MessageID)), &local); ok && err == nil && m.Text == local.Text {
-			m.Entities = mergeLocalEmoji(m.Entities, local.Entities)
-			m.LocalPremium = len(local.Entities) > 0
+			if s.local().Media || s.savedChat(m.Key.ChatID) {
+				m.Entities = mergeLocalEmoji(m.Entities, local.Entities)
+				m.LocalPremium = len(local.Entities) > 0
+			} else {
+				// The cache keeps messages as they were shown.
+				m.Entities = slices.DeleteFunc(slices.Clone(m.Entities), func(e model.Entity) bool { return slices.Contains(local.Entities, e) })
+				m.LocalPremium = false
+			}
 			m.ContentRevision = model.Revision(m)
 		}
 	}

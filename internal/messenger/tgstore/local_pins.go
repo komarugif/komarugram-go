@@ -209,6 +209,7 @@ func (s *Store) changeLocalPins(ctx context.Context, change func(chats []model.C
 	}
 	s.changed()
 	s.syncPins()
+	s.markStorageChanged(false, true)
 	return nil
 }
 
@@ -220,12 +221,14 @@ func (s *Store) dialogsRead() {
 	l.ready = true
 	l.mu.Unlock()
 	s.syncPins()
+	s.wakeStorage()
+	s.reapplyLocalPreviews(context.Background())
 }
 
 // syncPins has the list and Telegram's pins made to agree, in the background,
 // after either changed. One runs at a time, and goes again if asked meanwhile.
 func (s *Store) syncPins() {
-	if !s.localPremium.Load() {
+	if !s.local().Pins {
 		return
 	}
 	l := &s.collections
@@ -296,7 +299,7 @@ func (s *Store) runPinSync(ctx context.Context) {
 // pushPins takes Telegram's changes into the list, and tells Telegram the
 // list's first chats. It reports whether it told anything.
 func (s *Store) pushPins(ctx context.Context) (bool, error) {
-	if !s.localPremium.Load() {
+	if !s.local().Pins {
 		return false, nil
 	}
 	s.mu.RLock()

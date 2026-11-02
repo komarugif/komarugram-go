@@ -38,7 +38,7 @@ type badgesLayout func(b model.Badges, name string, size unit.Dp, both bool) (be
 // while Local Premium is on: they show the Premium star to themselves, as
 // in AyuGram, and only there; Telegram does not know of it.
 func (a *App) localPremium(user int64) bool {
-	if user == 0 || !a.preferences.Global().LocalPremium {
+	if user == 0 || !a.preferences.Global().LocalPremium.Star {
 		return false
 	}
 	if user == a.store.Me().ID {

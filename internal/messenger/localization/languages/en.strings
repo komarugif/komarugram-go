@@ -1254,8 +1254,13 @@
 "premium.limits" = "Limits";
 "premium.limits_note" = "Values come from the server; without Premium · with Premium.";
 "premium.local" = "Local Telegram Premium";
-"premium.local_active" = "Local Telegram Premium is enabled. Pins over Telegram's limit, saved GIFs, Premium stickers and custom emoji are kept on this device.";
-"premium.local_body" = "Pin chats beyond Telegram's limit: the newest stay in sync with your other devices as usual, and older ones pushed out by the limit remain on this device only. Saved GIFs are kept locally. Premium stickers are visible only on this device; custom emoji are sent as ordinary emoji and keep their chosen appearance here. This does not change your Telegram subscription, upload limit or server features.";
+"premium.local_active" = "Some Premium features work locally in KomaruGram. Telegram does not know of them, and your subscription does not change.";
+"premium.local_body" = "What the client can do on its own, with or without a subscription. This does not change your Telegram subscription, upload limit or server features.";
+"premium.local_gifs" = "Keep saved GIFs beyond the limit";
+"premium.local_media" = "Show Premium stickers and emoji";
+"premium.local_pins" = "Keep pinned chats beyond the limit";
+"premium.local_star" = "Show the Premium star beside your name";
+"premium.local_sync" = "Sync pushed-out GIFs and pins between devices";
 "premium.media" = "Premium address for files";
 "premium.media_body" = "Telegram's web clients take the files of Premium accounts to a separate address. With this on, the client does the same where it is connected over WebSocket, and goes back to the usual address if the connection is not taken there. It is not known whether this changes anything: try it, and see whether files come faster.";
 "premium.off" = "Not subscribed";
@@ -1860,6 +1865,25 @@
 "stickers.saved" = "Archive saved: {path}";
 "stickers.title" = "Sticker set";
 
+"storage.back" = "Back";
+"storage.bind" = "Choose a channel";
+"storage.body" = "A private channel of yours can keep saved GIFs and pinned chats beyond Telegram's limits, shared by all your devices with KomaruGram. Without it they stay on this device only. The channel goes to the archive, and other Telegram apps show it as an ordinary channel.";
+"storage.bound" = "Saved GIFs and pinned chats are kept in the channel “{title}”";
+"storage.choose" = "Channel for storage";
+"storage.choose_body" = "Choose one of your private channels, or create a new one. A channel named “{title}” is found on your other devices by itself; one with another name has to be chosen on each.";
+"storage.create" = "Create a channel";
+"storage.failed" = "Could not set up the channel";
+"storage.later" = "Not now";
+"storage.no_channels" = "You have no private channels yet.";
+"storage.pass_done" = "All saved GIFs are in the channel";
+"storage.pass_failed" = "The channel is no longer available: GIFs not sent";
+"storage.progress" = "Sent {done} of {total}";
+"storage.progress_body" = "Please keep KomaruGram running. If it closes, sending goes on the next time it starts.";
+"storage.send" = "Send all";
+"storage.send_body" = "The channel has no GIFs yet. All your saved GIFs ({count}) can be sent to it now, so that they stay available after Telegram pushes them out of its list.";
+"storage.send_title" = "Sending saved GIFs";
+"storage.send_warning" = "This sends many messages in a row: Telegram may slow it down, and may restrict accounts that send too much. Your list changes order while it runs, on all your devices, and returns to its order at the end. It cannot be cancelled, so don't interrupt it, and don't send or save GIFs meanwhile.";
+"storage.title" = "Keep GIFs and pins in a channel?";
 "stories.my" = "My Story";
 
 "text.collapse_quote" = "Collapse quote";

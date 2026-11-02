@@ -68,10 +68,10 @@ type Global struct {
 	// StreamerMode hides the windows from screen capture, as AyuGram's
 	// Streamer Mode, where the platform allows it.
 	StreamerMode bool `json:"streamer_mode,omitempty"`
-	// LocalPremium enables device-only Premium media and collections, and
-	// shows the Premium star on the accounts signed in here. It does not
-	// change their actual Telegram subscription or server-side limits.
-	LocalPremium bool `json:"local_premium,omitempty"`
+	// LocalPremium is what the client does on its own of what Premium gives.
+	// It does not change the accounts' actual Telegram subscription or
+	// server-side limits.
+	LocalPremium LocalPremium `json:"local_premium,omitzero"`
 	// HidePeerBadges hides the marks of exteraGram, AyuGram and KomaruGram
 	// beside names (package peerbadges), and keeps the client from reading
 	// their lists.
@@ -406,6 +406,27 @@ func (g *Ghost) UnmarshalJSON(b []byte) error {
 }
 
 // Equal reports whether g and o are the same preferences, as saved.
+// LocalPremium is model.LocalPremium as it is kept.
+type LocalPremium struct {
+	Star  bool `json:"star,omitempty"`
+	Media bool `json:"media,omitempty"`
+	GIFs  bool `json:"gifs,omitempty"`
+	Pins  bool `json:"pins,omitempty"`
+	Sync  bool `json:"sync,omitempty"`
+}
+
+// UnmarshalJSON reads also the one switch this was. On, it meant all but the
+// channel, which asks first when switched on.
+func (l *LocalPremium) UnmarshalJSON(b []byte) error {
+	var old bool
+	if json.Unmarshal(b, &old) == nil {
+		*l = LocalPremium{Star: old, Media: old, GIFs: old, Pins: old}
+		return nil
+	}
+	type plain LocalPremium
+	return json.Unmarshal(b, (*plain)(l))
+}
+
 func (g Global) Equal(o Global) bool {
 	a, errA := json.Marshal(g)
 	b, errB := json.Marshal(o)
@@ -726,9 +747,9 @@ func (s *Store) SetVisualPrivacy(on bool) error {
 	return s.change(func(g *Global) { g.VisualPrivacy = on })
 }
 
-// SetLocalPremium makes the accounts look Premium to themselves, or not.
-func (s *Store) SetLocalPremium(on bool) error {
-	return s.change(func(g *Global) { g.LocalPremium = on })
+// SetLocalPremium changes what the client does on its own of what Premium gives.
+func (s *Store) SetLocalPremium(parts LocalPremium) error {
+	return s.change(func(g *Global) { g.LocalPremium = parts })
 }
 
 // SetHidePeerBadges hides the marks of exteraGram, AyuGram and KomaruGram

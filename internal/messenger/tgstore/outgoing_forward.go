@@ -65,7 +65,7 @@ func (s *Store) queueForward(ctx context.Context, from int64, ids []model.Messag
 	if threadCopy != nil {
 		e.ThreadPost, e.Topic, e.ThreadTop = threadCopy.post, threadCopy.topic, threadCopy.top
 	}
-	e.LocalEmoji = s.localPremium.Load() && !s.Premium().Active
+	e.LocalEmoji = s.local().Media && !s.Premium().Active && !s.savedChat(to)
 	for _, messageID := range ids {
 		if messageID <= 0 {
 			return errors.New("cannot forward a local message")

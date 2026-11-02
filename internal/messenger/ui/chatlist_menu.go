@@ -260,7 +260,7 @@ func chatByID(chats []model.Chat, id int64) (model.Chat, bool) {
 func (m *chatRowMenu) pin(c model.Chat, pin bool, chats []model.Chat, toast *toast, l localization.Catalog) {
 	local := false
 	if source, ok := m.store.(model.LocalPremiumSource); ok {
-		local = source.LocalPremiumEnabled()
+		local = source.LocalPinsEnabled()
 	}
 	if pin && m.premium != nil && !local {
 		p := m.premium.Premium()

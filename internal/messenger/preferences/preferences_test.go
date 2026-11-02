@@ -1,6 +1,7 @@
 package preferences
 
 import (
+	"strconv"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -140,34 +141,38 @@ func TestLocalPremiumPersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Global().LocalPremium {
+	if s.Global().LocalPremium != (LocalPremium{}) {
 		t.Fatal("Local Premium is on by default")
 	}
-	if err := s.SetLocalPremium(true); err != nil {
+	parts := LocalPremium{Star: true, Pins: true, Sync: true}
+	if err := s.SetLocalPremium(parts); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := OpenPath(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !loaded.Global().LocalPremium {
-		t.Fatal("Local Premium was not kept")
-	}
-	if err := loaded.SetLocalPremium(false); err != nil {
-		t.Fatal(err)
-	}
-	again, err := OpenPath(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if again.Global().LocalPremium {
-		t.Fatal("Local Premium stayed on")
+	if loaded.Global().LocalPremium != parts {
+		t.Fatalf("%+v", loaded.Global().LocalPremium)
 	}
 }
 
-// Telegram's behavior is the default: chats are read, the account is online
-// and types. Ghost Mode is choosing otherwise, and the choice is kept: an
-// unchecked box saved as absent would come back checked.
+// The one switch it was means all but the channel, which asks first.
+func TestLocalPremiumReadsTheOldSwitch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	data := []byte(`{"version":` + strconv.Itoa(version) + `,"global":{"local_premium":true}}`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Global().LocalPremium; got != (LocalPremium{Star: true, Media: true, GIFs: true, Pins: true}) {
+		t.Fatalf("%+v", got)
+	}
+}
+
 func TestGhostDefaultsToTelling(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	s, err := OpenPath(path)

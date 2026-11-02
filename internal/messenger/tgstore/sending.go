@@ -85,7 +85,7 @@ func (c *conversation) pendingMessagesOf(chat int64, have []model.Message) []mod
 func (c *conversation) shownMessages(chat int64, h *model.History) []model.Message {
 	out := append([]model.Message(nil), h.Messages...)
 	for _, m := range c.localStickers {
-		if m.Key.ChatID != chat {
+		if m.Key.ChatID != chat || !c.showLocalStickers {
 			continue
 		}
 		queued := false
@@ -112,13 +112,13 @@ func (c *conversation) shownMessages(chat int64, h *model.History) []model.Messa
 func (s *Store) withOutgoingPreviews(chats []model.Chat) []model.Chat {
 	c := s.history
 	c.mu.Lock()
-	if len(c.pending.list) == 0 && len(c.localStickers) == 0 {
+	if len(c.pending.list) == 0 && (len(c.localStickers) == 0 || !c.showLocalStickers) {
 		c.mu.Unlock()
 		return chats
 	}
 	last := map[int64]model.Message{}
 	for _, m := range c.localStickers {
-		if !isThread(m.Key.ChatID) && !m.Date.Before(last[m.Key.ChatID].Date) {
+		if c.showLocalStickers && !isThread(m.Key.ChatID) && !m.Date.Before(last[m.Key.ChatID].Date) {
 			last[m.Key.ChatID] = m
 		}
 	}

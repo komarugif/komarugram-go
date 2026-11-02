@@ -30,7 +30,13 @@ func TestLocalPremiumMarksOwnAccounts(t *testing.T) {
 			t.Fatalf("user %d has a star with Local Premium off", user)
 		}
 	}
-	if err := prefs.SetLocalPremium(true); err != nil {
+	if err := prefs.SetLocalPremium(preferences.LocalPremium{Pins: true}); err != nil {
+		t.Fatal(err)
+	}
+	if star(me) {
+		t.Fatal("a star with only the pins on")
+	}
+	if err := prefs.SetLocalPremium(preferences.LocalPremium{Star: true}); err != nil {
 		t.Fatal(err)
 	}
 	if !star(me) || !star(7) {
@@ -53,12 +59,12 @@ func TestSettingsTellLocalPremium(t *testing.T) {
 	if got := p.premiumText(l); got != "Not subscribed" {
 		t.Fatalf("without it: %q", got)
 	}
-	on := true
-	p.localPremium = func() bool { return on }
+	on := model.LocalPremium{GIFs: true}
+	p.localPremium = func() model.LocalPremium { return on }
 	if got := p.premiumText(l); got != "Local" {
 		t.Fatalf("with it: %q", got)
 	}
-	on = false
+	on = model.LocalPremium{}
 	if got := p.premiumText(l); got != "Not subscribed" {
 		t.Fatalf("off again: %q", got)
 	}

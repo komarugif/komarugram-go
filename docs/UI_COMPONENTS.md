@@ -356,6 +356,12 @@ size-stability fixes remain in place.
   read once done with (as Ghost's ReadOnInteract allows), and a video made
   again saves the GIF it made (`MadeGIF`), which Telegram keeps once.
   `VIEWER_SAVE_GIF` renders it.
+- **Storage channel** (`storage_offer.go`): when Local Premium's sync is ticked
+  and no channel of `model.StorageChannelTitle` is found, a `modal` offers to
+  keep the lists in a private channel, existing or new; a channel without GIFs
+  can then take the whole list, with a warning. Its `progressRows` dialog is
+  locked, and shows by itself when a pass goes on after a restart or runs from
+  another window. `STORAGE_PNG_DIR` renders the pages.
 - **Devices** (`sessions.go`): the settings section of the account's
   sessions, grouped as Telegram Desktop's Active Sessions, with a dialog of a
   session's details; it asks again every minute while it is open.

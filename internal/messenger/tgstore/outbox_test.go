@@ -339,7 +339,7 @@ func TestOutgoingWorkerRestartsAfterPanic(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	s.SetLocalPremium(true)
+	s.SetLocalPremium(model.AllLocalPremium)
 	s.history.peers[5] = peerRecord{Kind: "user", ID: 5}
 	s.history.histories[5] = &model.History{}
 	sticker := func(id int64) model.OutgoingMessage {
@@ -359,7 +359,7 @@ func TestOutgoingWorkerRestartsAfterPanic(t *testing.T) {
 // the connection.
 func TestOutgoingLocalStickerPassesOffline(t *testing.T) {
 	s := testStore(t)
-	s.SetLocalPremium(true)
+	s.SetLocalPremium(model.AllLocalPremium)
 	for _, id := range []int64{5, 6} {
 		s.history.peers[id] = peerRecord{Kind: "user", ID: id}
 		s.history.histories[id] = &model.History{}

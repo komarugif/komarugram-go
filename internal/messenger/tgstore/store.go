@@ -37,7 +37,8 @@ const pagePause = 300 * time.Millisecond
 // Store holds what Load last read. It is safe to use from any goroutine.
 type Store struct {
 	outbox          outgoingQueue
-	localPremium    atomic.Bool
+	localPremium    atomic.Pointer[model.LocalPremium]
+	emojiPaid       sync.Map
 	localMessagesMu sync.Mutex
 	collections     localCollections
 	picker          pickerCache

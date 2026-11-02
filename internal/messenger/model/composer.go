@@ -130,11 +130,35 @@ type OutboxStore interface {
 	CancelOutgoing(MessageKey)
 }
 
+// LocalPremium is what the client does on its own of what Premium gives. Each
+// part is of use with a subscription too, past its higher limits.
+type LocalPremium struct {
+	// Star shows the Premium star beside the accounts signed in here.
+	Star bool
+	// Media shows Premium stickers and custom emoji, kept on this device.
+	Media bool
+	// GIFs and Pins keep the saved GIFs and pinned chats past Telegram's limits.
+	GIFs, Pins bool
+	// Sync shares what GIFs and Pins keep through a private channel.
+	Sync bool
+}
+
+// Any reports whether any part is on.
+func (l LocalPremium) Any() bool { return l != LocalPremium{} }
+
+// AllLocalPremium has every part on.
+var AllLocalPremium = LocalPremium{Star: true, Media: true, GIFs: true, Pins: true, Sync: true}
+
 // LocalPremiumStore controls client-only presentation and collections. It never
 // changes the account's actual Telegram subscription.
-type LocalPremiumStore interface{ SetLocalPremium(bool) }
+type LocalPremiumStore interface{ SetLocalPremium(LocalPremium) }
 
-type LocalPremiumSource interface{ LocalPremiumEnabled() bool }
+// LocalEmojiFilter tells which custom emoji the message field of chat shows as
+// ordinary ones: those the account could not really send there. It is asked in
+// frames.
+type LocalEmojiFilter interface{ HidesCustomEmoji(chat, document int64) bool }
+
+type LocalPremiumSource interface{ LocalPinsEnabled() bool }
 
 // PreferSaved deduplicates global search results while retaining saved-pack order.
 func PreferSaved(saved, global []PickerItem) []PickerItem {

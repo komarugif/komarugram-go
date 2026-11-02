@@ -268,9 +268,12 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		// An account without Premium that has Local Premium on.
 		p.section = settingsPremium
 		p.premium = plainPremium{}
-		on := os.Getenv("LOCAL_PREMIUM") != "off"
-		p.localPremium = func() bool { return on }
-		p.setLocalPremium = func(v bool) { on = v }
+		on := model.LocalPremium{Star: true, Media: true, Pins: true}
+		if os.Getenv("LOCAL_PREMIUM") == "off" {
+			on = model.LocalPremium{}
+		}
+		p.localPremium = func() model.LocalPremium { return on }
+		p.setLocalPremium = func(v model.LocalPremium) { on = v }
 		if os.Getenv("PREMIUM_ACTIVE") == "on" {
 			p.premium = activePremium{}
 			media := true

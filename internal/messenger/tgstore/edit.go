@@ -31,14 +31,9 @@ func (s *Store) EditMessage(ctx context.Context, key model.MessageKey, text stri
 		return errors.New("unknown chat")
 	}
 	req := &tg.MessagesEditMessageRequest{Peer: peer.input(), ID: int(key.MessageID), NoWebpage: !s.SendPermissions(chat).Allows(model.SendLinkPreview)}
-	local := s.localPremium.Load()
-	if cache := s.Cache(); cache != nil {
-		var prior localEmoji
-		if ok, _ := cache.Get(ctx, localEmojiKey(chat, int(key.MessageID)), &prior); ok && len(prior.Entities) > 0 {
-			local = true
-		}
-	}
-	projection := outgoingEntry{LocalEmoji: local && !s.Premium().Active}
+	// Switched off, the field has what Telegram has: an edit leaves the overlay
+	// alone, and it no longer fits a text that changed.
+	projection := outgoingEntry{LocalEmoji: s.local().Media && !s.Premium().Active && !s.savedChat(chat)}
 	if projection.LocalEmoji {
 		projection.EmojiLocal = s.localEmojiKinds(ctx, entities)
 	}

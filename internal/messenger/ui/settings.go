@@ -251,12 +251,12 @@ type settingsPage struct {
 	inputBoxes *checkbox.Checkboxes[string]
 	// premium is the account's Premium; nil hides the section.
 	premium model.PremiumSource
-	// localPremium and setLocalPremium read and switch Local Premium; the
-	// toggle shows it.
-	openPremiumBot     func(string)
-	localPremium       func() bool
-	setLocalPremium    func(bool)
-	localPremiumToggle *toggle.Toggle[string]
+	// localPremium and setLocalPremium read and change the parts of Local
+	// Premium, which the boxes show.
+	openPremiumBot    func(string)
+	localPremium      func() model.LocalPremium
+	setLocalPremium   func(model.LocalPremium)
+	localPremiumBoxes *checkbox.Checkboxes[string]
 	// hidePeerBadges and setHidePeerBadges read and switch the hiding of the
 	// marks of exteraGram, AyuGram and KomaruGram beside names; keepPeerBadges
 	// and setKeepPeerBadges, whether the arrows and the faces stay, which
@@ -349,9 +349,12 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			p.setStreamer(len(values) == 1)
 		}
 	})
-	p.localPremiumToggle = toggle.NewToggle([]string{"local"}, nil, func(values []string) {
+	p.localPremiumBoxes = checkbox.NewCheckboxes([]string{"star", "media", "gifs", "pins", "sync"}, nil, func(values []string) {
 		if p.setLocalPremium != nil {
-			p.setLocalPremium(len(values) == 1)
+			p.setLocalPremium(model.LocalPremium{
+				Star: slices.Contains(values, "star"), Media: slices.Contains(values, "media"),
+				GIFs: slices.Contains(values, "gifs"), Pins: slices.Contains(values, "pins"), Sync: slices.Contains(values, "sync"),
+			})
 		}
 	})
 	p.hidePeerBadgesToggle = toggle.NewToggle([]string{"hide"}, nil, func(values []string) {
@@ -661,6 +664,9 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 	}
 	if p.section == settingsPrivacy {
 		p.security.UpdateSettings(gtx)
+	}
+	if p.section == settingsPremium && p.setLocalPremium != nil {
+		p.localPremiumBoxes.Update(gtx)
 	}
 	if p.section == settingsVisibility {
 		p.filtersView.Update(gtx)
@@ -986,7 +992,7 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 							name = l.T("settings.telegram_account")
 						}
 						row.badge = nil
-						if account.Premium || p.isLocalPremium() {
+						if account.Premium || p.localParts().Star {
 							row.badge = func(gtx layout.Context) layout.Dimensions {
 								px := gtx.Dp(18)
 								return exact(gtx, image.Pt(px, px), func(gtx layout.Context) layout.Dimensions {
@@ -1541,10 +1547,16 @@ func (p *settingsPage) layoutPremiumMark(gtx layout.Context, size unit.Dp) layou
 	return layout.Dimensions{}
 }
 
-// isLocalPremium reports whether Local Premium is on.
-func (p *settingsPage) isLocalPremium() bool {
-	return p.localPremium != nil && p.localPremium()
+// localParts is what Local Premium has on.
+func (p *settingsPage) localParts() model.LocalPremium {
+	if p.localPremium == nil {
+		return model.LocalPremium{}
+	}
+	return p.localPremium()
 }
+
+// isLocalPremium reports whether any part of Local Premium is on.
+func (p *settingsPage) isLocalPremium() bool { return p.localParts().Any() }
 
 // layoutPremium draws the Premium section: whether the account has it, how
 // to get it, and the limits it raises as the server sets them.
@@ -1561,13 +1573,20 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 	if local {
 		status = l.T("premium.local_active")
 	}
-	if p.localPremiumToggle != nil {
-		if want := p.isLocalPremium(); want != (len(p.localPremiumToggle.GetValues()) == 1) {
-			if want {
-				p.localPremiumToggle.SetValues([]string{"local"})
-			} else {
-				p.localPremiumToggle.SetValues(nil)
+	if p.localPremiumBoxes != nil {
+		parts := p.localParts()
+		want := []string{}
+		for _, part := range []struct {
+			on   bool
+			name string
+		}{{parts.Star, "star"}, {parts.Media, "media"}, {parts.GIFs, "gifs"}, {parts.Pins, "pins"}, {parts.Sync, "sync"}} {
+			if part.on {
+				want = append(want, part.name)
 			}
+		}
+		have := p.localPremiumBoxes.GetValues()
+		if len(have) != len(want) || slices.ContainsFunc(want, func(name string) bool { return !slices.Contains(have, name) }) {
+			p.localPremiumBoxes.SetValues(want)
 		}
 	}
 	if p.premiumMediaToggle != nil && p.premiumMedia != nil {
@@ -1678,18 +1697,25 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 			})
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			if p.localPremiumToggle == nil || p.setLocalPremium == nil {
+			if p.localPremiumBoxes == nil || p.setLocalPremium == nil {
 				return layout.Dimensions{}
 			}
 			return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return p.cardHeight("layoutPremium-2").Card(gtx, func(gtx layout.Context) layout.Dimensions {
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return p.localPremiumToggle.Layout(gtx, map[string]string{"local": l.T("premium.local")})
+							return label(gtx, l.T("premium.local"), token.TypestyleTitleMedium, sc.Surface.OnColor, 1)
 						}),
 						vspace(4),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							return label(gtx, l.T("premium.local_body"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
+						}),
+						vspace(8),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return p.localPremiumBoxes.Layout(gtx, map[string]string{
+								"star": l.T("premium.local_star"), "media": l.T("premium.local_media"),
+								"gifs": l.T("premium.local_gifs"), "pins": l.T("premium.local_pins"), "sync": l.T("premium.local_sync"),
+							})
 						}),
 					)
 				}, defaultCardPadding)

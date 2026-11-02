@@ -1,7 +1,23 @@
 # Local Premium and outgoing delivery
 
 Local Premium keeps its additional data in each account's cache. It never
-changes `Store.Premium().Active`, the subscription reported by Telegram.
+changes `Store.Premium().Active`, the subscription reported by Telegram. It has
+five separate parts (`model.LocalPremium`), of use with a subscription too, past
+its higher limits. A settings file with the one switch this was reads as all of
+them on but the last:
+
+- **Star**: the Premium star beside the accounts signed in here. Nothing else.
+- **Media**: Premium stickers and custom emoji, the first two points below. Off,
+  the chat and the message field show what Telegram has, what the other side sees:
+  the overlays are taken off messages (also those the cache kept with them), local
+  stickers are not shown, and the field draws a paid emoji as its ordinary one.
+  Nothing is deleted, and it all comes back when it is on. Saved Messages are the
+  exception: Telegram keeps paid emoji there for anyone, so they go there as they
+  are, and are always shown.
+- **GIFs** and **Pins**: the lists past Telegram's limits.
+- **Sync**: the storage channel. Ticking it starts the offer; closing the offer
+  with no channel bound unticks it. A part off reads nothing of the file, and writes
+  back what the file said of it.
 
 - Restricted stickers stay on this device, in a separate collection outside
   Telegram's ID-ordered history and contiguous cache spans. Their cached bytes
@@ -16,10 +32,9 @@ changes `Store.Premium().Active`, the subscription reported by Telegram.
   server text matches. The same mechanism covers captions and UTF-16 offsets.
   Free custom emoji remain native server entities. Changing or removing a local
   emoji also works when the ordinary server text has not changed.
-- Saved GIFs have a local list without the server's item limit. Server refreshes
-  cannot replace it, and saving or removing sends no mutation RPCs. Pins extend
-  the server's list. Disabling Local Premium shows the server's lists again. This
-  does not unlock uploads, reactions or server features.
+- Pins and saved GIFs extend the server's lists rather than replacing them, and
+  disabling Local Premium shows the server's lists again. This does not unlock
+  uploads, reactions or server features.
 
 ## Pinned chats
 
@@ -42,7 +57,53 @@ mode, and `Chats()` overlays the list (`tgstore/local_pins.go`).
 - A Premium that ended can leave more pins on Telegram than the limit. They stay
   until a new pin needs the room.
 - A local chat gone from the dialogs (deleted, left, archived) leaves the list.
-- Devices do not share their local chats, only the synced ones.
+- Devices share their local chats only through the storage channel.
+
+## Saved GIFs
+
+Saving and removing go to Telegram as usual. Telegram's list is ordered by use and
+moves a GIF up when it is sent, and at its limit pushes the last one out, whichever
+device did it, with no `saveGif`. A list read from Telegram is therefore compared
+with the one before it (`evictedGIFs`): of those missing, the last
+`old + new - limit` were pushed out and the others removed. If both happened at once
+it can take a removed GIF for one pushed out. What was pushed out stays here, under
+Telegram's list, and leaves when it is on that list again, as after it is sent.
+Removing a GIF kept here needs no connection.
+
+Telegram's list no longer renews the reference of such a GIF. A message that has it
+does: the channel's message, or the last message it was met in (`renewKeptGIF`).
+
+## Storage channel
+
+`tgstore/storage_channel.go` keeps the lists in a private channel of the user's,
+shared by the account's devices. The channel is archived and muted.
+
+- **Which channel.** A channel's description comes only with its full info, so
+  `contacts.search` finds it by the fixed name `model.StorageChannelTitle`, among
+  channels the user created, private ones. Ticking the sync binds it, or
+  asks: choose one of the user's private channels, or create one. A channel of
+  another name works, and must be chosen on each device.
+- **A GIF's message.** Sending a GIF moves it up Telegram's list and may push another
+  out; forwarding it as it is does neither, while hiding the author or the caption
+  counts as sending. So a GIF goes forwarded from where it was met (not from content
+  that is protected), or sent when it is at the top of the list already. Forwarded,
+  it keeps its author and caption in the channel.
+- **The file.** The channel's pinned message is `komarugram-storage.json`, replaced by
+  editing the message: the messages of the GIFs pushed out, in order, the list of
+  pins, and what Telegram had pinned when written. Text would hold too few ids. It
+  is written a few seconds after a change on this device, and read at the start,
+  when its message is edited, and when the list of GIFs is read. Changes merge with
+  `mergePins`; two devices writing at once leave the last one's. A file of a newer
+  version is neither applied nor replaced.
+- **Sending all GIFs** (`runStoragePass`), offered once for a channel with no GIFs:
+  from the last to the first, so that the list ends in its order, and the end of the
+  list, what another device could push out meanwhile, is safe first. Half a second
+  between messages is a guess. Lost connections and flood waits are waited out, a GIF
+  Telegram refuses or that left the list is passed over, and the pass goes on after
+  a restart. It cannot be cancelled, and its dialog cannot be closed. A GIF already
+  pushed out with no known message cannot be sent without pushing out another, and
+  stays on its device.
+- A channel that is gone unbinds; the lists stay on the device.
 
 ## Outbox
 
@@ -83,7 +144,8 @@ Tests use a fake Telegram API, never a real account's mutation endpoints:
 
 ```text
 go test ./internal/messenger/historycache -run TestOutgoing
-go test ./internal/messenger/tgstore -run 'TestOutgoing|TestLocalPremium|Pin'
+go test ./internal/messenger/tgstore -run 'TestOutgoing|TestLocalPremium|Pin|Storage|EvictedGIFs|KeptGIF'
+go test ./internal/messenger/ui -run StorageOffer
 go test ./internal/messenger/ui -run TestComposerDrawsCustomEmojiPixels
 ```
 

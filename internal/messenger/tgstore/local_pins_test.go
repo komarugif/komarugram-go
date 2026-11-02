@@ -145,7 +145,7 @@ func localPinStore(t *testing.T, pinned ...int64) (*Store, *pinServer) {
 	s.chats = model.WithPinOrder(s.chats, pinned)
 	server := &pinServer{pins: slices.Clone(pinned), limit: 5}
 	s.history.api = server.client()
-	s.SetLocalPremium(true)
+	s.SetLocalPremium(model.AllLocalPremium)
 	s.dialogsRead()
 	settled(t, s)
 	return s, server
@@ -207,11 +207,11 @@ func TestLocalPinPastLimitPushesTheLastOff(t *testing.T) {
 	if got := server.took(); !slices.Equal(got, []string{"pin 5 false", "pin 6 true"}) {
 		t.Fatalf("asked %v", got)
 	}
-	s.SetLocalPremium(false)
+	s.SetLocalPremium(model.LocalPremium{})
 	if got := model.PinnedOrder(s.Chats()); !slices.Equal(got, []int64{6, 1, 2, 3, 4}) {
 		t.Fatalf("without Local Premium %v", got)
 	}
-	s.SetLocalPremium(true)
+	s.SetLocalPremium(model.AllLocalPremium)
 	checkPins(t, s, server, []int64{6, 1, 2, 3, 4, 5}, []int64{6, 1, 2, 3, 4})
 	if got := server.took(); len(got) != 0 {
 		t.Fatalf("nothing changed, and asked %v", got)
@@ -370,7 +370,7 @@ func TestLocalPinsSurviveRestart(t *testing.T) {
 	s.chats = model.WithPinOrder(s.chats, []int64{1, 2, 3, 4, 5})
 	server := &pinServer{pins: []int64{1, 2, 3, 4, 5}, limit: 5}
 	s.history.api = server.client()
-	s.SetLocalPremium(true)
+	s.SetLocalPremium(model.AllLocalPremium)
 	s.dialogsRead()
 	settled(t, s)
 	if err := s.PinChat(ctx, 6, true); err != nil {
@@ -390,7 +390,7 @@ func TestLocalPinsSurviveRestart(t *testing.T) {
 	}
 	t.Cleanup(func() { s.Close() })
 	s.history.api = server.client()
-	s.SetLocalPremium(true)
+	s.SetLocalPremium(model.AllLocalPremium)
 	want := []int64{6, 1, 2, 3, 4, 5}
 	if got := model.PinnedOrder(s.Chats()); !slices.Equal(got, want) {
 		t.Fatalf("shown %v after the restart, before the dialogs are read", got)
@@ -465,7 +465,7 @@ func BenchmarkChats(b *testing.B) {
 	for id := int64(1); id <= 5000; id++ {
 		s.chats = append(s.chats, model.Chat{ID: id, LastTime: time.Unix(100000-id, 0)})
 	}
-	s.SetLocalPremium(true)
+	s.SetLocalPremium(model.AllLocalPremium)
 	s.collections.pins = &localPins{Order: []int64{1, 2, 3, 4, 5, 6, 7}}
 	s.history.localStickers = []model.Message{{Key: model.MessageKey{ChatID: 3, MessageID: -5}, Date: time.Unix(200000, 0), LocalPremium: true}}
 	b.ReportAllocs()

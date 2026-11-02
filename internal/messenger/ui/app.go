@@ -180,6 +180,8 @@ type App struct {
 	emojiOffer *emojiOffer
 	// registrationOffer asks to send the registration points of the chats.
 	registrationOffer *registrationOffer
+	// storageOffer asks where Local Premium keeps its lists.
+	storageOffer *storageOffer
 	// frozen tells that Telegram froze the account.
 	frozen *frozenView
 
@@ -335,6 +337,9 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	if source, ok := store.(model.RegistrationPointSource); ok && services.OfferRegistrationPoints {
 		a.registrationOffer = newRegistrationOffer(source)
 	}
+	if source, ok := store.(model.StorageChannels); ok {
+		a.storageOffer = newStorageOffer(source)
+	}
 	a.frozen = newFrozenView(store)
 	a.profile.frozen = a.frozen
 	a.profile.openAvatar = func(chat int64) {
@@ -449,13 +454,26 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		}
 		w.Invalidate()
 	}
-	a.settings.localPremium = func() bool { return a.preferences.Global().LocalPremium }
-	a.settings.setLocalPremium = func(on bool) {
-		if err := services.Preferences.SetLocalPremium(on); err != nil {
+	a.settings.localPremium = func() model.LocalPremium { return model.LocalPremium(a.preferences.Global().LocalPremium) }
+	a.settings.setLocalPremium = func(parts model.LocalPremium) {
+		was := a.settings.localPremium()
+		if err := services.Preferences.SetLocalPremium(preferences.LocalPremium(parts)); err != nil {
 			log.Printf("save settings: %v", err)
 		}
 		if local, ok := a.store.(model.LocalPremiumStore); ok {
-			local.SetLocalPremium(on)
+			local.SetLocalPremium(parts)
+		}
+		if parts.Sync && !was.Sync && a.storageOffer != nil {
+			a.storageOffer.Activated(w.Invalidate)
+		}
+		w.Invalidate()
+	}
+	if a.storageOffer != nil {
+		// Without a channel there is nothing to sync, and ticking it asks again.
+		a.storageOffer.declined = func() {
+			parts := a.settings.localPremium()
+			parts.Sync = false
+			a.settings.setLocalPremium(parts)
 		}
 	}
 	a.settings.premiumMedia = func() bool { return a.preferences.Global().PremiumMedia }
@@ -1044,6 +1062,9 @@ func (a *App) Update(gtx layout.Context) {
 	if a.registrationOffer != nil {
 		a.registrationOffer.Update(gtx, a.chats.toast.Show, a.catalog(), a.window.Invalidate)
 	}
+	if a.storageOffer != nil {
+		a.storageOffer.Update(gtx, a.chats.toast.Show, a.catalog(), a.window.Invalidate)
+	}
 	a.frozen.Update(gtx)
 	if pick := a.openChat.Swap(nil); pick != nil {
 		a.open(*pick)
@@ -1516,6 +1537,9 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	if a.registrationOffer != nil {
 		a.registrationOffer.Layout(overlayGtx, a.catalog())
 	}
+	if a.storageOffer != nil {
+		a.storageOffer.Layout(overlayGtx, a.catalog())
+	}
 	a.toast.bd = nil
 	if overlays.toasts {
 		call := under.Stop()
@@ -1759,7 +1783,7 @@ func (a *App) SetFocused(focused bool) {
 // active.
 func (a *App) tellGhost() {
 	if local, ok := a.store.(model.LocalPremiumStore); ok {
-		local.SetLocalPremium(a.preferences.Global().LocalPremium)
+		local.SetLocalPremium(model.LocalPremium(a.preferences.Global().LocalPremium))
 	}
 	g, ok := a.store.(model.GhostStore)
 	if !ok {

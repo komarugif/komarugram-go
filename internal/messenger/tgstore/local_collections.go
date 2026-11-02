@@ -4,14 +4,16 @@ package tgstore
 
 import (
 	"context"
+	"log"
+	"slices"
 	"sync"
 
 	"komarugram/internal/messenger/model"
 )
 
-// Local collections overlay the server's lists while Local Premium is enabled.
-// The actual Premium entitlement and the server's limits stay independent; the
-// pins extend Telegram's, as local_pins.go tells.
+// Local collections extend the server's lists while Local Premium is enabled:
+// what fits in the account's real limits is on Telegram as always, and what
+// Telegram would push out stays here. See local_pins.go for the pins.
 type localCollections struct {
 	mu     sync.Mutex
 	loaded bool
@@ -26,14 +28,17 @@ type localCollections struct {
 	viewFrom, view []model.Chat
 	viewPins       *localPins
 
-	gifs       []model.PickerItem
-	hiddenGIFs map[string]bool
+	// gifs are the saved GIFs Telegram no longer has.
+	gifs []model.PickerItem
+
+	// storage and work are the channel the lists are kept in: storage_channel.go.
+	storage storageState
+	work    storageWork
 }
 
-type localGIFs struct {
-	Items  []model.PickerItem
-	Hidden map[string]bool
-}
+type localGIFs struct{ Items []model.PickerItem }
+
+const localGIFsKey = "local-premium/gifs"
 
 func (s *Store) restoreLocalCollections(ctx context.Context) error {
 	l := &s.collections
@@ -45,10 +50,11 @@ func (s *Store) restoreLocalCollections(ctx context.Context) error {
 	l.refused = map[int64]bool{}
 	s.restoreLocalPins(ctx, l)
 	var gifs localGIFs
-	if _, err := s.Cache().Get(ctx, "local-premium/gifs", &gifs); err != nil {
-		return err
+	if _, err := s.Cache().Get(ctx, localGIFsKey, &gifs); err != nil {
+		log.Printf("tgstore: local GIFs: %v", err)
 	}
-	l.gifs, l.hiddenGIFs = gifs.Items, gifs.Hidden
+	l.gifs = gifs.Items
+	s.restoreStorage(ctx, l)
 	l.loaded = true
 	return nil
 }
@@ -57,7 +63,7 @@ func (s *Store) restoreLocalCollections(ctx context.Context) error {
 // asked in frames: the slice is the same until chats or the pins change, as
 // chats is never changed in place.
 func (s *Store) withLocalCollections(chats []model.Chat) []model.Chat {
-	if !s.localPremium.Load() {
+	if !s.local().Pins {
 		return chats
 	}
 	l := &s.collections
@@ -79,46 +85,41 @@ func sameSlice(a, b []model.Chat) bool {
 }
 
 func (s *Store) withLocalGIFs(page model.PickerPage) model.PickerPage {
-	if !s.localPremium.Load() {
+	if !s.local().GIFs {
 		return page
 	}
 	l := &s.collections
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	var server []model.PickerItem
-	for _, item := range page.Items {
-		if !l.hiddenGIFs[item.ID] {
-			server = append(server, item)
-		}
-	}
-	page.Items = model.PreferSaved(l.gifs, server)
+	page.Items = model.PreferSaved(page.Items, l.gifs)
 	return page
 }
 
-func (s *Store) saveLocalGIF(ctx context.Context, m model.Message, unsave bool) error {
-	l := &s.collections
-	err := func() error {
-		l.mu.Lock()
-		defer l.mu.Unlock()
-		items := model.WithoutItem(l.gifs, m.Media.ID)
-		hidden := make(map[string]bool, len(l.hiddenGIFs)+1)
-		for id, on := range l.hiddenGIFs {
-			hidden[id] = on
-		}
-		if unsave {
-			hidden[m.Media.ID] = true
-		} else {
-			delete(hidden, m.Media.ID)
-			items = append([]model.PickerItem{model.PickerItemOf(m)}, items...)
-		}
-		if err := s.Cache().Put(ctx, "local-premium/gifs", localGIFs{items, hidden}); err != nil {
-			return err
-		}
-		l.gifs, l.hiddenGIFs = items, hidden
-		return nil
-	}()
-	if err == nil {
-		s.changed()
+// localGIF reports whether Local Premium keeps the GIF id.
+func (s *Store) localGIF(id string) bool {
+	if !s.local().GIFs {
+		return false
 	}
+	l := &s.collections
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.ContainsFunc(l.gifs, func(item model.PickerItem) bool { return item.ID == id })
+}
+
+// changeLocalGIFs drops the GIF id from those kept here, and adds pushed, what
+// Telegram's list has no room for any more, to their top.
+func (s *Store) changeLocalGIFs(ctx context.Context, id string, pushed []model.PickerItem) error {
+	l := &s.collections
+	l.mu.Lock()
+	items := model.PreferSaved(pushed, model.WithoutItem(l.gifs, id))
+	same := len(items) == len(l.gifs)
+	l.gifs = items
+	l.mu.Unlock()
+	if same && len(pushed) == 0 {
+		return nil
+	}
+	err := s.Cache().Put(ctx, localGIFsKey, localGIFs{items})
+	s.markStorageChanged(true, false)
+	s.changed()
 	return err
 }

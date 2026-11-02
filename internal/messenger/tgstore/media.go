@@ -250,6 +250,12 @@ func (s *Store) refreshReference(ctx context.Context, m model.Message) error {
 		}
 		return nil
 	}
+	if m.Key.MessageID == 0 && ref.SavedGIF && s.localGIF(fmt.Sprintf("document/%d", ref.ID)) {
+		// Telegram's list no longer has it, nor renews it.
+		if ok, e := s.renewKeptGIF(ctx, api, ref.ID); ok {
+			return e
+		}
+	}
 	if m.Key.MessageID == 0 && ref.SavedGIF {
 		res, e := api.MessagesGetSavedGifs(ctx, 0)
 		if e != nil {
