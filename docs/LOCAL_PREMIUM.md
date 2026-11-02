@@ -16,10 +16,33 @@ changes `Store.Premium().Active`, the subscription reported by Telegram.
   server text matches. The same mechanism covers captions and UTF-16 offsets.
   Free custom emoji remain native server entities. Changing or removing a local
   emoji also works when the ordinary server text has not changed.
-- Pins and saved GIFs have local lists without the server's item limits. Server
-  refreshes cannot replace them; disabling Local Premium shows the server's
-  collections again. Saving, removing and reordering the local collections send
-  no mutation RPCs. This does not unlock uploads, reactions or server features.
+- Saved GIFs have a local list without the server's item limit. Server refreshes
+  cannot replace it, and saving or removing sends no mutation RPCs. Pins extend
+  the server's list. Disabling Local Premium shows the server's lists again. This
+  does not unlock uploads, reactions or server features.
+
+## Pinned chats
+
+There is one list. Its first chats, as many as the account's real
+`dialogs_pinned_limit`, are pinned on Telegram and sync with other devices; the
+rest are shown on this device only. `s.chats` keeps what Telegram says in either
+mode, and `Chats()` overlays the list (`tgstore/local_pins.go`).
+
+- A new pin comes first. At the limit, the last synced chat is unpinned on
+  Telegram and stays in the list; the new one takes its place.
+- Unpinning a synced chat lets the next local one up. Moving a local chat among
+  the first ones changes which are synced; an order among the local ones sends
+  nothing.
+- The list changes at once, offline too. A background worker tells Telegram, and
+  runs after each change, update or load of the dialogs.
+- `Synced`, what Telegram had when last compared, tells "pushed off by this
+  device" from "unpinned elsewhere". Changes from other devices are merged against
+  it: an unpin elsewhere leaves the list, a pin elsewhere comes first, and a new
+  order elsewhere is taken.
+- A Premium that ended can leave more pins on Telegram than the limit. They stay
+  until a new pin needs the room.
+- A local chat gone from the dialogs (deleted, left, archived) leaves the list.
+- Devices do not share their local chats, only the synced ones.
 
 ## Outbox
 
@@ -59,7 +82,7 @@ Tests use a fake Telegram API, never a real account's mutation endpoints:
 
 ```text
 go test ./internal/messenger/historycache -run TestOutgoing
-go test ./internal/messenger/tgstore -run 'TestOutgoing|TestLocalPremium'
+go test ./internal/messenger/tgstore -run 'TestOutgoing|TestLocalPremium|Pin'
 go test ./internal/messenger/ui -run TestComposerDrawsCustomEmojiPixels
 ```
 

@@ -283,6 +283,7 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) err
 	if err := s.persistDialogs(ctx); err != nil {
 		return err
 	}
+	s.dialogsRead()
 	s.resync(0)
 	return nil
 }

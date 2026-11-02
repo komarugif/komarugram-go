@@ -56,7 +56,14 @@ func (s *Store) resolveOutgoingSticker(ctx context.Context, e *outgoingEntry) er
 	return errors.New("sticker is no longer in its set")
 }
 
-func (s *Store) SetLocalPremium(on bool) { s.localPremium.Store(on) }
+// SetLocalPremium implements model.LocalPremiumStore. It is told again with
+// every focus of a window; only a change does anything.
+func (s *Store) SetLocalPremium(on bool) {
+	if s.localPremium.Swap(on) != on {
+		s.changed()
+		s.syncPins()
+	}
+}
 
 func (s *Store) LocalPremiumEnabled() bool { return s.localPremium.Load() }
 

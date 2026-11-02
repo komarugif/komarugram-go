@@ -4,6 +4,7 @@ package tgstore
 
 import (
 	"context"
+	"slices"
 
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
@@ -13,7 +14,8 @@ import (
 
 // Pinned chats stay at the top of the list, in the order they were pinned
 // (messages.toggleDialogPin). Only the main list is read, so the pins of
-// other folders and of the archive are not told of here.
+// other folders and of the archive are not told of here. Local Premium has a
+// longer list over these: see local_pins.go.
 
 // PinChat implements model.ChatListActions.
 func (s *Store) PinChat(ctx context.Context, chat int64, pin bool) error {
@@ -116,8 +118,13 @@ func (s *Store) applyPin(u *tg.UpdateDialogPinned) {
 		return
 	}
 	s.mu.Lock()
-	s.chats = model.WithPinned(s.chats, id, u.Pinned)
+	// Told again of what is so already (the client's own pin coming back), a
+	// pinned chat would go first.
+	if slices.ContainsFunc(s.chats, func(c model.Chat) bool { return c.ID == id && c.Pinned != u.Pinned }) {
+		s.chats = model.WithPinned(s.chats, id, u.Pinned)
+	}
 	s.mu.Unlock()
+	s.syncPins()
 }
 
 // applyPinOrder puts the order of the pinned chats that an update tells of in
@@ -130,6 +137,7 @@ func (s *Store) applyPinOrder(ctx context.Context, u *tg.UpdatePinnedDialogs) {
 	order, ok := u.GetOrder()
 	if !ok {
 		s.readPinned(ctx)
+		s.syncPins()
 		return
 	}
 	var ids []int64
@@ -141,6 +149,7 @@ func (s *Store) applyPinOrder(ctx context.Context, u *tg.UpdatePinnedDialogs) {
 	s.mu.Lock()
 	s.chats = model.WithPinOrder(s.chats, ids)
 	s.mu.Unlock()
+	s.syncPins()
 }
 
 // readPinned reads which chats are pinned, and in what order.

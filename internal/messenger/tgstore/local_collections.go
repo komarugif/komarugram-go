@@ -4,22 +4,32 @@ package tgstore
 
 import (
 	"context"
-	"slices"
 	"sync"
 
 	"komarugram/internal/messenger/model"
 )
 
 // Local collections overlay the server's lists while Local Premium is enabled.
-// The actual Premium entitlement and the server's limits stay independent.
+// The actual Premium entitlement and the server's limits stay independent; the
+// pins extend Telegram's, as local_pins.go tells.
 type localCollections struct {
-	mu         sync.Mutex
-	loaded     bool
-	pins       *localPins
+	mu     sync.Mutex
+	loaded bool
+
+	pins   *localPins
+	saveMu sync.Mutex
+	// ready tells that s.chats has been read from Telegram.
+	ready          bool
+	running, dirty bool
+	attempts       int
+	refused        map[int64]bool
+	viewFrom, view []model.Chat
+	viewPins       *localPins
+
 	gifs       []model.PickerItem
 	hiddenGIFs map[string]bool
 }
-type localPins struct{ Order []int64 }
+
 type localGIFs struct {
 	Items  []model.PickerItem
 	Hidden map[string]bool
@@ -32,12 +42,10 @@ func (s *Store) restoreLocalCollections(ctx context.Context) error {
 	if l.loaded {
 		return nil
 	}
-	cache := s.Cache()
-	if _, err := cache.Get(ctx, "local-premium/pins", &l.pins); err != nil {
-		return err
-	}
+	l.refused = map[int64]bool{}
+	s.restoreLocalPins(ctx, l)
 	var gifs localGIFs
-	if _, err := cache.Get(ctx, "local-premium/gifs", &gifs); err != nil {
+	if _, err := s.Cache().Get(ctx, "local-premium/gifs", &gifs); err != nil {
 		return err
 	}
 	l.gifs, l.hiddenGIFs = gifs.Items, gifs.Hidden
@@ -45,6 +53,9 @@ func (s *Store) restoreLocalCollections(ctx context.Context) error {
 	return nil
 }
 
+// withLocalCollections is chats with the list of pins of this device. It is
+// asked in frames: the slice is the same until chats or the pins change, as
+// chats is never changed in place.
 func (s *Store) withLocalCollections(chats []model.Chat) []model.Chat {
 	if !s.localPremium.Load() {
 		return chats
@@ -52,56 +63,19 @@ func (s *Store) withLocalCollections(chats []model.Chat) []model.Chat {
 	l := &s.collections
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.pins != nil {
-		return model.WithPinOrder(chats, l.pins.Order)
+	if l.pins == nil {
+		return chats
 	}
-	return chats
-}
-
-func (s *Store) pinLocalChat(ctx context.Context, chat int64, pin bool) error {
-	return s.changeLocalPins(ctx, func(chats []model.Chat) ([]int64, error) {
-		if !slices.ContainsFunc(chats, func(c model.Chat) bool { return c.ID == chat }) {
-			return nil, errNotConnected
-		}
-		return model.PinnedOrder(model.WithPinned(chats, chat, pin)), nil
-	})
-}
-
-func (s *Store) reorderLocalPins(ctx context.Context, order []int64) error {
-	return s.changeLocalPins(ctx, func(chats []model.Chat) ([]int64, error) {
-		if !model.SamePinned(chats, order) {
-			return nil, model.ErrPinnedChanged
-		}
-		return order, nil
-	})
-}
-
-func (s *Store) changeLocalPins(ctx context.Context, change func([]model.Chat) ([]int64, error)) error {
-	s.mu.RLock()
-	chats := s.chats
-	s.mu.RUnlock()
-	l := &s.collections
-	err := func() error {
-		l.mu.Lock()
-		defer l.mu.Unlock()
-		if l.pins != nil {
-			chats = model.WithPinOrder(chats, l.pins.Order)
-		}
-		order, err := change(chats)
-		if err != nil {
-			return err
-		}
-		value := &localPins{Order: slices.Clone(order)}
-		if err := s.Cache().Put(ctx, "local-premium/pins", value); err != nil {
-			return err
-		}
-		l.pins = value
-		return nil
-	}()
-	if err == nil {
-		s.changed()
+	if l.viewPins != l.pins || !sameSlice(l.viewFrom, chats) {
+		l.viewFrom, l.viewPins = chats, l.pins
+		l.view = model.WithPinOrder(chats, l.pins.Order)
 	}
-	return err
+	return l.view
+}
+
+// sameSlice reports whether a and b are one slice, not merely equal.
+func sameSlice(a, b []model.Chat) bool {
+	return len(a) == len(b) && (len(a) == 0 || &a[0] == &b[0])
 }
 
 func (s *Store) withLocalGIFs(page model.PickerPage) model.PickerPage {
