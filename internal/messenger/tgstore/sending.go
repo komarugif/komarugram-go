@@ -3,6 +3,7 @@
 package tgstore
 
 import (
+	"maps"
 	"sort"
 
 	"github.com/gotd/td/tg"
@@ -116,7 +117,6 @@ func (s *Store) withOutgoingPreviews(chats []model.Chat) []model.Chat {
 		return chats
 	}
 	last := map[int64]model.Message{}
-	peers := map[int64]peerRecord{}
 	for _, m := range c.localStickers {
 		if !isThread(m.Key.ChatID) && !m.Date.Before(last[m.Key.ChatID].Date) {
 			last[m.Key.ChatID] = m
@@ -131,6 +131,13 @@ func (s *Store) withOutgoingPreviews(chats []model.Chat) []model.Chat {
 			last[real] = p.msg
 		}
 	}
+	// Asked in frames: the slice is the same until something in it changes.
+	if sameSlice(c.previewFrom, chats) && maps.EqualFunc(c.previewLast, last, samePreview) {
+		out := c.preview
+		c.mu.Unlock()
+		return out
+	}
+	peers := map[int64]peerRecord{}
 	for chat := range last {
 		peers[chat] = c.peers[chat]
 	}
@@ -159,7 +166,16 @@ func (s *Store) withOutgoingPreviews(chats []model.Chat) []model.Chat {
 		}
 	}
 	model.SortChats(out)
+	c.mu.Lock()
+	c.previewFrom, c.previewLast, c.preview = chats, last, out
+	c.mu.Unlock()
 	return out
+}
+
+// samePreview reports whether a and b, last messages of a chat, preview alike.
+func samePreview(a, b model.Message) bool {
+	return a.Key == b.Key && a.Date.Equal(b.Date) && a.Sending == b.Sending && a.SendError == b.SendError &&
+		a.LocalPremium == b.LocalPremium && a.ContentRevision == b.ContentRevision
 }
 
 // holds reports whether messages, in the order of their ids, hold id;

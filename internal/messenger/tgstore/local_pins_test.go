@@ -417,10 +417,13 @@ func TestLocalPinOfAChatGone(t *testing.T) {
 	}
 }
 
-// Chats is asked in every frame: with local pins it must not copy
+// Chats is asked in every frame: with local pins and stickers it must not copy
 // and sort the whole list each time.
 func TestChatsIsTheSameSliceUntilChanged(t *testing.T) {
 	s, _ := localPinStore(t, 1, 2)
+	s.history.mu.Lock()
+	s.history.localStickers = []model.Message{{Key: model.MessageKey{ChatID: 3, MessageID: -5}, Date: time.Unix(5000, 0), LocalPremium: true}}
+	s.history.mu.Unlock()
 	a, b := s.Chats(), s.Chats()
 	if &a[0] != &b[0] {
 		t.Fatal("Chats made a new list without a change")
@@ -435,6 +438,21 @@ func TestChatsIsTheSameSliceUntilChanged(t *testing.T) {
 	if c := s.Chats(); !slices.Equal(model.PinnedOrder(c), []int64{4, 1, 2}) {
 		t.Fatalf("a pin did not change the list: %v", model.PinnedOrder(c))
 	}
+	s.history.mu.Lock()
+	s.history.localStickers = nil
+	s.history.mu.Unlock()
+	if c, ok := pinChatOf(s.Chats(), 3); !ok || c.Last.Sent {
+		t.Fatalf("chat 3: %+v", c)
+	}
+}
+
+func pinChatOf(chats []model.Chat, id int64) (model.Chat, bool) {
+	for _, c := range chats {
+		if c.ID == id {
+			return c, true
+		}
+	}
+	return model.Chat{}, false
 }
 
 // BenchmarkChats is what a frame pays for the list of a large account.
@@ -449,6 +467,7 @@ func BenchmarkChats(b *testing.B) {
 	}
 	s.SetLocalPremium(true)
 	s.collections.pins = &localPins{Order: []int64{1, 2, 3, 4, 5, 6, 7}}
+	s.history.localStickers = []model.Message{{Key: model.MessageKey{ChatID: 3, MessageID: -5}, Date: time.Unix(200000, 0), LocalPremium: true}}
 	b.ReportAllocs()
 	for b.Loop() {
 		s.Chats()

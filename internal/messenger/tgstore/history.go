@@ -173,6 +173,10 @@ type conversation struct {
 	// pending are the account's messages on their way.
 	pending       pendingMessages
 	localStickers []model.Message
+	// previewFrom and previewLast are what preview, the list with the previews
+	// of the messages on their way, was made of.
+	previewFrom, preview []model.Chat
+	previewLast          map[int64]model.Message
 }
 type viewSave struct {
 	view    model.Viewport
