@@ -281,7 +281,8 @@ size-stability fixes remain in place.
   arrow of a forward, up to three thumbnails (a video's with a play mark, a
   video message's round, one under a spoiler only blurred), the interface's
   words in the accent colour, and the text with italic, underline, strike,
-  code, covered spoilers and custom emoji, which play twice and stand. It
+  code, covered spoilers and custom emoji, which keep playing (Telegram Desktop's
+  stop after two loops; the maintainer's choice). It
   is made from `model.Preview` once a message, each run a label of its own,
   so a frame of the list allocates no more than plain text did; its
   thumbnails are Telegram's inline pictures, which come with the message:
