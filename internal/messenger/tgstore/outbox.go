@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -57,6 +58,7 @@ type outgoingQueue struct {
 	mu             sync.Mutex
 	entries        []*outgoingEntry
 	loaded, closed bool
+	staging        map[int64]bool
 	wake           chan struct{}
 	cancel         context.CancelFunc
 	wg             sync.WaitGroup
@@ -79,7 +81,7 @@ func (s *Store) restoreOutgoing(ctx context.Context) error {
 	}
 	var local []model.Message
 	if _, err := cache.Get(ctx, "local-premium/stickers", &local); err != nil {
-		return err
+		log.Printf("outbox: local stickers: %v", err)
 	}
 	s.history.mu.Lock()
 	s.history.localStickers = local
@@ -90,7 +92,9 @@ func (s *Store) restoreOutgoing(ctx context.Context) error {
 	for _, row := range rows {
 		e := new(outgoingEntry)
 		if err := json.Unmarshal(row, e); err != nil {
-			return fmt.Errorf("outbox: %w", err)
+			// One message that cannot be read must not lock the account out.
+			log.Printf("outbox: %v", err)
+			continue
 		}
 		e.result = &outgoingResult{done: make(chan struct{})}
 		if e.Error != "" {
@@ -170,18 +174,25 @@ func (s *Store) enqueueOutgoing(ctx context.Context, chat int64, msg model.Outgo
 	}
 	q := &s.outbox
 	q.mu.Lock()
-	defer q.mu.Unlock()
-	if q.closed {
-		return nil, errors.New("outbox: closed")
+	if e, err := q.queued(chat, msg.RandomID); e != nil || err != nil {
+		q.mu.Unlock()
+		return e, err
 	}
-	for _, e := range q.entries {
-		if e.Request.RandomID == msg.RandomID {
-			if e.Chat != chat {
-				return nil, errors.New("outbox: message identity already used")
-			}
-			return e, nil
-		}
+	// Copying the attachments may take long, and delivery goes on meanwhile.
+	if q.staging[msg.RandomID] {
+		q.mu.Unlock()
+		return nil, errors.New("outbox: message is being queued")
 	}
+	if q.staging == nil {
+		q.staging = map[int64]bool{}
+	}
+	q.staging[msg.RandomID] = true
+	q.mu.Unlock()
+	defer func() {
+		q.mu.Lock()
+		delete(q.staging, msg.RandomID)
+		q.mu.Unlock()
+	}()
 	c := s.history
 	c.mu.Lock()
 	real, top := c.threadChat(chat)
@@ -242,13 +253,37 @@ func (s *Store) enqueueOutgoing(ctx context.Context, chat int64, msg model.Outgo
 	if err := cache.PutOutgoing(ctx, msg.RandomID, e, paths); err != nil {
 		return nil, err
 	}
+	q.mu.Lock()
+	if q.closed {
+		// It is kept, and goes when the account is opened again.
+		q.mu.Unlock()
+		return nil, errors.New("outbox: closed")
+	}
 	c.mu.Lock()
 	c.pending.list = append(c.pending.list, pending...)
 	c.touchPending(chat)
 	c.mu.Unlock()
 	q.entries = append(q.entries, e)
+	q.mu.Unlock()
 	s.changed()
 	return e, nil
+}
+
+// queued is the entry already queued as randomID, if any, for chat. The caller
+// holds q.mu.
+func (q *outgoingQueue) queued(chat, randomID int64) (*outgoingEntry, error) {
+	if q.closed {
+		return nil, errors.New("outbox: closed")
+	}
+	for _, e := range q.entries {
+		if e.Request.RandomID == randomID {
+			if e.Chat != chat {
+				return nil, errors.New("outbox: message identity already used")
+			}
+			return e, nil
+		}
+	}
+	return nil, nil
 }
 
 func outgoingPaths(msg model.OutgoingMessage) []string {
@@ -275,7 +310,13 @@ func (s *Store) startOutgoing() {
 		q.wg.Add(1)
 		go func() {
 			defer q.wg.Done()
-			defer crash.Recover("outbox", func(p *crash.Panic) { s.failOutgoingPanic(p) })
+			defer crash.Recover("outbox", func(p *crash.Panic) {
+				// The next message or retry starts the worker again.
+				q.mu.Lock()
+				q.wake = nil
+				q.mu.Unlock()
+				s.failOutgoingPanic(p)
+			})
 			s.runOutgoing(ctx)
 		}()
 	}
@@ -299,50 +340,52 @@ func (s *Store) stopOutgoing() {
 func (s *Store) runOutgoing(ctx context.Context) {
 	q := &s.outbox
 	for ctx.Err() == nil {
+		s.history.mu.Lock()
+		online := s.history.api != nil
+		s.history.mu.Unlock()
 		q.mu.Lock()
 		var next *outgoingEntry
 		blocked := map[int64]bool{}
-		wait := time.Second
+		// With nothing on its way, the worker sleeps until it is woken.
+		wait := time.Duration(-1)
 		for _, e := range q.entries {
-			if e.Error != "" {
-				continue
-			}
-			if blocked[e.Chat] {
+			if e.Error != "" || blocked[e.Chat] {
 				continue
 			}
 			blocked[e.Chat] = true
-			if e.Error != "" {
-				continue
+			delay := time.Until(e.RetryAt)
+			// A sticker that stays on this device needs no connection.
+			if !online && !e.LocalSticker {
+				delay = max(delay, time.Second)
 			}
-			if delay := time.Until(e.RetryAt); delay > 0 {
-				wait = min(wait, delay)
+			if delay > 0 {
+				if wait < 0 || delay < wait {
+					wait = delay
+				}
 				continue
 			}
 			next = e
 			break
 		}
+		wake := q.wake
 		q.mu.Unlock()
 		if next != nil {
-			s.history.mu.Lock()
-			online := s.history.api != nil
-			s.history.mu.Unlock()
-			if online || next.LocalSticker {
-				err := s.deliverOutgoing(ctx, next)
-				if ctx.Err() != nil {
-					return
-				}
-				s.finishOutgoing(next, err)
-				continue
+			err := s.deliverOutgoing(ctx, next)
+			if ctx.Err() != nil {
+				return
 			}
+			s.finishOutgoing(next, err)
+			continue
 		}
-		timer := time.NewTimer(wait)
+		var timer <-chan time.Time
+		if wait >= 0 {
+			timer = time.After(wait)
+		}
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return
-		case <-q.wake:
-			timer.Stop()
-		case <-timer.C:
+		case <-wake:
+		case <-timer:
 		}
 	}
 }
@@ -412,23 +455,25 @@ func (s *Store) deliverOutgoing(ctx context.Context, e *outgoingEntry) (err erro
 	return err
 }
 
+// outgoingRetry is how long to wait before asking again after err, if at all.
+// Waiting for Telegram or for the network spends no attempts: however long they
+// last, the message goes in the end. An attempt out of time may have sent a
+// whole upload, and a server error may not pass, so those of them are limited.
 func outgoingRetry(err error, attempts int) (time.Duration, bool) {
-	if attempts >= 5 {
-		return 0, false
-	}
 	if delay, ok := tgerr.AsFloodWait(err); ok {
 		return max(time.Second, delay), true
 	}
+	backoff := time.Second << min(attempts, 5)
 	var serverError *tgerr.Error
 	if errors.As(err, &serverError) {
-		if serverError.Code < 500 {
-			return 0, false
-		}
-		return time.Second << min(attempts, 5), true
+		return backoff, serverError.Code >= 500 && attempts < 5
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return backoff, attempts < 5
 	}
 	var network net.Error
-	if errors.As(err, &network) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, errNotConnected) || errors.Is(err, net.ErrClosed) || errors.Is(err, pool.ErrConnDead) || errors.Is(err, rpc.ErrEngineClosed) {
-		return time.Second << min(attempts, 5), true
+	if errors.As(err, &network) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, context.Canceled) || errors.Is(err, errNotConnected) || errors.Is(err, net.ErrClosed) || errors.Is(err, pool.ErrConnDead) || errors.Is(err, rpc.ErrEngineClosed) {
+		return backoff, true
 	}
 	return 0, false
 }

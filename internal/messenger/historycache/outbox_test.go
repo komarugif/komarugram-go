@@ -67,3 +67,64 @@ func TestOutgoingCopyAtomicAndProtected(t *testing.T) {
 		})
 	}
 }
+
+// Queuing a long file leaves the cache to others, and a copy that the client
+// stopped making goes when the account opens.
+func TestOutgoingCopyLeavesTheCacheFree(t *testing.T) {
+	dir := t.TempDir()
+	c := openProtected(t, dir, protection(t, dir, false))
+	defer c.Close()
+	ctx := context.Background()
+	path := filepath.Join(dir, "long")
+	if err := os.WriteFile(path, make([]byte, 64<<20), 0600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- c.PutOutgoing(ctx, 1, "request", []string{path}) }()
+	// A read that gets in and sees part of the copy proves it was let in.
+	for {
+		var n int
+		c.mu.Lock()
+		err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM outbox WHERE id=1`).Scan(&n)
+		var parts int
+		if err == nil {
+			err = c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM outbox_files`).Scan(&parts)
+		}
+		c.mu.Unlock()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n > 0 {
+			t.Fatal("the copy kept the cache until it ended")
+		}
+		if parts > 0 {
+			break
+		}
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := c.db.ExecContext(ctx, `INSERT INTO outbox_files(id,file,part,data) VALUES(2,0,0,x'00')`); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := c.Outgoing(ctx)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("%d requests, %v", len(rows), err)
+	}
+	var orphans int
+	if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM outbox_files WHERE id=2`).Scan(&orphans); err != nil || orphans != 0 {
+		t.Fatalf("%d parts of no request, %v", orphans, err)
+	}
+	var restored countingWriter
+	if err := c.WriteOutgoingFile(ctx, 1, 0, &restored); err != nil || restored != 64<<20 {
+		t.Fatalf("restored %d bytes, %v", restored, err)
+	}
+}
+
+type countingWriter int
+
+func (w *countingWriter) Write(b []byte) (int, error) {
+	*w += countingWriter(len(b))
+	return len(b), nil
+}

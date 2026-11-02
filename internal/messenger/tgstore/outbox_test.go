@@ -300,3 +300,104 @@ func TestOutgoingDeliveryPreservesNewerDraft(t *testing.T) {
 		t.Fatal("newer draft was cleared", draft)
 	}
 }
+
+// Waiting for the network or Telegram spends no attempts; a server error and an
+// attempt out of time stop in the end.
+func TestOutgoingRetryLimits(t *testing.T) {
+	const many = 100
+	for _, err := range []error{errNotConnected, io.ErrUnexpectedEOF, tgerr.New(420, "FLOOD_WAIT_3")} {
+		if _, retry := outgoingRetry(fmt.Errorf("send: %w", err), many); !retry {
+			t.Errorf("%v gave up", err)
+		}
+	}
+	for _, err := range []error{tgerr.New(500, "INTERNAL"), context.DeadlineExceeded} {
+		if _, retry := outgoingRetry(err, 4); !retry {
+			t.Errorf("%v gave up early", err)
+		}
+		if _, retry := outgoingRetry(err, 5); retry {
+			t.Errorf("%v goes on for ever", err)
+		}
+	}
+	if _, retry := outgoingRetry(tgerr.New(400, "PEER_ID_INVALID"), 0); retry {
+		t.Error("a refusal is asked again")
+	}
+}
+
+// A panic in the worker's own loop must not leave the queue without a worker.
+func TestOutgoingWorkerRestartsAfterPanic(t *testing.T) {
+	var calls atomic.Int32
+	calls.Store(-1000)
+	s := New(func() {
+		// The first after queuing is the end of the delivery, in the worker.
+		if calls.Add(1) == 2 {
+			panic("injected")
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := s.Configure(ctx, "a", filepath.Join(t.TempDir(), "h"), nil); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	s.SetLocalPremium(true)
+	s.history.peers[5] = peerRecord{Kind: "user", ID: 5}
+	s.history.histories[5] = &model.History{}
+	sticker := func(id int64) model.OutgoingMessage {
+		m := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "document/77", Premium: true, PremiumKnown: true}}
+		return model.OutgoingMessage{RandomID: id, Item: &model.PickerItem{ID: m.Media.ID, Media: m}}
+	}
+	calls.Store(0)
+	if err := s.Send(ctx, 5, sticker(1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Send(ctx, 5, sticker(2)); err != nil {
+		t.Fatalf("after the panic: %v", err)
+	}
+}
+
+// A sticker that stays on this device does not wait behind a message that needs
+// the connection.
+func TestOutgoingLocalStickerPassesOffline(t *testing.T) {
+	s := testStore(t)
+	s.SetLocalPremium(true)
+	for _, id := range []int64{5, 6} {
+		s.history.peers[id] = peerRecord{Kind: "user", ID: id}
+		s.history.histories[id] = &model.History{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.QueueMessage(ctx, 5, model.OutgoingMessage{RandomID: 1, Text: "waits"}); err != nil {
+		t.Fatal(err)
+	}
+	m := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "document/77", Premium: true, PremiumKnown: true}}
+	if err := s.Send(ctx, 6, model.OutgoingMessage{RandomID: 2, Item: &model.PickerItem{ID: m.Media.ID, Media: m}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// One outgoing message that cannot be read does not keep the account closed.
+func TestOutgoingUnreadableRowOpensAccount(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "h")
+	s := New(nil)
+	if err := s.Configure(ctx, "a", path, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Cache().PutOutgoing(ctx, 1, "not an entry", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Cache().Put(ctx, "local-premium/stickers", "not a list"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Cache().Put(ctx, localPinsKey, "not pins"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s = New(nil)
+	defer s.Close()
+	if err := s.Configure(ctx, "a", path, nil); err != nil {
+		t.Fatal(err)
+	}
+}

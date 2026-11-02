@@ -54,18 +54,19 @@ Delivery clears a cloud draft only if it still matches the snapshot captured
 when the outgoing request was queued, preserving a newer draft written meanwhile.
 
 `outbox` and `outbox_files` belong to the account database and follow its local
-data protection. Files are copied in bounded chunks in the same transaction as
-the request; a failed or interrupted copy publishes nothing. These copies are
-independent of the original paths and of cache eviction. Upload attempts unpack
+data protection. Files are copied a few chunks to a transaction, so that a long
+file does not stop the account's cache meanwhile; the request is written last, so
+a failed or interrupted copy publishes nothing, and its chunks are cleared when
+the account next opens. These copies are independent of the original paths and of cache eviction. Upload attempts unpack
 them into a private temporary directory, removed when the attempt ends.
 
 The worker restores pending messages after `Configure` and resumes after the
 account connects. Text, photos, albums, documents, music, voice, stickers, GIFs,
 inline results, checklists and forwarded messages have pending presentation.
 Forwarding and Repeat use the same queue and retain their original identities.
-Transport failures and
-server errors receive up to five attempts with increasing delays; flood waits
-respect Telegram's requested delay. Offline time does not spend attempts.
+Server errors and attempts that run out of time receive up to five attempts
+with increasing delays. Transport failures and flood waits spend none: delivery
+waits for the connection, or for Telegram's requested delay, however long.
 Permanent errors remain in history with an error mark and a menu to retry or
 delete the outgoing request. Failed requests do not block later messages.
 
