@@ -80,10 +80,15 @@ func (c *conversation) pendingMessagesOf(chat int64, have []model.Message) []mod
 	return out
 }
 
-// shownMessages merges device-only stickers by their time, keeping them outside
-// Telegram's ID-ordered history and its cache spans.
+// shownMessages merges device-only stickers and messages that failed by their
+// time, keeping them outside Telegram's ID-ordered history and its cache spans.
+// A message on its way comes last: Telegram will place it after what is there.
 func (c *conversation) shownMessages(chat int64, h *model.History) []model.Message {
 	out := append([]model.Message(nil), h.Messages...)
+	// Beyond what is loaded, it shows when that part of the history does.
+	loaded := func(m model.Message) bool {
+		return len(h.Messages) == 0 || !(h.HasOlder && m.Date.Before(h.Messages[0].Date) || h.HasNewer && m.Date.After(h.Messages[len(h.Messages)-1].Date))
+	}
 	for _, m := range c.localStickers {
 		if m.Key.ChatID != chat || !c.showLocalStickers {
 			continue
@@ -98,15 +103,23 @@ func (c *conversation) shownMessages(chat int64, h *model.History) []model.Messa
 		if queued {
 			continue
 		}
-		if len(h.Messages) > 0 && (h.HasOlder && m.Date.Before(h.Messages[0].Date) || h.HasNewer && m.Date.After(h.Messages[len(h.Messages)-1].Date)) {
-			continue
+		if loaded(m) {
+			out = append(out, m)
 		}
-		out = append(out, m)
+	}
+	var onItsWay []model.Message
+	for _, m := range c.pendingMessagesOf(chat, h.Messages) {
+		switch {
+		case m.SendError == "":
+			onItsWay = append(onItsWay, m)
+		case loaded(m):
+			out = append(out, m)
+		}
 	}
 	if len(out) > len(h.Messages) {
 		sort.SliceStable(out, func(i, j int) bool { return out[i].Date.Before(out[j].Date) })
 	}
-	return append(out, c.pendingMessagesOf(chat, h.Messages)...)
+	return append(out, onItsWay...)
 }
 
 func (s *Store) withOutgoingPreviews(chats []model.Chat) []model.Chat {

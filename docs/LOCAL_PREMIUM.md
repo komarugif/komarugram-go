@@ -143,7 +143,9 @@ Server errors and attempts that run out of time receive up to five attempts
 with increasing delays. Transport failures and flood waits spend none: delivery
 waits for the connection, or for Telegram's requested delay, however long.
 Permanent errors remain in history with an error mark and a menu to retry or
-delete the outgoing request. Failed requests do not block later messages.
+delete the outgoing request, at the place their time gives them: later messages
+come under them. Retried, they go back to the end. Failed requests do not block
+later messages.
 
 Every attempt keeps the same `random_id`. Each accepted file/group is committed
 before proceeding, so a partial batch skips accepted groups after retry or

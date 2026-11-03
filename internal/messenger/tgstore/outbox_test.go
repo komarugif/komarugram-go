@@ -401,3 +401,47 @@ func TestOutgoingUnreadableRowOpensAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A message that failed stays where it was sent, under what came before and over
+// what came after; one on its way comes last. Retried, it is on its way again.
+func TestFailedMessageKeepsItsPlace(t *testing.T) {
+	at := func(sec int64) time.Time { return time.Unix(sec, 0) }
+	key := func(id int) model.MessageKey { return model.MessageKey{ChatID: 5, MessageID: model.MessageID(id)} }
+	c := newConversation()
+	h := &model.History{Messages: []model.Message{{Key: key(10), Date: at(100)}, {Key: key(12), Date: at(300)}}}
+	c.histories[5] = h
+	failed := &pendingMessage{chat: 5, msg: model.Message{Key: key(-1), Date: at(200), Sending: true, SendError: "CHAT_WRITE_FORBIDDEN"}}
+	sending := &pendingMessage{chat: 5, msg: model.Message{Key: key(-2), Date: at(150), Sending: true}}
+	c.pending.list = []*pendingMessage{failed, sending}
+	ids := func() []model.MessageID {
+		var out []model.MessageID
+		for _, m := range c.shownMessages(5, h) {
+			out = append(out, m.Key.MessageID)
+		}
+		return out
+	}
+	if got := ids(); !slices.Equal(got, []model.MessageID{10, -1, 12, -2}) {
+		t.Fatalf("shown %v", got)
+	}
+	// Older than the part loaded, it waits for that part.
+	h.HasOlder = true
+	h.Messages = h.Messages[1:]
+	if got := ids(); !slices.Equal(got, []model.MessageID{12, -2}) {
+		t.Fatalf("older than what is loaded: %v", got)
+	}
+	failed.msg.Date = at(400)
+	if got := ids(); !slices.Equal(got, []model.MessageID{12, -1, -2}) {
+		t.Fatalf("after what is loaded, at the end of the history: %v", got)
+	}
+	failed.msg.Date = at(200)
+	h.HasOlder, h.HasNewer = false, true
+	h.Messages = []model.Message{{Key: key(10), Date: at(100)}}
+	if got := ids(); !slices.Equal(got, []model.MessageID{10, -2}) {
+		t.Fatalf("newer than what is loaded: %v", got)
+	}
+	h.HasNewer = false
+	failed.msg.SendError = ""
+	if got := ids(); !slices.Equal(got, []model.MessageID{10, -1, -2}) {
+		t.Fatalf("retried: %v", got)
+	}
+}
