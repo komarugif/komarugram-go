@@ -223,7 +223,8 @@ func (s *Store) wakeStorage() {
 	}
 	l := &s.collections
 	l.mu.Lock()
-	if !l.loaded {
+	// Before the dialogs are read there is nothing to do; dialogsRead wakes it.
+	if !l.loaded || !l.ready {
 		l.mu.Unlock()
 		return
 	}
@@ -331,7 +332,6 @@ func (s *Store) storageStep(ctx context.Context) error {
 	l.work.looked = l.work.looked || ready
 	l.mu.Unlock()
 	if !ready {
-		// dialogsRead wakes this again.
 		return nil
 	}
 	switch {

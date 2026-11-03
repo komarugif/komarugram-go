@@ -529,7 +529,6 @@ func TestStorageTakesInTheFile(t *testing.T) {
 	l.mu.Lock()
 	l.storage.ChannelID, l.storage.Hash, l.storage.Title = 50, 5, "x"
 	l.storage.Archived["document/1"] = 900
-	l.work.looked, l.ready = true, true
 	l.work.file = func(context.Context, *tg.Document) ([]byte, error) { return file, nil }
 	l.mu.Unlock()
 	api.client()
@@ -1009,5 +1008,27 @@ func TestStorageBoundErrorIsNoMissingChannel(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if s.StorageMissing() {
 		t.Fatal("told with a channel bound")
+	}
+}
+
+// Before the dialogs are read the worker has nothing to do, and does not start:
+// the connection and the chats are still being set up.
+func TestStorageWorkerWaitsForTheDialogs(t *testing.T) {
+	s := testStore(t)
+	s.SetLocalPremium(model.AllLocalPremium)
+	s.RememberStorage(model.StorageBinding{}, func(model.StorageBinding) {})
+	l := &s.collections
+	l.mu.Lock()
+	running := l.work.running
+	l.mu.Unlock()
+	if running {
+		t.Fatal("started before the dialogs were read")
+	}
+	s.dialogsRead()
+	l.mu.Lock()
+	woken := l.work.running || l.work.looked
+	l.mu.Unlock()
+	if !woken {
+		t.Fatal("not started when they were")
 	}
 }

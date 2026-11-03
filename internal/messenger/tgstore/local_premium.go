@@ -84,6 +84,9 @@ func (s *Store) SetLocalPremium(parts model.LocalPremium) {
 // and local emoji with it, and without it what Telegram has, what the other side
 // sees. The overlays and the stickers stay kept, for when it is on again.
 func (s *Store) localMediaChanged(on bool) {
+	s.mu.RLock()
+	chats := len(s.chats) > 0
+	s.mu.RUnlock()
 	c := s.history
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -91,14 +94,20 @@ func (s *Store) localMediaChanged(on bool) {
 	for _, m := range c.localStickers {
 		c.touchPending(m.Key.ChatID)
 	}
-	if c.closing || c.ctx == nil {
+	histories := len(c.histories) > 0
+	// As the window opens there is nothing loaded yet to go over.
+	if c.closing || c.ctx == nil || !histories && !chats {
 		return
 	}
 	ctx := c.ctx
 	c.wg.Go(func() {
 		defer crash.Recover("local emoji", nil)
-		s.reapplyLocalEmoji(ctx)
-		s.reapplyLocalPreviews(ctx)
+		if histories {
+			s.reapplyLocalEmoji(ctx)
+		}
+		if chats {
+			s.reapplyLocalPreviews(ctx)
+		}
 	})
 }
 
@@ -161,12 +170,17 @@ func (s *Store) reapplyLocalPreviews(ctx context.Context) {
 // reapplyLocalEmoji applies the overlays anew to the messages in memory.
 func (s *Store) reapplyLocalEmoji(ctx context.Context) {
 	c := s.history
-	c.mu.Lock()
-	loaded := make(map[int64][]model.Message, len(c.histories))
-	for chat, h := range c.histories {
-		loaded[chat] = slices.Clone(h.Messages)
-	}
-	c.mu.Unlock()
+	loaded := func() map[int64][]model.Message {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		out := make(map[int64][]model.Message, len(c.histories))
+		for chat, h := range c.histories {
+			if h != nil {
+				out[chat] = slices.Clone(h.Messages)
+			}
+		}
+		return out
+	}()
 	changed := false
 	for chat, messages := range loaded {
 		redone := make(map[model.MessageKey]model.Message)
@@ -179,16 +193,18 @@ func (s *Store) reapplyLocalEmoji(ctx context.Context) {
 			continue
 		}
 		changed = true
-		c.mu.Lock()
-		if h := c.histories[chat]; h != nil {
-			for i, m := range h.Messages {
-				if n, ok := redone[m.Key]; ok && n.Text == m.Text {
-					h.Messages[i] = n
+		func() {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			if h := c.histories[chat]; h != nil {
+				for i, m := range h.Messages {
+					if n, ok := redone[m.Key]; ok && n.Text == m.Text {
+						h.Messages[i] = n
+					}
 				}
+				h.Revision++
 			}
-			h.Revision++
-		}
-		c.mu.Unlock()
+		}()
 	}
 	if changed {
 		s.changed()

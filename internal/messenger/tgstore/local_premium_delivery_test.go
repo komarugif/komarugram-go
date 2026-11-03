@@ -460,3 +460,11 @@ func TestCannotSendPaid(t *testing.T) {
 		t.Fatal("Local Premium's media sends them")
 	}
 }
+
+// A chat with no history is passed over.
+func TestReapplyLocalEmojiPassesOverNoHistory(t *testing.T) {
+	s := testStore(t)
+	s.history.histories[5] = nil
+	s.history.histories[6] = &model.History{Messages: []model.Message{{Key: model.MessageKey{ChatID: 6, MessageID: 9}, Text: "a"}}}
+	s.reapplyLocalEmoji(context.Background())
+}

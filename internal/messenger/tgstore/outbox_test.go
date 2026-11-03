@@ -500,3 +500,95 @@ func TestNoFFprobeError(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// A panic after a message was delivered is none of the next one's fault: that one
+// goes, with no one asking the worker again, and the first is not sent back.
+func TestOutgoingPanicLeavesTheQueueAlone(t *testing.T) {
+	var calls atomic.Int32
+	calls.Store(-1000)
+	s := New(func() {
+		if calls.Add(1) == 1 {
+			panic("injected")
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := s.Configure(ctx, "a", filepath.Join(t.TempDir(), "h"), nil); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	s.SetLocalPremium(model.AllLocalPremium)
+	s.history.peers[5] = peerRecord{Kind: "user", ID: 5}
+	s.history.histories[5] = &model.History{}
+	sticker := func(id int64) model.OutgoingMessage {
+		m := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "document/77", Premium: true, PremiumKnown: true}}
+		return model.OutgoingMessage{RandomID: id, Item: &model.PickerItem{ID: m.Media.ID, Media: m}}
+	}
+	first, err := s.enqueueOutgoing(ctx, 5, sticker(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.enqueueOutgoing(ctx, 5, sticker(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls.Store(0)
+	s.startOutgoing()
+	if err := s.waitOutgoingResult(ctx, first); err != nil {
+		t.Fatalf("delivered: %v", err)
+	}
+	if err := s.waitOutgoingResult(ctx, second); err != nil {
+		t.Fatalf("the next one: %v", err)
+	}
+	if rows, err := s.Cache().Outgoing(ctx); err != nil || len(rows) != 0 {
+		t.Fatalf("left in the queue: %d, %v", len(rows), err)
+	}
+}
+
+// A panic with a message in hand fails that one, which is not to come round again;
+// the worker goes on with the next. deliverOutgoing catches its own: this is a panic
+// around it.
+func TestOutgoingPanicFailsTheMessageInHand(t *testing.T) {
+	s := testStore(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	s.SetLocalPremium(model.AllLocalPremium)
+	s.history.peers[5] = peerRecord{Kind: "user", ID: 5}
+	s.history.histories[5] = &model.History{}
+	sticker := func(id int64) model.OutgoingMessage {
+		m := model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "document/77", Premium: true, PremiumKnown: true}}
+		return model.OutgoingMessage{RandomID: id, Item: &model.PickerItem{ID: m.Media.ID, Media: m}}
+	}
+	inHand, err := s.enqueueOutgoing(ctx, 5, sticker(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := s.enqueueOutgoing(ctx, 5, sticker(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := &s.outbox
+	q.mu.Lock()
+	q.current = inHand
+	q.mu.Unlock()
+	s.outgoingPanicked(errors.New("injected"))
+	if err := s.waitOutgoingResult(ctx, inHand); err == nil || !strings.Contains(err.Error(), "injected") {
+		t.Fatalf("in hand: %v", err)
+	}
+	if err := s.waitOutgoingResult(ctx, next); err != nil {
+		t.Fatalf("the next one: %v", err)
+	}
+}
+
+// With no message in hand nothing is failed, and no worker started: nothing says
+// the panic would not recur.
+func TestOutgoingPanicWithNothingInHand(t *testing.T) {
+	s := testStore(t)
+	s.outgoingPanicked(errors.New("injected"))
+	q := &s.outbox
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.wake != nil {
+		t.Fatal("a worker started")
+	}
+}

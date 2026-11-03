@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -55,6 +56,8 @@ type outgoingResult struct {
 }
 
 type outgoingQueue struct {
+	// current is the message the worker is delivering.
+	current        *outgoingEntry
 	mu             sync.Mutex
 	entries        []*outgoingEntry
 	loaded, closed bool
@@ -313,11 +316,10 @@ func (s *Store) startOutgoing() {
 		go func() {
 			defer q.wg.Done()
 			defer crash.Recover("outbox", func(p *crash.Panic) {
-				// The next message or retry starts the worker again.
 				q.mu.Lock()
 				q.wake = nil
 				q.mu.Unlock()
-				s.failOutgoingPanic(p)
+				s.outgoingPanicked(p)
 			})
 			s.runOutgoing(ctx)
 		}()
@@ -372,11 +374,17 @@ func (s *Store) runOutgoing(ctx context.Context) {
 		wake := q.wake
 		q.mu.Unlock()
 		if next != nil {
+			q.mu.Lock()
+			q.current = next
+			q.mu.Unlock()
 			err := s.deliverOutgoing(ctx, next)
 			if ctx.Err() != nil {
 				return
 			}
 			s.finishOutgoing(next, err)
+			q.mu.Lock()
+			q.current = nil
+			q.mu.Unlock()
 			continue
 		}
 		var timer <-chan time.Time
@@ -536,14 +544,25 @@ func (s *Store) TakeSendFailure() (model.SendFailure, bool) {
 	return model.SendFailure{}, false
 }
 
-func (s *Store) failOutgoingPanic(err error) {
+// outgoingPanicked goes on from a panic in the worker. The message it was
+// delivering fails, if it is still queued: the panic may be its doing, and it must
+// not come round again. The others had no part in it, and a new worker takes them;
+// each turn has one message fewer, so that this ends. A panic with no message in
+// hand is left to the next message or retry: nothing says it would not recur.
+func (s *Store) outgoingPanicked(err error) {
 	q := &s.outbox
 	q.mu.Lock()
-	entries := append([]*outgoingEntry(nil), q.entries...)
+	current := q.current
+	q.current = nil
+	queued := current != nil && slices.Contains(q.entries, current)
 	q.mu.Unlock()
-	for _, e := range entries {
-		s.finishOutgoing(e, err)
+	if current == nil {
+		return
 	}
+	if queued {
+		s.finishOutgoing(current, err)
+	}
+	s.startOutgoing()
 }
 
 func (s *Store) RetryOutgoing(key model.MessageKey) {
