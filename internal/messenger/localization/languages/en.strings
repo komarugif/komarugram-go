@@ -1960,6 +1960,8 @@
 "viewer.views#one" = "{count} view";
 "viewer.window" = "Photo";
 
+"visibility.pin" = "Keep this section's settings for this account only";
+"visibility.pin_body" = "It starts from the current shared settings; changes to this section then stay with this account and don't affect the others. Switched off, the account follows the shared settings again.";
 "visibility.calm" = "Hide events that distract attention";
 "visibility.calm_body" = "Hides what you choose below. The clock of a message not delivered yet always shows.";
 "visibility.calm_online" = "Online status and last seen time";

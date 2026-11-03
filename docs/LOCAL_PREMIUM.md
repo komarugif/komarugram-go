@@ -3,8 +3,9 @@
 Local Premium keeps its additional data in each account's cache. It never
 changes `Store.Premium().Active`, the subscription reported by Telegram. It has
 five separate parts (`model.LocalPremium`), of use with a subscription too, past
-its higher limits. A settings file with the one switch this was reads as all of
-them on but the last:
+its higher limits. Each account has its own (`preferences.Account`). An account
+that never changed them follows the one switch this was, all of them on but the
+last:
 
 - **Star**: the Premium star beside the accounts signed in here. Nothing else.
 - **Media**: Premium stickers and custom emoji, the first two points below. Off,

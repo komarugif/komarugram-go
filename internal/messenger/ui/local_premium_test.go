@@ -19,7 +19,7 @@ func TestLocalPremiumMarksOwnAccounts(t *testing.T) {
 	prefs := preferences.Memory()
 	a := &App{store: store, preferences: prefs}
 	me := store.Me().ID
-	other := map[int64]bool{7: true}
+	other := map[int64]string{7: "b"}
 	a.ownUsers.Store(&other)
 	star := func(user int64) bool {
 		_, after := a.badges(model.Badges{User: user}, "", 16, false)
@@ -37,6 +37,19 @@ func TestLocalPremiumMarksOwnAccounts(t *testing.T) {
 		t.Fatal("a star with only the pins on")
 	}
 	if err := prefs.SetLocalPremium(preferences.LocalPremium{Star: true}); err != nil {
+		t.Fatal(err)
+	}
+	// Each account has its own star.
+	if !star(me) || !star(7) {
+		t.Fatal("no star with what all follow")
+	}
+	if err := prefs.SetLocalPremiumOf("b", preferences.LocalPremium{}); err != nil {
+		t.Fatal(err)
+	}
+	if !star(me) || star(7) {
+		t.Fatal("the star of one account follows another's")
+	}
+	if err := prefs.SetLocalPremiumOf("b", preferences.LocalPremium{Star: true}); err != nil {
 		t.Fatal(err)
 	}
 	if !star(me) || !star(7) {

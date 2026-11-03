@@ -62,8 +62,8 @@ func (a *App) peerMarks(b model.Badges, name string, size unit.Dp, tell func(tex
 	if a.peerBadges == nil {
 		return nil
 	}
-	g := a.preferences.Global()
-	hideArrows, hideFaces := g.HidesPeerArrows(), g.HidesPeerFaces()
+	v := a.visibility()
+	hideArrows, hideFaces := v.HidesPeerArrows(), v.HidesPeerFaces()
 	if hideArrows && hideFaces {
 		return nil
 	}

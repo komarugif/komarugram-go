@@ -18,6 +18,28 @@ func (p *settingsPage) hasVisibility() bool {
 	return p.calm != nil || p.hidePeerBadges != nil || p.ghost != nil || p.filtersView.filters != nil || p.keep != nil
 }
 
+// layoutVisibilityPin draws the switch that gives the account the section to
+// itself. The setting may have changed in another window; the switch follows.
+func (p *settingsPage) layoutVisibilityPin(gtx layout.Context, l localization.Catalog) layout.Dimensions {
+	sc := scheme(gtx)
+	if want := p.visibilityPinned(); want != (len(p.visibilityPin.GetValues()) == 1) {
+		if want {
+			p.visibilityPin.SetValues([]string{"pin"})
+		} else {
+			p.visibilityPin.SetValues(nil)
+		}
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return p.visibilityPin.Layout(gtx, map[string]string{"pin": l.T("visibility.pin")})
+		}),
+		vspace(4),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, l.T("visibility.pin_body"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
+		}),
+	)
+}
+
 // layoutCalm draws the switch that hides what distracts, and the boxes of
 // what it hides. The setting may have changed in another window since the
 // last frame; the switches follow.

@@ -65,7 +65,7 @@ type App struct {
 	softwareChecked bool
 	// ownUsers are the users of the accounts signed in here, which Local
 	// Premium marks.
-	ownUsers atomic.Pointer[map[int64]bool]
+	ownUsers atomic.Pointer[map[int64]string]
 	// peerBadges knows the marks of the forks of Telegram clients; nil shows
 	// none. badgeClicks are the clicks on them, and stopBadges stops the
 	// window following the lists.
@@ -361,12 +361,18 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			log.Printf("save settings: %v", err)
 		}
 	}
-	a.settings.filtersView.filters = func() preferences.Filters { return a.preferences.Global().Filters }
+	a.settings.filtersView.filters = func() preferences.Filters { return a.visibility().Filters }
 	a.settings.filtersView.setFilters = func(f preferences.Filters) {
-		if err := services.Preferences.SetFilters(f); err != nil {
+		a.changeVisibility(func(v *preferences.Visibility) { v.Filters = f })
+	}
+	a.settings.visibilityPinned = func() bool { return a.preferences.VisibilityPinned(a.accountID()) }
+	a.settings.setVisibilityPinned = func(on bool) {
+		if err := services.Preferences.PinVisibility(a.accountID(), on); err != nil {
 			log.Printf("save settings: %v", err)
 		}
+		a.visibilityChanged()
 	}
+	a.settings.hasAccount = func() bool { return a.accountID() != "" }
 	a.settings.lookView.look = func() preferences.Look { return a.preferences.Global().Look }
 	a.settings.lookView.setLook = func(l preferences.Look) {
 		if err := services.Preferences.SetLook(l); err != nil {
@@ -396,11 +402,9 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		applyFonts(a.preferences.Global().Fonts, a.emojiPacks)
 		w.Invalidate()
 	}
-	a.settings.keep = func() preferences.Keep { return a.preferences.Global().Keep }
+	a.settings.keep = func() preferences.Keep { return a.visibility().Keep }
 	a.settings.setKeep = func(k preferences.Keep) {
-		if err := services.Preferences.SetKeep(k); err != nil {
-			log.Printf("save settings: %v", err)
-		}
+		a.changeVisibility(func(v *preferences.Visibility) { v.Keep = k })
 	}
 	a.settings.notifyView.get = func() preferences.Notify { return a.preferences.Global().Notify }
 	a.settings.notifyView.set = func(n preferences.Notify) {
@@ -408,11 +412,9 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			log.Printf("save settings: %v", err)
 		}
 	}
-	a.settings.ghost = func() preferences.Ghost { return a.preferences.Global().Ghost }
+	a.settings.ghost = func() preferences.Ghost { return a.visibility().Ghost }
 	a.settings.setGhost = func(g preferences.Ghost) {
-		if err := services.Preferences.SetGhost(g); err != nil {
-			log.Printf("save settings: %v", err)
-		}
+		a.changeVisibility(func(v *preferences.Visibility) { v.Ghost = g })
 	}
 	a.settings.streamer = func() bool { return a.preferences.Global().StreamerMode }
 	a.settings.setStreamer = func(on bool) {
@@ -424,41 +426,27 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.stopBadges = a.peerBadges.Subscribe(w.Invalidate)
 	}
 	a.settings.premiumMark = a.layoutPremiumMark
-	a.settings.hidePeerBadges = func() bool { return a.preferences.Global().HidePeerBadges }
+	a.settings.hidePeerBadges = func() bool { return a.visibility().HidePeerBadges }
 	a.settings.setHidePeerBadges = func(on bool) {
-		if err := services.Preferences.SetHidePeerBadges(on); err != nil {
-			log.Printf("save settings: %v", err)
-		}
-		if a.peerBadges != nil {
-			a.peerBadges.Wake()
-		}
-		w.Invalidate()
+		a.changeVisibility(func(v *preferences.Visibility) { v.HidePeerBadges = on })
 	}
-	a.settings.calm = func() preferences.Calm { return a.preferences.Global().Calm }
+	a.settings.calm = func() preferences.Calm { return a.visibility().Calm }
 	a.settings.setCalm = func(c preferences.Calm) {
-		if err := services.Preferences.SetCalm(c); err != nil {
-			log.Printf("save settings: %v", err)
-		}
-		w.Invalidate()
+		a.changeVisibility(func(v *preferences.Visibility) { v.Calm = c })
 	}
 	a.settings.keepPeerBadges = func() (bool, bool) {
-		g := a.preferences.Global()
-		return g.KeepPeerArrows, g.KeepPeerFaces
+		v := a.visibility()
+		return v.KeepPeerArrows, v.KeepPeerFaces
 	}
 	a.settings.setKeepPeerBadges = func(arrows, faces bool) {
-		if err := services.Preferences.SetKeepPeerBadges(arrows, faces); err != nil {
-			log.Printf("save settings: %v", err)
-		}
-		if a.peerBadges != nil {
-			a.peerBadges.Wake()
-		}
-		w.Invalidate()
+		a.changeVisibility(func(v *preferences.Visibility) { v.KeepPeerArrows, v.KeepPeerFaces = arrows, faces })
 	}
-	a.settings.localPremium = func() model.LocalPremium { return model.LocalPremium(a.preferences.Global().LocalPremium) }
+	a.settings.localPremium = func() model.LocalPremium { return a.localParts(a.accountID()) }
+	a.settings.localPremiumOf = a.localParts
 	a.settings.setLocalPremium = func(parts model.LocalPremium) {
 		parts = parts.Consistent()
 		was := a.settings.localPremium()
-		if err := services.Preferences.SetLocalPremium(preferences.LocalPremium(parts)); err != nil {
+		if err := services.Preferences.SetLocalPremiumOf(a.accountID(), preferences.LocalPremium(parts)); err != nil {
 			log.Printf("save settings: %v", err)
 		}
 		if local, ok := a.store.(model.LocalPremiumStore); ok {
@@ -477,9 +465,9 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			a.settings.setLocalPremium(parts)
 		}
 	}
-	a.settings.premiumMedia = func() bool { return a.preferences.Global().PremiumMedia }
+	a.settings.premiumMedia = func() bool { return a.preferences.PremiumMediaOf(a.accountID()) }
 	a.settings.setPremiumMedia = func(on bool) {
-		if err := services.Preferences.SetPremiumMedia(on); err != nil {
+		if err := services.Preferences.SetPremiumMediaOf(a.accountID(), on); err != nil {
 			log.Printf("save settings: %v", err)
 		}
 	}
@@ -849,12 +837,10 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 		p.composer.ffmpeg = func() string { return a.preferences.Global().FFmpegPath }
 	}
 	p.addFilter = func(pattern preferences.FilterPattern) {
-		f := a.preferences.Global().Filters
-		f.Patterns = append(slices.Clone(f.Patterns), pattern)
-		f.Enabled = true
-		if err := a.preferences.SetFilters(f); err != nil {
-			log.Printf("save settings: %v", err)
-		}
+		a.changeVisibility(func(v *preferences.Visibility) {
+			v.Filters.Patterns = append(slices.Clone(v.Filters.Patterns), pattern)
+			v.Filters.Enabled = true
+		})
 	}
 	return p
 }
@@ -862,7 +848,7 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 // messageFilter is the filter the settings ask for, compiled again only
 // when they change.
 func (a *App) messageFilter() *messageFilter {
-	f := a.preferences.Global().Filters
+	f := a.visibility().Filters
 	if a.filter == nil || !a.filter.same(f) {
 		a.filter = compileFilter(f)
 	}
@@ -1279,7 +1265,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	}
 	withWindowSurfaceOpacity(gtx, a.preferences.Global().WindowTransparency, transparent)
 	withLook(gtx, a.preferences.Global().Look)
-	withCalm(gtx, a.preferences.Global().Calm)
+	withCalm(gtx, a.visibility().Calm)
 	withShadowIntensity(gtx, a.preferences.Global().Overlays.Shadow)
 	if trace := diagnostics.From(gtx.Values); trace != nil && trace.Recorder.Due(trace.Window, "cache-gauges", time.Second) {
 		defer func() {
@@ -1780,22 +1766,57 @@ func (a *App) SetFocused(focused bool) {
 	a.window.Invalidate()
 }
 
+// accountID is the account of the window; "" for none yet.
+func (a *App) accountID() string {
+	if a.currentAccount == nil {
+		return ""
+	}
+	return a.currentAccount()
+}
+
+// visibility is the Visibility section as the window's account has it.
+func (a *App) visibility() preferences.Visibility {
+	return a.preferences.VisibilityOf(a.accountID())
+}
+
+// localParts is the Local Premium of account id.
+func (a *App) localParts(id string) model.LocalPremium {
+	return model.LocalPremium(a.preferences.LocalPremiumOf(id))
+}
+
+// changeVisibility changes the section as the window's account has it.
+func (a *App) changeVisibility(update func(*preferences.Visibility)) {
+	if err := a.preferences.ChangeVisibility(a.accountID(), update); err != nil {
+		log.Printf("save settings: %v", err)
+	}
+	a.visibilityChanged()
+}
+
+// visibilityChanged has what the section says told to whoever acts on it.
+func (a *App) visibilityChanged() {
+	a.tellGhost()
+	if a.peerBadges != nil {
+		a.peerBadges.Wake()
+	}
+	a.window.Invalidate()
+}
+
 // tellGhost gives the store what Ghost allows, and whether the window is
 // active.
 func (a *App) tellGhost() {
 	if local, ok := a.store.(model.LocalPremiumStore); ok {
-		local.SetLocalPremium(model.LocalPremium(a.preferences.Global().LocalPremium))
+		local.SetLocalPremium(a.localParts(a.accountID()))
 	}
 	g, ok := a.store.(model.GhostStore)
 	if !ok {
 		return
 	}
-	p := a.preferences.Global().Ghost
+	p := a.visibility().Ghost
 	t := p.Tells()
 	g.SetGhost(model.Ghost{SendRead: t.Read, SendOnline: t.Online, SendTyping: t.Typing, SendUploads: t.Uploads, SendRecording: t.Recording, SendStickers: t.Stickers, SendStories: t.Stories, ReadOnInteract: p.ReadOnInteract})
 	g.SetOnline(a.focused)
 	if k, ok := a.store.(model.KeepStore); ok {
-		keep := a.preferences.Global().Keep
+		keep := a.visibility().Keep
 		k.SetKeep(model.Keep{Deleted: keep.Deleted, Edits: keep.Edits})
 	}
 }

@@ -239,6 +239,10 @@ func TestRenderSettingsAccounts(t *testing.T) {
 			p.section = settingsVisibility
 			size.Y = 2500
 		}
+		pinned := true
+		p.visibilityPinned = func() bool { return pinned }
+		p.setVisibilityPinned = func(on bool) { pinned = on }
+		p.hasAccount = func() bool { return true }
 		calm := preferences.Calm{On: true, KeepOnline: true, HidePaid: true}
 		p.calm = func() preferences.Calm { return calm }
 		p.setCalm = func(c preferences.Calm) { calm = c }

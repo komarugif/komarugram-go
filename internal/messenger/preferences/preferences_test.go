@@ -1,6 +1,7 @@
 package preferences
 
 import (
+	"strings"
 	"strconv"
 	"encoding/json"
 	"os"
@@ -517,5 +518,158 @@ func TestLocalPremiumReadsSyncAlone(t *testing.T) {
 	}
 	if got := s.Global().LocalPremium; got != (LocalPremium{Star: true}) {
 		t.Fatalf("%+v", got)
+	}
+}
+
+// Local Premium is each account's: one's change leaves the other, and it outlives
+// a restart. Until it changes, an account follows what the one switch said, but
+// for the channel, which asks first.
+func TestLocalPremiumIsEachAccounts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	s, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := LocalPremium{Star: true, GIFs: true, Sync: true}
+	if err := s.SetLocalPremium(old); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.LocalPremiumOf("a"); got != (LocalPremium{Star: true, GIFs: true}) {
+		t.Fatalf("follows: %+v", got)
+	}
+	mine := LocalPremium{Pins: true, Sync: true}
+	if err := s.SetLocalPremiumOf("a", mine); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.LocalPremiumOf("b"); got != (LocalPremium{Star: true, GIFs: true}) {
+		t.Fatalf("the other changed: %+v", got)
+	}
+	if err := s.SetPremiumMediaOf("a", true); err != nil {
+		t.Fatal(err)
+	}
+	if s.PremiumMediaOf("b") {
+		t.Fatal("one account's lever moved the other")
+	}
+	again, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.LocalPremiumOf("a") != mine || !again.PremiumMediaOf("a") {
+		t.Fatalf("after a restart: %+v", again.LocalPremiumOf("a"))
+	}
+}
+
+// What the account's entry has beyond what this version knows stays.
+func TestAccountKeepsWhatItDoesNotKnow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	file := `{"version":1,"global":{"theme":0,"language":"ru","motion_mode":0,"low_battery":20,"mini_app_storage":2},"accounts":{"a":{"compact":true}}}`
+	if err := os.WriteFile(path, []byte(file), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetPremiumMediaOf("a", true); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "compact") {
+		t.Fatalf("lost: %s", b)
+	}
+}
+
+// The section is shared until an account pins it, which starts from what is shared;
+// its changes then stay with it. Unpinned, it follows again.
+func TestPinVisibility(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	s, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hide := func(id string, on bool) {
+		t.Helper()
+		if err := s.ChangeVisibility(id, func(v *Visibility) { v.HidePeerBadges = on }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hide("a", true)
+	if !s.VisibilityOf("b").HidePeerBadges || !s.Global().HidePeerBadges {
+		t.Fatal("not shared before pinning")
+	}
+	if err := s.PinVisibility("a", true); err != nil {
+		t.Fatal(err)
+	}
+	if !s.VisibilityPinned("a") || s.VisibilityPinned("b") || !s.VisibilityOf("a").HidePeerBadges {
+		t.Fatal("pinning did not inherit")
+	}
+	hide("a", false)
+	if s.VisibilityOf("a").HidePeerBadges || !s.VisibilityOf("b").HidePeerBadges || !s.Global().HidePeerBadges {
+		t.Fatal("a pinned account's change spread")
+	}
+	hide("b", false)
+	hide("b", true)
+	if s.VisibilityOf("a").HidePeerBadges {
+		t.Fatal("what is shared reached a pinned account")
+	}
+	// Pinning again changes nothing it has.
+	if err := s.PinVisibility("a", true); err != nil {
+		t.Fatal(err)
+	}
+	if s.VisibilityOf("a").HidePeerBadges {
+		t.Fatal("pinned again, it took what is shared")
+	}
+	reopened, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reopened.VisibilityPinned("a") || reopened.VisibilityOf("a").HidePeerBadges {
+		t.Fatal("not kept over a restart")
+	}
+	if err := reopened.PinVisibility("a", false); err != nil {
+		t.Fatal(err)
+	}
+	if reopened.VisibilityPinned("a") || !reopened.VisibilityOf("a").HidePeerBadges {
+		t.Fatal("unpinned, it does not follow what is shared")
+	}
+	// Without an account there is nothing to pin it to.
+	if err := reopened.PinVisibility("", true); err != nil || reopened.VisibilityPinned("") {
+		t.Fatal("pinned to no account")
+	}
+}
+
+// The lists are read while any account shows the marks.
+func TestPeerMarksWanted(t *testing.T) {
+	s := Memory()
+	if err := s.ChangeVisibility("", func(v *Visibility) { v.HidePeerBadges = true }); err != nil {
+		t.Fatal(err)
+	}
+	if a, f := s.PeerMarksWanted(nil); a || f {
+		t.Fatal("wanted, all hidden")
+	}
+	if err := s.PinVisibility("a", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ChangeVisibility("a", func(v *Visibility) { v.KeepPeerFaces = true }); err != nil {
+		t.Fatal(err)
+	}
+	if a, f := s.PeerMarksWanted([]string{"a", "b"}); a || !f {
+		t.Fatalf("arrows %v, faces %v", a, f)
+	}
+	if a, f := s.PeerMarksWanted([]string{"b"}); a || f {
+		t.Fatal("wanted for an account that hides them")
+	}
+	// Whichever account comes last.
+	if a, f := s.PeerMarksWanted([]string{"b", "a"}); a || !f {
+		t.Fatalf("arrows %v, faces %v", a, f)
+	}
+	if err := s.ChangeVisibility("a", func(v *Visibility) { v.KeepPeerFaces, v.KeepPeerArrows = false, true }); err != nil {
+		t.Fatal(err)
+	}
+	if a, f := s.PeerMarksWanted([]string{"a", "b"}); !a || f {
+		t.Fatalf("arrows %v, faces %v", a, f)
 	}
 }

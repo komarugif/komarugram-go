@@ -257,6 +257,15 @@ type settingsPage struct {
 	localPremium      func() model.LocalPremium
 	setLocalPremium   func(model.LocalPremium)
 	localPremiumBoxes *checkbox.Checkboxes[string]
+	// localPremiumOf is the Local Premium of another account, for its star.
+	localPremiumOf func(id string) model.LocalPremium
+	// visibilityPinned and setVisibilityPinned read and switch whether the
+	// account has the Visibility section to itself; hasAccount tells whether
+	// the window has an account to give it to.
+	visibilityPinned    func() bool
+	setVisibilityPinned func(bool)
+	hasAccount          func() bool
+	visibilityPin       *toggle.Toggle[string]
 	// hidePeerBadges and setHidePeerBadges read and switch the hiding of the
 	// marks of exteraGram, AyuGram and KomaruGram beside names; keepPeerBadges
 	// and setKeepPeerBadges, whether the arrows and the faces stay, which
@@ -347,6 +356,11 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 	p.streamerMode = toggle.NewToggle([]string{"streamer"}, nil, func(values []string) {
 		if p.setStreamer != nil {
 			p.setStreamer(len(values) == 1)
+		}
+	})
+	p.visibilityPin = toggle.NewToggle([]string{"pin"}, nil, func(values []string) {
+		if p.setVisibilityPinned != nil {
+			p.setVisibilityPinned(len(values) == 1)
 		}
 	})
 	p.localPremiumBoxes = checkbox.NewCheckboxes([]string{"star", "media", "gifs", "pins", "sync"}, nil, func(values []string) {
@@ -779,6 +793,14 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 			content = func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						if p.visibilityPinned == nil || p.hasAccount == nil || !p.hasAccount() {
+							return layout.Dimensions{}
+						}
+						return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return p.cardHeight("visibility-pin").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutVisibilityPin(gtx, l) }, defaultCardPadding)
+						})
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						if p.calm == nil {
 							return layout.Dimensions{}
 						}
@@ -993,7 +1015,7 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 							name = l.T("settings.telegram_account")
 						}
 						row.badge = nil
-						if account.Premium || p.localParts().Star {
+						if account.Premium || p.localStar(account.ID) {
 							row.badge = func(gtx layout.Context) layout.Dimensions {
 								px := gtx.Dp(18)
 								return exact(gtx, image.Pt(px, px), func(gtx layout.Context) layout.Dimensions {
@@ -1554,6 +1576,14 @@ func (p *settingsPage) localParts() model.LocalPremium {
 		return model.LocalPremium{}
 	}
 	return p.localPremium()
+}
+
+// localStar reports whether account id shows the Premium star by Local Premium.
+func (p *settingsPage) localStar(id string) bool {
+	if p.localPremiumOf != nil {
+		return p.localPremiumOf(id).Star
+	}
+	return p.localParts().Star
 }
 
 // isLocalPremium reports whether any part of Local Premium is on.
