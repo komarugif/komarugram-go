@@ -246,6 +246,8 @@
 "composer.saving" = "Saving…";
 "composer.search" = "Search…";
 "composer.send" = "Send";
+"composer.send_failed" = "Message not sent";
+"composer.send_no_ffprobe" = "Video not sent: without FFmpeg its size and length cannot be read. Set FFmpeg in the settings, or send it as a file.";
 "composer.sending" = "Sending…";
 "composer.stickers" = "Stickers";
 "composer.task_hint" = "Creating checklists requires Telegram Premium";

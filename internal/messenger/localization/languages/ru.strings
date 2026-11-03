@@ -261,6 +261,8 @@
 "composer.saving" = "Сохранение…";
 "composer.search" = "Поиск…";
 "composer.send" = "Отправить";
+"composer.send_failed" = "Сообщение не отправлено";
+"composer.send_no_ffprobe" = "Видео не отправлено: без FFmpeg не узнать его размер и длительность. Укажите FFmpeg в настройках или отправьте его как файл.";
 "composer.sending" = "Отправка…";
 "composer.stickers" = "Стикеры";
 "composer.task_hint" = "Создание списков задач требует Telegram Premium";

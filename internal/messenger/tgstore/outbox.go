@@ -505,6 +505,7 @@ func (s *Store) finishOutgoing(e *outgoingEntry, err error) {
 			e.RetryAt = time.Now().Add(delay)
 		} else {
 			e.Error = err.Error()
+			s.sendFailure.Store(&model.SendFailure{Text: e.Error, NoFFprobe: errors.Is(err, model.ErrNoFFprobe)})
 		}
 		if saveErr := s.Cache().PutOutgoing(ctx, e.Request.RandomID, e, nil); saveErr != nil {
 			e.Error = errors.Join(err, saveErr).Error()
@@ -525,6 +526,14 @@ func (s *Store) finishOutgoing(e *outgoingEntry, err error) {
 		}
 	}
 	s.changed()
+}
+
+// TakeSendFailure implements model.SendFailureSource.
+func (s *Store) TakeSendFailure() (model.SendFailure, bool) {
+	if f := s.sendFailure.Swap(nil); f != nil {
+		return *f, true
+	}
+	return model.SendFailure{}, false
 }
 
 func (s *Store) failOutgoingPanic(err error) {

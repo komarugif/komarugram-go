@@ -130,6 +130,24 @@ type OutboxStore interface {
 	CancelOutgoing(MessageKey)
 }
 
+// ErrNoFFprobe is why a video cannot be sent as one here: nothing can tell its
+// size and length.
+var ErrNoFFprobe = errors.New("could not inspect video; install ffprobe or attach it as a file")
+
+// SendFailure is a message Telegram will not be asked for again.
+type SendFailure struct {
+	// Text is what went wrong, as it was told; NoFFprobe says it was ErrNoFFprobe.
+	Text      string
+	NoFFprobe bool
+}
+
+// SendFailureSource tells of messages that failed, which the queue accepted long
+// before. Without it they would only have a mark, wherever they are.
+type SendFailureSource interface {
+	// TakeSendFailure is the last failure not told yet. It is asked in frames.
+	TakeSendFailure() (SendFailure, bool)
+}
+
 // LocalPremium is what the client does on its own of what Premium gives. Each
 // part is of use with a subscription too, past its higher limits.
 type LocalPremium struct {

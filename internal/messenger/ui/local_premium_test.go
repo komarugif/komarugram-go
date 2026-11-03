@@ -82,3 +82,40 @@ func TestSettingsTellLocalPremium(t *testing.T) {
 		t.Fatalf("off again: %q", got)
 	}
 }
+
+// failingStore tells of one failure.
+type failingStore struct {
+	failure model.SendFailure
+	told    bool
+}
+
+func (s *failingStore) TakeSendFailure() (model.SendFailure, bool) {
+	if s.told {
+		return model.SendFailure{}, false
+	}
+	s.told = true
+	return s.failure, true
+}
+
+// A failure reaches the toast, in the interface's words where they are known.
+func TestSendFailureToast(t *testing.T) {
+	l := localization.For("ru")
+	var shown []string
+	toast := func(s string) { shown = append(shown, s) }
+	source := &failingStore{failure: model.SendFailure{Text: "CHAT_WRITE_FORBIDDEN"}}
+	tellSendFailure(source, toast, l)
+	tellSendFailure(source, toast, l)
+	if len(shown) != 1 || shown[0] != l.T("composer.send_failed")+": CHAT_WRITE_FORBIDDEN" {
+		t.Fatalf("shown %q", shown)
+	}
+	shown = nil
+	tellSendFailure(&failingStore{failure: model.SendFailure{Text: "x", NoFFprobe: true}}, toast, l)
+	if len(shown) != 1 || shown[0] != l.T("composer.send_no_ffprobe") {
+		t.Fatalf("shown %q", shown)
+	}
+	shown = nil
+	tellSendFailure(struct{}{}, toast, l)
+	if len(shown) != 0 {
+		t.Fatalf("a store without it: %q", shown)
+	}
+}

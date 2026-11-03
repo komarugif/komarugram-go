@@ -3,7 +3,9 @@
 package ui
 
 import (
+	"errors"
 	"image"
+	"komarugram/internal/messenger/localization"
 	"time"
 
 	"komarugram/internal/messenger/model"
@@ -227,4 +229,21 @@ func (p *chatPage) endTop(i, h int) int {
 	before := int(p.heights.Prefix(i))
 	after := int(p.heights.Total() - p.heights.Prefix(i+1))
 	return before - max(0, before+h+after-p.viewHeight)
+}
+
+// tellSendFailure tells of a message that failed, in what toast shows: the
+// composer is long done with it, and elsewhere it has only a mark.
+func tellSendFailure(source any, toast func(string), l localization.Catalog) {
+	s, ok := source.(model.SendFailureSource)
+	if !ok {
+		return
+	}
+	f, ok := s.TakeSendFailure()
+	switch {
+	case !ok:
+	case f.NoFFprobe:
+		toast(l.T("composer.send_no_ffprobe"))
+	default:
+		toast(l.T("composer.send_failed") + ": " + mediaErrorText(errors.New(f.Text)))
+	}
 }

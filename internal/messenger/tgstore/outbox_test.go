@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -443,5 +444,59 @@ func TestFailedMessageKeepsItsPlace(t *testing.T) {
 	failed.msg.SendError = ""
 	if got := ids(); !slices.Equal(got, []model.MessageID{10, -1, -2}) {
 		t.Fatalf("retried: %v", got)
+	}
+}
+
+// A message that failed for good is told of once; one that will be tried again
+// is not, nor what a former run left failed.
+func TestSendFailureIsToldOnce(t *testing.T) {
+	s := testStore(t)
+	s.history.peers[5] = peerRecord{Kind: "user", ID: 5}
+	s.history.histories[5] = &model.History{}
+	refuse := tgerr.New(400, "CHAT_WRITE_FORBIDDEN")
+	s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) { return nil, refuse })
+	if err := s.Send(context.Background(), 5, model.OutgoingMessage{RandomID: 123, Text: "hi"}); err == nil {
+		t.Fatal("no error")
+	}
+	f, ok := s.TakeSendFailure()
+	if !ok || !strings.Contains(f.Text, "CHAT_WRITE_FORBIDDEN") || f.NoFFprobe {
+		t.Fatalf("told %+v, %v", f, ok)
+	}
+	if _, again := s.TakeSendFailure(); again {
+		t.Fatal("told twice")
+	}
+}
+
+// A video that cannot be inspected says what would help.
+func TestSendFailureTellsOfFFprobe(t *testing.T) {
+	s := testStore(t)
+	e := &outgoingEntry{Request: model.OutgoingMessage{RandomID: 1}, result: &outgoingResult{done: make(chan struct{})}}
+	s.outbox.entries = append(s.outbox.entries, e)
+	s.finishOutgoing(e, fmt.Errorf("clip.mp4: %w", model.ErrNoFFprobe))
+	if f, ok := s.TakeSendFailure(); !ok || !f.NoFFprobe {
+		t.Fatalf("told %+v, %v", f, ok)
+	}
+}
+
+// One that will be tried again tells nothing yet.
+func TestSendFailureNotToldWhileRetrying(t *testing.T) {
+	s := testStore(t)
+	e := &outgoingEntry{Request: model.OutgoingMessage{RandomID: 1}, result: &outgoingResult{done: make(chan struct{})}}
+	s.outbox.entries = append(s.outbox.entries, e)
+	s.finishOutgoing(e, tgerr.New(500, "INTERNAL"))
+	if f, ok := s.TakeSendFailure(); ok {
+		t.Fatalf("told %+v", f)
+	}
+}
+
+// Without ffprobe a video fails by the error that tells what would help.
+func TestNoFFprobeError(t *testing.T) {
+	t.Setenv("PATH", "")
+	clip := filepath.Join(t.TempDir(), "clip.mp4")
+	if err := os.WriteFile(clip, []byte("not read"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := uploadAttributes(context.Background(), clip, "video/mp4", true, ""); !errors.Is(err, model.ErrNoFFprobe) {
+		t.Fatalf("got %v", err)
 	}
 }

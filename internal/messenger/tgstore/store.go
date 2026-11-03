@@ -39,6 +39,8 @@ type Store struct {
 	outbox          outgoingQueue
 	localPremium    atomic.Pointer[model.LocalPremium]
 	emojiPaid       sync.Map
+	// sendFailure is the last message that failed, until it is told.
+	sendFailure atomic.Pointer[model.SendFailure]
 	localMessagesMu sync.Mutex
 	collections     localCollections
 	picker          pickerCache

@@ -1059,6 +1059,7 @@ func (a *App) Update(gtx layout.Context) {
 	if a.storageOffer != nil {
 		a.storageOffer.Update(gtx, a.chats.toast.Show, a.catalog(), a.window.Invalidate)
 	}
+	tellSendFailure(a.store, a.chats.toast.Show, a.catalog())
 	a.frozen.Update(gtx)
 	if pick := a.openChat.Swap(nil); pick != nil {
 		a.open(*pick)
