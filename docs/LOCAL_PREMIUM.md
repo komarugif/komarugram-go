@@ -83,9 +83,10 @@ does: the channel's message, or the last message it was met in (`renewKeptGIF`).
 `tgstore/storage_channel.go` keeps the lists in a private channel of the user's,
 shared by the account's devices. The channel is archived and muted.
 
-- **Which channel.** A channel's description comes only with its full info, so
-  `contacts.search` finds it by the fixed name `model.StorageChannelTitle`, among
-  channels the user created, private ones. Ticking the sync binds it, or
+- **Which channel.** A channel's description comes only with its full info, so it
+  is found by the fixed name `model.StorageChannelTitle`, among the private channels
+  the user created: in the list of chats, then page by page in the archive
+  (`contacts.search` did not find it there on a real account). Ticking the sync binds it, or
   asks: choose one of the user's private channels, or create one. A channel of
   another name works, and must be chosen on each device.
 - **A GIF's message.** Sending a GIF moves it up Telegram's list and may push another
@@ -108,7 +109,15 @@ shared by the account's devices. The channel is archived and muted.
   a restart. It cannot be cancelled, and its dialog cannot be closed. A GIF already
   pushed out with no known message cannot be sent without pushing out another, and
   stays on its device.
-- A channel that is gone unbinds; the lists stay on the device.
+- A channel that is gone unbinds; the lists stay on the device. With the sync on and
+  no channel, found or left (`StorageMissing`), the box is unticked and a dialog says
+  that what is pushed out stays on this device alone: thought safe, it would go with
+  the cache.
+- The cache is the client's to lose. The channel is kept with the settings too, for
+  each account, so that with a new cache it is known whatever its name, and the file
+  brings back the GIFs pushed out and the pins. Only what has a message in the
+  channel and is in the file comes back: a GIF that never reached the channel goes
+  with its device's cache.
 
 ## Outbox
 

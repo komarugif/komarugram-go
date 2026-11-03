@@ -673,3 +673,29 @@ func TestPeerMarksWanted(t *testing.T) {
 		t.Fatalf("arrows %v, faces %v", a, f)
 	}
 }
+
+// The channel is kept with the settings, for the account alone, and goes when zero.
+func TestStorageChannelIsEachAccounts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	s, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := StorageChannel{ChannelID: 5, Hash: -7, Title: "x"}
+	if err := s.SetStorageChannelOf("a", ch); err != nil {
+		t.Fatal(err)
+	}
+	again, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.StorageChannelOf("a") != ch || again.StorageChannelOf("b") != (StorageChannel{}) {
+		t.Fatal("not kept for the account alone")
+	}
+	if err := again.SetStorageChannelOf("a", StorageChannel{}); err != nil {
+		t.Fatal(err)
+	}
+	if again.StorageChannelOf("a") != (StorageChannel{}) {
+		t.Fatal("not forgotten")
+	}
+}

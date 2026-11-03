@@ -79,14 +79,17 @@ type storageAPI struct {
 	files                         int
 	index                         []byte
 	indexDoc                      int64
-	found                         []tg.ChatClass
 	dialogs                       []tg.ChatClass
 	created                       int
 	archived                      bool
 	muted                         bool
 	deleted                       []int
-	unknown []string
-	indexReads int
+	unknown                       []string
+	searchFails                   int
+	searchRefused                 bool
+	archivePages                  func(*tg.MessagesGetDialogsRequest) tg.MessagesDialogsClass
+	pagesRead                     int
+	indexReads                    int
 	parts, written                []byte
 	edits                         []int
 	pinned, pinnedIndex, created2 int
@@ -182,8 +185,6 @@ func (a *storageAPI) client() *tg.Client {
 				}
 			}
 			return out, nil
-		case *tg.ContactsSearchRequest:
-			return &tg.ContactsFound{Chats: a.found}, nil
 		case *tg.ChannelsCreateChannelRequest:
 			a.created++
 			return &tg.Updates{Chats: []tg.ChatClass{&tg.Channel{Photo: &tg.ChatPhotoEmpty{}, ID: 50, AccessHash: 5, Title: r.Title, Creator: true, Broadcast: true}}}, nil
@@ -194,6 +195,20 @@ func (a *storageAPI) client() *tg.Client {
 			a.muted = true
 			return &tg.BoolTrue{}, nil
 		case *tg.MessagesGetDialogsRequest:
+			if a.searchFails > 0 {
+				a.searchFails--
+				return nil, tgerr.New(500, "INTERNAL")
+			}
+			if a.searchRefused {
+				return nil, tgerr.New(400, "SOMETHING_ELSE")
+			}
+			if r.FolderID != 1 {
+				return nil, fmt.Errorf("dialogs of folder %d", r.FolderID)
+			}
+			if a.archivePages != nil {
+				a.pagesRead++
+				return a.archivePages(r), nil
+			}
 			return &tg.MessagesDialogs{Chats: a.dialogs}, nil
 		case *tg.ChannelsDeleteMessagesRequest:
 			a.deleted = append(a.deleted, r.ID...)
@@ -233,7 +248,7 @@ func waitStorage(t *testing.T, what string, done func() bool) {
 
 func TestStorageFindsChannelByItsName(t *testing.T) {
 	api := newStorageAPI(200)
-	api.found = []tg.ChatClass{
+	api.dialogs = []tg.ChatClass{
 		&tg.Channel{Photo: &tg.ChatPhotoEmpty{}, ID: 70, AccessHash: 7, Title: "Something else", Creator: true, Broadcast: true},
 		&tg.Channel{Photo: &tg.ChatPhotoEmpty{}, ID: 40, AccessHash: 6, Title: model.StorageChannelTitle, Broadcast: true},
 		&tg.Channel{Photo: &tg.ChatPhotoEmpty{}, ID: 51, AccessHash: 6, Title: model.StorageChannelTitle, Creator: true, Broadcast: true},
@@ -724,5 +739,275 @@ func TestStorageKeepsThePartSwitchedOff(t *testing.T) {
 	}
 	if !slices.Equal(file.Pins, []int64{9}) || !slices.Equal(file.GIFs, []int64{77}) {
 		t.Fatalf("%+v", file)
+	}
+}
+
+// The cache is the client's to lose: what the channel keeps comes back with a new
+// one, the GIFs Telegram pushed out, their order and the pins past the limit.
+func TestStorageComesBackAfterTheCacheIsGone(t *testing.T) {
+	api := newStorageAPI(5, 1)
+	api.messages[71], api.messages[72] = 41, 42
+	api.dialogs = []tg.ChatClass{&tg.Channel{Photo: &tg.ChatPhotoEmpty{}, ID: 50, AccessHash: 5, Title: model.StorageChannelTitle, Creator: true, Broadcast: true}}
+	s := storageStore(t, api)
+	ctx := context.Background()
+	l := &s.collections
+	l.mu.Lock()
+	l.storage.ChannelID, l.storage.Hash, l.storage.Title = 50, 5, "x"
+	l.storage.Archived["document/42"], l.storage.Archived["document/41"] = 72, 71
+	l.gifs = gifItems(42, 41)
+	l.pins = &localPins{Order: []int64{5, 6}, Synced: []int64{5}}
+	l.storage.GIFsDirty = true
+	l.mu.Unlock()
+	if err := s.publishStorage(ctx, s.history.api); err != nil {
+		t.Fatal(err)
+	}
+	api.mu.Lock()
+	api.index, api.indexDoc = api.written, 1234
+	api.mu.Unlock()
+
+	// A new cache, and nothing else: the settings say the rest.
+	fresh := testStore(t)
+	fresh.history.api = api.client()
+	fresh.SetLocalPremium(model.AllLocalPremium)
+	f := &fresh.collections
+	f.mu.Lock()
+	f.work.file = func(context.Context, *tg.Document) ([]byte, error) { return api.index, nil }
+	f.mu.Unlock()
+	fresh.mu.Lock()
+	fresh.chats = []model.Chat{{ID: 5, Pinned: true}, {ID: 6}}
+	fresh.mu.Unlock()
+	fresh.dialogsRead()
+	waitStorage(t, "the GIFs", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return slices.Equal(gifIDs(f.gifs), []string{"document/42", "document/41"})
+	})
+	if !fresh.localGIF("document/41") {
+		t.Fatal("not shown")
+	}
+	waitStorage(t, "the pins", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.pins != nil && slices.Contains(f.pins.Order, 6)
+	})
+}
+
+// A channel of another name is not found by it: the settings keep which it is, and
+// the lists come back with a new cache all the same.
+func TestStorageBindingOutlivesTheCache(t *testing.T) {
+	api := newStorageAPI(5, 1)
+	api.messages[71] = 41
+	file, err := json.Marshal(storageIndex{Version: storageVersion, GIFs: []int64{71}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	api.index, api.indexDoc = file, 1234
+	s := storageStore(t, api)
+	ctx := context.Background()
+	var kept model.StorageBinding
+	s.RememberStorage(model.StorageBinding{}, func(b model.StorageBinding) { kept = b })
+	if err := s.bindStorage(ctx, s.history.api, &tg.Channel{ID: 50, AccessHash: 5, Title: "Mine"}); err != nil {
+		t.Fatal(err)
+	}
+	if kept != (model.StorageBinding{ChannelID: 50, Hash: 5, Title: "Mine"}) {
+		t.Fatalf("kept %+v", kept)
+	}
+	fresh := testStore(t)
+	fresh.history.api = api.client()
+	fresh.SetLocalPremium(model.AllLocalPremium)
+	f := &fresh.collections
+	f.mu.Lock()
+	f.work.file = func(context.Context, *tg.Document) ([]byte, error) { return file, nil }
+	f.mu.Unlock()
+	fresh.RememberStorage(kept, func(model.StorageBinding) {})
+	fresh.dialogsRead()
+	waitStorage(t, "the GIF", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return slices.Equal(gifIDs(f.gifs), []string{"document/41"})
+	})
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.storage.ChannelID != 50 || f.storage.Title != "Mine" {
+		t.Fatalf("%+v", f.storage)
+	}
+}
+
+// What the cache has and the settings do not goes to the settings, and a channel
+// that is gone leaves them.
+func TestStorageBindingFollowsTheCache(t *testing.T) {
+	s := testStore(t)
+	s.SetLocalPremium(model.AllLocalPremium)
+	l := &s.collections
+	l.mu.Lock()
+	l.storage.ChannelID, l.storage.Hash, l.storage.Title = 50, 5, "x"
+	l.mu.Unlock()
+	var kept model.StorageBinding
+	s.RememberStorage(model.StorageBinding{}, func(b model.StorageBinding) { kept = b })
+	if kept.ChannelID != 50 {
+		t.Fatalf("kept %+v", kept)
+	}
+	s.unbindStorage(context.Background())
+	if kept != (model.StorageBinding{}) {
+		t.Fatalf("after it went: %+v", kept)
+	}
+}
+
+// A search that failed is asked again: it was all that found the channel.
+func TestStorageLooksAgainAfterAFailure(t *testing.T) {
+	api := newStorageAPI(5)
+	api.searchFails = 1
+	api.dialogs = []tg.ChatClass{&tg.Channel{Photo: &tg.ChatPhotoEmpty{}, ID: 50, AccessHash: 5, Title: model.StorageChannelTitle, Creator: true, Broadcast: true}}
+	s := storageStore(t, api)
+	s.dialogsRead()
+	waitStorage(t, "the channel", func() bool {
+		l := &s.collections
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		return l.storage.ChannelID == 50
+	})
+}
+
+// A GIF pushed out before its message was known is not in the file: finding the
+// message has the file written, or the GIF goes with the cache.
+func TestStorageWritesWhatItFindsLate(t *testing.T) {
+	api := newStorageAPI(5, 1)
+	api.messages[71] = 41
+	s := storageStore(t, api)
+	ctx := context.Background()
+	l := &s.collections
+	l.mu.Lock()
+	l.storage.ChannelID, l.storage.Hash, l.storage.Title = 50, 5, "x"
+	l.gifs = gifItems(41)
+	l.work.scanStale = true
+	l.mu.Unlock()
+	if err := s.scanStorage(ctx, s.history.api); err != nil {
+		t.Fatal(err)
+	}
+	l.mu.Lock()
+	dirty := l.storage.GIFsDirty
+	l.storage.GIFsDirty = false
+	l.work.scanStale = true
+	l.mu.Unlock()
+	if !dirty {
+		t.Fatal("the file is not to be written")
+	}
+	api.messages[72] = 1 // on Telegram's list, in no file
+	if err := s.scanStorage(ctx, s.history.api); err != nil {
+		t.Fatal(err)
+	}
+	if l.storage.GIFsDirty {
+		t.Fatal("written for a GIF not pushed out")
+	}
+}
+
+// The channel is found on any page of the archive, where it goes, with nothing of
+// it in the list of chats; reading stops there.
+func TestStorageFindsChannelDeepInTheArchive(t *testing.T) {
+	api := newStorageAPI(5)
+	channel := func(id int64, title string) *tg.Channel {
+		return &tg.Channel{Photo: &tg.ChatPhotoEmpty{}, ID: id, AccessHash: id, Title: title, Creator: true, Broadcast: true}
+	}
+	dialog := func(id int64, top int) *tg.Dialog {
+		return &tg.Dialog{Peer: &tg.PeerChannel{ChannelID: id}, TopMessage: top, NotifySettings: tg.PeerNotifySettings{}}
+	}
+	message := func(id int64, top int) *tg.Message {
+		return &tg.Message{ID: top, Date: 1000 - top, PeerID: &tg.PeerChannel{ChannelID: id}}
+	}
+	api.archivePages = func(r *tg.MessagesGetDialogsRequest) tg.MessagesDialogsClass {
+		if r.OffsetID == 0 {
+			return &tg.MessagesDialogsSlice{Count: 9, Dialogs: []tg.DialogClass{dialog(60, 3)}, Messages: []tg.MessageClass{message(60, 3)}, Chats: []tg.ChatClass{channel(60, "Other")}}
+		}
+		return &tg.MessagesDialogsSlice{Count: 9, Dialogs: []tg.DialogClass{dialog(50, 2)}, Messages: []tg.MessageClass{message(50, 2)}, Chats: []tg.ChatClass{channel(50, model.StorageChannelTitle)}}
+	}
+	s := storageStore(t, api)
+	found, err := s.lookForStorage(context.Background(), s.history.api)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found == nil || found.ID != 50 {
+		t.Fatalf("found %+v", found)
+	}
+	if api.pagesRead != 2 {
+		t.Fatalf("%d pages", api.pagesRead)
+	}
+}
+
+// One the list of chats has already takes no request.
+func TestStorageFindsKnownChannelAtOnce(t *testing.T) {
+	api := newStorageAPI(5)
+	api.searchFails = 1
+	s := storageStore(t, api)
+	s.rememberPeers(nil, []tg.ChatClass{&tg.Channel{Photo: &tg.ChatPhotoEmpty{}, ID: 50, AccessHash: 5, Title: model.StorageChannelTitle, Creator: true, Broadcast: true}})
+	found, err := s.lookForStorage(context.Background(), s.history.api)
+	if err != nil || found == nil || found.ID != 50 {
+		t.Fatalf("found %+v, %v", found, err)
+	}
+}
+
+// With the sync on and no channel found, it is told once.
+func TestStorageTellsThereIsNoChannel(t *testing.T) {
+	api := newStorageAPI(5)
+	s := storageStore(t, api)
+	if s.StorageMissing() {
+		t.Fatal("told before looking")
+	}
+	s.dialogsRead()
+	waitStorage(t, "the warning", s.StorageMissing)
+	if s.StorageMissing() {
+		t.Fatal("told twice")
+	}
+}
+
+// Looking for it failing for good says the same; a channel gone does too.
+func TestStorageTellsWhenLookingFails(t *testing.T) {
+	api := newStorageAPI(5)
+	api.searchRefused = true
+	s := storageStore(t, api)
+	s.dialogsRead()
+	waitStorage(t, "the warning", s.StorageMissing)
+	s.unbindStorage(context.Background())
+	if !s.StorageMissing() {
+		t.Fatal("a channel that went tells nothing")
+	}
+}
+
+// With the sync off, or a channel bound meanwhile, there is nothing to tell.
+func TestStorageMissingOnlyWithSyncAndNoChannel(t *testing.T) {
+	s := testStore(t)
+	s.SetLocalPremium(model.LocalPremium{GIFs: true})
+	l := &s.collections
+	l.mu.Lock()
+	l.work.missing = true
+	l.mu.Unlock()
+	if s.StorageMissing() {
+		t.Fatal("told with the sync off")
+	}
+	s.SetLocalPremium(model.AllLocalPremium)
+	l.mu.Lock()
+	l.work.missing = true
+	l.storage.ChannelID = 50
+	l.mu.Unlock()
+	if s.StorageMissing() {
+		t.Fatal("told with a channel bound")
+	}
+}
+
+// Only looking fails for good: an error with a channel bound says nothing of it.
+func TestStorageBoundErrorIsNoMissingChannel(t *testing.T) {
+	api := newStorageAPI(5)
+	s := storageStore(t, api)
+	api.searchRefused = true
+	l := &s.collections
+	l.mu.Lock()
+	l.storage.ChannelID, l.storage.Hash = 50, 5
+	l.work.looked, l.ready = true, true
+	l.work.scanStale = false
+	l.work.indexStale = false
+	l.mu.Unlock()
+	s.wakeStorage()
+	time.Sleep(50 * time.Millisecond)
+	if s.StorageMissing() {
+		t.Fatal("told with a channel bound")
 	}
 }

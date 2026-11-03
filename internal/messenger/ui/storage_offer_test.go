@@ -27,11 +27,12 @@ import (
 
 // fakeStorage is a store whose answers the test sets.
 type fakeStorage struct {
-	mu    sync.Mutex
-	found model.StorageFound
-	bound model.StorageFound
-	pass  model.StoragePass
-	sent  int
+	mu      sync.Mutex
+	found   model.StorageFound
+	bound   model.StorageFound
+	pass    model.StoragePass
+	sent    int
+	missing bool
 }
 
 func (f *fakeStorage) FindStorageChannel(context.Context) (model.StorageFound, error) {
@@ -52,6 +53,16 @@ func (f *fakeStorage) SendAllGIFs(context.Context) error {
 	f.sent++
 	f.pass = model.StoragePass{Active: true, Done: 40, Total: 200}
 	return nil
+}
+
+func (f *fakeStorage) RememberStorage(model.StorageBinding, func(model.StorageBinding)) {}
+
+func (f *fakeStorage) StorageMissing() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	m := f.missing
+	f.missing = false
+	return m
 }
 
 func (f *fakeStorage) StoragePassState() model.StoragePass {
@@ -160,7 +171,7 @@ func TestRenderStorageOffer(t *testing.T) {
 	}
 	defer win.Release()
 	candidates := []model.StorageChannel{{ID: 1, Title: "Мой архив"}, {ID: 2, Title: "Заметки"}}
-	for name, page := range map[string]storagePage{"ask": storageAsk, "choose": storageChoose, "send": storageSend, "progress": storageProgress} {
+	for name, page := range map[string]storagePage{"ask": storageAsk, "choose": storageChoose, "send": storageSend, "progress": storageProgress, "missing": storageMissing} {
 		source := &fakeStorage{}
 		if page == storageProgress {
 			source.pass = model.StoragePass{Active: true, Done: 57, Total: 200}
@@ -226,5 +237,54 @@ func TestStorageOfferDeclineUnticks(t *testing.T) {
 	closed()
 	if declined != 1 {
 		t.Fatal("declined with a channel bound")
+	}
+}
+
+// No channel with the sync on: the tick goes, and the user is told, for what is
+// pushed out would otherwise be thought safe.
+func TestStorageOfferWarnsWithoutChannel(t *testing.T) {
+	var toasts []string
+	source := &fakeStorage{missing: true}
+	o := newStorageOffer(source)
+	declined := 0
+	o.declined = func() { declined++ }
+	storageFrame(o, &toasts, image.Pt(600, 800))
+	if declined != 1 || !o.modal.Shown() || o.page != storageMissing {
+		t.Fatalf("declined %d, shown %v, page %d", declined, o.modal.Shown(), o.page)
+	}
+	storageFrame(o, &toasts, image.Pt(600, 800))
+	if declined != 1 {
+		t.Fatal("told twice")
+	}
+}
+
+// Going on from the warning asks for a channel, straight to choosing it.
+func TestStorageOfferChoosesFromTheWarning(t *testing.T) {
+	var toasts []string
+	source := &fakeStorage{missing: true, found: model.StorageFound{Candidates: []model.StorageChannel{{ID: 1, Title: "a"}}}}
+	o := newStorageOffer(source)
+	storageFrame(o, &toasts, image.Pt(600, 800))
+	o.chooseAgain(func() {})
+	storageSettled(t, o, &toasts)
+	if !o.modal.Shown() || o.page != storageChoose || !o.unbound {
+		t.Fatalf("shown %v, page %d, unbound %v", o.modal.Shown(), o.page, o.unbound)
+	}
+}
+
+// While the user is being asked, what comes of that says it: no warning over it.
+func TestStorageOfferNoWarningOverAsking(t *testing.T) {
+	var toasts []string
+	source := &fakeStorage{found: model.StorageFound{Candidates: []model.StorageChannel{{ID: 1, Title: "a"}}}}
+	o := newStorageOffer(source)
+	declined := 0
+	o.declined = func() { declined++ }
+	o.Activated(func() {})
+	storageSettled(t, o, &toasts)
+	source.mu.Lock()
+	source.missing = true
+	source.mu.Unlock()
+	storageFrame(o, &toasts, image.Pt(600, 800))
+	if o.page != storageAsk || declined != 0 {
+		t.Fatalf("page %d, declined %d", o.page, declined)
 	}
 }

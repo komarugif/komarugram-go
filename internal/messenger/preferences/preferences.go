@@ -439,6 +439,15 @@ type Account struct {
 	// Visibility, when set, is the Visibility section of this account alone:
 	// see PinVisibility.
 	Visibility *Visibility `json:"visibility,omitempty"`
+	// StorageChannel is where Local Premium keeps its lists: model.StorageBinding.
+	StorageChannel *StorageChannel `json:"storage_channel,omitempty"`
+}
+
+// StorageChannel is model.StorageBinding as it is kept.
+type StorageChannel struct {
+	ChannelID int64  `json:"channel_id"`
+	Hash      int64  `json:"hash"`
+	Title     string `json:"title,omitempty"`
 }
 
 // Visibility is the settings of the Visibility section, shared by the accounts
@@ -506,7 +515,8 @@ func (s *Store) changeAccount(id string, update func(*Account)) error {
 	}
 	err := errors.Join(set("local_premium", a.LocalPremium != nil, a.LocalPremium),
 		set("premium_media", a.PremiumMedia != nil, a.PremiumMedia),
-		set("visibility", a.Visibility != nil, a.Visibility))
+		set("visibility", a.Visibility != nil, a.Visibility),
+		set("storage_channel", a.StorageChannel != nil, a.StorageChannel))
 	var entry []byte
 	if err == nil {
 		entry, err = json.Marshal(fields)
@@ -582,6 +592,26 @@ func (s *Store) SetPremiumMediaOf(id string, on bool) error {
 		return s.SetPremiumMedia(on)
 	}
 	return s.changeAccount(id, func(a *Account) { a.PremiumMedia = &on })
+}
+
+// StorageChannelOf is the channel account id keeps its lists in.
+func (s *Store) StorageChannelOf(id string) StorageChannel {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c := s.accountLocked(id).StorageChannel; c != nil {
+		return *c
+	}
+	return StorageChannel{}
+}
+
+// SetStorageChannelOf changes it; zero forgets it.
+func (s *Store) SetStorageChannelOf(id string, c StorageChannel) error {
+	return s.changeAccount(id, func(a *Account) {
+		a.StorageChannel = nil
+		if c != (StorageChannel{}) {
+			a.StorageChannel = &c
+		}
+	})
 }
 
 // VisibilityOf is the Visibility section as account id has it.

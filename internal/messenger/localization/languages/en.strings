@@ -1874,6 +1874,10 @@
 "storage.create" = "Create a channel";
 "storage.failed" = "Could not set up the channel";
 "storage.later" = "Not now";
+"storage.missing_body" = "Sync of pushed-out GIFs and pinned chats has been turned off: the channel for them was not found.";
+"storage.missing_title" = "Storage channel not found";
+"storage.missing_warning" = "Until you choose a channel, pushed-out GIFs and pins beyond the limit stay on this device only, and are lost if its cache is deleted.";
+"storage.understood" = "Got it";
 "storage.no_channels" = "You have no private channels yet.";
 "storage.pass_done" = "All saved GIFs are in the channel";
 "storage.pass_failed" = "The channel is no longer available: GIFs not sent";

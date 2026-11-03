@@ -27,6 +27,7 @@ const (
 	storageChoose
 	storageSend
 	storageProgress
+	storageMissing
 )
 
 // storageResult is what came of asking the store, on its goroutine.
@@ -52,7 +53,11 @@ type storageOffer struct {
 	// when it closes so, or when asking failed.
 	unbound  bool
 	declined func()
-	done chan storageResult
+	// again ticks the sync again, which asks for a channel; choosing goes
+	// straight to choosing it.
+	again    func()
+	choosing bool
+	done     chan storageResult
 
 	candidates []model.StorageChannel
 	rows       []surface
@@ -64,13 +69,15 @@ type storageOffer struct {
 	create      *button.Button
 	back        *button.Button
 	send, skip  *button.Button
+	understood  *button.Button
+	choose      *button.Button
 	bar         *indicator.Indicator
 }
 
 func newStorageOffer(source model.StorageChannels) *storageOffer {
 	return &storageOffer{source: source, done: make(chan storageResult, 1),
 		bind: button.Filled(), later: button.Text(), create: button.Filled(), back: button.Text(),
-		send: button.Filled(), skip: button.Text(), bar: indicator.Linear(),
+		send: button.Filled(), skip: button.Text(), understood: button.Text(), choose: button.Filled(), bar: indicator.Linear(),
 		list: layout.List{Axis: layout.Vertical}}
 }
 
@@ -121,10 +128,24 @@ func (o *storageOffer) Update(gtx layout.Context, toast func(string), l localiza
 	case pass.Failed:
 		toast(l.T("storage.pass_failed"))
 	}
+	// Asking already, or the user is: what comes of that says it. Otherwise the
+	// tick must not stay, doing nothing, and the user must know.
+	if o.source.StorageMissing() && !o.busy && !(o.modal.Shown() && o.unbound) {
+		o.decline()
+		o.page = storageMissing
+		o.modal.Open()
+	}
 	if !o.modal.Shown() || o.busy {
 		return
 	}
 	switch o.page {
+	case storageMissing:
+		if o.understood.Clicked(gtx) {
+			o.modal.Close()
+		}
+		if o.choose.Clicked(gtx) {
+			o.chooseAgain(invalidate)
+		}
 	case storageAsk:
 		if o.bind.Clicked(gtx) {
 			o.page = storageChoose
@@ -156,6 +177,16 @@ func (o *storageOffer) Update(gtx layout.Context, toast func(string), l localiza
 	}
 }
 
+// chooseAgain goes on from the warning to choosing a channel.
+func (o *storageOffer) chooseAgain(invalidate func()) {
+	o.choosing = true
+	if o.again != nil {
+		o.again()
+		return
+	}
+	o.Activated(invalidate)
+}
+
 func (o *storageOffer) bindChannel(id int64, invalidate func()) {
 	o.ask(invalidate, func(ctx context.Context) (model.StorageFound, error) { return o.source.BindStorageChannel(ctx, id) })
 }
@@ -176,7 +207,13 @@ func (o *storageOffer) result(r storageResult, toast func(string), l localizatio
 		o.candidates = r.found.Candidates
 		o.rows = make([]surface, len(o.candidates))
 		o.page = storageAsk
-		o.modal.Open()
+		if o.choosing {
+			o.page = storageChoose
+		}
+		o.choosing = false
+		if !o.modal.Shown() {
+			o.modal.Open()
+		}
 	case r.found.SendAll > 0:
 		o.unbound = false
 		o.sendAll = r.found.SendAll
@@ -217,6 +254,8 @@ func (o *storageOffer) Layout(gtx layout.Context, l localization.Catalog) {
 				return o.layoutSend(gtx, l)
 			case storageProgress:
 				return o.layoutProgress(gtx, l)
+			case storageMissing:
+				return o.layoutMissing(gtx, l)
 			}
 			return o.layoutAsk(gtx, l)
 		}, defaultCardPadding)
@@ -302,6 +341,15 @@ func (o *storageOffer) layoutSend(gtx layout.Context, l localization.Catalog) la
 		storageButtons(
 			func(gtx layout.Context) layout.Dimensions { return o.skip.Layout(gtx, l.T("storage.later")) },
 			func(gtx layout.Context) layout.Dimensions { return o.send.Layout(gtx, l.T("storage.send")) },
+		))
+}
+
+func (o *storageOffer) layoutMissing(gtx layout.Context, l localization.Catalog) layout.Dimensions {
+	return storageDialog(gtx, l.T("storage.missing_title"), []string{l.T("storage.missing_body")}, l.T("storage.missing_warning"),
+		vspace(16),
+		storageButtons(
+			func(gtx layout.Context) layout.Dimensions { return o.understood.Layout(gtx, l.T("storage.understood")) },
+			func(gtx layout.Context) layout.Dimensions { return o.choose.Layout(gtx, l.T("storage.bind")) },
 		))
 }
 

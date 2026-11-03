@@ -28,6 +28,13 @@ type StorageFound struct {
 	Candidates []StorageChannel
 }
 
+// StorageBinding is the channel an account keeps its lists in, zero for none. It
+// is kept with the settings: the cache is the client's to lose.
+type StorageBinding struct {
+	ChannelID, Hash int64
+	Title           string
+}
+
 // StoragePass tells how far sending the whole list of GIFs has come.
 type StoragePass struct {
 	Active      bool
@@ -48,6 +55,12 @@ type StorageChannels interface {
 	// which leaves them in the order they had. It cannot be cancelled, and goes
 	// on after a restart.
 	SendAllGIFs(ctx context.Context) error
+	// RememberStorage tells the channel the settings keep, and what keeps it when
+	// it changes.
+	RememberStorage(kept StorageBinding, save func(StorageBinding))
+	// StorageMissing reports, once, that Sync is on with no channel to share
+	// through: none was found, or the one bound is gone. It is asked in frames.
+	StorageMissing() bool
 	// StoragePassState is asked in frames.
 	StoragePassState() StoragePass
 }

@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log"
-	"maps"
 	"math"
 	"slices"
 	"time"
@@ -107,6 +106,12 @@ type storageWork struct {
 	newerIndex bool
 	publishAt  time.Time
 	pass       model.StoragePass
+	// missing: Sync is on, and there is no channel; StorageMissing tells it.
+	missing bool
+	// remembered is the channel the settings keep, and saveBinding keeps it
+	// there: what the cache says is lost with it.
+	remembered  model.StorageBinding
+	saveBinding func(model.StorageBinding)
 	// file downloads a document; tests replace it.
 	file func(context.Context, *tg.Document) ([]byte, error)
 }
@@ -139,6 +144,55 @@ func (s *Store) restoreStorage(ctx context.Context, l *localCollections) {
 	l.work.indexStale, l.work.scanStale = true, true
 	if pass := l.storage.Pass; pass != nil {
 		l.work.pass = model.StoragePass{Active: true, Done: pass.Done, Total: len(pass.Order)}
+	}
+}
+
+// StorageMissing implements model.StorageChannels.
+func (s *Store) StorageMissing() bool {
+	l := &s.collections
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	missing := l.work.missing
+	l.work.missing = false
+	return missing && !l.storage.bound() && s.local().Sync
+}
+
+// storageMissing has whoever shows the settings told there is no channel: what
+// Telegram pushes out would otherwise be thought safe, and go with the cache.
+func (s *Store) storageMissing() {
+	l := &s.collections
+	l.mu.Lock()
+	l.work.missing = true
+	l.mu.Unlock()
+	s.changed()
+}
+
+// RememberStorage implements model.StorageChannels. A channel the cache has and
+// the settings do not goes to the settings.
+func (s *Store) RememberStorage(kept model.StorageBinding, save func(model.StorageBinding)) {
+	l := &s.collections
+	l.mu.Lock()
+	l.work.remembered, l.work.saveBinding = kept, save
+	st := l.storage
+	l.mu.Unlock()
+	if st.bound() {
+		if now := (model.StorageBinding{ChannelID: st.ChannelID, Hash: st.Hash, Title: st.Title}); now != kept {
+			s.keepBinding(now)
+		}
+		return
+	}
+	s.wakeStorage()
+}
+
+// keepBinding has the settings keep b.
+func (s *Store) keepBinding(b model.StorageBinding) {
+	l := &s.collections
+	l.mu.Lock()
+	l.work.remembered = b
+	save := l.work.saveBinding
+	l.mu.Unlock()
+	if save != nil {
+		save(b)
 	}
 }
 
@@ -225,6 +279,14 @@ func (s *Store) runStorage(ctx context.Context) {
 				s.unbindStorage(ctx)
 			} else if delay, retry := outgoingRetry(err, attempts); retry {
 				time.AfterFunc(delay, s.wakeStorage)
+			} else {
+				// Asked no more: looking for the channel has failed for good.
+				l.mu.Lock()
+				bound := l.storage.bound()
+				l.mu.Unlock()
+				if !bound {
+					s.storageMissing()
+				}
 			}
 		}
 	}
@@ -246,8 +308,9 @@ func (s *Store) unbindStorage(ctx context.Context) {
 		l.work.pass = model.StoragePass{Failed: true}
 	}
 	l.mu.Unlock()
+	s.keepBinding(model.StorageBinding{})
 	_ = s.saveStorage(ctx)
-	s.changed()
+	s.storageMissing()
 }
 
 // storageStep does what there is to do: the pass alone while it runs, as it
@@ -263,6 +326,7 @@ func (s *Store) storageStep(ctx context.Context) error {
 	}
 	l.mu.Lock()
 	ready, bound, looked := l.ready, l.storage.bound(), l.work.looked
+	remembered := l.work.remembered
 	pass := l.storage.Pass != nil
 	l.work.looked = l.work.looked || ready
 	l.mu.Unlock()
@@ -270,15 +334,29 @@ func (s *Store) storageStep(ctx context.Context) error {
 		// dialogsRead wakes this again.
 		return nil
 	}
-	if !bound {
-		if looked {
-			return nil
+	switch {
+	case bound:
+	case remembered.ChannelID != 0:
+		// The cache was lost; the settings tell the channel, of whatever name.
+		log.Printf("tgstore: storage channel: %d, from the settings", remembered.ChannelID)
+		ch := &tg.Channel{ID: remembered.ChannelID, AccessHash: remembered.Hash, Title: remembered.Title}
+		if err := s.bindStorage(ctx, api, ch); err != nil {
+			return err
 		}
+	case looked:
+		return nil
+	default:
 		found, err := s.lookForStorage(ctx, api)
 		if err != nil {
+			// Asked again when it is retried.
+			l.mu.Lock()
+			l.work.looked = false
+			l.mu.Unlock()
 			return err
 		}
 		if found == nil {
+			log.Printf("tgstore: storage channel: none named %q", model.StorageChannelTitle)
+			s.storageMissing()
 			return nil
 		}
 		if err := s.bindStorage(ctx, api, found); err != nil {
@@ -305,24 +383,71 @@ func (s *Store) storageStep(ctx context.Context) error {
 	return s.publishStorage(ctx, api)
 }
 
-// lookForStorage is the user's channel of the name, the oldest of them.
+// lookForStorage is the user's channel of the name, the oldest of them: among the
+// peers known, which have the list of chats, and in the archive, where it goes and
+// whose dialogs are not read otherwise. contacts.search does not find it there.
 func (s *Store) lookForStorage(ctx context.Context, api *tg.Client) (*tg.Channel, error) {
-	res, err := api.ContactsSearch(ctx, &tg.ContactsSearchRequest{Q: model.StorageChannelTitle, Limit: 20})
-	if err != nil {
-		return nil, err
+	found := s.knownStorage()
+	if found != nil {
+		return found, nil
 	}
-	s.rememberPeers(res.Users, res.Chats)
+	err := s.readArchive(ctx, api, func() bool {
+		found = s.knownStorage()
+		return found != nil
+	})
+	return found, err
+}
+
+// knownStorage is the user's channel of the name among the peers known.
+func (s *Store) knownStorage() *tg.Channel {
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	var best *tg.Channel
-	for _, raw := range res.Chats {
-		ch, ok := raw.(*tg.Channel)
-		if !ok || !ch.Creator || !ch.Broadcast || ch.Left || ch.Title != model.StorageChannelTitle || channelUsername(ch) != "" {
+	for _, p := range c.peers {
+		if p.Kind != "channel" || !p.Rights.Creator || !p.Rights.Broadcast || p.Rights.Left || p.Name != model.StorageChannelTitle || p.Username != "" {
 			continue
 		}
-		if best == nil || ch.ID < best.ID {
-			best = ch
+		if best == nil || p.ID < best.ID {
+			best = &tg.Channel{ID: p.ID, AccessHash: p.Hash, Title: p.Name}
 		}
 	}
-	return best, nil
+	return best
+}
+
+// storageArchivePages is how many pages of the archive are read at most.
+const storageArchivePages = 50
+
+// readArchive has the peers of the archive known, page by page, until enough.
+func (s *Store) readArchive(ctx context.Context, api *tg.Client, enough func() bool) error {
+	l := newList(0)
+	offset := page{peer: &tg.InputPeerEmpty{}}
+	for range storageArchivePages {
+		res, err := api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{FolderID: 1, OffsetDate: offset.date, OffsetID: offset.id, OffsetPeer: offset.peer, Limit: pageSize})
+		if err != nil {
+			return err
+		}
+		dialogs, ok := res.AsModified()
+		if !ok {
+			return nil
+		}
+		s.rememberPeers(dialogs.GetUsers(), dialogs.GetChats())
+		if enough != nil && enough() {
+			return nil
+		}
+		added := l.add(dialogs)
+		slice, ok := dialogs.(*tg.MessagesDialogsSlice)
+		if !ok || added == 0 || len(l.chats) >= slice.Count {
+			return nil
+		}
+		if offset, ok = l.nextPage(dialogs); !ok {
+			return nil
+		}
+		if err := sleepStorage(ctx, pagePause); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // bindStorage makes ch the channel, and keeps it out of the way in the archive.
@@ -334,6 +459,7 @@ func (s *Store) bindStorage(ctx context.Context, api *tg.Client, ch *tg.Channel)
 	l.storage = storageState{ChannelID: ch.ID, Hash: ch.AccessHash, Title: ch.Title, Archived: map[string]int{}, Origins: origins, GIFsDirty: true, PinsDirty: true}
 	l.work.indexStale, l.work.scanStale = true, true
 	l.mu.Unlock()
+	s.keepBinding(model.StorageBinding{ChannelID: ch.ID, Hash: ch.AccessHash, Title: ch.Title})
 	return s.saveStorage(ctx)
 }
 
@@ -362,11 +488,14 @@ func (s *Store) FindStorageChannel(ctx context.Context) (model.StorageFound, err
 	l := &s.collections
 	l.mu.Lock()
 	bound := l.storage.bound()
+	remembered := l.work.remembered
 	l.work.looked = true
 	l.mu.Unlock()
 	if !bound {
-		found, err := s.lookForStorage(ctx, api)
-		if err != nil {
+		var found *tg.Channel
+		if remembered.ChannelID != 0 {
+			found = &tg.Channel{ID: remembered.ChannelID, AccessHash: remembered.Hash, Title: remembered.Title}
+		} else if found, err = s.lookForStorage(ctx, api); err != nil {
 			return model.StorageFound{}, err
 		}
 		if found == nil {
@@ -437,12 +566,8 @@ func (s *Store) storageAPI(ctx context.Context) (*tg.Client, error) {
 // storageCandidates are the private channels of the user's: those known, and
 // those of the archive, whose dialogs are not read otherwise.
 func (s *Store) storageCandidates(ctx context.Context, api *tg.Client) ([]model.StorageChannel, error) {
-	res, err := api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{FolderID: 1, OffsetPeer: &tg.InputPeerEmpty{}, Limit: 100})
-	if err != nil {
+	if err := s.readArchive(ctx, api, nil); err != nil {
 		return nil, err
-	}
-	if dialogs, ok := res.AsModified(); ok {
-		s.rememberPeers(dialogs.GetUsers(), dialogs.GetChats())
 	}
 	c := s.history
 	c.mu.Lock()
@@ -723,13 +848,23 @@ func (s *Store) scanStorage(ctx context.Context, api *tg.Client) error {
 		}
 	}
 	l.mu.Lock()
-	maps.Copy(l.storage.Archived, found)
-	l.storage.Scanned = newest
-	for id := range found {
-		delete(l.storage.Origins, id)
+	for id, msg := range found {
+		l.archivedLocked(id, msg)
 	}
+	l.storage.Scanned = newest
 	l.mu.Unlock()
 	return s.saveStorage(ctx)
+}
+
+// archivedLocked notes that id has the message msg in the channel. One Telegram
+// pushed out that had none then is not in the file yet, and would be lost with
+// the cache.
+func (l *localCollections) archivedLocked(id string, msg int) {
+	if _, had := l.storage.Archived[id]; !had && slices.ContainsFunc(l.gifs, func(item model.PickerItem) bool { return item.ID == id }) {
+		l.storage.GIFsDirty = true
+	}
+	l.storage.Archived[id] = msg
+	delete(l.storage.Origins, id)
 }
 
 func storageDocument(raw tg.MessageClass) *tg.Document {
@@ -1313,8 +1448,7 @@ func (s *Store) gifsMet(ctx context.Context, msgs []model.Message) {
 		switch {
 		case l.storage.bound() && m.Key.ChatID == l.storage.key():
 			if l.storage.Archived[id] != int(m.Key.MessageID) {
-				l.storage.Archived[id] = int(m.Key.MessageID)
-				delete(l.storage.Origins, id)
+				l.archivedLocked(id, int(m.Key.MessageID))
 				changed = true
 			}
 		case m.NoForwards || refused[m.Key.ChatID]:

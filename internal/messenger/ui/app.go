@@ -182,6 +182,8 @@ type App struct {
 	registrationOffer *registrationOffer
 	// storageOffer asks where Local Premium keeps its lists.
 	storageOffer *storageOffer
+	// storageTold is the account whose channel the store was told of.
+	storageTold string
 	// frozen tells that Telegram froze the account.
 	frozen *frozenView
 
@@ -462,6 +464,11 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.storageOffer.declined = func() {
 			parts := a.settings.localPremium()
 			parts.Sync = false
+			a.settings.setLocalPremium(parts)
+		}
+		a.storageOffer.again = func() {
+			parts := a.settings.localPremium()
+			parts.Sync = true
 			a.settings.setLocalPremium(parts)
 		}
 	}
@@ -1804,6 +1811,17 @@ func (a *App) visibilityChanged() {
 // tellGhost gives the store what Ghost allows, and whether the window is
 // active.
 func (a *App) tellGhost() {
+	if storage, ok := a.store.(model.StorageChannels); ok {
+		// Before Local Premium: it starts looking for a channel.
+		if id := a.accountID(); id != "" && id != a.storageTold {
+			a.storageTold = id
+			storage.RememberStorage(model.StorageBinding(a.preferences.StorageChannelOf(id)), func(b model.StorageBinding) {
+				if err := a.preferences.SetStorageChannelOf(id, preferences.StorageChannel(b)); err != nil {
+					log.Printf("save settings: %v", err)
+				}
+			})
+		}
+	}
 	if local, ok := a.store.(model.LocalPremiumStore); ok {
 		local.SetLocalPremium(a.localParts(a.accountID()))
 	}
