@@ -4,6 +4,7 @@ package tgstore
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 
@@ -253,6 +254,35 @@ func (s *Store) SetOnline(online bool) {
 		})
 	}
 }
+
+// TellOffline tells Telegram the account went offline, if it was told otherwise,
+// and waits for it, for a little: no window is left to tell it, and the connection
+// may stop right after. Telegram would show the account online for minutes.
+func (s *Store) TellOffline() {
+	gs := &s.ghost
+	gs.mu.Lock()
+	gs.online = false
+	send := gs.toldOnline
+	if send {
+		gs.toldOnline, gs.told = false, time.Now()
+	}
+	gs.mu.Unlock()
+	c := s.history
+	c.mu.Lock()
+	api, closing := c.api, c.closing
+	c.mu.Unlock()
+	if !send || api == nil || closing {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), offlineWait)
+	defer cancel()
+	if _, err := api.AccountUpdateStatus(ctx, true); err != nil {
+		log.Printf("tgstore: offline: %v", err)
+	}
+}
+
+// offlineWait is how long a closing window waits for Telegram to hear of it.
+const offlineWait = 2 * time.Second
 
 // SendAction implements model.GhostStore with messages.setTyping, told at
 // most every actionEvery.

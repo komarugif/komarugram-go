@@ -587,6 +587,8 @@ func (h *accountWindows) windowSpec(a *account.Account, session *accountSession,
 			if id != "" && h.security != nil && h.security.Enabled() && h.preferences.Global().LockOnClose {
 				session.locked.Store(true)
 			}
+			// No window is active any more, whether the account goes on or not.
+			session.store.TellOffline()
 			if !h.keepInBackground(id) {
 				session.stop()
 				h.forgetSession(id, session)
