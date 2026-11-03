@@ -82,8 +82,9 @@ const (
 	// Ephemeral gives every launch a profile of its own, removed on Close.
 	// Nothing survives the window being closed.
 	Ephemeral Storage = iota
-	// PerApp keeps one profile per Mini App: what an app stores it finds again
-	// next time, and no other app can reach it.
+	// PerApp keeps one profile per Mini App of an account: what an app stores it
+	// finds again next time, and no other app, nor the same app under another
+	// account, can reach it.
 	PerApp
 	// Shared keeps one profile for every Mini App of an account, which is what
 	// an official client does.
@@ -111,8 +112,8 @@ type Profile struct {
 	// PerApp needs it; the other modes ignore it.
 	App string
 
-	// Account identifies whose apps share a profile under Shared. Empty names a
-	// single unnamed account, which is enough while there is only one.
+	// Account identifies whose profiles these are, under PerApp and Shared. Empty
+	// names a single unnamed account, which is enough while there is only one.
 	Account string
 }
 
@@ -146,7 +147,10 @@ func (p Profile) resolve(tmp string) (dir string, ephemeral bool, err error) {
 		if p.App == "" {
 			return "", false, fmt.Errorf("a per-app profile needs an app to name it after")
 		}
-		dir = filepath.Join(root, "apps", profileKey(p.App))
+		// What older versions kept in apps/<app>, shared by the accounts, is left
+		// behind: which account's it is cannot be told, and Mini Apps mostly rest on
+		// the Telegram account, not on what they store.
+		dir = filepath.Join(root, "apps", profileKey(p.Account), profileKey(p.App))
 	case Shared:
 		dir = filepath.Join(root, "shared", profileKey(p.Account))
 	default:
