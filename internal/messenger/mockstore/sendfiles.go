@@ -58,6 +58,13 @@ func (s *Store) appendFiles(chat int64, h model.History, first model.MessageID, 
 				m.Kind = model.MessageMusic
 				media.Title, media.Performer, media.Duration = f.Title, f.Performer, f.Duration
 				data, _ = os.ReadFile(f.Path)
+				if thumb, err := sendfiles.DocumentThumbnail(f.Cover); err == nil {
+					if s.files == nil {
+						s.files = map[string][]byte{}
+					}
+					media.Thumbnail = &model.MessageMedia{ID: media.ID + "/thumb", MIMEType: "image/jpeg"}
+					s.files[media.Thumbnail.ID] = thumb
+				}
 			default:
 				m.Kind = model.MessageFile
 			}

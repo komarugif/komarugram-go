@@ -57,7 +57,7 @@ func (s *Store) outgoingMessages(chat int64, msg model.OutgoingMessage, at time.
 					m.Text, m.Entities = trimmed.Text, trimmed.Entities
 				}
 				m.Kind = model.MessageFile
-				media := &model.MessageMedia{ID: fmt.Sprintf("outbox/%d/%d", msg.RandomID, index), FileName: f.Name, MIMEType: f.MIME, Size: f.Size, Width: f.Width, Height: f.Height, Duration: f.Duration, Title: f.Title, Performer: f.Performer, Preview: f.Cover}
+				media := &model.MessageMedia{ID: fmt.Sprintf("outbox/%d/%d", msg.RandomID, index), FileName: f.Name, MIMEType: f.MIME, Size: f.Size, Width: f.Width, Height: f.Height, Duration: f.Duration, Title: f.Title, Performer: f.Performer}
 				if !way.Documents {
 					switch f.Kind {
 					case sendfiles.KindPhoto:
@@ -70,6 +70,11 @@ func (s *Store) outgoingMessages(chat int64, msg model.OutgoingMessage, at time.
 				}
 				if f.Kind == sendfiles.KindMusic {
 					m.Kind = model.MessageMusic
+					// What its button shows until Telegram has it: the file's
+					// own cover may be many times larger.
+					if thumb, err := sendfiles.DocumentThumbnail(f.Cover); err == nil {
+						media.Preview = thumb
+					}
 				}
 				if msg.Voice != nil {
 					m.Kind = model.MessageVoice

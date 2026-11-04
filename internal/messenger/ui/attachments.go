@@ -25,8 +25,6 @@ import (
 
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
-	"gioui.org/op/clip"
-	"gioui.org/op/paint"
 )
 
 // Exported attachments live in a private temporary directory only while this
@@ -368,16 +366,16 @@ func (p *chatPage) fileLayout(gtx layout.Context, r *messageRow, m model.Message
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				d := gtx.Dp(44)
 				size := image.Pt(d, d)
-				paint.FillShape(gtx.Ops, sc.Primary.Color.AsNRGBA(), clip.Ellipse{Max: size}.Op(gtx.Ops))
+				ink := p.audioPlate(gtx, p.songCover(&r.audio, m, size), size)
 				gtx.Constraints = layout.Exact(size)
 				if downloading {
 					// A click on the row cancels it.
-					return r.ring.layout(gtx, d, true, progress, iconClear, sc.Primary.OnColor, wdk.AnimationsEnabled(gtx))
+					return r.ring.layout(gtx, d, true, progress, iconClear, ink, wdk.AnimationsEnabled(gtx))
 				}
 				r.ring.reset()
 				layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return exact(gtx, image.Pt(gtx.Dp(24), gtx.Dp(24)), func(gtx layout.Context) layout.Dimensions {
-						return icon(gtx, sc.Primary.OnColor)
+						return icon(gtx, ink)
 					})
 				})
 				return layout.Dimensions{Size: size}

@@ -113,8 +113,9 @@ func (s *Store) History(chat int64) model.History {
 	messages[len(messages)-1].MediaUnread = true
 	// An MP3 voice message, as some bots send, without a waveform.
 	add("", model.MessageVoice, &model.MessageMedia{ID: "demo/voice-mp3", MIMEType: "audio/mpeg", Size: int64(len(demoVoiceMP3)), Duration: 5 * time.Second}, nil, nil)
-	// Music, which plays in the client as voice messages do.
-	add("", model.MessageMusic, &model.MessageMedia{ID: "demo/music", MIMEType: "audio/mpeg", Size: int64(len(demoVoiceMP3)), Duration: 5 * time.Second, Title: "Ночной трамвай", Performer: "Демо-оркестр"}, nil, nil)
+	// Music, which plays in the client as voice messages do, its button on
+	// its cover.
+	add("", model.MessageMusic, &model.MessageMedia{ID: "demo/music", MIMEType: "audio/mpeg", Size: int64(len(demoVoiceMP3)), Duration: 5 * time.Second, Title: "Ночной трамвай", Performer: "Демо-оркестр", Thumbnail: &model.MessageMedia{ID: "demo/cover", MIMEType: "image/png", Width: 320, Height: 320}}, nil, nil)
 	// An M4A voice message, as one sent from a file; its decoder is fetched.
 	add("", model.MessageVoice, &model.MessageMedia{ID: "demo/voice-m4a", MIMEType: "audio/mp4", Size: int64(len(demoVoiceM4A)), Duration: 5 * time.Second}, nil, nil)
 	// A video message, assets/video.mp4 with its sound, in a circle: it
@@ -272,6 +273,16 @@ func (s *Store) media(ctx context.Context, m model.Message) ([]byte, error) {
 		return os.ReadFile("assets/video.mp4")
 	case "demo/photo":
 		e := png.Encode(&b, gradient(640, 360))
+		return b.Bytes(), e
+	case "demo/cover":
+		// Light, as many covers are: the button's white icon must show on it.
+		im := image.NewRGBA(image.Rect(0, 0, 320, 320))
+		for y := range 320 {
+			for x := range 320 {
+				im.SetRGBA(x, y, color.RGBA{uint8(255 - x/8), uint8(225 + y/12), uint8(150 + x/4), 255})
+			}
+		}
+		e := png.Encode(&b, im)
 		return b.Bytes(), e
 	case "demo/portrait":
 		// The thumbnail of assets/video.mp4, which is upright.

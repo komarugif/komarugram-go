@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	"io"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
+	"komarugram/internal/messenger/sendfiles"
 	"komarugram/internal/messenger/wasmmodule"
 	"komarugram/pkg/aac"
 	"komarugram/pkg/audio"
@@ -771,6 +773,10 @@ type audioRow struct {
 	bars     []int
 	// round is a video message's: where a press on it is.
 	round roundSeek
+	// cover is the picture of the music of media coverOf, while it is sent,
+	// decoded once rather than in every frame.
+	coverOf string
+	cover   image.Image
 }
 
 // waveformBars returns the bars of waveform, kept from the last frame while
@@ -846,17 +852,67 @@ func (vr *audioRow) seekArea(gtx layout.Context, size image.Point) {
 	area.Pop()
 }
 
-// audioButton is the round button of an audio row: play, pause, or, while
-// the file opens, the ring of a file's download, whose cross cancels it.
-func (p *chatPage) audioButton(gtx layout.Context, vr *audioRow, state audioState) layout.Dimensions {
-	sc := scheme(gtx)
+// songCoverShade darkens a cover under the white icon of its button as
+// Telegram Desktop's songCoverOverlayFg does, to 60% of its brightness: Gio
+// blends in linear light, where its alpha of 0x66 would leave 80%.
+var songCoverShade = color.NRGBA{A: 172}
+
+// songCover is the picture of music m for a round button of size: the
+// thumbnail it was sent with, or its own while it is being sent. It is nil
+// for what has none, and until it loads; one that does not load is no failure
+// to tell, the button stays as it is without a cover.
+func (p *chatPage) songCover(vr *audioRow, m model.Message, size image.Point) image.Image {
+	if m.Kind != model.MessageMusic || m.Media == nil || p.media == nil || p.images == nil {
+		return nil
+	}
+	if thumb := m.Media.Thumbnail; thumb != nil {
+		target := m
+		target.Kind, target.Media = model.MessagePhoto, thumb
+		status := p.media.StatusFit(target, false, size, true)
+		if status.Frame != nil {
+			return status.Frame
+		}
+		return status.Preview
+	}
+	if len(m.Media.Preview) == 0 {
+		return nil
+	}
+	if vr.coverOf != m.Media.ID {
+		vr.coverOf, vr.cover = m.Media.ID, nil
+		if im, err := sendfiles.CoverThumbnail(m.Media.Preview, size.X); err == nil {
+			vr.cover = im
+		}
+	}
+	return vr.cover
+}
+
+// audioPlate draws the circle of a round button of size, cover under its
+// shade when there is one and the primary color otherwise, and returns the
+// color of what lies on it.
+func (p *chatPage) audioPlate(gtx layout.Context, cover image.Image, size image.Point) token.MatColor {
+	if cover == nil {
+		sc := scheme(gtx)
+		paint.FillShape(gtx.Ops, sc.Primary.Color.AsNRGBA(), clip.Ellipse{Max: size}.Op(gtx.Ops))
+		return sc.Primary.OnColor
+	}
+	defer clip.Ellipse{Max: size}.Push(gtx.Ops).Pop()
+	gtx.Constraints = layout.Exact(size)
+	widget.Image{Src: p.images.Op(cover), Fit: widget.Cover, Position: layout.Center}.Layout(gtx)
+	paint.Fill(gtx.Ops, songCoverShade)
+	return token.NewMatColorFromHexRGB(0xffffff)
+}
+
+// audioButton is the round button of an audio row, on cover when it is not
+// nil: play, pause, or, while the file opens, the ring of a file's download,
+// whose cross cancels it.
+func (p *chatPage) audioButton(gtx layout.Context, vr *audioRow, state audioState, cover image.Image) layout.Dimensions {
 	d := gtx.Dp(44)
 	size := image.Pt(d, d)
 	return vr.button.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		paint.FillShape(gtx.Ops, sc.Primary.Color.AsNRGBA(), clip.Ellipse{Max: size}.Op(gtx.Ops))
+		ink := p.audioPlate(gtx, cover, size)
 		gtx.Constraints = layout.Exact(size)
 		if state.loading {
-			return vr.ring.layout(gtx, d, true, -1, iconClear, sc.Primary.OnColor, wdk.AnimationsEnabled(gtx))
+			return vr.ring.layout(gtx, d, true, -1, iconClear, ink, wdk.AnimationsEnabled(gtx))
 		}
 		vr.ring.reset()
 		layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -865,7 +921,7 @@ func (p *chatPage) audioButton(gtx layout.Context, vr *audioRow, state audioStat
 				icon = iconPauseFile
 			}
 			return exact(gtx, image.Pt(gtx.Dp(24), gtx.Dp(24)), func(gtx layout.Context) layout.Dimensions {
-				return icon(gtx, sc.Primary.OnColor)
+				return icon(gtx, ink)
 			})
 		})
 		return layout.Dimensions{Size: size}
@@ -891,7 +947,7 @@ func (p *chatPage) voiceLayout(gtx layout.Context, r *messageRow, m model.Messag
 	p.audio.showWaveform(p, m)
 	sc := scheme(gtx)
 	return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.audioButton(gtx, vr, state) }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.audioButton(gtx, vr, state, nil) }),
 		layout.Rigid(layout.Spacer{Width: 12}.Layout),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
@@ -924,8 +980,8 @@ func (p *chatPage) voiceLayout(gtx layout.Context, r *messageRow, m model.Messag
 	)
 }
 
-// musicLayout draws music as Telegram Desktop does: a round button, the
-// performer and the title, a bar of how much was heard, and the time. A
+// musicLayout draws music as Telegram Desktop does: a round button on its
+// cover, the performer and the title, a bar of how much was heard, and the time. A
 // click on the bar, or a drag across it, moves the music there.
 func (p *chatPage) musicLayout(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog) layout.Dimensions {
 	vr := &r.audio
@@ -940,7 +996,10 @@ func (p *chatPage) musicLayout(gtx layout.Context, r *messageRow, m model.Messag
 	}
 	performer := m.Media.Performer
 	return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.audioButton(gtx, vr, state) }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			d := gtx.Dp(44)
+			return p.audioButton(gtx, vr, state, p.songCover(vr, m, image.Pt(d, d)))
+		}),
 		layout.Rigid(layout.Spacer{Width: 12}.Layout),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,

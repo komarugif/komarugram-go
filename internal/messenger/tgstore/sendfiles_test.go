@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gotd/td/bin"
 	"github.com/gotd/td/tg"
@@ -271,6 +272,31 @@ func TestSendMusicAsTracks(t *testing.T) {
 	}
 	if doc := server.uploaded[1].(*tg.InputMediaUploadedDocument); doc.Thumb != nil {
 		t.Fatal("a track without a cover sent with a thumbnail")
+	}
+}
+
+// While music is being sent it carries its cover as a thumbnail, not the
+// whole picture its file holds; a track without a cover carries none.
+func TestSendingMusicShowsItsCover(t *testing.T) {
+	s, _ := filesStore(t)
+	dir := t.TempDir()
+	cover, err := os.ReadFile(picture(t, dir, "cover.png", 500, 500))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := s.outgoingMessages(5, model.OutgoingMessage{RandomID: 1, Files: &model.OutgoingFiles{Paths: []string{song(t, dir, "one.mp3", "Первая", 100, cover), song(t, dir, "two.mp3", "Вторая", 100, nil)}}}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 2 {
+		t.Fatalf("%d messages", len(pending))
+	}
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(pending[0].msg.Media.Preview))
+	if err != nil || format != "jpeg" || cfg.Width != 320 || cfg.Height != 320 {
+		t.Fatalf("the cover is %s %dx%d: %v", format, cfg.Width, cfg.Height, err)
+	}
+	if pending[1].msg.Media.Preview != nil {
+		t.Fatal("a track without a cover shows one")
 	}
 }
 

@@ -675,7 +675,9 @@ size-stability fixes remain in place.
   after the end (`nextAudio`);
   `voiceLayout`, the row with its button, waveform (`drawWaveform`) and
   time, and `musicLayout`, with the title, the performer and a bar
-  (`drawBar`); `audioRow.update` takes their clicks and drags. A video
+  (`drawBar`), its button on the track's cover (`songCover`), shaded under
+  a white icon (`audioPlate`); `audioRow.update` takes their clicks and
+  drags. A video
   message (`model.MessageRound`) plays in the same player, as the voice
   messages' kind (`listenable`, `audioKind`): `roundLayout`
   (`history_round.go`) draws its circle, without a bubble, its ring of what
