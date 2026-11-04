@@ -15,6 +15,7 @@ import (
 
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/sendfiles"
+	"komarugram/pkg/video"
 )
 
 // sendFiles sends the files of msg as Telegram Desktop does: what can go in
@@ -155,8 +156,27 @@ func (s *Store) uploadFile(ctx context.Context, api *tg.Client, chat int64, f se
 		return nil, fmt.Errorf("%s: %w", f.Name, err)
 	}
 	media := asMedia && (f.Kind == sendfiles.KindVideo || f.Kind == sendfiles.KindAnimation)
-	return &tg.InputMediaUploadedDocument{File: file, MimeType: f.MIME, ForceFile: !media, Attributes: attrs}, nil
+	doc := &tg.InputMediaUploadedDocument{File: file, MimeType: f.MIME, ForceFile: !media, Attributes: attrs}
+	if f.Kind == sendfiles.KindVideo {
+		// A video sent as a file shows its picture too, as in Telegram
+		// Desktop. One that gives no picture goes without.
+		thumbCtx, cancel := context.WithTimeout(ctx, videoThumbnailPatience)
+		jpeg, err := sendfiles.VideoDocumentThumbnail(thumbCtx, video.ResolveFFmpeg(ffmpeg), f.Path)
+		cancel()
+		if err == nil {
+			thumb, err := up.FromBytes(ctx, "thumb.jpg", jpeg)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", f.Name, err)
+			}
+			doc.SetThumb(thumb)
+		}
+	}
+	return doc, nil
 }
+
+// videoThumbnailPatience is how long FFmpeg may look for a video's first
+// picture.
+const videoThumbnailPatience = 30 * time.Second
 
 // uploadMusic uploads f as a track, as Telegram Desktop sends music: with
 // its title, performer and length, whole seconds of it, and its cover as

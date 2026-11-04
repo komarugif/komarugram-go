@@ -118,6 +118,24 @@ func DocumentThumbnail(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return encodeThumbnail(img)
+}
+
+// VideoDocumentThumbnail makes the first picture of the video at path the
+// thumbnail it is sent with, as DocumentThumbnail does for music. Telegram
+// makes none itself of a large file, which would show as an empty box.
+func VideoDocumentThumbnail(ctx context.Context, ffmpeg, path string) ([]byte, error) {
+	img, err := VideoThumbnail(ctx, ffmpeg, path, thumbSide)
+	if err != nil {
+		return nil, err
+	}
+	if b := img.Bounds(); !ValidDimensions(b.Dx(), b.Dy()) {
+		return nil, errors.New("the picture has no shape a thumbnail takes")
+	}
+	return encodeThumbnail(img)
+}
+
+func encodeThumbnail(img image.Image) ([]byte, error) {
 	var out bytes.Buffer
 	if err := jpeg.Encode(&out, flatten(img), &jpeg.Options{Quality: thumbQuality}); err != nil {
 		return nil, err
@@ -132,7 +150,7 @@ func VideoThumbnail(ctx context.Context, ffmpeg, path string, side int) (*image.
 		return nil, errors.New("no ffmpeg")
 	}
 	cmd := program.CommandContext(ctx, ffmpeg, "-v", "error", "-i", path, "-frames:v", "1",
-		"-vf", "scale='min("+itoa(side)+",iw)':-2", "-f", "image2pipe", "-c:v", "png", "-")
+		"-vf", "scale='min("+itoa(side)+",iw)':'min("+itoa(side)+",ih)':force_original_aspect_ratio=decrease", "-f", "image2pipe", "-c:v", "png", "-")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err

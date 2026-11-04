@@ -11,6 +11,7 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,6 +25,7 @@ import (
 // filesServer records what sending files asks of Telegram.
 type filesServer struct {
 	uploads     int
+	parts       map[int64][]byte
 	uploaded    []tg.InputMediaClass
 	singles     []*tg.MessagesSendMediaRequest
 	albums      []*tg.MessagesSendMultiMediaRequest
@@ -34,6 +36,10 @@ func (f *filesServer) handle(in bin.Encoder) (bin.Encoder, error) {
 	switch r := in.(type) {
 	case *tg.UploadSaveFilePartRequest:
 		f.uploads++
+		if f.parts == nil {
+			f.parts = map[int64][]byte{}
+		}
+		f.parts[r.FileID] = append(f.parts[r.FileID], r.Bytes...)
 		return &tg.BoolTrue{}, nil
 	case *tg.UploadSaveBigFilePartRequest:
 		return &tg.BoolTrue{}, nil
@@ -265,5 +271,114 @@ func TestSendMusicAsTracks(t *testing.T) {
 	}
 	if doc := server.uploaded[1].(*tg.InputMediaUploadedDocument); doc.Thumb != nil {
 		t.Fatal("a track without a cover sent with a thumbnail")
+	}
+}
+
+// clip makes a short video of the size with FFmpeg.
+func clip(t *testing.T, ffmpeg, name, size string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if out, err := exec.Command(ffmpeg, "-v", "error", "-f", "lavfi", "-i", "testsrc=s="+size+":d=0.2", path).CombinedOutput(); err != nil {
+		t.Fatalf("fixture: %v %s", err, out)
+	}
+	return path
+}
+
+// sentThumbnail is the size of the JPEG doc was sent with.
+func sentThumbnail(t *testing.T, server *filesServer, doc *tg.InputMediaUploadedDocument) image.Point {
+	t.Helper()
+	file, ok := doc.Thumb.(*tg.InputFile)
+	if !ok {
+		t.Fatalf("thumbnail %+v", doc.Thumb)
+	}
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(server.parts[file.ID]))
+	if err != nil || format != "jpeg" {
+		t.Fatalf("thumbnail is %q: %v", format, err)
+	}
+	return image.Pt(cfg.Width, cfg.Height)
+}
+
+// A video goes with its first picture as the thumbnail, in a square of 320
+// pixels, as media, as a file and in an album: Telegram makes none itself of
+// a large file, which shows as an empty box.
+func TestSendVideoWithThumbnail(t *testing.T) {
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip(err)
+	}
+	s, server := filesStore(t)
+	wide, tall := clip(t, ffmpeg, "wide.mp4", "640x360"), clip(t, ffmpeg, "tall.webm", "360x640")
+	send := func(random int64, documents, group bool, paths ...string) {
+		t.Helper()
+		err := s.Send(context.Background(), 5, model.OutgoingMessage{RandomID: random, FFmpeg: ffmpeg, Files: &model.OutgoingFiles{Paths: paths, Documents: documents, Group: group}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(1, false, false, wide)
+	doc := server.singles[0].Media.(*tg.InputMediaUploadedDocument)
+	if got := sentThumbnail(t, server, doc); doc.ForceFile || got != image.Pt(320, 180) {
+		t.Fatalf("as media, force file %v, thumbnail %v", doc.ForceFile, got)
+	}
+	send(2, false, false, tall)
+	doc = server.singles[1].Media.(*tg.InputMediaUploadedDocument)
+	if got := sentThumbnail(t, server, doc); got != image.Pt(180, 320) {
+		t.Fatalf("tall thumbnail %v", got)
+	}
+	send(3, true, false, wide)
+	doc = server.singles[2].Media.(*tg.InputMediaUploadedDocument)
+	if got := sentThumbnail(t, server, doc); !doc.ForceFile || got != image.Pt(320, 180) {
+		t.Fatalf("as a file, force file %v, thumbnail %v", doc.ForceFile, got)
+	}
+	send(10, false, true, wide, tall)
+	if len(server.uploaded) != 2 || len(server.albums) != 1 {
+		t.Fatalf("%d uploaded, %d albums", len(server.uploaded), len(server.albums))
+	}
+	for _, media := range server.uploaded {
+		sentThumbnail(t, server, media.(*tg.InputMediaUploadedDocument))
+	}
+}
+
+// A video a phone recorded turned says the size it shows at, the thumbnail's
+// shape, not the size it is stored at.
+func TestSendTurnedVideoSaysItsShape(t *testing.T) {
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip(err)
+	}
+	stored := clip(t, ffmpeg, "stored.mp4", "640x360")
+	turned := filepath.Join(t.TempDir(), "turned.mp4")
+	if out, err := exec.Command(ffmpeg, "-v", "error", "-display_rotation", "90", "-i", stored, "-c", "copy", turned).CombinedOutput(); err != nil {
+		t.Skipf("this FFmpeg cannot turn a video: %v %s", err, out)
+	}
+	s, server := filesStore(t)
+	err = s.Send(context.Background(), 5, model.OutgoingMessage{RandomID: 1, FFmpeg: ffmpeg, Files: &model.OutgoingFiles{Paths: []string{turned}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := server.singles[0].Media.(*tg.InputMediaUploadedDocument)
+	if got := sentThumbnail(t, server, doc); got != image.Pt(180, 320) {
+		t.Fatalf("thumbnail %v", got)
+	}
+	if v, ok := doc.Attributes[1].(*tg.DocumentAttributeVideo); !ok || v.W != 360 || v.H != 640 {
+		t.Fatalf("attributes %+v", doc.Attributes)
+	}
+}
+
+// Sending as a file asks nothing of FFmpeg: without one, or with a video it
+// cannot read, the file goes without a thumbnail.
+func TestSendVideoFileWithoutFFmpeg(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	s, server := filesStore(t)
+	path := filepath.Join(t.TempDir(), "clip.mp4")
+	if err := os.WriteFile(path, []byte("not a video"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := s.Send(context.Background(), 5, model.OutgoingMessage{RandomID: 1, Files: &model.OutgoingFiles{Paths: []string{path}, Documents: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc := server.singles[0].Media.(*tg.InputMediaUploadedDocument); !doc.ForceFile || doc.Thumb != nil {
+		t.Fatalf("sent %+v", doc)
 	}
 }

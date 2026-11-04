@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -35,7 +36,7 @@ func uploadAttributes(ctx context.Context, path, mime string, asMedia bool, ffmp
 	if ffprobe == "" {
 		return nil, model.ErrNoFFprobe
 	}
-	out, err := program.CommandContext(ctx, ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,duration:format=duration", "-of", "json", "-i", path).Output()
+	out, err := program.CommandContext(ctx, ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,duration:stream_side_data=rotation:stream_tags=rotate:format=duration", "-of", "json", "-i", path).Output()
 	if err != nil {
 		return nil, model.ErrNoFFprobe
 	}
@@ -43,6 +44,10 @@ func uploadAttributes(ctx context.Context, path, mime string, asMedia bool, ffmp
 		Streams []struct {
 			Width, Height int
 			Duration      string
+			// The turn a phone records its videos with, in the newer
+			// FFmpeg's place and in the older's.
+			SideData []struct{ Rotation float64 } `json:"side_data_list"`
+			Tags     struct{ Rotate string }
 		}
 		Format struct{ Duration string }
 	}
@@ -59,6 +64,17 @@ func uploadAttributes(ctx context.Context, path, mime string, asMedia bool, ffmp
 	}
 	if stream.Width <= 0 || stream.Height <= 0 {
 		return nil, errors.New("invalid video dimensions")
+	}
+	// The size is the one it shows at, as its thumbnail has: a quarter turn
+	// swaps the sides.
+	rotation, _ := strconv.ParseFloat(stream.Tags.Rotate, 64)
+	for _, side := range stream.SideData {
+		if side.Rotation != 0 {
+			rotation = side.Rotation
+		}
+	}
+	if int(math.Abs(rotation))%180 == 90 {
+		stream.Width, stream.Height = stream.Height, stream.Width
 	}
 	attrs = append(attrs, &tg.DocumentAttributeVideo{W: stream.Width, H: stream.Height, Duration: duration, SupportsStreaming: mime == "video/mp4"})
 	return attrs, nil
