@@ -3,19 +3,22 @@
 package tgstore
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image"
 	"strings"
 	"time"
 
 	"github.com/gotd/td/tg"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/sendfiles"
+	"komarugram/pkg/video"
 )
 
 // outgoingMessages builds the same media and grouping the accepted messages
 // will have, before starting any network operation.
-func (s *Store) outgoingMessages(chat int64, msg model.OutgoingMessage, at time.Time) ([]*pendingMessage, error) {
+func (s *Store) outgoingMessages(ctx context.Context, chat int64, msg model.OutgoingMessage, at time.Time) ([]*pendingMessage, error) {
 	me := s.Me()
 	base := model.Message{Text: msg.Text, Entities: msg.Entities, SenderID: me.ID, SenderName: me.Name(), Date: at, Outgoing: true, ReplyToMessageID: msg.ReplyTo, Sending: true}
 	c := s.history
@@ -64,6 +67,7 @@ func (s *Store) outgoingMessages(chat int64, msg model.OutgoingMessage, at time.
 						m.Kind = model.MessagePhoto
 					case sendfiles.KindVideo:
 						m.Kind = model.MessageVideo
+						s.showOutgoingVideo(ctx, media, msg.RandomID, index, f, msg.FFmpeg)
 					case sendfiles.KindAnimation:
 						m.Kind = model.MessageGIF
 					}
@@ -117,6 +121,40 @@ func (s *Store) outgoingMessages(chat int64, msg model.OutgoingMessage, at time.
 		pending = append(pending, &pendingMessage{chat: chat, seq: c.pending.seq, msg: m})
 	}
 	return pending, nil
+}
+
+// outgoingVideoPatience is how long a message being sent waits to tell of its
+// video: it does not show until then.
+const outgoingVideoPatience = 5 * time.Second
+
+// showOutgoingVideo gives media, file index of the message randomID, what its
+// video shows while it is sent: its shape and length, and its first picture,
+// kept as Telegram's thumbnails are. What FFmpeg does not tell leaves it out:
+// sending says so when it matters.
+func (s *Store) showOutgoingVideo(ctx context.Context, media *model.MessageMedia, randomID int64, index int, f sendfiles.File, ffmpeg string) {
+	ctx, cancel := context.WithTimeout(ctx, outgoingVideoPatience)
+	defer cancel()
+	if attrs, err := uploadAttributes(ctx, f.Path, f.MIME, true, ffmpeg); err == nil {
+		for _, a := range attrs {
+			if v, ok := a.(*tg.DocumentAttributeVideo); ok {
+				media.Width, media.Height = v.W, v.H
+				media.Duration = time.Duration(v.Duration * float64(time.Second))
+			}
+		}
+	}
+	thumb, err := sendfiles.VideoDocumentThumbnail(ctx, video.ResolveFFmpeg(ffmpeg), f.Path)
+	if err != nil {
+		return
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(thumb))
+	if err != nil {
+		return
+	}
+	id := fmt.Sprintf("outbox-thumb/%d/%d", randomID, index)
+	if cache := s.Cache(); cache == nil || cache.SaveMedia(ctx, id, thumb) != nil {
+		return
+	}
+	media.Thumbnail = &model.MessageMedia{ID: id, MIMEType: "image/jpeg", Size: int64(len(thumb)), Width: cfg.Width, Height: cfg.Height}
 }
 
 // acceptOutgoing records an acknowledgement before applying updates or sending

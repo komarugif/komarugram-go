@@ -237,7 +237,7 @@ func (s *Store) enqueueOutgoing(ctx context.Context, chat int64, msg model.Outgo
 	e.LocalSticker = local && msg.Item != nil && msg.Item.Media.Kind == model.MessageSticker && msg.Item.Media.Media != nil && msg.Item.Media.Media.Premium
 	e.ResolveSticker = local && msg.Item != nil && msg.Item.Media.Kind == model.MessageSticker && msg.Item.Media.Media != nil && !msg.Item.Media.Media.PremiumKnown && !msg.Item.Media.Media.Premium
 	paths := outgoingPaths(msg)
-	pending, err := s.outgoingMessages(chat, msg, e.Created)
+	pending, err := s.outgoingMessages(ctx, chat, msg, e.Created)
 	if err != nil {
 		return nil, err
 	}

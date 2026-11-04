@@ -43,13 +43,17 @@ func TestRenderOutgoingDelivery(t *testing.T) {
 	}
 	h := newMenuHarnessOn(t, nil, func(s *menuStore) model.ConversationStore { return outgoingRenderSource{s, encoded.Bytes()} })
 	var messages []model.Message
-	for i, kind := range []model.MessageKind{model.MessagePhoto, model.MessageFile, model.MessageSticker, model.MessageVoice} {
+	for i, kind := range []model.MessageKind{model.MessagePhoto, model.MessageVideo, model.MessageFile, model.MessageSticker, model.MessageVoice} {
 		media := &model.MessageMedia{ID: "pending", FileName: "report.pdf", Size: 250000, MIMEType: "application/pdf"}
 		if kind == model.MessagePhoto || kind == model.MessageSticker {
 			media.MIMEType = "image/png"
 			media.Preview = encoded.Bytes()
 			media.Width = 240
 			media.Height = 100
+		}
+		if kind == model.MessageVideo {
+			media.MIMEType, media.Width, media.Height, media.Duration = "video/mp4", 480, 200, 95*time.Second
+			media.Thumbnail = &model.MessageMedia{ID: "pending/thumb", MIMEType: "image/png", Width: 240, Height: 100}
 		}
 		if kind == model.MessageVoice {
 			media.MIMEType = "audio/ogg"

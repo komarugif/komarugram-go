@@ -284,7 +284,7 @@ func TestSendingMusicShowsItsCover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pending, err := s.outgoingMessages(5, model.OutgoingMessage{RandomID: 1, Files: &model.OutgoingFiles{Paths: []string{song(t, dir, "one.mp3", "Первая", 100, cover), song(t, dir, "two.mp3", "Вторая", 100, nil)}}}, time.Now())
+	pending, err := s.outgoingMessages(context.Background(), 5, model.OutgoingMessage{RandomID: 1, Files: &model.OutgoingFiles{Paths: []string{song(t, dir, "one.mp3", "Первая", 100, cover), song(t, dir, "two.mp3", "Вторая", 100, nil)}}}, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,6 +388,44 @@ func TestSendTurnedVideoSaysItsShape(t *testing.T) {
 	}
 	if v, ok := doc.Attributes[1].(*tg.DocumentAttributeVideo); !ok || v.W != 360 || v.H != 640 {
 		t.Fatalf("attributes %+v", doc.Attributes)
+	}
+}
+
+// While a video is being sent it shows as it will once sent: its shape, its
+// length and its first picture, which reads as any thumbnail does; as a file,
+// it shows none of it.
+func TestSendingVideoShowsItsPicture(t *testing.T) {
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip(err)
+	}
+	s, _ := filesStore(t)
+	path := clip(t, ffmpeg, "clip.mp4", "640x360")
+	ctx := context.Background()
+	pending, err := s.outgoingMessages(ctx, 5, model.OutgoingMessage{RandomID: 7, FFmpeg: ffmpeg, Files: &model.OutgoingFiles{Paths: []string{path}}}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := pending[0].msg
+	if m.Kind != model.MessageVideo || m.Media.Width != 640 || m.Media.Height != 360 || m.Media.Duration != 200*time.Millisecond || m.Media.Thumbnail == nil {
+		t.Fatalf("the video: %+v", m.Media)
+	}
+	shown := m
+	shown.Kind, shown.Media = model.MessagePhoto, m.Media.Thumbnail
+	data, err := s.Media(ctx, shown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || format != "jpeg" || cfg.Width != 320 || cfg.Height != 180 {
+		t.Fatalf("the picture is %s %dx%d: %v", format, cfg.Width, cfg.Height, err)
+	}
+	pending, err = s.outgoingMessages(ctx, 5, model.OutgoingMessage{RandomID: 8, FFmpeg: ffmpeg, Files: &model.OutgoingFiles{Paths: []string{path}, Documents: true}}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := pending[0].msg; m.Kind != model.MessageFile || m.Media.Thumbnail != nil {
+		t.Fatalf("as a file: %+v", m)
 	}
 }
 
