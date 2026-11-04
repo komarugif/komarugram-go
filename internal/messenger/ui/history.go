@@ -327,6 +327,9 @@ type chatPage struct {
 	openStoryOf func(model.StoryRef)
 	// openGIF opens a GIF in the viewer, among the chat's GIFs.
 	openGIF func(model.Message)
+	// openBoxFiles shows files of the box of files in the viewer, isolated
+	// from the chat; closed is told when it closes.
+	openBoxFiles func(media *boxMedia, chat int64, current model.Message, items []model.Message, closed func())
 	// openArticle shows the whole of rich message m, at its anchor
 	// fragment unless it is empty; nil when it cannot.
 	openArticle func(m model.Message, fragment string)

@@ -73,6 +73,28 @@ func PreparePhoto(path string, highQuality bool) (Photo, error) {
 	return Photo{JPEG: out.Bytes(), Width: b.Dx(), Height: b.Dy()}, nil
 }
 
+// ShownPhoto is the file of the image at path to decode for showing it: as it
+// is, or turned, for a JPEG whose Exif asks for it, which no decoder minds.
+func ShownPhoto(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	turn := orientationOf(data)
+	if turn == 1 {
+		return data, nil
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	if err := jpeg.Encode(&out, orient(img, turn), &jpeg.Options{Quality: jpegQuality}); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
 // Thumbnail decodes the image at path, turned as it is shown, and scales it
 // down to fit a square of side pixels.
 func Thumbnail(path string, side int) (*image.RGBA, error) {

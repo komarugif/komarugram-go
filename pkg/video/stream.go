@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,7 +41,7 @@ func ProbeMedia(ctx context.Context, path, ffmpeg string) (Media, error) {
 	args := append(LimitArgs(ProbeMemory),
 		"-format_whitelist", "mov,matroska,webm",
 		"-v", "error",
-		"-show_entries", "stream=codec_type,width,height,r_frame_rate:format=duration",
+		"-show_entries", "stream=codec_type,width,height,r_frame_rate:stream_side_data=rotation:stream_tags=rotate:format=duration",
 		"-of", "json", path)
 	out, err := outputLimited(program.CommandContext(ctx, ffprobe, args...), ProbeMemory)
 	if err != nil {
@@ -52,6 +53,14 @@ func ProbeMedia(ctx context.Context, path, ffmpeg string) (Media, error) {
 			Width     int    `json:"width"`
 			Height    int    `json:"height"`
 			FrameRate string `json:"r_frame_rate"`
+			// The turn a phone records with, in the newer FFmpeg's place and
+			// in the older's.
+			SideData []struct {
+				Rotation float64 `json:"rotation"`
+			} `json:"side_data_list"`
+			Tags struct {
+				Rotate string `json:"rotate"`
+			} `json:"tags"`
 		} `json:"streams"`
 		Format struct {
 			Duration string `json:"duration"`
@@ -75,6 +84,17 @@ func ProbeMedia(ctx context.Context, path, ffmpeg string) (Media, error) {
 				return Media{}, fmt.Errorf("video dimensions %dx%d exceed limit", s.Width, s.Height)
 			}
 			m.Width, m.Height, m.FPS = s.Width, s.Height, 30
+			// FFmpeg turns the pictures as they are decoded: this is their
+			// size then.
+			rotation, _ := strconv.ParseFloat(s.Tags.Rotate, 64)
+			for _, side := range s.SideData {
+				if side.Rotation != 0 {
+					rotation = side.Rotation
+				}
+			}
+			if int(math.Abs(rotation))%180 == 90 {
+				m.Width, m.Height = s.Height, s.Width
+			}
 			if num, den, ok := strings.Cut(s.FrameRate, "/"); ok {
 				n, errN := strconv.ParseFloat(num, 64)
 				d, errD := strconv.ParseFloat(den, 64)

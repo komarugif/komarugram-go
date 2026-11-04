@@ -233,6 +233,9 @@ const (
 	// videos alone, as Telegram Desktop's viewer goes through those of
 	// the shared media it opened from: see mediaViewer.sharedKind.
 	galleryShared
+	// galleryBox is the files about to go in the box of files, read from the
+	// disk: all it holds comes with it, none of any chat (viewer_box.go).
+	galleryBox
 )
 
 // before reports whether the item of a goes before b's: by their ids, the
@@ -251,6 +254,9 @@ func (g viewerGallery) holds(m model.Message) bool {
 	}
 	if g == galleryGIFs {
 		return m.Kind == model.MessageGIF
+	}
+	if g == galleryBox {
+		return m.Kind == model.MessagePhoto || m.Kind == model.MessageVideo || m.Kind == model.MessageGIF
 	}
 	if g == galleryShared {
 		// Filtered by the section's kind in mediaViewer.holds.
@@ -277,6 +283,8 @@ func (v *mediaViewer) pages(g viewerGallery) bool {
 		return v.chatStories != nil
 	case galleryShared:
 		return v.shared != nil
+	case galleryBox:
+		return false
 	}
 	return v.photos != nil
 }
@@ -752,7 +760,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	}
 	v.updateVideo(gtx, items[indexOf(items, v.current)], l)
 	if cur := items[indexOf(items, v.current)]; canKeep(cur) {
-		if v.save.Clicked(gtx) {
+		if v.save.Clicked(gtx) && v.canSave(cur) {
 			v.keepPhoto(cur, false, l)
 		}
 		if v.copy.Clicked(gtx) {
@@ -1244,7 +1252,7 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if !canKeep(m) {
+				if !v.canSave(m) {
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1284,6 +1292,9 @@ func (v *mediaViewer) title(m model.Message, items []model.Message, i int, l loc
 		return what
 	}
 	switch {
+	case v.gallery == galleryBox:
+		// What is about to go, whatever it is.
+		what = l.T("viewer.attachment")
 	case v.gallery == galleryPhotos && !v.alone && !v.isStory(m) && m.StoryOf == nil:
 		// The chat's photos and videos, one after the other.
 		what = l.T("viewer.attachment")

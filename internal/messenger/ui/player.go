@@ -14,6 +14,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op"
 
+	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/miniapp"
@@ -84,6 +85,8 @@ type playerChoice struct {
 	msg    model.Message
 	start  time.Duration
 	report func(error)
+	// media is what plays it: what reads its file.
+	media  *chatmedia.Manager
 	cancel surface
 	pick   map[player.Kind]*surface
 }
@@ -97,6 +100,11 @@ func (p *chatPage) play(gtx layout.Context, m model.Message, report func(error),
 // playFrom is play from start, a time from the start of m (below 0, from
 // the start); m moves there when it plays already.
 func (p *chatPage) playFrom(gtx layout.Context, m model.Message, start time.Duration, report func(error), l localization.Catalog) {
+	p.playWith(gtx, p.media, m, start, report, l)
+}
+
+// playWith is playFrom of what media reads, a source other than the chat's.
+func (p *chatPage) playWith(gtx layout.Context, media *chatmedia.Manager, m model.Message, start time.Duration, report func(error), l localization.Catalog) {
 	report(nil)
 	var chosen player.Kind
 	if p.player != nil {
@@ -108,13 +116,13 @@ func (p *chatPage) playFrom(gtx layout.Context, m model.Message, start time.Dura
 	switch {
 	case ask:
 		c := &p.playerChoice
-		c.kinds, c.msg, c.start, c.report = dedicatedPlayers(installed), m, start, report
+		c.kinds, c.msg, c.start, c.report, c.media = dedicatedPlayers(installed), m, start, report, media
 		c.modal.Open()
 		gtx.Execute(op.InvalidateCmd{})
 	case kind == "":
 		report(errors.New(playerText(l, "player.none")))
 	default:
-		p.media.PlayFrom(m, kind, kind.Resolve(p.customPlayers()[kind]), start, report)
+		media.PlayFrom(m, kind, kind.Resolve(p.customPlayers()[kind]), start, report)
 	}
 }
 
@@ -158,7 +166,7 @@ func (p *chatPage) playerDialog(gtx layout.Context, l localization.Catalog) {
 			if p.setPlayer != nil {
 				p.setPlayer(kind)
 			}
-			p.media.PlayFrom(c.msg, kind, kind.Resolve(p.customPlayers()[kind]), c.start, c.report)
+			c.media.PlayFrom(c.msg, kind, kind.Resolve(p.customPlayers()[kind]), c.start, c.report)
 			c.modal.Close()
 		}
 	}

@@ -36,6 +36,12 @@ func canKeep(m model.Message) bool {
 	return !m.NoForwards && m.Media != nil && m.Kind == model.MessagePhoto
 }
 
+// canSave reports whether the viewer offers to save the photo m: a file of the
+// box of files is on the disk already.
+func (v *mediaViewer) canSave(m model.Message) bool {
+	return canKeep(m) && v.gallery != galleryBox
+}
+
 // keepPhoto saves the photo m in the user's pictures, or copies it, in the
 // background.
 func (v *mediaViewer) keepPhoto(m model.Message, copy bool, l localization.Catalog) {

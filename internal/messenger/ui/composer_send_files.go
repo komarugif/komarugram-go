@@ -16,6 +16,7 @@ import (
 	"gio-mw/widget/checkbox"
 	"gio-mw/widget/scroll"
 
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -40,6 +41,8 @@ type filesBox struct {
 	list                      scroll.List
 	add, cancel, send         surface
 	group, documents, quality *checkbox.Checkboxes[string]
+	// viewing is set while the viewer shows the files.
+	viewing bool
 	// results bring what the reading of files found out; generation tells
 	// which box opening they are for.
 	results    chan boxResult
@@ -55,6 +58,11 @@ type boxFile struct {
 	ready           bool
 	restrictionTold bool
 	remove          surface
+	// open opens it in the viewer. shown and long are a video's size and
+	// length, as FFmpeg tells them.
+	open  widget.Clickable
+	shown image.Point
+	long  time.Duration
 }
 
 // boxResult is what looking at a file found.
@@ -63,6 +71,8 @@ type boxResult struct {
 	file       *boxFile
 	info       sendfiles.File
 	thumb      *image.RGBA
+	shown      image.Point
+	long       time.Duration
 	err        error
 }
 
@@ -132,6 +142,11 @@ func (b *filesBox) addPaths(c *messageComposer, paths []string, documents bool) 
 				res.info, res.err = sendfiles.Inspect(f.Path)
 				if res.err == nil {
 					res.thumb = boxThumbnail(ctx, ffmpeg, res.info)
+					if res.info.Kind == sendfiles.KindVideo {
+						if m, err := video.ProbeMedia(ctx, res.info.Path, ffmpeg); err == nil {
+							res.shown, res.long = image.Pt(m.Width, m.Height), m.Duration
+						}
+					}
 				}
 			}()
 			select {
@@ -198,7 +213,7 @@ func (b *filesBox) take(l localization.Catalog) {
 				}
 				continue
 			}
-			r.file.File, r.file.thumb, r.file.ready = r.info, r.thumb, true
+			r.file.File, r.file.thumb, r.file.shown, r.file.long, r.file.ready = r.info, r.thumb, r.shown, r.long, true
 		default:
 			return
 		}
@@ -270,6 +285,11 @@ func (c *messageComposer) sendFiles(l localization.Catalog) {
 // layoutFilesBox draws the box over the page, and does what its buttons ask.
 func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l localization.Catalog) {
 	b := &c.files
+	if b.viewing {
+		// Under the viewer, it takes no input: an event goes to who asks for
+		// it first, and this comes first, Escape closing the box.
+		gtx = gtx.Disabled()
+	}
 	b.take(l)
 	for _, f := range b.files {
 		if f.ready {
@@ -319,6 +339,14 @@ func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l loca
 					b.modal.Close()
 				}
 				break
+			}
+		}
+		for _, f := range b.files {
+			if f.open.Clicked(gtx) && boxViewable(f) && p.openBoxFiles != nil {
+				media, items, current := boxGallery(p.source, c.chat, b.files, f)
+				b.viewing = true
+				// The caption goes on being typed once the viewer has gone.
+				p.openBoxFiles(media, c.chat, current, items, func() { b.viewing, b.modal.focus = false, true })
 			}
 		}
 	}
@@ -604,10 +632,16 @@ func (c *messageComposer) layoutTile(gtx layout.Context, p *chatPage, f *boxFile
 	radius := gtx.Dp(8)
 	defer clip.UniformRRect(image.Rectangle{Max: size}, radius).Push(gtx.Ops).Pop()
 	fillRect(gtx, sc.SurfaceContainerHighest, size)
-	if f.thumb != nil && p.images != nil {
-		gtx.Constraints = layout.Exact(size)
-		widget.Image{Src: p.images.Op(f.thumb), Fit: widget.Cover, Position: layout.Center}.Layout(gtx)
-	}
+	// Under the button that takes it out, drawn after it.
+	tile := gtx
+	tile.Constraints = layout.Exact(size)
+	f.open.Layout(tile, func(gtx layout.Context) layout.Dimensions {
+		pointer.CursorPointer.Add(gtx.Ops)
+		if f.thumb != nil && p.images != nil {
+			widget.Image{Src: p.images.Op(f.thumb), Fit: widget.Cover, Position: layout.Center}.Layout(gtx)
+		}
+		return layout.Dimensions{Size: size}
+	})
 	white := token.NewMatColorFromHexRGB(0xffffff)
 	switch f.Kind {
 	case sendfiles.KindVideo:
@@ -671,7 +705,13 @@ func (c *messageComposer) layoutFileRow(gtx layout.Context, p *chatPage, f *boxF
 			defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(8)).Push(gtx.Ops).Pop()
 			if f.thumb != nil && p.images != nil {
 				gtx.Constraints = layout.Exact(size)
-				return widget.Image{Src: p.images.Op(f.thumb), Fit: widget.Cover, Position: layout.Center}.Layout(gtx)
+				if !boxViewable(f) {
+					return widget.Image{Src: p.images.Op(f.thumb), Fit: widget.Cover, Position: layout.Center}.Layout(gtx)
+				}
+				return f.open.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					pointer.CursorPointer.Add(gtx.Ops)
+					return widget.Image{Src: p.images.Op(f.thumb), Fit: widget.Cover, Position: layout.Center}.Layout(gtx)
+				})
 			}
 			fillRect(gtx, sc.Primary.Color, size)
 			icon := iconFileRow

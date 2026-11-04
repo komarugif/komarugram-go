@@ -377,7 +377,10 @@ size-stability fixes remain in place.
   the composer's text and Enter to send, and the checkboxes that
   `sendfiles` says apply (`HasGroupOption`, `HasDocumentsOption`,
   `HasHighQualityOption`). Files are looked at in the background
-  (`sendfiles.Inspect`, `Thumbnail`; music as "Performer – Title" with its
+  (`sendfiles.Inspect`, `Thumbnail`; a click on a photo, a video or a GIF
+  opens them in a viewer of their own, which reads them from the disk and
+  knows no chat, with nothing to forward or save: `viewer_box.go`; music as
+  "Performer – Title" with its
   cover, from `pkg/audiotag`; the first frame of a video from
   FFmpeg, when there is one); a file that cannot be sent is told in the
   dialog's toast. What it sends is `model.OutgoingFiles` in an

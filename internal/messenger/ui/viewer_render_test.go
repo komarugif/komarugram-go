@@ -35,7 +35,8 @@ import (
 // With VIEWER_PROFILE set it shows the photos of a chat's profile, with
 // VIEWER_GIFS a GIF of the chat among its GIFs, with VIEWER_STORIES the
 // stories of someone of the list's, and with VIEWER_SAVE_GIF a video saved
-// as a GIF by the bot, halfway through.
+// as a GIF by the bot, halfway through, and with VIEWER_BOX the files of the
+// box of files about to go.
 func TestRenderMediaViewer(t *testing.T) {
 	out := os.Getenv("VIEWER_PNG")
 	if out == "" {
@@ -54,7 +55,13 @@ func TestRenderMediaViewer(t *testing.T) {
 	}
 	var images imageOps
 	changed := make(chan struct{}, 64)
-	v := newMediaViewer(store, &images, func() {
+	var source model.ConversationStore = store
+	var boxItems []model.Message
+	if os.Getenv("VIEWER_BOX") != "" {
+		files := boxFixture(t)
+		source, boxItems, start = boxGallery(store, 2, files, files[2])
+	}
+	v := newMediaViewer(source, &images, func() {
 		select {
 		case changed <- struct{}{}:
 		default:
@@ -63,7 +70,10 @@ func TestRenderMediaViewer(t *testing.T) {
 	defer v.Destroy()
 	v.popout = func(int64, model.Message, mediaList) {}
 	v.share.chats = store.Chats
-	if os.Getenv("VIEWER_STORIES") != "" {
+	if boxItems != nil {
+		v.popout = nil
+		v.openList(2, start, mediaList{items: boxItems, ended: [2]bool{true, true}, gallery: galleryBox})
+	} else if os.Getenv("VIEWER_STORIES") != "" {
 		peer := store.StoryPeers()[1]
 		stories, _ := store.PeerStories(context.Background(), peer.ID)
 		start = stories[0]
