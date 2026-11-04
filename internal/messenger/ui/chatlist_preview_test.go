@@ -98,24 +98,22 @@ func TestPreviewThumbFailureWaits(t *testing.T) {
 }
 
 // The same message, as the store hands it again in new slices, is the same
-// line: its custom emoji, which play twice from when it was first drawn,
-// do not start over. Another message is a new line.
+// line, not made again. Another message is a new line.
 func TestPreviewLineSameMessage(t *testing.T) {
 	var p previewLine
 	c := model.Chat{ID: 1, Last: model.Preview{Text: "a b", Entities: []model.Entity{{Kind: "italic", Offset: 2, Length: 1}}}}
 	l := localization.For("en")
 	p.update(c, "x", l, 17)
-	// Drawn once: its emoji play from then.
-	shown := time.Unix(1, 0)
-	p.shown = shown
+	made := &p.runs[0]
 	c.Last.Entities = []model.Entity{{Kind: "italic", Offset: 2, Length: 1}}
+	p.runs[0].Text = "kept"
 	p.update(c, "x", l, 17)
-	if !p.shown.Equal(shown) || len(p.runs) != 2 {
-		t.Fatal("the same message started over")
+	if p.runs[0].Text != "kept" || &p.runs[0] != made || len(p.runs) != 2 {
+		t.Fatal("the same message was made again")
 	}
 	c.Last.Text = "a c"
 	p.update(c, "x", l, 17)
-	if p.runs[1].Text != "c" || !p.runs[1].Italic || !p.shown.IsZero() {
+	if p.runs[1].Text != "c" || !p.runs[1].Italic {
 		t.Fatalf("not made again for another message: %+v", p.runs)
 	}
 }

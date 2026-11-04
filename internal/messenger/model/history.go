@@ -65,6 +65,11 @@ type MessageMedia struct {
 	// TextColor marks a custom emoji drawn in the color of the text around
 	// it, as Telegram marks some: its shape, not its own colors.
 	TextColor bool `json:",omitempty"`
+	// Premium marks restricted stickers and non-free custom emoji.
+	Premium bool `json:",omitempty"`
+	// PremiumKnown distinguishes unrestricted media from old cached documents
+	// that predate entitlement metadata.
+	PremiumKnown bool `json:",omitempty"`
 	// Emoji is the emoji a sticker stands for, which a list shows before
 	// the word, as Telegram's clients do.
 	Emoji     string `json:",omitempty"`
@@ -198,13 +203,17 @@ type Message struct {
 	// yet, which only the history shows: it has an id of its own, below
 	// zero, until Telegram's comes.
 	Sending bool `json:"-"`
+	// SendError is a failed outgoing request, retained for retry or cancellation.
+	SendError string `json:"-"`
+	// LocalPremium marks content kept only on this device.
+	LocalPremium bool `json:",omitempty"`
 }
 
 // Local reports whether m is not a message of Telegram's yet, but one the
 // client shows on its own: a draft a bot streams, or a message on its way.
 // It is not one to reply to, select or keep the layout of.
 func (m Message) Local() bool {
-	return m.Streaming || m.Sending
+	return m.Streaming || m.Sending || m.LocalPremium && m.Key.MessageID < 0
 }
 
 // GeneralTopic is the id of the topic every forum has, whose messages have

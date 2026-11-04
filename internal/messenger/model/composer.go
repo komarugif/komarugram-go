@@ -122,6 +122,110 @@ type ComposerStore interface {
 	Send(context.Context, int64, OutgoingMessage) error
 }
 
+// OutboxStore accepts a message once its request and attachments are durable.
+// Delivery continues independently of the composer and its window.
+type OutboxStore interface {
+	QueueMessage(context.Context, int64, OutgoingMessage) error
+	RetryOutgoing(MessageKey)
+	CancelOutgoing(MessageKey)
+}
+
+// ErrNoFFprobe is why a video cannot be sent as one here: nothing can tell its
+// size and length.
+var ErrNoFFprobe = errors.New("could not inspect video; install ffprobe or attach it as a file")
+
+// SendFailure is a message Telegram will not be asked for again.
+type SendFailure struct {
+	// Text is what went wrong, as it was told; NoFFprobe says it was ErrNoFFprobe.
+	Text      string
+	NoFFprobe bool
+}
+
+// SendFailureSource tells of messages that failed, which the queue accepted long
+// before. Without it they would only have a mark, wherever they are.
+type SendFailureSource interface {
+	// TakeSendFailure is the last failure not told yet. It is asked in frames.
+	TakeSendFailure() (SendFailure, bool)
+}
+
+// LocalPremium is what the client does on its own of what Premium gives. Each
+// part is of use with a subscription too, past its higher limits.
+type LocalPremium struct {
+	// Star shows the Premium star beside the accounts signed in here.
+	Star bool
+	// Media shows Premium stickers and custom emoji, kept on this device.
+	Media bool
+	// GIFs and Pins keep the saved GIFs and pinned chats past Telegram's limits.
+	GIFs, Pins bool
+	// Sync shares what GIFs and Pins keep through a private channel.
+	Sync bool
+}
+
+// CanSync reports whether Sync has anything to share.
+func (l LocalPremium) CanSync() bool { return l.GIFs || l.Pins }
+
+// Consistent is l without Sync when it has nothing to share.
+func (l LocalPremium) Consistent() LocalPremium {
+	l.Sync = l.Sync && l.CanSync()
+	return l
+}
+
+// AsksForChannel reports whether going from was to l has the user asked about
+// the channel: Sync just ticked, or GIFs ticked, which can then go there.
+func (l LocalPremium) AsksForChannel(was LocalPremium) bool {
+	return l.Sync && (!was.Sync || l.GIFs && !was.GIFs)
+}
+
+// Any reports whether any part is on.
+func (l LocalPremium) Any() bool { return l != LocalPremium{} }
+
+// AllLocalPremium has every part on.
+var AllLocalPremium = LocalPremium{Star: true, Media: true, GIFs: true, Pins: true, Sync: true}
+
+// LocalPremiumStore controls client-only presentation and collections. It never
+// changes the account's actual Telegram subscription.
+type LocalPremiumStore interface{ SetLocalPremium(LocalPremium) }
+
+// LocalEmojiFilter tells which custom emoji the message field of chat shows as
+// ordinary ones: those the account could not really send there. It is asked in
+// frames.
+type LocalEmojiFilter interface {
+	HidesCustomEmoji(chat, document int64) bool
+	// CannotSendPaid reports whether paid stickers, or with emoji paid custom
+	// emoji, could not be sent to chat, really or locally.
+	CannotSendPaid(chat int64, emoji bool) bool
+}
+
+// WithoutPaid is items without the paid stickers and custom emoji.
+func WithoutPaid(items []PickerItem) []PickerItem {
+	var out []PickerItem
+	for _, item := range items {
+		if m := item.Media.Media; m == nil || !m.Premium {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+// WithoutPaid is the page without the paid stickers and custom emoji, and the
+// packs that were nothing else.
+func (p PickerPage) WithoutPaid() PickerPage {
+	packs := func(packs []PickerPack) []PickerPack {
+		var out []PickerPack
+		for _, pack := range packs {
+			if pack.Items = WithoutPaid(pack.Items); len(pack.Items) > 0 {
+				out = append(out, pack)
+			}
+		}
+		return out
+	}
+	p.Recent, p.Items = WithoutPaid(p.Recent), WithoutPaid(p.Items)
+	p.Packs, p.Featured = packs(p.Packs), packs(p.Featured)
+	return p
+}
+
+type LocalPremiumSource interface{ LocalPinsEnabled() bool }
+
 // PreferSaved deduplicates global search results while retaining saved-pack order.
 func PreferSaved(saved, global []PickerItem) []PickerItem {
 	out := make([]PickerItem, 0, len(saved)+len(global))

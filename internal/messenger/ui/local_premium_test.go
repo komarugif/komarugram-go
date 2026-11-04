@@ -19,7 +19,7 @@ func TestLocalPremiumMarksOwnAccounts(t *testing.T) {
 	prefs := preferences.Memory()
 	a := &App{store: store, preferences: prefs}
 	me := store.Me().ID
-	other := map[int64]bool{7: true}
+	other := map[int64]string{7: "b"}
 	a.ownUsers.Store(&other)
 	star := func(user int64) bool {
 		_, after := a.badges(model.Badges{User: user}, "", 16, false)
@@ -30,7 +30,26 @@ func TestLocalPremiumMarksOwnAccounts(t *testing.T) {
 			t.Fatalf("user %d has a star with Local Premium off", user)
 		}
 	}
-	if err := prefs.SetLocalPremium(true); err != nil {
+	if err := prefs.SetLocalPremium(preferences.LocalPremium{Pins: true}); err != nil {
+		t.Fatal(err)
+	}
+	if star(me) {
+		t.Fatal("a star with only the pins on")
+	}
+	if err := prefs.SetLocalPremium(preferences.LocalPremium{Star: true}); err != nil {
+		t.Fatal(err)
+	}
+	// Each account has its own star.
+	if !star(me) || !star(7) {
+		t.Fatal("no star with what all follow")
+	}
+	if err := prefs.SetLocalPremiumOf("b", preferences.LocalPremium{}); err != nil {
+		t.Fatal(err)
+	}
+	if !star(me) || star(7) {
+		t.Fatal("the star of one account follows another's")
+	}
+	if err := prefs.SetLocalPremiumOf("b", preferences.LocalPremium{Star: true}); err != nil {
 		t.Fatal(err)
 	}
 	if !star(me) || !star(7) {
@@ -53,13 +72,50 @@ func TestSettingsTellLocalPremium(t *testing.T) {
 	if got := p.premiumText(l); got != "Not subscribed" {
 		t.Fatalf("without it: %q", got)
 	}
-	on := true
-	p.localPremium = func() bool { return on }
+	on := model.LocalPremium{GIFs: true}
+	p.localPremium = func() model.LocalPremium { return on }
 	if got := p.premiumText(l); got != "Local" {
 		t.Fatalf("with it: %q", got)
 	}
-	on = false
+	on = model.LocalPremium{}
 	if got := p.premiumText(l); got != "Not subscribed" {
 		t.Fatalf("off again: %q", got)
+	}
+}
+
+// failingStore tells of one failure.
+type failingStore struct {
+	failure model.SendFailure
+	told    bool
+}
+
+func (s *failingStore) TakeSendFailure() (model.SendFailure, bool) {
+	if s.told {
+		return model.SendFailure{}, false
+	}
+	s.told = true
+	return s.failure, true
+}
+
+// A failure reaches the toast, in the interface's words where they are known.
+func TestSendFailureToast(t *testing.T) {
+	l := localization.For("ru")
+	var shown []string
+	toast := func(s string) { shown = append(shown, s) }
+	source := &failingStore{failure: model.SendFailure{Text: "CHAT_WRITE_FORBIDDEN"}}
+	tellSendFailure(source, toast, l)
+	tellSendFailure(source, toast, l)
+	if len(shown) != 1 || shown[0] != l.T("composer.send_failed")+": CHAT_WRITE_FORBIDDEN" {
+		t.Fatalf("shown %q", shown)
+	}
+	shown = nil
+	tellSendFailure(&failingStore{failure: model.SendFailure{Text: "x", NoFFprobe: true}}, toast, l)
+	if len(shown) != 1 || shown[0] != l.T("composer.send_no_ffprobe") {
+		t.Fatalf("shown %q", shown)
+	}
+	shown = nil
+	tellSendFailure(struct{}{}, toast, l)
+	if len(shown) != 0 {
+		t.Fatalf("a store without it: %q", shown)
 	}
 }

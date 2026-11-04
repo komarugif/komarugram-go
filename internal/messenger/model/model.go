@@ -50,8 +50,10 @@ type Preview struct {
 	Service *Message `json:",omitempty"`
 	// ID is the message's; Sent is set when the account sent it, in any
 	// chat, for the list to mark whether it was read.
-	ID   MessageID `json:",omitempty"`
-	Sent bool      `json:",omitempty"`
+	ID         MessageID `json:",omitempty"`
+	Sent       bool      `json:",omitempty"`
+	Sending    bool      `json:",omitempty"`
+	SendFailed bool      `json:",omitempty"`
 	// Entities are the formatting of Text a list draws, in UTF-16 offsets
 	// into it, as Telegram Desktop's keeps them: italic, underline, strike,
 	// code, spoilers and custom emoji.
@@ -70,14 +72,14 @@ type Preview struct {
 // IsZero reports whether p tells nothing: a chat without a last message.
 func (p Preview) IsZero() bool {
 	return p.Text == "" && p.Sender == "" && !p.Outgoing && p.Media == "" && p.Emoji == "" && p.Title == "" && p.Service == nil &&
-		p.ID == 0 && !p.Sent && len(p.Entities) == 0 && len(p.Thumbs) == 0 && p.Album == nil && !p.Forwarded
+		p.ID == 0 && !p.Sent && !p.Sending && !p.SendFailed && len(p.Entities) == 0 && len(p.Thumbs) == 0 && p.Album == nil && !p.Forwarded
 }
 
 // Equal reports whether p and o show the same, a service message by the
 // same pointer.
 func (p Preview) Equal(o Preview) bool {
 	return p.Text == o.Text && p.Sender == o.Sender && p.Outgoing == o.Outgoing && p.Media == o.Media && p.Emoji == o.Emoji && p.Title == o.Title &&
-		p.Service == o.Service && p.ID == o.ID && p.Sent == o.Sent && p.Forwarded == o.Forwarded &&
+		p.Service == o.Service && p.ID == o.ID && p.Sent == o.Sent && p.Sending == o.Sending && p.SendFailed == o.SendFailed && p.Forwarded == o.Forwarded &&
 		slices.Equal(p.Entities, o.Entities) && slices.EqualFunc(p.Thumbs, o.Thumbs, PreviewThumb.Equal) &&
 		(p.Album == o.Album || p.Album != nil && o.Album != nil && *p.Album == *o.Album)
 }

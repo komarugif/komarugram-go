@@ -225,7 +225,7 @@ func main() {
 	}
 	defer manager.Close()
 	if sharedPreferences != nil {
-		manager.SetPremiumMedia(func() bool { return sharedPreferences.Global().PremiumMedia })
+		manager.SetPremiumMedia(sharedPreferences.PremiumMediaOf)
 	}
 	proxies, err := newProxies(manager, protection, *proxyLink)
 	if err != nil {
@@ -262,7 +262,13 @@ func main() {
 		}
 	})
 	accounts := newAccountWindows(process, windowOptions(sharedPreferences), manager, proxies, protection, sharedPreferences, sharedMiniApps, imports)
-	accounts.peerBadges = openPeerBadges(sharedPreferences)
+	accounts.peerBadges = openPeerBadges(sharedPreferences, func() []string {
+		var ids []string
+		for _, a := range manager.Accounts() {
+			ids = append(ids, a.ID)
+		}
+		return ids
+	})
 	balloon := &trayBalloon{}
 	notifier := notify.New(catalog.T("app.title"), balloon)
 	accounts.notifier = notifier
@@ -595,7 +601,7 @@ func checkAccounts(manager *account.Manager, imports []*account.TData) error {
 
 // openPeerBadges returns the marks of exteraGram, AyuGram and KomaruGram, which
 // read their lists unless the settings hide them.
-func openPeerBadges(prefs *preferences.Store) *peerbadges.Registry {
+func openPeerBadges(prefs *preferences.Store, accounts func() []string) *peerbadges.Registry {
 	dir := ""
 	if config, err := os.UserConfigDir(); err == nil {
 		dir = filepath.Join(config, "komarugram-go", "peer_badges")
@@ -605,8 +611,7 @@ func openPeerBadges(prefs *preferences.Store) *peerbadges.Registry {
 		if prefs == nil {
 			return true, true
 		}
-		g := prefs.Global()
-		return !g.HidesPeerArrows(), !g.HidesPeerFaces()
+		return prefs.PeerMarksWanted(accounts())
 	})
 	return reg
 }

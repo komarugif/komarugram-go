@@ -281,7 +281,8 @@ size-stability fixes remain in place.
   arrow of a forward, up to three thumbnails (a video's with a play mark, a
   video message's round, one under a spoiler only blurred), the interface's
   words in the accent colour, and the text with italic, underline, strike,
-  code, covered spoilers and custom emoji, which play twice and stand. It
+  code, covered spoilers and custom emoji, which keep playing (Telegram Desktop's
+  stop after two loops; the maintainer's choice). It
   is made from `model.Preview` once a message, each run a label of its own,
   so a frame of the list allocates no more than plain text did; its
   thumbnails are Telegram's inline pictures, which come with the message:
@@ -355,6 +356,12 @@ size-stability fixes remain in place.
   read once done with (as Ghost's ReadOnInteract allows), and a video made
   again saves the GIF it made (`MadeGIF`), which Telegram keeps once.
   `VIEWER_SAVE_GIF` renders it.
+- **Storage channel** (`storage_offer.go`): when Local Premium's sync is ticked
+  and no channel of `model.StorageChannelTitle` is found, a `modal` offers to
+  keep the lists in a private channel, existing or new; a channel without GIFs
+  can then take the whole list, with a warning. Its `progressRows` dialog is
+  locked, and shows by itself when a pass goes on after a restart or runs from
+  another window. `STORAGE_PNG_DIR` renders the pages.
 - **Devices** (`sessions.go`): the settings section of the account's
   sessions, grouped as Telegram Desktop's Active Sessions, with a dialog of a
   session's details; it asks again every minute while it is open.
@@ -402,6 +409,11 @@ size-stability fixes remain in place.
   (the Gio fork's `Editor.HideText` and `PaintText`), run by run: links in
   the accent color, plates under code and spoilers, lines under and through,
   bold thickened and italic slanted from the one face the field has.
+  Custom emoji use the history's media manager, clipped to the editor's
+  visible rune regions, with the ordinary emoji as fallback while loading.
+  `COMPOSER_VIEW=custom-emoji` with `COMPOSER_PNG` renders this field;
+  `OUTBOX_PNG` renders pending photos, files, stickers and voice with delivery
+  marks. Durable delivery and Local Premium: `docs/LOCAL_PREMIUM.md`.
 - **Bots** (`bot.go`): `botPage` on the chat page. The buttons under a message
   are `textButton`s in the bubble (`history_bubble.go`); a callback asks the store
   (`model.BotStore`) in a goroutine and comes back through `botUpdate` to the

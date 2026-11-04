@@ -33,6 +33,8 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/unit"
+	"komarugram/internal/messenger/preferences"
+	"slices"
 )
 
 type composerHarness struct {
@@ -308,6 +310,14 @@ func TestRenderComposer(t *testing.T) {
 		h.chat = 2
 		h.frame()
 		h.p.composer.draft(2).editor.SetText("Встречаемся в субботу у фонтана")
+	case "custom-emoji":
+		h.p.composer.pickerOpen = false
+		h.chat = 2
+		h.frame()
+		d := h.p.composer.draft(2)
+		d.editor.SetText("Локальный Premium 🙂")
+		d.text = d.editor.Text()
+		d.entities = []model.Entity{{Kind: model.EntityEmoji, Offset: u16Len("Локальный Premium "), Length: 2, DocumentID: 77}}
 	case "classic-translucent", "floating-translucent":
 		// The window half transparent over stripes, as over a desktop: the
 		// classic bar shows them, as the sidebar does; the history and the
@@ -803,5 +813,85 @@ func TestPickerShowsKeptThenFresh(t *testing.T) {
 	keepFeatured(&fresh.page, shown)
 	if !fresh.page.Featured[0].Complete || len(fresh.page.Featured[0].Items) != 2 {
 		t.Fatalf("featured set shown lost: %+v", fresh.page.Featured)
+	}
+}
+
+// paidStore is a store whose paid stickers cannot be sent, unless can.
+type paidStore struct {
+	*mockstore.Store
+	can bool
+}
+
+func (s paidStore) HidesCustomEmoji(_, _ int64) bool { return false }
+func (s paidStore) CannotSendPaid(int64, bool) bool  { return !s.can }
+func (s paidStore) Picker(context.Context, model.PickerRequest) (model.PickerPage, error) {
+	item := func(id string, paid bool) model.PickerItem {
+		return model.PickerItem{ID: id, Media: model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: id, Premium: paid}}}
+	}
+	return model.PickerPage{
+		Recent:   []model.PickerItem{item("recent-paid", true), item("recent-free", false)},
+		Packs:    []model.PickerPack{{ID: 1, Items: []model.PickerItem{item("paid", true), item("free", false)}}, {ID: 2, Title: "all paid", Items: []model.PickerItem{item("paid2", true)}}},
+		Featured: []model.PickerPack{{ID: 3, Items: []model.PickerItem{item("paid3", true)}}},
+	}, nil
+}
+
+// The calm takes paid stickers out of the panel at once, and only when they could
+// not be sent; the page comes back whole when it no longer does.
+func TestPickerHidesPaidWithTheCalm(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		calm preferences.Calm
+		can  bool
+		hide bool
+	}{
+		{"not asked", preferences.Calm{On: true}, false, false},
+		{"asked", preferences.Calm{On: true, HidePaid: true}, false, true},
+		{"the calm off", preferences.Calm{HidePaid: true}, false, false},
+		{"they can be sent", preferences.Calm{On: true, HidePaid: true}, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newChatPage(paidStore{mockstore.New(time.Now(), 0), tc.can}, func() {})
+			defer p.Close()
+			c := p.composer
+			c.pickerOpen = true
+			l := localization.For("en")
+			var last bool
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(400, 500)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
+				wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+				withCalm(gtx, tc.calm)
+				c.update(gtx, 5, l, p)
+				c.pickerOpen = true
+				if !c.pageLoaded && !c.loading {
+					c.request(l, false)
+				}
+				if last = c.pageLoaded; last {
+					break
+				}
+				time.Sleep(2 * time.Millisecond)
+			}
+			if !last {
+				t.Fatal("no page")
+			}
+			// What was chosen here is among the recent ones, kept apart.
+			c.recent[c.tab] = []model.PickerItem{{ID: "chosen-paid", Media: model.Message{Kind: model.MessageSticker, Media: &model.MessageMedia{ID: "chosen-paid", Premium: true}}}}
+			var ids []string
+			for _, row := range c.pickerRows(400, 60, l) {
+				for _, item := range row.items {
+					ids = append(ids, item.ID)
+				}
+			}
+			if slices.Contains(ids, "chosen-paid") == tc.hide {
+				t.Fatalf("chosen, hide %v: %v", tc.hide, ids)
+			}
+			paid := slices.Contains(ids, "paid") || slices.Contains(ids, "paid2") || slices.Contains(ids, "paid3") || slices.Contains(ids, "recent-paid")
+			if paid == tc.hide || !slices.Contains(ids, "free") {
+				t.Fatalf("hide %v: %v", tc.hide, ids)
+			}
+			if tc.hide && len(c.page.Packs) != 1 {
+				t.Fatalf("a pack of nothing else stayed: %+v", c.page.Packs)
+			}
+		})
 	}
 }

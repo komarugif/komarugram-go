@@ -30,7 +30,7 @@ func TestProfileResolve(t *testing.T) {
 	if ephemeral {
 		t.Error("a per-app profile is meant to be kept")
 	}
-	if want := filepath.Join(root, "apps", "kitchen_bot"); app != want {
+	if want := filepath.Join(root, "apps", "default", "kitchen_bot"); app != want {
 		t.Errorf("per-app profile is %s, want %s", app, want)
 	}
 	if _, err := os.Stat(app); err != nil {
@@ -45,6 +45,18 @@ func TestProfileResolve(t *testing.T) {
 	}
 	if other == app {
 		t.Error("two apps share a profile")
+	}
+	// One app under two accounts must not either: it may keep a sign-in.
+	first, _, err := Profile{Storage: PerApp, Root: root, App: "kitchen_bot", Account: "1"}.resolve("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := Profile{Storage: PerApp, Root: root, App: "kitchen_bot", Account: "2"}.resolve("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Error("two accounts share a per-app profile")
 	}
 	account, _, err := Profile{Storage: Shared, Root: root, Account: "kitchen_bot"}.resolve("")
 	if err != nil {

@@ -378,3 +378,27 @@ func TestReadOnInteract(t *testing.T) {
 		t.Fatalf("told %q", told)
 	}
 }
+
+// A closed window leaves no one to tell Telegram; it is told once, and waited for,
+// and nothing is told of an account it never showed online.
+func TestTellOffline(t *testing.T) {
+	s := testStore(t)
+	api := &ghostAPI{}
+	s.history.api = api.client()
+	s.SetGhost(model.Ghost{SendOnline: true})
+	s.TellOffline()
+	if told := api.wait(t, 0); len(told) != 0 {
+		t.Fatalf("never online, told %q", told)
+	}
+	s.SetOnline(true)
+	api.wait(t, 1)
+	s.TellOffline()
+	told := api.wait(t, 2)
+	if len(told) != 2 || told[1] != "offline true" {
+		t.Fatalf("told %q", told)
+	}
+	s.TellOffline()
+	if told := api.wait(t, 2); len(told) != 2 {
+		t.Fatalf("told twice %q", told)
+	}
+}

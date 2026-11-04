@@ -36,7 +36,14 @@ const pagePause = 300 * time.Millisecond
 
 // Store holds what Load last read. It is safe to use from any goroutine.
 type Store struct {
-	picker pickerCache
+	outbox          outgoingQueue
+	localPremium    atomic.Pointer[model.LocalPremium]
+	emojiPaid       sync.Map
+	// sendFailure is the last message that failed, until it is told.
+	sendFailure atomic.Pointer[model.SendFailure]
+	localMessagesMu sync.Mutex
+	collections     localCollections
+	picker          pickerCache
 	// watch hands the messages of chats watched to their watchers.
 	watch   chatWatch
 	themes  themeCatalogue
@@ -113,8 +120,9 @@ func (s *Store) Folders() []model.Folder {
 
 func (s *Store) Chats() []model.Chat {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.chats
+	chats := s.chats
+	s.mu.RUnlock()
+	return s.withLocalCollections(s.withOutgoingPreviews(chats))
 }
 
 // Load reads the profile, the folders and every dialog of the main list,
@@ -143,6 +151,7 @@ func (s *Store) Load(ctx context.Context, api *tg.Client) error {
 		return err
 	}
 	s.goLoadStories(ctx, api)
+	s.startOutgoing()
 	return nil
 }
 
@@ -277,6 +286,7 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) err
 	if err := s.persistDialogs(ctx); err != nil {
 		return err
 	}
+	s.dialogsRead()
 	s.resync(0)
 	return nil
 }

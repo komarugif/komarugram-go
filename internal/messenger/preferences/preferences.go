@@ -68,11 +68,10 @@ type Global struct {
 	// StreamerMode hides the windows from screen capture, as AyuGram's
 	// Streamer Mode, where the platform allows it.
 	StreamerMode bool `json:"streamer_mode,omitempty"`
-	// LocalPremium makes the accounts signed in here look Premium to
-	// themselves, as AyuGram's Local Premium: the star beside their names,
-	// and the Premium section of the settings. Telegram does not know of it,
-	// so nothing else changes.
-	LocalPremium bool `json:"local_premium,omitempty"`
+	// LocalPremium is what the client does on its own of what Premium gives.
+	// It does not change the accounts' actual Telegram subscription or
+	// server-side limits.
+	LocalPremium LocalPremium `json:"local_premium,omitzero"`
 	// HidePeerBadges hides the marks of exteraGram, AyuGram and KomaruGram
 	// beside names (package peerbadges), and keeps the client from reading
 	// their lists.
@@ -407,6 +406,286 @@ func (g *Ghost) UnmarshalJSON(b []byte) error {
 }
 
 // Equal reports whether g and o are the same preferences, as saved.
+// LocalPremium is model.LocalPremium as it is kept.
+type LocalPremium struct {
+	Star  bool `json:"star,omitempty"`
+	Media bool `json:"media,omitempty"`
+	GIFs  bool `json:"gifs,omitempty"`
+	Pins  bool `json:"pins,omitempty"`
+	Sync  bool `json:"sync,omitempty"`
+}
+
+// UnmarshalJSON reads also the one switch this was. On, it meant all but the
+// channel, which asks first when switched on.
+func (l *LocalPremium) UnmarshalJSON(b []byte) error {
+	var old bool
+	if json.Unmarshal(b, &old) == nil {
+		*l = LocalPremium{Star: old, Media: old, GIFs: old, Pins: old}
+		return nil
+	}
+	type plain LocalPremium
+	if err := json.Unmarshal(b, (*plain)(l)); err != nil {
+		return err
+	}
+	// Written before it needed either: the box could not be unticked now.
+	l.Sync = l.Sync && (l.GIFs || l.Pins)
+	return nil
+}
+
+// Account is what belongs to one Telegram account. What is nil follows Global.
+type Account struct {
+	LocalPremium *LocalPremium `json:"local_premium,omitempty"`
+	PremiumMedia *bool         `json:"premium_media,omitempty"`
+	// Visibility, when set, is the Visibility section of this account alone:
+	// see PinVisibility.
+	Visibility *Visibility `json:"visibility,omitempty"`
+	// StorageChannel is where Local Premium keeps its lists: model.StorageBinding.
+	StorageChannel *StorageChannel `json:"storage_channel,omitempty"`
+}
+
+// StorageChannel is model.StorageBinding as it is kept.
+type StorageChannel struct {
+	ChannelID int64  `json:"channel_id"`
+	Hash      int64  `json:"hash"`
+	Title     string `json:"title,omitempty"`
+}
+
+// Visibility is the settings of the Visibility section, shared by the accounts
+// in Global until one pins its own.
+type Visibility struct {
+	Calm           Calm    `json:"calm"`
+	HidePeerBadges bool    `json:"hide_peer_badges,omitempty"`
+	KeepPeerArrows bool    `json:"keep_peer_arrows,omitempty"`
+	KeepPeerFaces  bool    `json:"keep_peer_faces,omitempty"`
+	Ghost          Ghost   `json:"ghost"`
+	Filters        Filters `json:"filters"`
+	Keep           Keep    `json:"keep"`
+}
+
+// HidesPeerArrows reports whether the arrows of exteraGram and AyuGram are hidden.
+func (v Visibility) HidesPeerArrows() bool { return v.HidePeerBadges && !v.KeepPeerArrows }
+
+// HidesPeerFaces reports whether the Komaru faces are hidden.
+func (v Visibility) HidesPeerFaces() bool { return v.HidePeerBadges && !v.KeepPeerFaces }
+
+func (g Global) visibility() Visibility {
+	return Visibility{Calm: g.Calm, HidePeerBadges: g.HidePeerBadges, KeepPeerArrows: g.KeepPeerArrows, KeepPeerFaces: g.KeepPeerFaces, Ghost: g.Ghost, Filters: g.Filters, Keep: g.Keep}
+}
+
+func (v Visibility) applyTo(g *Global) {
+	g.Calm, g.HidePeerBadges, g.KeepPeerArrows, g.KeepPeerFaces = v.Calm, v.HidePeerBadges, v.KeepPeerArrows, v.KeepPeerFaces
+	g.Ghost, g.Filters, g.Keep = v.Ghost, v.Filters, v.Keep
+}
+
+// accountLocked is what id has of its own.
+func (s *Store) accountLocked(id string) Account {
+	if a, ok := s.parsed[id]; ok {
+		return a
+	}
+	var a Account
+	if raw, ok := s.accounts[id]; ok {
+		// One that cannot be read has nothing of its own; it stays in the file.
+		_ = json.Unmarshal(raw, &a)
+	}
+	if s.parsed == nil {
+		s.parsed = map[string]Account{}
+	}
+	s.parsed[id] = a
+	return a
+}
+
+// changeAccount changes what id has of its own, and leaves the rest of its entry.
+func (s *Store) changeAccount(id string, update func(*Account)) error {
+	s.mu.Lock()
+	a := s.accountLocked(id)
+	update(&a)
+	fields := map[string]json.RawMessage{}
+	old, had := s.accounts[id]
+	if had {
+		_ = json.Unmarshal(old, &fields)
+	}
+	set := func(key string, present bool, value any) error {
+		delete(fields, key)
+		if !present {
+			return nil
+		}
+		b, err := json.Marshal(value)
+		fields[key] = b
+		return err
+	}
+	err := errors.Join(set("local_premium", a.LocalPremium != nil, a.LocalPremium),
+		set("premium_media", a.PremiumMedia != nil, a.PremiumMedia),
+		set("visibility", a.Visibility != nil, a.Visibility),
+		set("storage_channel", a.StorageChannel != nil, a.StorageChannel))
+	var entry []byte
+	if err == nil {
+		entry, err = json.Marshal(fields)
+	}
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if had && string(old) == string(entry) {
+		s.mu.Unlock()
+		return nil
+	}
+	s.accounts[id] = entry
+	if err := s.writeLocked(s.global); err != nil {
+		if had {
+			s.accounts[id] = old
+		} else {
+			delete(s.accounts, id)
+		}
+		s.mu.Unlock()
+		return err
+	}
+	s.parsed[id] = a
+	callbacks := make([]func(), 0, len(s.subscribers))
+	for _, callback := range s.subscribers {
+		callbacks = append(callbacks, callback)
+	}
+	s.mu.Unlock()
+	for _, callback := range callbacks {
+		callback()
+	}
+	return nil
+}
+
+// LocalPremiumOf is the Local Premium of account id. One that never changed it
+// has what the one switch for all of them said, but for the channel: that is its
+// own, and asks first when ticked.
+func (s *Store) LocalPremiumOf(id string) LocalPremium {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if parts := s.accountLocked(id).LocalPremium; parts != nil {
+		return *parts
+	}
+	parts := s.global.LocalPremium
+	if id != "" {
+		parts.Sync = false
+	}
+	return parts
+}
+
+// SetLocalPremiumOf changes it; a window of no account yet changes what is shared.
+func (s *Store) SetLocalPremiumOf(id string, parts LocalPremium) error {
+	if id == "" {
+		return s.SetLocalPremium(parts)
+	}
+	return s.changeAccount(id, func(a *Account) { a.LocalPremium = &parts })
+}
+
+// PremiumMediaOf reports whether files over WebSocket of account id go to the
+// address of Premium accounts.
+func (s *Store) PremiumMediaOf(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if on := s.accountLocked(id).PremiumMedia; on != nil {
+		return *on
+	}
+	return s.global.PremiumMedia
+}
+
+// SetPremiumMediaOf changes it.
+func (s *Store) SetPremiumMediaOf(id string, on bool) error {
+	if id == "" {
+		return s.SetPremiumMedia(on)
+	}
+	return s.changeAccount(id, func(a *Account) { a.PremiumMedia = &on })
+}
+
+// StorageChannelOf is the channel account id keeps its lists in.
+func (s *Store) StorageChannelOf(id string) StorageChannel {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c := s.accountLocked(id).StorageChannel; c != nil {
+		return *c
+	}
+	return StorageChannel{}
+}
+
+// SetStorageChannelOf changes it; zero forgets it.
+func (s *Store) SetStorageChannelOf(id string, c StorageChannel) error {
+	return s.changeAccount(id, func(a *Account) {
+		a.StorageChannel = nil
+		if c != (StorageChannel{}) {
+			a.StorageChannel = &c
+		}
+	})
+}
+
+// VisibilityOf is the Visibility section as account id has it.
+func (s *Store) VisibilityOf(id string) Visibility {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if v := s.accountLocked(id).Visibility; v != nil {
+		return *v
+	}
+	return s.global.visibility()
+}
+
+// VisibilityPinned reports whether account id has the section to itself.
+func (s *Store) VisibilityPinned(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.accountLocked(id).Visibility != nil
+}
+
+// PinVisibility gives account id the section to itself, starting from what is
+// shared now, or takes it back to what is shared, forgetting its own.
+func (s *Store) PinVisibility(id string, on bool) error {
+	if id == "" {
+		return nil
+	}
+	shared := s.Global().visibility()
+	return s.changeAccount(id, func(a *Account) {
+		switch {
+		case !on:
+			a.Visibility = nil
+		case a.Visibility == nil:
+			shared.Filters.Patterns = slices.Clone(shared.Filters.Patterns)
+			a.Visibility = &shared
+		}
+	})
+}
+
+// ChangeVisibility changes the section as account id has it: its own when pinned,
+// and otherwise what every account without its own shares.
+func (s *Store) ChangeVisibility(id string, update func(*Visibility)) error {
+	s.mu.Lock()
+	pinned := s.accountLocked(id).Visibility
+	next := s.global
+	s.mu.Unlock()
+	if pinned == nil {
+		return s.change(func(g *Global) {
+			v := g.visibility()
+			update(&v)
+			v.applyTo(g)
+		})
+	}
+	v := *pinned
+	update(&v)
+	v.applyTo(&next)
+	if err := validate(next); err != nil {
+		return err
+	}
+	return s.changeAccount(id, func(a *Account) { a.Visibility = &v })
+}
+
+// PeerMarksWanted reports whether any of the accounts ids shows the arrows and
+// the faces, for which their lists are read; with none yet, what is shared says.
+func (s *Store) PeerMarksWanted(ids []string) (arrows, faces bool) {
+	if len(ids) == 0 {
+		ids = []string{""}
+	}
+	for _, id := range ids {
+		v := s.VisibilityOf(id)
+		arrows = arrows || !v.HidesPeerArrows()
+		faces = faces || !v.HidesPeerFaces()
+	}
+	return arrows, faces
+}
+
 func (g Global) Equal(o Global) bool {
 	a, errA := json.Marshal(g)
 	b, errB := json.Marshal(o)
@@ -421,8 +700,8 @@ func (g Global) PlayerPaths() map[player.Kind]string {
 type fileData struct {
 	Version int    `json:"version"`
 	Global  Global `json:"global"`
-	// Accounts reserves a stable namespace for preferences which will belong
-	// to one Telegram account. There are no such preferences yet.
+	// Accounts are the preferences of one Telegram account, by its id: see
+	// Account. What this version does not know of them stays as it is.
 	Accounts map[string]json.RawMessage `json:"accounts"`
 }
 
@@ -432,6 +711,9 @@ type Store struct {
 	path        string
 	global      Global
 	accounts    map[string]json.RawMessage
+	// parsed is accounts as Account, asked in frames: read once, and made
+	// again when one changes.
+	parsed      map[string]Account
 	subscribers map[uint64]func()
 	nextID      uint64
 	// wallpapers are the pictures SaveWallpaper keeps in a store in memory.
@@ -727,9 +1009,9 @@ func (s *Store) SetVisualPrivacy(on bool) error {
 	return s.change(func(g *Global) { g.VisualPrivacy = on })
 }
 
-// SetLocalPremium makes the accounts look Premium to themselves, or not.
-func (s *Store) SetLocalPremium(on bool) error {
-	return s.change(func(g *Global) { g.LocalPremium = on })
+// SetLocalPremium changes what the client does on its own of what Premium gives.
+func (s *Store) SetLocalPremium(parts LocalPremium) error {
+	return s.change(func(g *Global) { g.LocalPremium = parts })
 }
 
 // SetHidePeerBadges hides the marks of exteraGram, AyuGram and KomaruGram
@@ -762,6 +1044,10 @@ type Calm struct {
 	// messages delivered and read.
 	KeepOnline bool `json:"keep_online,omitempty"`
 	KeepRead   bool `json:"keep_read,omitempty"`
+	// HidePaid takes out of the panel the paid stickers and custom emoji that
+	// cannot be sent. Unlike what it keeps above, off by default: those who had
+	// this on before it came keep their panel.
+	HidePaid bool `json:"hide_paid,omitempty"`
 }
 
 // HidesOnline reports whether who is online is hidden.
@@ -769,6 +1055,10 @@ func (c Calm) HidesOnline() bool { return c.On && !c.KeepOnline }
 
 // HidesRead reports whether the checks of messages are hidden.
 func (c Calm) HidesRead() bool { return c.On && !c.KeepRead }
+
+// HidesPaid reports whether paid stickers and emoji that cannot be sent are out
+// of the panel.
+func (c Calm) HidesPaid() bool { return c.On && c.HidePaid }
 
 // SetCalm changes what of others is hidden.
 func (s *Store) SetCalm(c Calm) error {

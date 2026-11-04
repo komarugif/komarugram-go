@@ -171,6 +171,9 @@ type messageComposer struct {
 	// it, not replaces it. local is what the search of emoji found for
 	// localQuery, in localLanguage.
 	pageLoaded bool
+	// hidingPaid: the page leaves out the paid stickers and emoji, as the calm
+	// asks (paidHidden) and they cannot be sent.
+	hidingPaid bool
 	// sentNotes are the messages sent that the history has not shown yet.
 	sentNotes []sentNote
 	// sentJump is the chat a message was just sent to, whose history goes
@@ -427,7 +430,12 @@ func (c *messageComposer) submit(chat int64, msg model.OutgoingMessage) {
 		})
 		ctx, cancel := context.WithTimeout(c.ctx, 10*time.Minute)
 		defer cancel()
-		err := c.source.Send(ctx, chat, msg)
+		var err error
+		if queue, ok := c.source.(model.OutboxStore); ok {
+			err = queue.QueueMessage(ctx, chat, msg)
+		} else {
+			err = c.source.Send(ctx, chat, msg)
+		}
 		select {
 		case c.sends <- composerResult{chat: chat, request: msg, err: err}:
 			c.invalidate()
@@ -517,7 +525,21 @@ func (c *messageComposer) takeKeyboard(gtx layout.Context, chat int64, free bool
 	}
 }
 
+// paidHidden reports whether the panel leaves out the paid stickers and emoji in
+// chat: the calm asks it, and they could not be sent there anyway.
+func (c *messageComposer) paidHidden(gtx layout.Context, chat int64) bool {
+	filter, ok := c.source.(model.LocalEmojiFilter)
+	return ok && calmOf(gtx)&calmPaid != 0 && filter.CannotSendPaid(chat, c.tab == model.PickerEmoji)
+}
+
 func (c *messageComposer) update(gtx layout.Context, chat int64, l localization.Catalog, p *chatPage) {
+	if hide := c.paidHidden(gtx, chat); hide != c.hidingPaid {
+		c.hidingPaid = hide
+		c.page, c.pageLoaded = model.PickerPage{}, false
+		if c.pickerOpen && c.source != nil {
+			c.request(l, false)
+		}
+	}
 	if c.chat != chat {
 		c.keepDraft(c.chat)
 		c.takeDraft(chat)
@@ -583,6 +605,9 @@ func (c *messageComposer) update(gtx layout.Context, chat int64, l localization.
 			c.pageLoaded = true
 			c.pickerErr = r.err
 			if r.err == nil {
+				if c.hidingPaid {
+					r.page = r.page.WithoutPaid()
+				}
 				if r.append {
 					c.page.Items = model.PreferSaved(c.page.Items, r.page.Items)
 					c.page.Next = r.page.Next
@@ -610,6 +635,9 @@ func (c *messageComposer) update(gtx layout.Context, chat int64, l localization.
 			if r.err == nil {
 				if pack := c.selectedFeatured(); pack != nil {
 					pack.Items = r.pack.Items
+					if c.hidingPaid {
+						pack.Items = model.WithoutPaid(pack.Items)
+					}
 					pack.Title = r.pack.Title
 					pack.Ref = r.pack.Ref
 					pack.Complete = true
@@ -1232,7 +1260,11 @@ func (c *messageComposer) Layout(gtx layout.Context, chat int64, l localization.
 			inner.Constraints.Min.Y = 0
 			inner.Constraints.Max.Y = max(0, size.Y-gtx.Dp(12))
 			record := op.Record(gtx.Ops)
-			dims := formattedEditor(inner, &d.editor, l.T("composer.message"), d.entities)
+			field := fieldEmojiMedia{media: p.media, images: p.images, animate: p.animate}
+			if filter, ok := c.source.(model.LocalEmojiFilter); ok {
+				field.hidden = func(document int64) bool { return filter.HidesCustomEmoji(chat, document) }
+			}
+			dims := formattedEditor(inner, &d.editor, l.T("composer.message"), d.entities, field)
 			call := record.Stop()
 			transform := op.Offset(image.Pt(0, max(0, (size.Y-dims.Size.Y)/2))).Push(gtx.Ops)
 			call.Add(gtx.Ops)

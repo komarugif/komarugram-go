@@ -13,6 +13,7 @@ import (
 
 	"github.com/gotd/td/tg"
 
+	"komarugram/internal/messenger/model"
 	"komarugram/pkg/program"
 	"komarugram/pkg/video"
 )
@@ -32,11 +33,11 @@ func uploadAttributes(ctx context.Context, path, mime string, asMedia bool, ffmp
 	}
 	ffprobe := video.ResolveFFprobe(ffmpeg)
 	if ffprobe == "" {
-		return nil, errors.New("could not inspect video; install ffprobe or attach it as a file")
+		return nil, model.ErrNoFFprobe
 	}
 	out, err := program.CommandContext(ctx, ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,duration:format=duration", "-of", "json", "-i", path).Output()
 	if err != nil {
-		return nil, errors.New("could not inspect video; install ffprobe or attach it as a file")
+		return nil, model.ErrNoFFprobe
 	}
 	var data struct {
 		Streams []struct {

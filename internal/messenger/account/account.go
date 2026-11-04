@@ -112,9 +112,11 @@ type Manager struct {
 	proxyMu      sync.RWMutex
 	resolver     dcs.Resolver
 	proxyChanged chan struct{}
-	// premiumMedia tells whether files over WebSocket go to the address of
-	// Premium accounts; nil for no.
-	premiumMedia func() bool
+	// proxy is what resolver connects through, for the resolvers of the accounts.
+	proxy *proxy.Proxy
+	// premiumMedia tells whether files over WebSocket of an account go to the
+	// address of Premium accounts; nil for no.
+	premiumMedia func(account string) bool
 }
 
 // UseProxy makes the connections made from now on go through p; nil is
@@ -124,12 +126,12 @@ func (m *Manager) UseProxy(p *proxy.Proxy) error {
 	var resolver dcs.Resolver
 	if p != nil {
 		var err error
-		if resolver, err = p.ResolverWith(proxy.Options{PremiumMedia: m.premiumMediaNow}); err != nil {
+		if resolver, err = p.ResolverWith(proxy.Options{PremiumMedia: m.premiumMediaOf("")}); err != nil {
 			return err
 		}
 	}
 	m.proxyMu.Lock()
-	m.resolver = resolver
+	m.resolver, m.proxy = resolver, p
 	close(m.proxyChanged)
 	m.proxyChanged = make(chan struct{})
 	m.proxyMu.Unlock()
@@ -138,17 +140,37 @@ func (m *Manager) UseProxy(p *proxy.Proxy) error {
 
 // SetPremiumMedia sets what tells, at each connection over WebSocket, whether
 // files are asked for at the address of Premium accounts.
-func (m *Manager) SetPremiumMedia(f func() bool) {
+func (m *Manager) SetPremiumMedia(f func(account string) bool) {
 	m.proxyMu.Lock()
 	m.premiumMedia = f
 	m.proxyMu.Unlock()
 }
 
-func (m *Manager) premiumMediaNow() bool {
+// premiumMediaOf is what tells, at each connection of account, whether its files
+// go to the address of Premium accounts.
+func (m *Manager) premiumMediaOf(account string) func() bool {
+	return func() bool {
+		m.proxyMu.RLock()
+		f := m.premiumMedia
+		m.proxyMu.RUnlock()
+		return f != nil && f(account)
+	}
+}
+
+// resolverOf is the resolver account connects with.
+func (m *Manager) resolverOf(account string) dcs.Resolver {
 	m.proxyMu.RLock()
-	f := m.premiumMedia
+	p, resolver := m.proxy, m.resolver
 	m.proxyMu.RUnlock()
-	return f != nil && f()
+	if p == nil {
+		return resolver
+	}
+	own, err := p.ResolverWith(proxy.Options{PremiumMedia: m.premiumMediaOf(account)})
+	if err != nil {
+		// UseProxy took this proxy: it is the same one.
+		return resolver
+	}
+	return own
 }
 
 // ProxyChanged returns a channel that is closed when UseProxy is called
@@ -475,7 +497,7 @@ func (m *Manager) RunClient(ctx context.Context, a *Account, handler telegram.Up
 	defer unlock()
 
 	identity := m.identity.withTimeZone(time.Now())
-	resolver, _ := m.proxyState()
+	resolver := m.resolverOf(a.ID)
 	client := telegram.NewClient(identity.APIID, identity.APIHash, telegram.Options{
 		DC:             a.DC,
 		SessionStorage: a.storage,

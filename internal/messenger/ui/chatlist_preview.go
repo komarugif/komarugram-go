@@ -32,10 +32,6 @@ const (
 	// previewThumbSize is the side of a thumbnail before a last message,
 	// a little over Telegram Desktop's 16px for the larger text here.
 	previewThumbSize = unit.Dp(18)
-	// previewEmojiPlay is how long the custom emoji of a last message
-	// play from when it is first shown: twice, as Telegram Desktop's list
-	// plays them, an emoji lasting three seconds at most.
-	previewEmojiPlay = 6 * time.Second
 	// previewThumbRetry is how long a thumbnail that failed waits before it
 	// is asked for again, doubled each time it fails again, up to
 	// previewThumbRetryMost: shown again and again, it is not asked of
@@ -98,9 +94,6 @@ type previewLine struct {
 	thumbs  []model.Message
 	blurred []image.Image
 	decoded []bool
-	// shown is when the message was first drawn, from when its custom emoji
-	// play.
-	shown time.Time
 	// act is what someone does in the chat now, drawn in the line's place.
 	act activityLine
 }
@@ -117,9 +110,6 @@ func (p *previewLine) update(c model.Chat, title string, catalog localization.Ca
 	}
 	if p.ok && p.made.Equal(c.Last) && p.draft.Equal(draft) && p.catalog == catalog && p.chat == title && p.channel == channel && p.emojiPx == emojiPx {
 		return
-	}
-	if !p.ok || !p.made.Equal(c.Last) || !p.draft.Equal(draft) {
-		p.shown = time.Time{}
 	}
 	p.made, p.draft, p.catalog, p.chat, p.channel, p.emojiPx, p.ok = c.Last, draft, catalog, title, channel, emojiPx, true
 	sender, words, text := catalog.PreviewLine(c.Last, title, channel)
@@ -254,13 +244,10 @@ func (p *previewLine) layout(gtx layout.Context, pm *previewMedia, fg, accent, d
 	if len(p.runs) == 0 || x >= width {
 		return layout.Dimensions{Size: image.Pt(x, gtx.Dp(20))}
 	}
-	if p.shown.IsZero() {
-		p.shown = gtx.Now
-	}
 	textGtx := gtx
 	textGtx.Constraints.Max.X = width - x
 	dims := offset(textGtx, image.Pt(x, 0), func(gtx layout.Context) layout.Dimensions {
-		return p.layoutText(gtx, pm, fg, accent, animate && gtx.Now.Before(p.shown.Add(previewEmojiPlay)))
+		return p.layoutText(gtx, pm, fg, accent, animate)
 	})
 	return layout.Dimensions{Size: image.Pt(x+dims.Size.X, dims.Size.Y)}
 }

@@ -310,7 +310,12 @@ func photoMedia(p *tg.Photo) (*model.MessageMedia, string) {
 
 func documentMedia(d *tg.Document) (model.MessageKind, *model.MessageMedia, *fileLocation) {
 	k := model.MessageFile
-	m := &model.MessageMedia{ID: fmt.Sprintf("document/%d", d.ID), MIMEType: d.MimeType, Size: d.Size}
+	m := &model.MessageMedia{ID: fmt.Sprintf("document/%d", d.ID), MIMEType: d.MimeType, Size: d.Size, PremiumKnown: true}
+	for _, thumb := range d.VideoThumbs {
+		if thumb, ok := thumb.(*tg.VideoSize); ok && thumb.Type == "f" {
+			m.Premium = true
+		}
+	}
 	m.Thumbnail = photoThumbnail(d.Thumbs, fmt.Sprintf("document/%d/thumb", d.ID))
 	if m.Thumbnail != nil {
 		m.Preview = m.Thumbnail.Preview
@@ -366,6 +371,7 @@ func documentMedia(d *tg.Document) (model.MessageKind, *model.MessageMedia, *fil
 			}
 			m.StickerSet = stickerSetRef(a.Stickerset)
 			m.TextColor = a.TextColor
+			m.Premium, m.Emoji = !a.Free, a.Alt
 		}
 	}
 	if k == model.MessageFile && d.MimeType == "image/gif" {

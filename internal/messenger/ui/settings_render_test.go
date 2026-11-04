@@ -239,7 +239,11 @@ func TestRenderSettingsAccounts(t *testing.T) {
 			p.section = settingsVisibility
 			size.Y = 2500
 		}
-		calm := preferences.Calm{On: true, KeepOnline: true}
+		pinned := true
+		p.visibilityPinned = func() bool { return pinned }
+		p.setVisibilityPinned = func(on bool) { pinned = on }
+		p.hasAccount = func() bool { return true }
+		calm := preferences.Calm{On: true, KeepOnline: true, HidePaid: true}
 		p.calm = func() preferences.Calm { return calm }
 		p.setCalm = func(c preferences.Calm) { calm = c }
 		hideBadges, keepArrows, keepFaces := true, false, true
@@ -268,9 +272,12 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		// An account without Premium that has Local Premium on.
 		p.section = settingsPremium
 		p.premium = plainPremium{}
-		on := os.Getenv("LOCAL_PREMIUM") != "off"
-		p.localPremium = func() bool { return on }
-		p.setLocalPremium = func(v bool) { on = v }
+		on := model.LocalPremium{Star: true, Media: true, Pins: true}
+		if os.Getenv("LOCAL_PREMIUM") == "off" {
+			on = model.LocalPremium{}
+		}
+		p.localPremium = func() model.LocalPremium { return on }
+		p.setLocalPremium = func(v model.LocalPremium) { on = v }
 		if os.Getenv("PREMIUM_ACTIVE") == "on" {
 			p.premium = activePremium{}
 			media := true

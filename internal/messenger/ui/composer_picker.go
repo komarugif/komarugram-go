@@ -134,7 +134,11 @@ func (c *messageComposer) pickerRows(width, cell int, l localization.Catalog) []
 		return rows
 	}
 	if c.selectedPack == 0 {
-		add(l.T("composer.recent"), c.drawn.filter(model.PreferSaved(c.recent[c.tab], c.page.Recent)), 0, 0)
+		recent := model.PreferSaved(c.recent[c.tab], c.page.Recent)
+		if c.hidingPaid {
+			recent = model.WithoutPaid(recent)
+		}
+		add(l.T("composer.recent"), c.drawn.filter(recent), 0, 0)
 		if c.emojiSectionsShown() {
 			sections := c.drawn.staticSections()
 			for i, category := range emojiCategories {

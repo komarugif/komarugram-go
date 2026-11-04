@@ -634,16 +634,42 @@ func TestUseProxyTellsOfTheChange(t *testing.T) {
 // takes effect without the resolver being made again.
 func TestPremiumMediaIsAskedAtEachConnection(t *testing.T) {
 	m := testManager(t, t.TempDir(), nil)
-	if m.premiumMediaNow() {
+	if m.premiumMediaOf("a")() {
 		t.Fatal("on before it was set")
 	}
 	on := false
-	m.SetPremiumMedia(func() bool { return on })
-	if m.premiumMediaNow() {
+	m.SetPremiumMedia(func(string) bool { return on })
+	if m.premiumMediaOf("a")() {
 		t.Error("on while the setting is off")
 	}
 	on = true
-	if !m.premiumMediaNow() {
+	if !m.premiumMediaOf("a")() {
 		t.Error("off after the setting was turned on")
+	}
+}
+
+// Each account's connection asks about its own account.
+func TestResolverOfAccountAsksForIt(t *testing.T) {
+	m := &Manager{proxyChanged: make(chan struct{})}
+	var asked []string
+	m.SetPremiumMedia(func(account string) bool {
+		asked = append(asked, account)
+		return account == "premium"
+	})
+	if !m.premiumMediaOf("premium")() || m.premiumMediaOf("plain")() {
+		t.Fatal("told of another account")
+	}
+	if len(asked) != 2 || asked[0] != "premium" || asked[1] != "plain" {
+		t.Fatalf("asked %v", asked)
+	}
+	if m.resolverOf("a") != nil {
+		t.Fatal("a resolver with no proxy")
+	}
+	socks := proxy.Proxy{Kind: proxy.SOCKS5, Host: "127.0.0.1", Port: 1080}
+	if err := m.UseProxy(&socks); err != nil {
+		t.Fatal(err)
+	}
+	if m.resolverOf("a") == nil {
+		t.Fatal("no resolver with a proxy")
 	}
 }

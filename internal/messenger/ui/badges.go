@@ -38,22 +38,26 @@ type badgesLayout func(b model.Badges, name string, size unit.Dp, both bool) (be
 // while Local Premium is on: they show the Premium star to themselves, as
 // in AyuGram, and only there; Telegram does not know of it.
 func (a *App) localPremium(user int64) bool {
-	if user == 0 || !a.preferences.Global().LocalPremium {
+	if user == 0 {
 		return false
 	}
-	if user == a.store.Me().ID {
-		return true
+	if a.store != nil && user == a.store.Me().ID {
+		return a.localParts(a.accountID()).Star
 	}
 	own := a.ownUsers.Load()
-	return own != nil && (*own)[user]
+	if own == nil {
+		return false
+	}
+	id, ok := (*own)[user]
+	return ok && a.localParts(id).Star
 }
 
 // refreshOwnUsers reads the users of the accounts signed in here.
 func (a *App) refreshOwnUsers(accounts model.Accounts) {
-	own := map[int64]bool{}
+	own := map[int64]string{}
 	for _, info := range accounts.All() {
 		if info.UserID != 0 {
-			own[info.UserID] = true
+			own[info.UserID] = info.ID
 		}
 	}
 	a.ownUsers.Store(&own)

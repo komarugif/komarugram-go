@@ -31,13 +31,30 @@ func (s *Store) EditMessage(ctx context.Context, key model.MessageKey, text stri
 		return errors.New("unknown chat")
 	}
 	req := &tg.MessagesEditMessageRequest{Peer: peer.input(), ID: int(key.MessageID), NoWebpage: !s.SendPermissions(chat).Allows(model.SendLinkPreview)}
+	// Switched off, the field has what Telegram has: an edit leaves the overlay
+	// alone, and it no longer fits a text that changed.
+	projection := outgoingEntry{LocalEmoji: s.local().Media && !s.Premium().Active && !s.savedChat(chat)}
+	if projection.LocalEmoji {
+		projection.EmojiLocal = s.localEmojiKinds(ctx, entities)
+	}
 	req.SetMessage(text)
-	req.SetEntities(inputEntities(entities))
+	req.SetEntities(inputEntities(projection.wireEntities(entities)))
 	res, err := api.MessagesEditMessage(ctx, req)
-	if err != nil {
+	if err != nil && !(projection.LocalEmoji && tgerr.Is(err, "MESSAGE_NOT_MODIFIED")) {
 		return editError(err)
 	}
-	return s.Handle(ctx, res)
+	if err == nil {
+		if err := s.Handle(ctx, res); err != nil {
+			return err
+		}
+	}
+	if projection.LocalEmoji {
+		if err := s.editedLocalEmoji(ctx, chat, int(key.MessageID), text, entities, projection.localEmojiEntities(entities)); err != nil {
+			return err
+		}
+		s.changed()
+	}
+	return nil
 }
 
 // editError is what Telegram's error of an edit means to the client, as

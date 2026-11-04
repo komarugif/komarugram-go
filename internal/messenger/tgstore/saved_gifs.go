@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"komarugram/internal/messenger/model"
 
@@ -21,6 +22,9 @@ var (
 // SavedGIF implements model.SavedGIFStore, by the GIF tab's list kept in
 // memory: it is asked in frames, and the tab has the list once opened.
 func (s *Store) SavedGIF(id string) bool {
+	if s.localGIF(id) {
+		return true
+	}
 	p := &s.picker
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -34,10 +38,17 @@ func (s *Store) SavedGIF(id string) bool {
 
 // SaveGIF implements model.SavedGIFStore with messages.saveGif, as Telegram
 // Desktop's Api::ToggleSavedGif: the list kept changes at once, the saved
-// GIF first, and is asked for again the next time the tab opens.
+// GIF first, and is asked for again the next time the tab opens. Local
+// Premium does the same, and keeps here what Telegram's list pushes out.
 func (s *Store) SaveGIF(ctx context.Context, m model.Message, unsave bool) error {
 	if m.Media == nil {
 		return errors.New("no GIF to save")
+	}
+	local := s.local().GIFs
+	if local && unsave && s.localGIF(m.Media.ID) {
+		// Telegram no longer has it: nothing to tell, and offline it works too.
+		s.forgetStorageGIF(m.Media.ID)
+		return s.changeLocalGIFs(ctx, m.Media.ID, nil)
 	}
 	ref, err := s.pickerDocument(ctx, m, func(api *tg.Client, doc *tg.InputDocument) error {
 		_, err := api.MessagesSaveGif(ctx, &tg.MessagesSaveGifRequest{ID: doc, Unsave: unsave})
@@ -60,11 +71,13 @@ func (s *Store) SaveGIF(ctx context.Context, m model.Message, unsave bool) error
 	page := p.pages[model.PickerGIF]
 	items := model.WithoutItem(page.Items, id)
 	var full error
+	var pushed []model.PickerItem
 	if !unsave {
 		item := model.PickerItem{ID: id, DocumentID: ref.ID, Media: model.Message{Kind: m.Kind, Media: m.Media}}
 		items = append([]model.PickerItem{item}, items...)
 		if limit := model.SavedGIFLimit(s.Premium()); limit > 0 && len(items) > limit {
-			items, full = items[:limit], model.ErrSavedGIFLimit
+			items, pushed = items[:limit], slices.Clone(items[limit:])
+			full = model.ErrSavedGIFLimit
 		}
 	}
 	page.Items, page.Stale = items, false
@@ -75,6 +88,14 @@ func (s *Store) SaveGIF(ctx context.Context, m model.Message, unsave bool) error
 	p.mu.Unlock()
 	if cache := s.Cache(); cache != nil {
 		_ = cache.Put(ctx, pickerKey(model.PickerGIF), saved)
+	}
+	if local {
+		if unsave {
+			s.forgetStorageGIF(id)
+		} else if m.Key.MessageID > 0 {
+			s.gifsMet(ctx, []model.Message{m})
+		}
+		return s.changeLocalGIFs(ctx, id, pushed)
 	}
 	return full
 }
