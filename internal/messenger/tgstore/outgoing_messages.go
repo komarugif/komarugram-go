@@ -163,9 +163,9 @@ func (s *Store) acceptOutgoing(ctx context.Context, e *outgoingEntry, res tg.Upd
 	if len(e.pending) == 0 {
 		return fmt.Errorf("outbox: missing pending message")
 	}
+	q := &s.outbox
 	for _, random := range randomIDs {
 		id := sentID(res, random)
-		e.Done[random] = id
 		index := 0
 		for i := range e.pending {
 			if outgoingRandomID(e.Request.RandomID, i) == random {
@@ -173,9 +173,15 @@ func (s *Store) acceptOutgoing(ctx context.Context, e *outgoingEntry, res tg.Upd
 				break
 			}
 		}
+		q.mu.Lock()
+		e.Done[random] = id
+		q.mu.Unlock()
+		q.uploads.remove(e.pending[index].msg.Key)
 		if id > 0 {
 			if e.LocalEmoji {
+				q.mu.Lock()
 				m := e.Messages[index]
+				q.mu.Unlock()
 				if err := s.keepLocalEmoji(ctx, e.Peer.key(), id, m.Text, e.localEmojiEntities(m.Entities)); err != nil {
 					return err
 				}
@@ -185,6 +191,8 @@ func (s *Store) acceptOutgoing(ctx context.Context, e *outgoingEntry, res tg.Upd
 			s.history.mu.Unlock()
 		}
 	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
 	return s.Cache().PutOutgoing(ctx, e.Request.RandomID, e, nil)
 }
 

@@ -685,7 +685,7 @@ func (s *Store) sendOnce(ctx context.Context, chat int64, msg model.OutgoingMess
 		case msg.AsMedia && strings.HasPrefix(typ, "video/"):
 			action = model.ActionUploadVideo
 		}
-		file, err := s.uploader(api, shown, action).FromPath(ctx, msg.Path)
+		file, err := s.fileUploader(api, shown, action, outgoing, 0).FromPath(ctx, msg.Path)
 		if err != nil {
 			return err
 		}
@@ -700,6 +700,9 @@ func (s *Store) sendOnce(ctx context.Context, chat int64, msg model.OutgoingMess
 	clearDraft := s.outgoingClearDraft(outgoing)
 	wireEntities := outgoing.wireEntities(msg.Entities)
 	if media != nil {
+		if msg.Path != "" && len(s.claimFiles(outgoing, []int{0})) == 0 {
+			return errOutgoingCancelled
+		}
 		caption := msg.Text
 		if len(msg.Tasks) > 0 {
 			caption = ""

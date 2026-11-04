@@ -677,7 +677,9 @@ size-stability fixes remain in place.
   time, and `musicLayout`, with the title, the performer and a bar
   (`drawBar`), its button on the track's cover (`songCover`), shaded under
   a white icon (`audioPlate`); `audioRow.update` takes their clicks and
-  drags. A video
+  drags. A file on its way draws `downloadRing` of how far it went
+  (`history_upload.go`, `model.UploadSource`), whatever it is and in an
+  album each by itself; the ring's cross cancels that file alone. A video
   message (`model.MessageRound`) plays in the same player, as the voice
   messages' kind (`listenable`, `audioKind`): `roundLayout`
   (`history_round.go`) draws its circle, without a bubble, its ring of what

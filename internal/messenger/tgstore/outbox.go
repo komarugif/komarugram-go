@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gotd/td/pool"
@@ -45,8 +46,19 @@ type outgoingEntry struct {
 	ResolveSticker bool
 	Done           map[int64]int
 	Forward        *outgoingForward
-	pending        []*pendingMessage
-	result         *outgoingResult
+	// Cancelled are the files, by their place in the message, taken out of it.
+	Cancelled map[int]bool `json:",omitempty"`
+	pending   []*pendingMessage
+	result    *outgoingResult
+	// cancels end the uploads going on, sending are the files a request
+	// carries: both by a file's place. stop ends delivering the message, and
+	// abandoned says it has nothing left to deliver. alive tells that a file
+	// moved. The queue's lock guards them all but alive, the worker's.
+	cancels   map[int]context.CancelFunc
+	sending   map[int]bool
+	stop      context.CancelFunc
+	abandoned bool
+	alive     func()
 }
 
 type outgoingResult struct {
@@ -57,7 +69,9 @@ type outgoingResult struct {
 
 type outgoingQueue struct {
 	// current is the message the worker is delivering.
-	current        *outgoingEntry
+	current *outgoingEntry
+	// uploads is how far its files went, with a lock of its own.
+	uploads        uploadTable
 	mu             sync.Mutex
 	entries        []*outgoingEntry
 	loaded, closed bool
@@ -124,6 +138,10 @@ func (s *Store) restoreOutgoing(ctx context.Context) error {
 			msg.Sending, msg.SendError = true, e.Error
 			p := &pendingMessage{chat: e.Chat, msg: msg, id: model.MessageID(e.Done[outgoingRandomID(e.Request.RandomID, index)])}
 			e.pending = append(e.pending, p)
+			// A cancelled file keeps its place, and shows no more.
+			if e.Cancelled[index] {
+				continue
+			}
 			s.history.pending.list = append(s.history.pending.list, p)
 			if seq := -int(msg.Key.MessageID) - pendingIDBase; seq > s.history.pending.seq {
 				s.history.pending.seq = seq
@@ -131,6 +149,7 @@ func (s *Store) restoreOutgoing(ctx context.Context) error {
 		}
 		s.history.touchPending(e.Chat)
 		s.history.mu.Unlock()
+		s.addUploads(e)
 		q.entries = append(q.entries, e)
 	}
 	q.loaded = true
@@ -268,6 +287,7 @@ func (s *Store) enqueueOutgoing(ctx context.Context, chat int64, msg model.Outgo
 	c.pending.list = append(c.pending.list, pending...)
 	c.touchPending(chat)
 	c.mu.Unlock()
+	s.addUploads(e)
 	q.entries = append(q.entries, e)
 	q.mu.Unlock()
 	s.changed()
@@ -371,12 +391,11 @@ func (s *Store) runOutgoing(ctx context.Context) {
 			next = e
 			break
 		}
+		// Taken in the same breath: a cancel must see it is on its way.
+		q.current = next
 		wake := q.wake
 		q.mu.Unlock()
 		if next != nil {
-			q.mu.Lock()
-			q.current = next
-			q.mu.Unlock()
 			err := s.deliverOutgoing(ctx, next)
 			if ctx.Err() != nil {
 				return
@@ -402,8 +421,35 @@ func (s *Store) runOutgoing(ctx context.Context) {
 
 func (s *Store) deliverOutgoing(ctx context.Context, e *outgoingEntry) (err error) {
 	defer crash.Recover("outgoing message", func(p *crash.Panic) { err = p })
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	// However long it takes, delivery goes on while it moves; out of time, it
+	// is an attempt that may have sent a whole upload (outgoingRetry).
+	var stalled atomic.Bool
+	timer := time.AfterFunc(outgoingPatience, func() {
+		stalled.Store(true)
+		cancel()
+	})
+	defer timer.Stop()
+	e.alive = func() { timer.Reset(outgoingPatience) }
+	defer func() {
+		if err != nil && stalled.Load() {
+			err = context.DeadlineExceeded
+		}
+	}()
+	q := &s.outbox
+	q.mu.Lock()
+	if e.abandoned {
+		q.mu.Unlock()
+		return errOutgoingCancelled
+	}
+	e.stop = cancel
+	q.mu.Unlock()
+	defer func() {
+		q.mu.Lock()
+		e.stop, e.sending = nil, nil
+		q.mu.Unlock()
+	}()
 	if e.ResolveSticker {
 		if err := s.resolveOutgoingSticker(ctx, e); err != nil {
 			return err
@@ -427,6 +473,10 @@ func (s *Store) deliverOutgoing(ctx context.Context, e *outgoingEntry) (err erro
 		defer os.RemoveAll(dir)
 		materialized := make([]string, len(paths))
 		for i, name := range paths {
+			// Of a file alone, its cancel ends all this.
+			if msg.Files != nil && s.fileCancelled(e, i) {
+				continue
+			}
 			folder := filepath.Join(dir, fmt.Sprint(i))
 			if err := os.Mkdir(folder, 0700); err != nil {
 				return err
@@ -492,6 +542,11 @@ func (s *Store) finishOutgoing(e *outgoingEntry, err error) {
 	q := &s.outbox
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	if e.abandoned {
+		s.dropOutgoing(e)
+		s.changed()
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err == nil {
@@ -505,6 +560,7 @@ func (s *Store) finishOutgoing(e *outgoingEntry, err error) {
 			}
 		}
 		for _, p := range e.pending {
+			q.uploads.remove(p.msg.Key)
 			s.dropPending(p)
 		}
 	} else {
@@ -610,6 +666,7 @@ func (s *Store) CancelOutgoing(key model.MessageKey) {
 				}
 				q.entries = append(q.entries[:i], q.entries[i+1:]...)
 				for _, p := range e.pending {
+					q.uploads.remove(p.msg.Key)
 					s.dropPending(p)
 				}
 				s.changed()

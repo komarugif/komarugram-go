@@ -122,6 +122,24 @@ type ComposerStore interface {
 	Send(context.Context, int64, OutgoingMessage) error
 }
 
+// UploadStatus is how far a file on its way to Telegram went: Done bytes of
+// Total, both 0 before its upload starts.
+type UploadStatus struct {
+	Done, Total int64
+}
+
+// UploadSource tells of the files on their way, one by one: each file of an
+// album is a message of its own.
+type UploadSource interface {
+	// UploadStatus is key's file's; false for what is no file on its way, or
+	// no longer is, Telegram having taken it.
+	UploadStatus(key MessageKey) (UploadStatus, bool)
+	// CancelUpload takes key's file out of its message, which goes without
+	// it; the others go on as they were. It does nothing once the request
+	// that carries the file was made.
+	CancelUpload(key MessageKey)
+}
+
 // OutboxStore accepts a message once its request and attachments are durable.
 // Delivery continues independently of the composer and its window.
 type OutboxStore interface {

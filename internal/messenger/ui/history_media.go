@@ -121,6 +121,16 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			progress = min(1, float32(status.Downloaded)/float32(status.Total))
 		}
 	}
+	// A file on its way draws the ring of a download, of how far it went up,
+	// whatever reads its picture meanwhile; a click cancels it.
+	upload, uploading := p.uploading(gtx, m)
+	if uploading {
+		err, loading, cancelled, progress = nil, true, false, uploadProgress(upload)
+		if clicked {
+			p.cancelUpload(m)
+			clicked = false
+		}
+	}
 	// A GIF the sandbox cannot play, not in H.264, is no failure to tell:
 	// a click asks where else to play it (gifUnplayable).
 	unplayable := inline && errors.Is(err, mp4.ErrUnsupported)
@@ -179,7 +189,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 				paint.FillShape(gtx.Ops, color.NRGBA{A: 145}, clip.Ellipse{Max: image.Pt(diameter, diameter)}.Op(gtx.Ops))
 				// White on the dark circle in either theme.
 				white := token.NewMatColorFromHexRGB(0xffffff)
-				if video || unplayable {
+				if (video || unplayable) && !uploading {
 					// An icon, not "▶": the text's fonts lack it, and the
 					// emoji font drew it as the colored emoji.
 					inset := diameter / 6
@@ -201,6 +211,22 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 				}
 				return r.ring.layout(gtx, diameter, loading, progress, mark, white, animate)
 			})
+		}
+		// How far a file on its way went, under its ring, once its size is
+		// known; bottom is where that plate ends.
+		bottom := 0
+		if text := uploadPlateText(upload); uploading && text != "" {
+			macro := op.Record(gtx.Ops)
+			pgtx := gtx
+			pgtx.Constraints = layout.Constraints{Max: size}
+			dims := mediaPlate(pgtx, text)
+			call := macro.Stop()
+			at := uploadPlateAt(size, dims.Size, min(gtx.Dp(48), min(size.X, size.Y)), gtx.Dp(4))
+			offset(gtx, at, func(gtx layout.Context) layout.Dimensions {
+				call.Add(gtx.Ops)
+				return dims
+			})
+			bottom = at.Y + dims.Size.Y
 		}
 		if inline && !loading && !cancelled && err == nil {
 			paused := p.media.GIFPaused(m)
@@ -227,10 +253,13 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			dims := mediaPlate(pgtx, videoPlateText(m, gif, p.videoTimeOnly, l))
 			call := macro.Stop()
 			inset := gtx.Dp(8)
-			offset(gtx, image.Pt(inset, max(0, size.Y-inset-dims.Size.Y)), func(gtx layout.Context) layout.Dimensions {
-				call.Add(gtx.Ops)
-				return dims
-			})
+			// In a tile too low for both, how far it went is what matters.
+			if top := max(0, size.Y-inset-dims.Size.Y); top >= bottom {
+				offset(gtx, image.Pt(inset, top), func(gtx layout.Context) layout.Dimensions {
+					call.Add(gtx.Ops)
+					return dims
+				})
+			}
 		}
 		return layout.Dimensions{Size: size}
 	}

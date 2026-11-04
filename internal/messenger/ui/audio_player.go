@@ -119,6 +119,10 @@ type audioState struct {
 	// progress is how much of the message was heard, from 0 to 1.
 	progress float32
 	elapsed  time.Duration
+	// uploading says the file is on its way to Telegram, uploaded how far it
+	// went: a ring of it takes the button, whose cross cancels it.
+	uploading bool
+	uploaded  float32
 }
 
 // audioFormat is how voice message, video message or music m is decoded in
@@ -822,8 +826,11 @@ func (vr *audioRow) update(gtx layout.Context, p *chatPage, m model.Message) (au
 			vr.pressed, vr.drag = false, -1
 		}
 	}
+	upload, uploading := p.uploading(gtx, m)
 	if vr.button.Clicked(gtx) {
-		if p.audio.state(m).loading {
+		if uploading {
+			p.cancelUpload(m)
+		} else if p.audio.state(m).loading {
 			// The cross in the ring cancels it, as a file's download.
 			p.audio.stop()
 		} else {
@@ -831,6 +838,7 @@ func (vr *audioRow) update(gtx layout.Context, p *chatPage, m model.Message) (au
 		}
 	}
 	state := p.audio.state(m)
+	state.uploading, state.uploaded = uploading, uploadProgress(upload)
 	if state.playing || state.loading {
 		// The time and the progress move while it plays.
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(50 * time.Millisecond)})
@@ -911,6 +919,9 @@ func (p *chatPage) audioButton(gtx layout.Context, vr *audioRow, state audioStat
 	return vr.button.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		ink := p.audioPlate(gtx, cover, size)
 		gtx.Constraints = layout.Exact(size)
+		if state.uploading {
+			return vr.ring.layout(gtx, d, true, state.uploaded, iconClear, ink, wdk.AnimationsEnabled(gtx))
+		}
 		if state.loading {
 			return vr.ring.layout(gtx, d, true, -1, iconClear, ink, wdk.AnimationsEnabled(gtx))
 		}

@@ -315,8 +315,11 @@ func (p *chatPage) fileLayout(gtx layout.Context, r *messageRow, m model.Message
 		return p.voiceLayout(gtx, r, m, l)
 	}
 	playing := m.Kind == model.MessageVoice || m.Kind == model.MessageMusic
+	upload, uploading := p.uploading(gtx, m)
 	if r.media.Clicked(gtx) {
-		if playing {
+		if uploading {
+			p.cancelUpload(m)
+		} else if playing {
 			p.play(gtx, m, p.reportMedia, l)
 		} else if markdownFile(m) {
 			p.openMarkdown(m)
@@ -342,6 +345,10 @@ func (p *chatPage) fileLayout(gtx layout.Context, r *messageRow, m model.Message
 	if p.files != nil {
 		done, total, downloading = p.files.download(m.Key)
 	}
+	if uploading {
+		// Going up, it draws what going down does.
+		done, total, downloading = upload.Done, upload.Total, true
+	}
 	details := sendfiles.Size(m.Media.Size)
 	icon := iconFileRow
 	if playing {
@@ -350,7 +357,8 @@ func (p *chatPage) fileLayout(gtx layout.Context, r *messageRow, m model.Message
 	}
 	// progress is below 0 while the size is not known.
 	progress := float32(-1)
-	if downloading {
+	// Waiting for its turn to go up, it still tells its size.
+	if downloading && (!uploading || total > 0) {
 		details = sendfiles.Size(done)
 		if total > 0 {
 			progress = min(1, float32(done)/float32(total))

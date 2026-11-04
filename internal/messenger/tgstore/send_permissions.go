@@ -91,6 +91,10 @@ func (s *Store) checkSend(chat int64, msg model.OutgoingMessage) error {
 		}
 	case msg.Files != nil:
 		for _, path := range msg.Files.Paths {
+			if path == "" {
+				// A file cancelled: delivery took nothing out for it.
+				continue
+			}
 			f, err := sendfiles.Inspect(path)
 			if err != nil {
 				return fmt.Errorf("%s: %w", filepath.Base(path), err)
