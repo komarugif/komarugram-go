@@ -195,7 +195,10 @@ type messageComposer struct {
 	pickerMenu, attachMenu, formMenu contextMenu
 	formShown                        int
 	// tabs are the picker's tabs.
-	tabs                        tabRow
+	tabs tabRow
+	// pick, when set, takes the stickers chosen, the picker being the only tab
+	// of its, instead of sending them: the media editor's.
+	pick                        func(model.PickerItem)
 	form                        int
 	path, title, tasks          widget.Editor
 	browse, confirm, cancelForm surface
@@ -223,6 +226,9 @@ type messageComposer struct {
 	stopDraft surface
 	// ffmpeg is the FFmpeg the user set, "" for the one on PATH.
 	ffmpeg func() string
+	// silentAsVideo tells that videos without sound go as videos, not GIFs; nil
+	// is as Telegram takes them.
+	silentAsVideo func() bool
 	// edits brings what came of saving edits; askDelete is a message
 	// edited to nothing, which the page asks to delete instead.
 	edits     chan editResult
@@ -598,52 +604,9 @@ func (c *messageComposer) update(gtx layout.Context, chat int64, l localization.
 		case e := <-c.pickerEdits:
 			c.itemEdited(e, l)
 		case r := <-c.results:
-			if r.generation != c.generation {
-				continue
-			}
-			c.loading = false
-			c.pageLoaded = true
-			c.pickerErr = r.err
-			if r.err == nil {
-				if c.hidingPaid {
-					r.page = r.page.WithoutPaid()
-				}
-				if r.append {
-					c.page.Items = model.PreferSaved(c.page.Items, r.page.Items)
-					c.page.Next = r.page.Next
-				} else {
-					if r.refreshed {
-						// What was shown of a featured set stays shown.
-						keepFeatured(&r.page, c.page)
-					}
-					c.page = r.page
-					c.itemClicks = map[string]*surface{}
-					if c.query == "" && !c.featuredLoading {
-						if pack := c.selectedFeatured(); pack != nil && !pack.Complete {
-							c.loadFeatured(*pack)
-						}
-					}
-				}
-			}
+			c.takePickerPage(r)
 		case r := <-c.featuredResults:
-			if r.generation != c.featuredGeneration || r.tab != c.tab || r.id != c.selectedPack {
-				continue
-			}
-			c.featuredLoading = false
-			c.featuredCancel = nil
-			c.pickerErr = r.err
-			if r.err == nil {
-				if pack := c.selectedFeatured(); pack != nil {
-					pack.Items = r.pack.Items
-					if c.hidingPaid {
-						pack.Items = model.WithoutPaid(pack.Items)
-					}
-					pack.Title = r.pack.Title
-					pack.Ref = r.pack.Ref
-					pack.Complete = true
-					c.list.Position = layout.Position{}
-				}
-			}
+			c.takeFeaturedPack(r)
 		case r := <-c.voiceResults:
 			if r.err != nil {
 				c.draft(r.chat).err = r.err
@@ -735,28 +698,7 @@ drained:
 			}
 		}
 	}
-	for {
-		_, ok := c.search.Update(gtx)
-		if !ok {
-			break
-		}
-	}
-	q := strings.TrimSpace(c.search.Text())
-	if q != c.query {
-		c.cancelFeatured()
-		c.query = q
-		c.due = gtx.Now.Add(300 * time.Millisecond)
-		c.generation++
-		if c.loadCancel != nil {
-			c.loadCancel()
-		}
-		c.loading = false
-		// What the last search found stays until the next one has come,
-		// so that the list does not empty and fill as a query is typed.
-		c.page.Next = ""
-		c.selectedPack = 0
-		c.list.Position = layout.Position{}
-	}
+	c.updatePickerSearch(gtx)
 	pickerAllowed := permissions.Any(model.SendText | model.SendSticker | model.SendGIF)
 	if c.smile.Clicked(gtx) && pickerAllowed {
 		switch {
@@ -831,16 +773,7 @@ drained:
 		// A picker opened again shows no menu of before.
 		c.itemMenu.open = false
 	}
-	if c.pickerOpen && !c.due.IsZero() {
-		if !gtx.Now.Before(c.due) {
-			c.due = time.Time{}
-			if c.source != nil {
-				c.request(l, false)
-			}
-		} else {
-			gtx.Execute(op.InvalidateCmd{At: c.due})
-		}
-	}
+	c.askPickerDue(gtx, l)
 	if !c.pickerOpen && c.featuredLoading {
 		c.cancelFeatured()
 	}

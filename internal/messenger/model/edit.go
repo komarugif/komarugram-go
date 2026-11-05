@@ -24,6 +24,17 @@ type MessageEditor interface {
 	EditTimeLimit() time.Duration
 }
 
+// MediaEditor is a store whose messages' files the account may replace.
+type MediaEditor interface {
+	// ReplaceMedia makes the photo or the video at path the file of m, whose
+	// text stays, and blocks until Telegram has it, telling progress how much
+	// of the file went. It returns m with its new file, for whoever shows it,
+	// under m's key; ErrEditForbidden for a message that cannot be edited (any
+	// more), and ErrMediaInvalid for a file Telegram refuses. ffmpeg is the
+	// FFmpeg the user set, "" for the one found.
+	ReplaceMedia(ctx context.Context, m Message, path, ffmpeg string, progress func(done, total int64)) (Message, error)
+}
+
 // DefaultEditTimeLimit is Telegram's edit_time_limit until the store has
 // read its own, as Telegram Desktop's (mtproto_config.h).
 const DefaultEditTimeLimit = 48 * time.Hour
@@ -46,6 +57,8 @@ var (
 	ErrEditForbidden = errors.New("message cannot be edited")
 	// ErrMessageEmpty is MESSAGE_EMPTY.
 	ErrMessageEmpty = errors.New("message empty")
+	// ErrMediaInvalid is MEDIA_NEW_INVALID.
+	ErrMediaInvalid = errors.New("no way to use this file")
 )
 
 // EditTooLong is a text longer than its limit by Over code units.
@@ -95,6 +108,20 @@ func Editable(m Message, kind ChatKind, now time.Time, limit time.Duration) bool
 		return true
 	}
 	return limit <= 0 || now.Sub(m.Date) < limit
+}
+
+// CanReplaceMedia tells whether the file of m may be replaced by the editor's
+// result, of the same kind: as Telegram Desktop's HistoryItem::allowsEditMedia,
+// with a photo, a video or a GIF only, what the editor edits, and none that
+// destructs itself, which MediaSpoiler does not tell from one under a spoiler: a
+// file replaced would have to be hidden again. Each stays what it was, as a part
+// of an album must. Telegram takes a GIF too: the Bot API's editMessageMedia names
+// animations, and neither Telegram Desktop nor its Android app leaves them out.
+func CanReplaceMedia(m Message, kind ChatKind, now time.Time, limit time.Duration) bool {
+	if m.Media == nil || m.MediaSpoiler || m.Kind != MessagePhoto && m.Kind != MessageVideo && m.Kind != MessageGIF {
+		return false
+	}
+	return Editable(m, kind, now, limit)
 }
 
 // Formatting kinds of entities, which the message field applies to what is

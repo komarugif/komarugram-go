@@ -217,6 +217,24 @@
 "duration.weeks" = "lng_weeks";
 "duration.years" = "lng_years";
 
+"editor.cancel" = "lng_cancel";
+"editor.close" = "lng_close";
+"editor.crop_free" = "lng_photo_editor_crop_free";
+"editor.crop_original" = "lng_photo_editor_crop_original";
+"editor.crop_square" = "lng_photo_editor_crop_square";
+"editor.done" = "lng_box_done";
+"editor.font_condensed" = "lng_photo_editor_font_condensed";
+"editor.font_default" = "lng_photo_editor_font_default";
+"editor.font_italic" = "lng_photo_editor_font_italic";
+"editor.font_monospace" = "lng_photo_editor_font_monospace";
+"editor.font_serif" = "lng_photo_editor_font_serif";
+"editor.invalid_file" = "lng_edit_media_invalid_file";
+"editor.style_framed" = "lng_photo_editor_text_style_framed";
+"editor.style_opaque" = "lng_photo_editor_text_style_opaque";
+"editor.style_plain" = "lng_photo_editor_text_style_plain";
+"editor.style_semi" = "lng_photo_editor_text_style_semi_transparent";
+"editor.text_placeholder" = "lng_photo_editor_text_placeholder";
+
 "emoji_packs.title" = "lng_custom_emoji_used_sets";
 
 "file.open" = "lng_markdown_preview_open_file";

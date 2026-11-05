@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf16"
@@ -82,6 +83,17 @@ type OutgoingFiles struct {
 	// an album in one. HighQuality lets photos keep up to 2560 pixels a
 	// side instead of 1280.
 	Documents, Group, HighQuality bool
+	// Animated are the places in Paths of videos that go as GIFs: what the media
+	// editor makes of a GIF.
+	Animated []int
+	// SilentAsVideo sends videos without sound as videos, which Telegram would
+	// otherwise make GIFs of.
+	SilentAsVideo bool
+}
+
+// IsAnimated reports whether the file at place i goes as a GIF.
+func (f *OutgoingFiles) IsAnimated(i int) bool {
+	return f != nil && slices.Contains(f.Animated, i)
 }
 
 // VoiceNote is what Telegram shows of a voice message before it is played.

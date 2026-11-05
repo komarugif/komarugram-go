@@ -74,6 +74,17 @@ type Way struct {
 	Group bool
 	// HighQuality lets photos keep up to 2560 pixels a side, not 1280.
 	HighQuality bool
+	// SilentAsVideo sends videos without sound as videos, not as Telegram takes
+	// them: GIFs.
+	SilentAsVideo bool
+}
+
+// AsAnimation is f, a video, to go as a GIF; anything else stays as it is.
+func (f File) AsAnimation() File {
+	if f.Kind == KindVideo {
+		f.Kind = KindAnimation
+	}
+	return f
 }
 
 // Photo sizes: Telegram Desktop scales a photo down to fit a square of

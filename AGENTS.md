@@ -26,6 +26,7 @@ Russian; code, comments and docs are in English.
 | `internal/messenger/account` | Registry, sign-in, tdata import, one client per auth key |
 | `internal/messenger/proxy` | The proxies the user keeps (MTProto, SOCKS5, Telegram over WebSocket): links, the resolvers that connect through them, ping, the saved list |
 | `internal/messenger/model` | Data types and the interfaces the UI reads |
+| `internal/messenger/photoedit` | The media editor without its interface: what was done to a picture, and how it is drawn, the same for the view, a photo and FFmpeg |
 | `internal/messenger/{security,securedb}` | TPM-sealed key, encrypted SQLite (Adiantum VFS) |
 | `internal/messenger/mockstore` | Demo store for `-demo` |
 | `pkg/*` | Reusable parts: `dcpool` (download connections), `tdata`, media decoders |
@@ -83,7 +84,7 @@ otherwise, so `go test` never runs them: `COMPOSER_PNG` (with
 `COMPOSER_VIEW`), `COMPOSER_MOTION_PNG`, `SETTINGS_PNG` (with
 `SETTINGS_SECTION`), `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `COMMUNITY_PNG`, `CHAT_PREVIEW_PNG`,
 `STICKER_SET_PNG_DIR`, `MENU_PNG`, `REACTED_PNG`, `VIEWER_PNG` (with
-`VIEWER_ZOOM`, `VIEWER_PROFILE`, `VIEWER_GIFS`, `VIEWER_STORIES`, `VIEWER_SAVE_GIF`, `VIEWER_BOX`), `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`,
+`VIEWER_ZOOM`, `VIEWER_PROFILE`, `VIEWER_GIFS`, `VIEWER_STORIES`, `VIEWER_SAVE_GIF`, `VIEWER_BOX`, `VIEWER_EDIT`, `VIEWER_DARK`), `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`,
 `SERVICE_PNG`, `POLL_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`,
 `SAVED_EMPTY_PNG`, `SHARED_PNG`, `REGISTRATION_OFFER_PNG`, `STORAGE_PNG_DIR`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`,
 `FRAME_PNG_DIR` (the window's own frame, in `internal/appwindow`), `PANIC_PNG_DIR` (the window of a panic, there too) (see

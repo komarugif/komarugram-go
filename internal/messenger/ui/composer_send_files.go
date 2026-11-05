@@ -139,15 +139,7 @@ func (b *filesBox) addPaths(c *messageComposer, paths []string, documents bool) 
 				// A file is anything the user picked: one that panics is
 				// told as one that failed, and the others go on.
 				defer crash.Recover("inspect file", func(e *crash.Panic) { res.err = e })
-				res.info, res.err = sendfiles.Inspect(f.Path)
-				if res.err == nil {
-					res.thumb = boxThumbnail(ctx, ffmpeg, res.info)
-					if res.info.Kind == sendfiles.KindVideo {
-						if m, err := video.ProbeMedia(ctx, res.info.Path, ffmpeg); err == nil {
-							res.shown, res.long = image.Pt(m.Width, m.Height), m.Duration
-						}
-					}
-				}
+				res.info, res.thumb, res.shown, res.long, res.err = readBoxFile(ctx, ffmpeg, f.Path)
 			}()
 			select {
 			case results <- res:
@@ -157,6 +149,22 @@ func (b *filesBox) addPaths(c *messageComposer, paths []string, documents bool) 
 			}
 		}
 	}()
+}
+
+// readBoxFile looks at the file at path, as the box shows it. A GIF has a length
+// too, for its bar in the viewer.
+func readBoxFile(ctx context.Context, ffmpeg, path string) (info sendfiles.File, picture *image.RGBA, shown image.Point, long time.Duration, err error) {
+	info, err = sendfiles.Inspect(path)
+	if err != nil {
+		return info, nil, image.Point{}, 0, err
+	}
+	picture = boxThumbnail(ctx, ffmpeg, info)
+	if info.Kind == sendfiles.KindVideo || info.Kind == sendfiles.KindAnimation {
+		if m, err := video.ProbeMedia(ctx, info.Path, ffmpeg); err == nil {
+			shown, long = image.Pt(m.Width, m.Height), m.Duration
+		}
+	}
+	return info, picture, shown, long, nil
 }
 
 // baseName is the last element of a path of any system.
@@ -273,13 +281,35 @@ func (c *messageComposer) sendFiles(l localization.Catalog) {
 			return
 		}
 	}
-	c.submit(c.chat, model.OutgoingMessage{Text: caption, Files: &model.OutgoingFiles{Paths: paths, Documents: way.Documents, Group: way.Group, HighQuality: way.HighQuality}})
+	c.submit(c.chat, model.OutgoingMessage{Text: caption, Files: &model.OutgoingFiles{Paths: paths, Documents: way.Documents, Group: way.Group, HighQuality: way.HighQuality, Animated: boxAnimated(b.files), SilentAsVideo: c.silentAsVideo != nil && c.silentAsVideo()}})
 	for _, path := range paths {
 		if c.pasted[path] {
 			c.uploading[path] = true
 		}
 	}
 	b.modal.Close()
+}
+
+// boxAnimated are the places of the videos that go as GIFs: what the editor made
+// of one. A .gif file is one by its type.
+func boxAnimated(files []*boxFile) []int {
+	var places []int
+	for i, f := range files {
+		if f.Kind == sendfiles.KindAnimation && strings.HasPrefix(f.MIME, "video/") {
+			places = append(places, i)
+		}
+	}
+	return places
+}
+
+// replaceBoxPath keeps a result of the editor, temporary as a picture pasted is,
+// in place of what the file was: removed with the box or once sent. What it was
+// is removed only if it was temporary too, never what the user chose.
+func (c *messageComposer) replaceBoxPath(old, path string) {
+	c.pasted[path] = true
+	if c.pasted[old] {
+		c.forgetPasted([]string{old})
+	}
 }
 
 // layoutFilesBox draws the box over the page, and does what its buttons ask.
@@ -344,6 +374,7 @@ func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l loca
 		for _, f := range b.files {
 			if f.open.Clicked(gtx) && boxViewable(f) && p.openBoxFiles != nil {
 				media, items, current := boxGallery(p.source, c.chat, b.files, f)
+				media.ffmpeg, media.replaced = c.ffmpegPath, c.replaceBoxPath
 				b.viewing = true
 				// The caption goes on being typed once the viewer has gone.
 				p.openBoxFiles(media, c.chat, current, items, func() { b.viewing, b.modal.focus = false, true })

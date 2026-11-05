@@ -26,7 +26,7 @@ import (
 // go. chat is the one shown: a thread's, which the uploads are told in.
 func (s *Store) sendFiles(ctx context.Context, api *tg.Client, chat int64, peer peerRecord, replyTo tg.InputReplyToClass, msg model.OutgoingMessage, outgoing *outgoingEntry) error {
 	out := msg.Files
-	way := sendfiles.Way{Documents: out.Documents, Group: out.Group, HighQuality: out.HighQuality}
+	way := sendfiles.Way{Documents: out.Documents, Group: out.Group, HighQuality: out.HighQuality, SilentAsVideo: out.SilentAsVideo}
 	// places are the files' places in the message: what is cancelled leaves
 	// the rest where they were, with the identities they had.
 	files := make([]sendfiles.File, 0, len(out.Paths))
@@ -38,6 +38,9 @@ func (s *Store) sendFiles(ctx context.Context, api *tg.Client, chat int64, peer 
 		f, err := sendfiles.Inspect(path)
 		if err != nil {
 			return fmt.Errorf("%s: %w", filepath.Base(path), err)
+		}
+		if out.IsAnimated(i) {
+			f = f.AsAnimation()
 		}
 		files, places = append(files, f), append(places, i)
 	}
@@ -122,6 +125,12 @@ func (s *Store) prepareFile(ctx context.Context, api *tg.Client, chat int64, pee
 	}
 	defer end()
 	media, err := s.uploadFile(fileCtx, api, chat, f, way, ffmpeg, outgoing, place)
+	if doc, ok := media.(*tg.InputMediaUploadedDocument); ok && album && f.Kind == sendfiles.KindVideo && !doc.ForceFile {
+		// Stays a video, as Telegram Desktop asks (PrepareUploadedDocument): one
+		// without sound may otherwise come back a GIF, which no album takes, and
+		// sendMultiMedia fails with MEDIA_EMPTY.
+		doc.NosoundVideo = true
+	}
 	if err == nil && album {
 		var server tg.MessageMediaClass
 		server, err = api.MessagesUploadMedia(fileCtx, &tg.MessagesUploadMediaRequest{Peer: peer.input(), Media: media})
@@ -145,15 +154,24 @@ func (s *Store) prepareFile(ctx context.Context, api *tg.Client, chat int64, pee
 // scaled and saved as JPEG, a video or a GIF as media, anything else as a
 // document. chat is told meanwhile that the account sends it.
 func (s *Store) uploadFile(ctx context.Context, api *tg.Client, chat int64, f sendfiles.File, way sendfiles.Way, ffmpeg string, outgoing *outgoingEntry, place int) (tg.InputMediaClass, error) {
-	asMedia := !way.Documents
-	action := model.ActionUploadFile
+	up := s.fileUploader(api, chat, uploadAction(f, way), outgoing, place)
+	return s.uploadMedia(ctx, api, f, way, ffmpeg, up)
+}
+
+// uploadAction is what a chat is told the account does as f goes the way asked.
+func uploadAction(f sendfiles.File, way sendfiles.Way) model.ChatAction {
 	switch {
-	case asMedia && f.Kind == sendfiles.KindPhoto:
-		action = model.ActionUploadPhoto
-	case asMedia && (f.Kind == sendfiles.KindVideo || f.Kind == sendfiles.KindAnimation):
-		action = model.ActionUploadVideo
+	case !way.Documents && f.Kind == sendfiles.KindPhoto:
+		return model.ActionUploadPhoto
+	case !way.Documents && (f.Kind == sendfiles.KindVideo || f.Kind == sendfiles.KindAnimation):
+		return model.ActionUploadVideo
 	}
-	up := s.fileUploader(api, chat, action, outgoing, place)
+	return model.ActionUploadFile
+}
+
+// uploadMedia uploads f with up, as its kind and the way ask.
+func (s *Store) uploadMedia(ctx context.Context, api *tg.Client, f sendfiles.File, way sendfiles.Way, ffmpeg string, up *uploader.Uploader) (tg.InputMediaClass, error) {
+	asMedia := !way.Documents
 	// A thumbnail goes apart: its bytes are none of the file's progress.
 	thumbs := uploader.NewUploader(api)
 	if f.Kind == sendfiles.KindPhoto && asMedia {
@@ -170,7 +188,9 @@ func (s *Store) uploadFile(ctx context.Context, api *tg.Client, chat int64, f se
 	if f.Kind == sendfiles.KindMusic {
 		return uploadMusic(ctx, up, thumbs, f)
 	}
-	attrs, err := uploadAttributes(ctx, f.Path, f.MIME, asMedia && f.Kind == sendfiles.KindVideo, ffmpeg)
+	// A GIF that is a video, as Telegram keeps them, tells its size and length too.
+	videoFile := strings.HasPrefix(f.MIME, "video/") && (f.Kind == sendfiles.KindVideo || f.Kind == sendfiles.KindAnimation)
+	attrs, err := uploadAttributes(ctx, f.Path, f.MIME, asMedia && videoFile, ffmpeg)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", f.Name, err)
 	}
@@ -183,7 +203,14 @@ func (s *Store) uploadFile(ctx context.Context, api *tg.Client, chat int64, f se
 	}
 	media := asMedia && (f.Kind == sendfiles.KindVideo || f.Kind == sendfiles.KindAnimation)
 	doc := &tg.InputMediaUploadedDocument{File: file, MimeType: f.MIME, ForceFile: !media, Attributes: attrs}
-	if f.Kind == sendfiles.KindVideo {
+	if way.SilentAsVideo && media && f.Kind == sendfiles.KindVideo {
+		// One that cannot be probed goes as it would: only a video known to
+		// have no sound may say so.
+		if probed, err := video.ProbeMedia(ctx, f.Path, ffmpeg); err == nil && !probed.Sound {
+			doc.NosoundVideo = true
+		}
+	}
+	if videoFile {
 		// A video sent as a file shows its picture too, as in Telegram
 		// Desktop. One that gives no picture goes without.
 		thumbCtx, cancel := context.WithTimeout(ctx, videoThumbnailPatience)

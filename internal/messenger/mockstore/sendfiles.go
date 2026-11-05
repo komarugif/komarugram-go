@@ -18,10 +18,13 @@ import (
 func (s *Store) appendFiles(chat int64, h model.History, first model.MessageID, out model.OutgoingMessage) error {
 	way := sendfiles.Way{Documents: out.Files.Documents, Group: out.Files.Group, HighQuality: out.Files.HighQuality}
 	files := make([]sendfiles.File, 0, len(out.Files.Paths))
-	for _, path := range out.Files.Paths {
+	for i, path := range out.Files.Paths {
 		f, err := sendfiles.Inspect(path)
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
+		}
+		if out.Files.IsAnimated(i) {
+			f = f.AsAnimation()
 		}
 		files = append(files, f)
 	}

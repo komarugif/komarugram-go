@@ -90,7 +90,7 @@ func (s *Store) checkSend(chat int64, msg model.OutgoingMessage) error {
 			}
 		}
 	case msg.Files != nil:
-		for _, path := range msg.Files.Paths {
+		for i, path := range msg.Files.Paths {
 			if path == "" {
 				// A file cancelled: delivery took nothing out for it.
 				continue
@@ -98,6 +98,9 @@ func (s *Store) checkSend(chat int64, msg model.OutgoingMessage) error {
 			f, err := sendfiles.Inspect(path)
 			if err != nil {
 				return fmt.Errorf("%s: %w", filepath.Base(path), err)
+			}
+			if msg.Files.IsAnimated(i) {
+				f = f.AsAnimation()
 			}
 			if err := p.Check(sendfiles.Permission(f, msg.Files.Documents)); err != nil {
 				return err

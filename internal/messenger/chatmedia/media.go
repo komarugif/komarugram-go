@@ -416,6 +416,10 @@ func (m *Manager) GIFPaused(msg model.Message) bool {
 	return msg.Media != nil && m.stopped[msg.Media.ID]
 }
 
+// PlayGIFs lets go of all the pauses of ToggleGIF: a viewer closed leaves none. It
+// runs on the UI goroutine.
+func (m *Manager) PlayGIFs() { clear(m.stopped) }
+
 // SeekGIF moves the GIF of msg to at, a time in its loop, as a timestamp
 // or its bar asks: with play a paused one plays again from there, as for
 // a timestamp; without, a paused one stays paused and shows the picture

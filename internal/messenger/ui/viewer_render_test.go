@@ -36,7 +36,9 @@ import (
 // VIEWER_GIFS a GIF of the chat among its GIFs, with VIEWER_STORIES the
 // stories of someone of the list's, and with VIEWER_SAVE_GIF a video saved
 // as a GIF by the bot, halfway through, and with VIEWER_BOX the files of the
-// box of files about to go.
+// box of files about to go. VIEWER_EDIT opens the media editor on the photo:
+// paint, crop, text, shapes, stickers, turned, trim, opening, opening-late,
+// choice, work, failed, discard. With VIEWER_DARK its dialogs are a dark theme's.
 func TestRenderMediaViewer(t *testing.T) {
 	out := os.Getenv("VIEWER_PNG")
 	if out == "" {
@@ -68,6 +70,9 @@ func TestRenderMediaViewer(t *testing.T) {
 		}
 	})
 	defer v.Destroy()
+	if box, ok := source.(*boxMedia); ok {
+		v.editSink = box.edit
+	}
 	v.popout = func(int64, model.Message, mediaList) {}
 	v.share.chats = store.Chats
 	if boxItems != nil {
@@ -107,6 +112,7 @@ func TestRenderMediaViewer(t *testing.T) {
 	} else {
 		v.Open(2, start, nil)
 	}
+	edit := os.Getenv("VIEWER_EDIT")
 	size := image.Pt(1280, 800)
 	win, err := headless.NewWindow(size.X, size.Y)
 	if err != nil {
@@ -117,7 +123,12 @@ func TestRenderMediaViewer(t *testing.T) {
 	frame := func() {
 		ops.Reset()
 		gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		scheme := schemes.SchemeBaselineLight()
+		if os.Getenv("VIEWER_DARK") != "" {
+			// The viewer is dark in either; its dialogs are the theme's.
+			scheme = schemes.SchemeBaselineDark()
+		}
+		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, scheme))
 		images.BeginFrame()
 		v.Layout(gtx, localization.For("ru"), false)
 		images.EndFrame()
@@ -153,6 +164,12 @@ func TestRenderMediaViewer(t *testing.T) {
 			frame()
 			time.Sleep(20 * time.Millisecond)
 		}
+	}
+	if edit != "" {
+		// Also open what the editor shows as VIEWER_EDIT names it: see
+		// viewer_edit_test.go.
+		v.ffmpeg = func() string { return "" }
+		renderEditor(t, v, start, edit, frame, changed)
 	}
 	frame()
 	frame()

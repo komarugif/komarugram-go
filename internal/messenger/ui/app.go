@@ -500,6 +500,12 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			log.Printf("save settings: %v", err)
 		}
 	}
+	a.settings.silentAsVideo = func() bool { return a.preferences.Global().SilentVideoAsVideo }
+	a.settings.setSilentAsVideo = func(on bool) {
+		if err := services.Preferences.SetSilentVideoAsVideo(on); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
 	a.settings.composerStyle = a.composerStyle
 	a.settings.setComposerStyle = func(style preferences.ComposerStyle) {
 		if err := services.Preferences.SetComposer(style); err != nil {
@@ -849,6 +855,7 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 			return g.ManualFocus, g.PickerOnClick
 		}
 		p.composer.ffmpeg = func() string { return a.preferences.Global().FFmpegPath }
+		p.composer.silentAsVideo = func() bool { return a.preferences.Global().SilentVideoAsVideo }
 	}
 	p.addFilter = func(pattern preferences.FilterPattern) {
 		a.changeVisibility(func(v *preferences.Visibility) {

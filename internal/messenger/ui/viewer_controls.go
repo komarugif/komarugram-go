@@ -101,14 +101,47 @@ type externalVideo struct {
 	at time.Duration
 }
 
+// playState is what the controls show of m. A GIF plays in full, by the decoder
+// that shows it: its bar needs only its length, which a .gif file may not tell.
+func (v *mediaViewer) playState(m model.Message) videoState {
+	if m.Kind == model.MessageGIF && m.Media != nil && m.Media.Duration > 0 {
+		return videoState{active: true, playing: !v.full.GIFPaused(m), position: v.full.GIFPosition(m), duration: m.Media.Duration}
+	}
+	if m.Kind != model.MessageVideo {
+		return videoState{}
+	}
+	return v.video.state(m)
+}
+
+// togglePlay pauses m, or plays it on.
+func (v *mediaViewer) togglePlay(m model.Message) {
+	if m.Kind == model.MessageGIF {
+		v.full.ToggleGIF(m)
+		return
+	}
+	v.video.toggle()
+}
+
+// seekTo moves m to at, paused or not as it was.
+func (v *mediaViewer) seekTo(m model.Message, at time.Duration) {
+	if m.Kind == model.MessageGIF {
+		v.full.SeekGIF(m, at, false)
+		return
+	}
+	v.video.seek(at)
+}
+
 // videoKey does what a key of the video's asks: play or pause, a move back
 // or ahead, or the sound off or on.
 func (v *mediaViewer) videoKey(gtx layout.Context, m model.Message, id string) {
-	if m.Kind != model.MessageVideo {
+	if m.Kind != model.MessageVideo && m.Kind != model.MessageGIF {
 		return
 	}
-	s := v.video.state(m)
+	s := v.playState(m)
 	if !s.active {
+		if m.Kind == model.MessageGIF {
+			return
+		}
 		if id == "viewer.play_pause" {
 			v.picture.Click()
 		}
@@ -116,13 +149,15 @@ func (v *mediaViewer) videoKey(gtx layout.Context, m model.Message, id string) {
 	}
 	switch id {
 	case "viewer.play_pause":
-		v.video.toggle()
+		v.togglePlay(m)
 	case "viewer.seek_back":
-		v.video.seek(max(0, s.position-videoSeekStep))
+		v.seekTo(m, max(0, s.position-videoSeekStep))
 	case "viewer.seek_forward":
-		v.video.seek(min(s.duration, s.position+videoSeekStep))
+		v.seekTo(m, min(s.duration, s.position+videoSeekStep))
 	case "viewer.mute":
-		v.video.toggleMute()
+		if m.Kind == model.MessageVideo {
+			v.video.toggleMute()
+		}
 	}
 	v.controls.wake(gtx.Now)
 	gtx.Execute(op.InvalidateCmd{})
@@ -162,8 +197,8 @@ func (v *mediaViewer) updateVideo(gtx layout.Context, m model.Message, l localiz
 			}
 		}
 	}
-	s := v.video.state(m)
-	if !s.active || m.Kind != model.MessageVideo {
+	s := v.playState(m)
+	if !s.active {
 		c.seeking = false
 		return
 	}
@@ -190,7 +225,8 @@ func (v *mediaViewer) updateVideo(gtx layout.Context, m model.Message, l localiz
 			}
 		case pointer.Release:
 			if c.seeking {
-				v.video.seek(time.Duration(float64(at) * float64(s.duration)))
+				v.seekTo(m, time.Duration(float64(at)*float64(s.duration)))
+				gtx.Execute(op.InvalidateCmd{})
 			}
 			c.seeking = false
 		case pointer.Cancel:
@@ -198,7 +234,12 @@ func (v *mediaViewer) updateVideo(gtx layout.Context, m model.Message, l localiz
 		}
 	}
 	if c.play.Clicked(gtx) {
-		v.video.toggle()
+		v.togglePlay(m)
+		gtx.Execute(op.InvalidateCmd{})
+	}
+	if m.Kind != model.MessageVideo {
+		// A GIF has no sound, and plays on its own, here alone.
+		return
 	}
 	if c.speed.Clicked(gtx) {
 		v.video.nextSpeed()
@@ -219,10 +260,11 @@ func (v *mediaViewer) updateVideo(gtx layout.Context, m model.Message, l localiz
 // bottom of stage, and returns the top of their plate.
 func (v *mediaViewer) layoutVideoControls(gtx layout.Context, m model.Message, stage image.Rectangle, l localization.Catalog) (int, bool) {
 	c := &v.controls
-	s := v.video.state(m)
-	if m.Kind != model.MessageVideo || !s.active {
+	s := v.playState(m)
+	if !s.active {
 		return 0, false
 	}
+	hasSound := m.Kind == model.MessageVideo
 	idle := gtx.Now.Sub(c.moved)
 	visible := !s.playing || s.loading || c.over || c.seeking || idle < videoControlsIdle || c.slider.over || c.slider.dragging
 	if s.playing {
@@ -314,18 +356,21 @@ func (v *mediaViewer) layoutVideoControls(gtx layout.Context, m model.Message, s
 				})
 			}
 		}
-		if v.play != nil {
-			rightButton(&c.external, icon(iconExternalPlayer), d)
+		volumeX := 0
+		if hasSound {
+			if v.play != nil {
+				rightButton(&c.external, icon(iconExternalPlayer), d)
+			}
+			volumeX = rightButton(&c.volume, icon(volumeIcon(v.video.loudness())), d)
+			speedWide := gtx.Dp(48)
+			rightButton(&c.speed, func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints = layout.Exact(image.Pt(speedWide, d))
+				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints.Min = image.Point{}
+					return label(gtx, speedText(v.video.currentSpeed()), token.TypestyleLabelLarge, white, 1)
+				})
+			}, speedWide)
 		}
-		volumeX := rightButton(&c.volume, icon(volumeIcon(v.video.loudness())), d)
-		speedWide := gtx.Dp(48)
-		rightButton(&c.speed, func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints = layout.Exact(image.Pt(speedWide, d))
-			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints.Min = image.Point{}
-				return label(gtx, speedText(v.video.currentSpeed()), token.TypestyleLabelLarge, white, 1)
-			})
-		}, speedWide)
 		// The bar between them.
 		barArea := image.Rect(x+gtx.Dp(4), 0, right-gtx.Dp(8), size.Y)
 		c.width = barArea.Dx()
@@ -349,7 +394,7 @@ func (v *mediaViewer) layoutVideoControls(gtx layout.Context, m model.Message, s
 		}
 		// The volume's slider, over its button, as the audio bar's is under
 		// its own.
-		if c.slider.visible(gtx, c.volume.Hovered()) {
+		if hasSound && c.slider.visible(gtx, c.volume.Hovered()) {
 			panel := volumePanel(gtx)
 			offset(gtx, image.Pt(volumeX+(d-panel.X)/2, -panel.Y), func(gtx layout.Context) layout.Dimensions {
 				c.slider.layout(gtx, panel, v.video.loudness())

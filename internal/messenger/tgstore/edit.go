@@ -8,16 +8,82 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/gotd/td/telegram/uploader"
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
 
 	"komarugram/internal/crash"
 	"komarugram/internal/messenger/model"
+	"komarugram/internal/messenger/sendfiles"
 )
 
 // EditMessage implements model.MessageEditor with messages.editMessage,
 // whose updates bring the message edited into the history and the cache.
 func (s *Store) EditMessage(ctx context.Context, key model.MessageKey, text string, entities []model.Entity) error {
+	return s.editMessage(ctx, key, text, entities, nil)
+}
+
+// ReplaceMedia implements model.MediaEditor as Telegram Desktop does
+// (api_editing.cpp, EditMessageWithUploadedMedia): uploaded, then edited in
+// with the message's text as it is. An upload that fails is the caller's to
+// try again, the message being as it was.
+func (s *Store) ReplaceMedia(ctx context.Context, m model.Message, path, ffmpeg string, progress func(done, total int64)) (model.Message, error) {
+	c := s.history
+	c.mu.Lock()
+	chat, _ := c.threadChat(m.Key.ChatID)
+	api := c.api
+	c.mu.Unlock()
+	if api == nil {
+		return model.Message{}, errors.New("cannot edit while offline")
+	}
+	f, err := sendfiles.Inspect(path)
+	if err != nil {
+		return model.Message{}, err
+	}
+	way := sendfiles.Way{HighQuality: true}
+	if m.Kind == model.MessageGIF {
+		f = f.AsAnimation()
+	}
+	action := uploadAction(f, way)
+	s.sendAction(chat, action, 0)
+	up := uploader.NewUploader(api).WithProgress(uploadProgress{s, chat, action, func(done, total int64) {
+		if progress != nil {
+			progress(done, total)
+		}
+	}})
+	media, err := s.uploadMedia(ctx, api, f, way, ffmpeg, up)
+	if err != nil {
+		return model.Message{}, err
+	}
+	if err := s.editMessage(ctx, m.Key, m.Text, model.EditableEntities(m), media); err != nil {
+		return model.Message{}, err
+	}
+	return s.replacedMessage(ctx, chat, m), nil
+}
+
+// replacedMessage is m as the edit's update left it in the cache, under m's key,
+// which may be a thread's. Where the cache has no such message, m is all there is.
+func (s *Store) replacedMessage(ctx context.Context, chat int64, m model.Message) model.Message {
+	cache := s.Cache()
+	if cache == nil {
+		return m
+	}
+	around, err := cache.Around(ctx, chat, int(m.Key.MessageID), 3)
+	if err != nil {
+		return m
+	}
+	for _, found := range around {
+		if found.Key.MessageID == m.Key.MessageID {
+			found.Key = m.Key
+			return found
+		}
+	}
+	return m
+}
+
+// editMessage makes a message's text text with entities and, unless nil, its
+// media media.
+func (s *Store) editMessage(ctx context.Context, key model.MessageKey, text string, entities []model.Entity, media tg.InputMediaClass) error {
 	c := s.history
 	c.mu.Lock()
 	chat, _ := c.threadChat(key.ChatID)
@@ -39,6 +105,9 @@ func (s *Store) EditMessage(ctx context.Context, key model.MessageKey, text stri
 	}
 	req.SetMessage(text)
 	req.SetEntities(inputEntities(projection.wireEntities(entities)))
+	if media != nil {
+		req.SetMedia(media)
+	}
 	res, err := api.MessagesEditMessage(ctx, req)
 	if err != nil && !(projection.LocalEmoji && tgerr.Is(err, "MESSAGE_NOT_MODIFIED")) {
 		return editError(err)
@@ -67,6 +136,8 @@ func editError(err error) error {
 		return fmt.Errorf("edit: %w: %v", model.ErrEditForbidden, err)
 	case tgerr.Is(err, "MESSAGE_EMPTY"):
 		return fmt.Errorf("edit: %w", model.ErrMessageEmpty)
+	case tgerr.Is(err, "MEDIA_NEW_INVALID"):
+		return fmt.Errorf("edit: %w", model.ErrMediaInvalid)
 	}
 	return fmt.Errorf("edit: %w", err)
 }

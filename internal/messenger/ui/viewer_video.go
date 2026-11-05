@@ -744,6 +744,7 @@ func (a *App) configureViewer(v *mediaViewer) {
 		v.share.chats = store.Chats
 	}
 	v.ffmpeg = func() string { return a.preferences.Global().FFmpegPath }
+	v.silentAsVideo = func() bool { return a.preferences.Global().SilentVideoAsVideo }
 	if a.history != nil {
 		audio := a.history.audio
 		v.pauseAudio = audio.pause

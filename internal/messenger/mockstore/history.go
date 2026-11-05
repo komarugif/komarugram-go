@@ -81,7 +81,7 @@ func (s *Store) History(chat int64) model.History {
 		}
 		if i%45 == 22 {
 			// GIFs between the photos, which the viewer goes through apart.
-			m.Kind, m.Media, m.Text = model.MessageGIF, &model.MessageMedia{ID: "demo/gif", MIMEType: "image/gif", Width: 240, Height: 140}, fmt.Sprintf("GIF %d — откройте, чтобы листать все GIF чата", i/45+1)
+			m.Kind, m.Media, m.Text = model.MessageGIF, &model.MessageMedia{ID: "demo/gif", MIMEType: "image/gif", Width: 240, Height: 140, Duration: 1440 * time.Millisecond}, fmt.Sprintf("GIF %d — откройте, чтобы листать все GIF чата", i/45+1)
 		}
 		messages = append(messages, m)
 	}

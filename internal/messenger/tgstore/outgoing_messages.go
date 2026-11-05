@@ -37,10 +37,13 @@ func (s *Store) outgoingMessages(ctx context.Context, chat int64, msg model.Outg
 	paths := outgoingPaths(msg)
 	if len(paths) > 0 {
 		files := make([]sendfiles.File, 0, len(paths))
-		for _, path := range paths {
+		for i, path := range paths {
 			f, err := sendfiles.Inspect(path)
 			if err != nil {
 				return nil, err
+			}
+			if msg.Files.IsAnimated(i) {
+				f = f.AsAnimation()
 			}
 			files = append(files, f)
 		}

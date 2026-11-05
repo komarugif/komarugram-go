@@ -356,6 +356,59 @@ size-stability fixes remain in place.
   read once done with (as Ghost's ReadOnInteract allows), and a video made
   again saves the GIF it made (`MadeGIF`), which Telegram keeps once.
   `VIEWER_SAVE_GIF` renders it.
+- **The media editor** (`viewer_edit*.go`, `internal/messenger/photoedit`):
+  the viewer's brush, on a photo or, with FFmpeg, a video or a GIF of a message that
+  does not protect its content and may be replied to or replaced, opens over
+  the viewer, as a mode of it, an editor in the manner of Telegram Desktop's: a crop with its
+  proportions, turning and mirroring; pen, arrow, marker, eraser and blur; text
+  in four styles; figures; stickers (the composer's picker, `messageComposer`
+  with `pick` set, its stickers alone: one that plays is its first frame, on a
+  video too); undo and redo; and on a video what is kept of its length. All of
+  it is a `photoedit.Scene`, in the picture's pixels: no frames are kept.
+  **It is drawn by `photoedit`, not by Gio, on purpose**: Gio blends in linear
+  light while FFmpeg's overlay and Telegram Desktop blend in the values the
+  pixels hold, so a marker drawn by Gio would come out otherwise on a video,
+  and Gio has no eraser or blur. The view is a picture made on the CPU
+  (`photoedit.Preview`, which keeps what lies under what changes), a photo is
+  `Flatten`, a video gets `Layers`, passes of a picture or of a blur's mask, the
+  blur being done by FFmpeg on the frames as they go by, under a mask that stays
+  in place (something moving may leave it). Only a text goes through the GPU
+  (`renderSnapshot`, `photoedit.Straighten`), for Gio alone shapes text; its edges
+  are in linear light. Frames go through RGB for the overlay with their colors'
+  matrix stated (`pkg/video/edit.go`): the mean difference from what the view
+  shows is about 1.3 of 255, more at the edges of what is drawn, which 4:2:0 cuts.
+  Done replies by default (`model.OutboxStore`, its progress and cancel the
+  history's); where `model.CanReplaceMedia` allows it a dialog of radio buttons
+  asks first, and `model.MediaEditor` replaces the file, keeping the caption, as
+  `api_editing.cpp` does. A replacement has no queue: it runs in the dialog, and
+  one that fails, on a lost connection or a time limit passed, keeps its file to
+  try again or to send as a reply. Escape goes back a step at a time and never
+  reaches the viewer (`v.edit.opened()` comes before its keys). The box of files
+  (`galleryBox`) edits too: `mediaViewer.editSink` takes the result in place of a
+  message (`boxMedia.edit`), without a dialog, under the name the file had, a
+  picture not a JPEG staying lossless as a PNG. The file chosen stays as it is on
+  the disk; the result is temporary as a pasted picture (`c.pasted`), removed with
+  the box or once sent. `stickerStore` gives its stickers from the account's store,
+  its source reading only the box's files.
+  A GIF stays a GIF: without sound, within 10 MB (encoded again under a lower cap
+  if not), and sent with `OutgoingFiles.Animated`. Its plate in the viewer is the
+  video's (`playState`), without the sound's and the speed's buttons, played and
+  moved by what shows it (`Manager.SeekGIF`).
+  The mode is no page of its own: `mediaViewer.layout` goes on drawing the
+  backdrop and the picture, and one number (`viewer_edit_transition.go`) takes
+  all the way there and back: the bar fades, the strip goes down, the picture
+  moves to the stage, the rows fade in, and running backward it reverses them.
+  The viewer's picture stays until the editor's has come and is over it, a
+  video being paused for it and played on after; with animations off all of it
+  is at once.
+  `VIEWER_EDIT` renders it: paint, crop, text, shapes, turned, stickers, opening, opening-late, choice,
+  work, failed, discard, with `VIEWER_DARK` for dialogs of a dark theme.
+- **A video without sound**: Telegram makes a GIF of one sent alone (`uploadMedia`
+  answers with it animated), unless `nosound_video` says otherwise, and an album
+  takes no GIF, so a video in one always says it (or `sendMultiMedia` fails with
+  `MEDIA_EMPTY`). The settings of chats choose for one alone,
+  `preferences.Global.SilentVideoAsVideo`, by default a GIF; the box of files and
+  the editor's reply follow them, in `OutgoingFiles.SilentAsVideo`.
 - **Storage channel** (`storage_offer.go`): when Local Premium's sync is ticked
   and no channel of `model.StorageChannelTitle` is found, a `modal` offers to
   keep the lists in a private channel, existing or new; a channel without GIFs
