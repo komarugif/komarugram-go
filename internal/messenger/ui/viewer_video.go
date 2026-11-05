@@ -46,7 +46,9 @@ func videoHD(width, height int) bool {
 // setting, "external" or else the client's own; sandbox is set when MP4
 // animations play in the sandbox, as chosen or for want of an FFmpeg
 // (chatmedia.Manager.SandboxGIFs). FFmpeg plays any video; the sandbox
-// plays HD ones in MP4, and any other goes to the external player.
+// plays HD ones in MP4, MOV, 3GP, WebM and MKV, those last being let try without a
+// size told, as Telegram keeps none of one, and any other goes to the external
+// player, as does what proves to be in a codec it does not decode.
 func videoEngineOf(m model.Message, player string, sandbox bool) string {
 	if player == videoExternal || m.Kind != model.MessageVideo || m.Media == nil {
 		return videoExternal
@@ -54,8 +56,15 @@ func videoEngineOf(m model.Message, player string, sandbox bool) string {
 	if !sandbox {
 		return videoFFmpeg
 	}
-	if (m.Media.MIMEType == "video/mp4" || m.Media.MIMEType == "") && videoHD(m.Media.Width, m.Media.Height) {
-		return videoWASM
+	switch m.Media.MIMEType {
+	case "video/mp4", "video/quicktime", "video/3gpp", "":
+		if videoHD(m.Media.Width, m.Media.Height) {
+			return videoWASM
+		}
+	case "video/webm", "video/x-matroska":
+		if m.Media.Width <= 0 || m.Media.Height <= 0 || videoHD(m.Media.Width, m.Media.Height) {
+			return videoWASM
+		}
 	}
 	return videoExternal
 }
@@ -381,7 +390,11 @@ func (v *viewerVideo) load(ctx context.Context, source model.ConversationStore, 
 		}
 		pictures = round
 		releases = append(releases, round.close)
-		sound, samples, err = openVideoSound(ctx, f, round.duration())
+		if round.index != nil {
+			sound, samples, err = openWebMSound(ctx, round.index, round.duration())
+		} else {
+			sound, samples, err = openVideoSound(ctx, f, round.duration())
+		}
 		if err != nil {
 			release()
 			return err
@@ -403,6 +416,7 @@ func (v *viewerVideo) load(ctx context.Context, source model.ConversationStore, 
 			release()
 			return fmt.Errorf("%w: %w", errFormat, err)
 		}
+		media = webmLength(m, f, media)
 		long := m.Media.Duration
 		if media.Duration > 0 {
 			long = media.Duration

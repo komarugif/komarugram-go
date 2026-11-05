@@ -165,12 +165,20 @@ func encodeThumbnail(img image.Image) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// VideoThumbnail asks ffmpeg for the first picture of the video at path,
-// scaled to fit a square of side pixels.
+// VideoThumbnail is the first picture of the video at path, scaled to fit a square
+// of side pixels: ffmpeg's, and without it, or where it fails, the client's own
+// decoders', for what they decode.
 func VideoThumbnail(ctx context.Context, ffmpeg, path string, side int) (*image.RGBA, error) {
-	if ffmpeg == "" {
-		return nil, errors.New("no ffmpeg")
+	if ffmpeg != "" {
+		if img, err := ffmpegThumbnail(ctx, ffmpeg, path, side); err == nil {
+			return img, nil
+		}
 	}
+	return decodedThumbnail(ctx, path, side)
+}
+
+// ffmpegThumbnail asks ffmpeg for the first picture of the video at path.
+func ffmpegThumbnail(ctx context.Context, ffmpeg, path string, side int) (*image.RGBA, error) {
 	cmd := program.CommandContext(ctx, ffmpeg, "-v", "error", "-i", path, "-frames:v", "1",
 		"-vf", "scale='min("+itoa(side)+",iw)':'min("+itoa(side)+",ih)':force_original_aspect_ratio=decrease", "-f", "image2pipe", "-c:v", "png", "-")
 	out, err := cmd.Output()

@@ -71,6 +71,8 @@ func boxPaths(t *testing.T, kinds ...string) []string {
 			photo++
 		case "video":
 			paths = append(paths, writeTemp(t, dir, "holiday.mp4", []byte("a video that is not one")))
+		case "webm":
+			paths = append(paths, writeTemp(t, dir, "holiday.webm", []byte("a video that is not one")))
 		case "song":
 			var cover bytes.Buffer
 			if err := png.Encode(&cover, gradientImage(400, 400, 3)); err != nil {

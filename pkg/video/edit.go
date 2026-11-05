@@ -57,6 +57,8 @@ type EditPlan struct {
 	// GIF makes it a GIF of Telegram's, encoded as ConvertGIF encodes one: see
 	// GIFPlan.
 	GIF bool
+	// Formats are the demuxers the video may be read by, mediaFormats for "".
+	Formats string
 	// gifPass is that encoding, nil for the first.
 	gifPass *GIFPlan
 }
@@ -184,8 +186,12 @@ func (p EditPlan) Length() time.Duration {
 // Args are FFmpeg's arguments to encode the file at in, a path or a URL, at
 // out, telling its progress on the standard output.
 func (p EditPlan) Args(in, out string) []string {
+	formats := p.Formats
+	if formats == "" {
+		formats = mediaFormats
+	}
 	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-		"-format_whitelist", "mov,matroska,webm,gif",
+		"-format_whitelist", formats,
 		"-threads", strconv.Itoa(gifDecodeThreads),
 	}
 	seconds := func(d time.Duration) string { return strconv.FormatFloat(d.Seconds(), 'f', 3, 64) }

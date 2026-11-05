@@ -39,6 +39,14 @@ const maxFPS = 60
 // ProbeMedia reads what Media tells of the file at path, a path or a URL,
 // with the ffprobe next to ffmpeg (the one found for "").
 func ProbeMedia(ctx context.Context, path, ffmpeg string) (Media, error) {
+	return probeMedia(ctx, path, ffmpeg, mediaFormats)
+}
+
+// mediaFormats are the demuxers a video played or edited is read by.
+const mediaFormats = "mov,matroska,webm,gif"
+
+// probeMedia is ProbeMedia reading by the demuxers of formats.
+func probeMedia(ctx context.Context, path, ffmpeg, formats string) (Media, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	ffprobe := ResolveFFprobe(ffmpeg)
@@ -46,7 +54,7 @@ func ProbeMedia(ctx context.Context, path, ffmpeg string) (Media, error) {
 		return Media{}, errors.New("ffprobe is not installed")
 	}
 	args := append(LimitArgs(ProbeMemory),
-		"-format_whitelist", "mov,matroska,webm,gif",
+		"-format_whitelist", formats,
 		"-v", "error",
 		"-show_entries", "stream=codec_type,codec_name,width,height,r_frame_rate,sample_aspect_ratio,color_space,color_range:stream_side_data=rotation:stream_tags=rotate:format=duration",
 		"-of", "json", path)

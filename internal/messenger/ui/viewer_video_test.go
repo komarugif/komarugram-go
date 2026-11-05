@@ -38,7 +38,10 @@ func TestVideoEngineOf(t *testing.T) {
 		{"sandbox, HD", video("video/mp4", 1280, 720), "", true, videoWASM},
 		{"sandbox, HD upright", video("video/mp4", 720, 1280), "", true, videoWASM},
 		{"sandbox, Full HD", video("video/mp4", 1920, 1080), "", true, videoExternal},
-		{"sandbox, Matroska", video("video/x-matroska", 640, 360), "", true, videoExternal},
+		{"sandbox, Matroska", video("video/x-matroska", 640, 360), "", true, videoWASM},
+		{"sandbox, MOV", video("video/quicktime", 640, 360), "", true, videoWASM},
+		{"sandbox, 3GP", video("video/3gpp", 352, 288), "", true, videoWASM},
+		{"sandbox, AVI", video("video/x-msvideo", 640, 360), "", true, videoExternal},
 		{"not a video", model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{MIMEType: "video/mp4", Width: 320, Height: 240}}, "", false, videoExternal},
 	} {
 		if got := videoEngineOf(c.m, c.player, c.sandbox); got != c.want {

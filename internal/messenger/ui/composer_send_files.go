@@ -43,6 +43,8 @@ type filesBox struct {
 	group, documents, quality *checkbox.Checkboxes[string]
 	// viewing is set while the viewer shows the files.
 	viewing bool
+	// convert asks what to do with videos Telegram would not show as videos.
+	convert boxConvert
 	// results bring what the reading of files found out; generation tells
 	// which box opening they are for.
 	results    chan boxResult
@@ -160,7 +162,9 @@ func readBoxFile(ctx context.Context, ffmpeg, path string) (info sendfiles.File,
 	}
 	picture = boxThumbnail(ctx, ffmpeg, info)
 	if info.Kind == sendfiles.KindVideo || info.Kind == sendfiles.KindAnimation {
-		if m, err := video.ProbeMedia(ctx, info.Path, ffmpeg); err == nil {
+		if c, err := video.ReadContainer(info.Path); err == nil {
+			shown, long = image.Pt(c.Width, c.Height), c.Duration
+		} else if m, err := video.ProbeChosenFile(ctx, info.Path, ffmpeg); err == nil {
 			shown, long = image.Pt(m.Width, m.Height), m.Duration
 		}
 	}
@@ -176,7 +180,7 @@ func baseName(path string) string {
 }
 
 // boxThumbnail reads the picture a file shows in the box: a photo or a GIF
-// as it is, a video as its first frame when there is an FFmpeg to say it,
+// as it is, a video as its first frame when there is something to decode it,
 // music as its cover.
 func boxThumbnail(ctx context.Context, ffmpeg string, f sendfiles.File) *image.RGBA {
 	switch f.Kind {
@@ -203,6 +207,10 @@ func (b *filesBox) close() {
 	b.generation++
 	b.files = nil
 	b.modal.Hide()
+	if b.convert.job != nil {
+		b.convert.job.stop()
+	}
+	b.convert.modal = modal{}
 }
 
 // take reads what looking at files found.
@@ -270,10 +278,6 @@ func (c *messageComposer) sendFiles(l localization.Catalog) {
 		b.modal.Toast(l.Count("files.caption_limit", over, nil))
 		return
 	}
-	paths := make([]string, len(b.files))
-	for i, f := range b.files {
-		paths[i] = f.Path
-	}
 	way := b.way
 	for _, f := range b.files {
 		if err := c.permissions(c.chat).Check(sendfiles.Permission(f.File, way.Documents)); err != nil {
@@ -281,6 +285,22 @@ func (c *messageComposer) sendFiles(l localization.Catalog) {
 			return
 		}
 	}
+	if len(c.toConvert()) > 0 {
+		b.convert.askConvert()
+		return
+	}
+	c.submitFiles()
+}
+
+// submitFiles sends what the box holds, as it is.
+func (c *messageComposer) submitFiles() {
+	b := &c.files
+	caption := strings.TrimSpace(b.caption.Text())
+	paths := make([]string, len(b.files))
+	for i, f := range b.files {
+		paths[i] = f.Path
+	}
+	way := b.way
 	c.submit(c.chat, model.OutgoingMessage{Text: caption, Files: &model.OutgoingFiles{Paths: paths, Documents: way.Documents, Group: way.Group, HighQuality: way.HighQuality, Animated: boxAnimated(b.files), SilentAsVideo: c.silentAsVideo != nil && c.silentAsVideo()}})
 	for _, path := range paths {
 		if c.pasted[path] {
@@ -315,12 +335,15 @@ func (c *messageComposer) replaceBoxPath(old, path string) {
 // layoutFilesBox draws the box over the page, and does what its buttons ask.
 func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l localization.Catalog) {
 	b := &c.files
-	if b.viewing {
+	top := gtx
+	if b.viewing || b.convert.modal.Shown() {
 		// Under the viewer, it takes no input: an event goes to who asks for
-		// it first, and this comes first, Escape closing the box.
+		// it first, and this comes first, Escape closing the box. So under the
+		// dialog that asks about converting.
 		gtx = gtx.Disabled()
 	}
 	b.take(l)
+	c.takeConverted(l)
 	for _, f := range b.files {
 		if f.ready {
 			if err := c.permissions(c.chat).Check(sendfiles.Permission(f.File, b.way.Documents)); err != nil {
@@ -388,6 +411,10 @@ func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l loca
 	})
 	if !shown {
 		b.close()
+		return
+	}
+	if !b.viewing {
+		c.layoutConvert(top, l)
 	}
 }
 

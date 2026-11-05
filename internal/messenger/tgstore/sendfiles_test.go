@@ -356,7 +356,7 @@ func TestSendVideoWithThumbnail(t *testing.T) {
 	if got := sentThumbnail(t, server, doc); !doc.ForceFile || got != image.Pt(320, 180) {
 		t.Fatalf("as a file, force file %v, thumbnail %v", doc.ForceFile, got)
 	}
-	send(10, false, true, wide, tall)
+	send(10, false, true, wide, clip(t, ffmpeg, "tall.mp4", "360x640"))
 	if len(server.uploaded) != 2 || len(server.albums) != 1 {
 		t.Fatalf("%d uploaded, %d albums", len(server.uploaded), len(server.albums))
 	}

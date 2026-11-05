@@ -1358,6 +1358,7 @@ func (s *Store) convert(ctx context.Context, raw []tg.MessageClass, live bool, s
 			continue
 		}
 		m, ref := convertMessage(account, r, names)
+		s.applyWebMShape(ctx, m.Media)
 		refs := map[string]fileLocation{}
 		var inlines []*model.MessageMedia
 		if raw, ok := r.(*tg.Message); ok {

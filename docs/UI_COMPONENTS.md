@@ -403,6 +403,12 @@ size-stability fixes remain in place.
   is at once.
   `VIEWER_EDIT` renders it: paint, crop, text, shapes, turned, stickers, opening, opening-late, choice,
   work, failed, discard, with `VIEWER_DARK` for dialogs of a dark theme.
+- **Videos Telegram does not keep as videos**: a WebM, MKV, AVI or OGV comes back a
+  file. With an FFmpeg and an ffprobe, Send in the box of files asks first
+  (`boxConvert`, `composer_send_convert.go`; radios, converting chosen): the MP4s go
+  in place of the files, temporary as pasted pictures are, or the files as they are.
+  It runs in the dialog, cancelled as a whole; without FFmpeg, or as documents, nothing
+  is asked. `COMPOSER_VIEW=files-convert` renders it.
 - **A video without sound**: Telegram makes a GIF of one sent alone (`uploadMedia`
   answers with it animated), unless `nosound_video` says otherwise, and an album
   takes no GIF, so a video in one always says it (or `sendMultiMedia` fails with

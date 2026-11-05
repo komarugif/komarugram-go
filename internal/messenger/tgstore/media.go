@@ -101,6 +101,9 @@ func (s *Store) MediaProgress(ctx context.Context, m model.Message, progress fun
 		}
 		return b, retain(b)
 	}
+	if strings.HasSuffix(m.Media.ID, webmFirstSuffix) {
+		return s.webmFirstPicture(ctx, m)
+	}
 	// Telegram said to wait before this file again: asked meanwhile, it
 	// says so again, on every show of what draws it.
 	c.mu.Lock()

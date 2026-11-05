@@ -495,8 +495,24 @@ Opus, FLAC) that say how long they play go as tracks, as in Telegram Desktop,
 whatever the choices: title, performer and length from their tags
 (`pkg/audiotag`: ID3, Vorbis comments, iTunes metadata, read in Go), the cover
 as the thumbnail, and grouped tracks in an album of music alone; other audio
-goes as a file. Video upload uses `ffprobe` for
-dimensions and duration. Files dragged from another program over an open
+goes as a file. A video's size and length, which Telegram needs to show it as one,
+come from its file, read in Go for any codec (`mp4.ReadMeta`: MP4, MOV, M4V, 3GP;
+`webm.ReadMeta`: WebM, MKV; neither reads the file whole), and for other formats,
+AVI or OGV, from `ffprobe`; without it such a video goes as a file, and a toast says
+why. It says it plays as it comes only with its movie box first, as Telegram
+Desktop has it. Its first picture is the thumbnail, FFmpeg's or, for H.264 and
+MPEG-4 Part 2 in MP4 and VP9 in WebM, that of the client's own decoders. A video in
+another format than MP4 and MOV may come back a file, as a WebM does, which Telegram
+for Android shows as one. With an FFmpeg, the box asks (`composer_send_convert.go`):
+an MP4 made for it (`video.ConvertToMP4`), or the file as it is, which goes apart from
+an album of media; without one it asks nothing. Telegram keeps no thumbnail of a
+WebM either, so the client makes its picture and reads its shape from the start of the
+file (`tgstore/webm_first.go`), and its length from its blocks, since a header may lie.
+A WebM that is no sticker shows in this client as a video whatever came of it, and
+plays in the viewer, with FFmpeg or in
+the sandboxes (`webm.ReadIndex`, `vp9.Video`, Opus read as it plays): VP9 up to HD,
+with Opus sound or none, in WebM or MKV, as H.264 and MPEG-4 Part 2 up to HD in MP4,
+MOV or 3GP, turned as a phone recorded them; anything else goes to the external player. Files dragged from another program over an open
 chat show Telegram Desktop's areas: one to send them as documents, and for
 pictures, photos and videos another to send them compressed, as media; dropped,
 they open the same box, or join it when it is open. The windows take drags

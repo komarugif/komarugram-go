@@ -262,6 +262,7 @@
 "composer.search" = "Поиск…";
 "composer.send" = "Отправить";
 "composer.send_failed" = "Сообщение не отправлено";
+"composer.sent_as_file" = "Видео отправлено файлом: без FFmpeg не узнать размер и длительность видео в таком формате. Укажите FFmpeg в настройках.";
 "composer.send_no_ffprobe" = "Видео не отправлено: без FFmpeg не узнать его размер и длительность. Укажите FFmpeg в настройках или отправьте его как файл.";
 "composer.sending" = "Отправка…";
 "composer.stickers" = "Стикеры";
@@ -743,6 +744,12 @@
 "files.caption_limit#few" = "Подпись слишком длинная: сократите её на {count} символа.";
 "files.caption_limit#many" = "Подпись слишком длинная: сократите её на {count} символов.";
 "files.caption_limit#one" = "Подпись слишком длинная: сократите её на {count} символ.";
+"files.convert_about" = "Другие клиенты, например Telegram для Android, могут показать видео в этом формате как обычный файл. В MP4 оно будет видно как видео.";
+"files.convert_failed" = "Не удалось сконвертировать видео";
+"files.convert_keep" = "Отправить файлом";
+"files.convert_mp4" = "Сконвертировать в MP4";
+"files.convert_title" = "Отправка видео";
+"files.converting" = "Конвертация в MP4…";
 "files.document" = "Отправить как файл";
 "files.documents" = "Отправить как файлы";
 "files.empty" = "Файл {name} пуст, его нельзя отправить.";

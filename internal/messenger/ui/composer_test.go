@@ -402,6 +402,20 @@ func TestRenderComposer(t *testing.T) {
 		h.p.list.Position.BeforeEnd = true
 		h.p.list.Position.First = len(h.p.messages) - 4
 		h.p.list.Position.Offset = 120
+	case "files-convert":
+		// The dialog that asks about a WebM before it goes.
+		h.p.composer.pickerOpen = false
+		h.chat = 2
+		h.frame()
+		h.p.composer.files.addPaths(h.p.composer, boxPaths(t, "webm"), false)
+		for range 200 {
+			h.frame()
+			time.Sleep(5 * time.Millisecond)
+			if h.p.composer.files.ready() {
+				break
+			}
+		}
+		h.p.composer.files.convert.askConvert()
 	case "files", "files-one", "files-documents", "files-many", "files-caption", "files-music":
 		// The box for sending files, with what it shows for each way.
 		h.p.composer.pickerOpen = false

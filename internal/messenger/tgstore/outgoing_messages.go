@@ -36,20 +36,27 @@ func (s *Store) outgoingMessages(ctx context.Context, chat int64, msg model.Outg
 	}
 	paths := outgoingPaths(msg)
 	if len(paths) > 0 {
+		way := sendfiles.Way{Documents: !msg.AsMedia}
+		if msg.Files != nil {
+			way = sendfiles.Way{Documents: msg.Files.Documents, Group: msg.Files.Group, HighQuality: msg.Files.HighQuality}
+		}
 		files := make([]sendfiles.File, 0, len(paths))
+		wentAsFile := false
 		for i, path := range paths {
-			f, err := sendfiles.Inspect(path)
+			f, asFile, err := inspectOutgoing(ctx, path, msg.FFmpeg, way.Documents)
 			if err != nil {
 				return nil, err
 			}
+			wentAsFile = wentAsFile || asFile
 			if msg.Files.IsAnimated(i) {
 				f = f.AsAnimation()
 			}
 			files = append(files, f)
 		}
-		way := sendfiles.Way{Documents: !msg.AsMedia}
-		if msg.Files != nil {
-			way = sendfiles.Way{Documents: msg.Files.Documents, Group: msg.Files.Group, HighQuality: msg.Files.HighQuality}
+		if wentAsFile {
+			// Told once, and here: this message is built once, however often it
+			// is tried.
+			s.sendFailure.Store(&model.SendFailure{AsFile: true})
 		}
 		groups := sendfiles.Divide(files, way)
 		cg, cf := sendfiles.CaptionTarget(groups)
@@ -132,8 +139,7 @@ const outgoingVideoPatience = 5 * time.Second
 
 // showOutgoingVideo gives media, file index of the message randomID, what its
 // video shows while it is sent: its shape and length, and its first picture,
-// kept as Telegram's thumbnails are. What FFmpeg does not tell leaves it out:
-// sending says so when it matters.
+// kept as Telegram's thumbnails are. What cannot be told is left out.
 func (s *Store) showOutgoingVideo(ctx context.Context, media *model.MessageMedia, randomID int64, index int, f sendfiles.File, ffmpeg string) {
 	ctx, cancel := context.WithTimeout(ctx, outgoingVideoPatience)
 	defer cancel()

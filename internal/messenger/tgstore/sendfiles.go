@@ -35,7 +35,7 @@ func (s *Store) sendFiles(ctx context.Context, api *tg.Client, chat int64, peer 
 		if s.fileCancelled(outgoing, i) {
 			continue
 		}
-		f, err := sendfiles.Inspect(path)
+		f, _, err := inspectOutgoing(ctx, path, msg.FFmpeg, out.Documents)
 		if err != nil {
 			return fmt.Errorf("%s: %w", filepath.Base(path), err)
 		}
@@ -150,6 +150,25 @@ func (s *Store) prepareFile(ctx context.Context, api *tg.Client, chat int64, pee
 	return media, nil
 }
 
+// inspectOutgoing is the file at path as it goes. A video nothing can tell the size
+// and length of goes as a file, which asFile says, and this before anything is
+// grouped: an album of media takes no file. The way is decided on the same answer
+// wherever it is asked, for what shows while it is sent to be what comes.
+func inspectOutgoing(ctx context.Context, path, ffmpeg string, documents bool) (f sendfiles.File, asFile bool, err error) {
+	f, err = sendfiles.Inspect(path)
+	if err != nil || documents || f.Kind != sendfiles.KindVideo {
+		return f, false, err
+	}
+	if _, err := videoAttribute(ctx, path, ffmpeg); err != nil {
+		if ctx.Err() != nil {
+			return f, false, ctx.Err()
+		}
+		f.Kind = sendfiles.KindFile
+		return f, true, nil
+	}
+	return f, false, nil
+}
+
 // uploadFile uploads f to send to chat as its kind and the way ask: a photo
 // scaled and saved as JPEG, a video or a GIF as media, anything else as a
 // document. chat is told meanwhile that the account sends it.
@@ -204,15 +223,14 @@ func (s *Store) uploadMedia(ctx context.Context, api *tg.Client, f sendfiles.Fil
 	media := asMedia && (f.Kind == sendfiles.KindVideo || f.Kind == sendfiles.KindAnimation)
 	doc := &tg.InputMediaUploadedDocument{File: file, MimeType: f.MIME, ForceFile: !media, Attributes: attrs}
 	if way.SilentAsVideo && media && f.Kind == sendfiles.KindVideo {
-		// One that cannot be probed goes as it would: only a video known to
-		// have no sound may say so.
-		if probed, err := video.ProbeMedia(ctx, f.Path, ffmpeg); err == nil && !probed.Sound {
-			doc.NosoundVideo = true
-		}
+		// One that cannot be read goes as it would: only a video known to have no
+		// sound may say so.
+		doc.NosoundVideo = videoHasNoSound(ctx, f.Path, ffmpeg)
 	}
 	if videoFile {
 		// A video sent as a file shows its picture too, as in Telegram
-		// Desktop. One that gives no picture goes without.
+		// Desktop. One that gives no picture goes without: Telegram makes none of
+		// a large file, and it shows gray.
 		thumbCtx, cancel := context.WithTimeout(ctx, videoThumbnailPatience)
 		jpeg, err := sendfiles.VideoDocumentThumbnail(thumbCtx, video.ResolveFFmpeg(ffmpeg), f.Path)
 		cancel()

@@ -54,6 +54,9 @@ func (r *Runtime) OpenFile(ctx context.Context, file *mp4.File) (*Video, error) 
 // Size is the size the container gives the pictures.
 func (v *Video) Size() image.Point { return image.Pt(v.File.Width, v.File.Height) }
 
+// Duration is how long one loop lasts.
+func (v *Video) Duration() time.Duration { return v.File.Duration }
+
 // Next decodes the next picture and returns its index in the loop, starting
 // the loop again after its last picture. The picture is read with Picture.
 func (v *Video) Next(ctx context.Context) (int, error) {

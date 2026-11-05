@@ -4,6 +4,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"io"
@@ -16,16 +17,36 @@ import (
 	"komarugram/pkg/h264"
 	"komarugram/pkg/mp4"
 	"komarugram/pkg/resample"
+	"komarugram/pkg/webm"
 )
 
+// pictureDecoder decodes the pictures of a video in its sandbox, a picture at a
+// time: h264.Video, vp9.Video.
+type pictureDecoder interface {
+	Size() image.Point
+	Duration() time.Duration
+	Pictures() int
+	Time(i int) time.Duration
+	Next(ctx context.Context) (int, error)
+	Seek(ctx context.Context, t time.Duration) (int, error)
+	PictureInto(dst *image.RGBA) *image.RGBA
+	Close(ctx context.Context)
+}
+
 // roundVideo is the picture of a video message that plays, or of a video
-// that plays in the viewer: the H.264 track of its file, decoded in a
-// WebAssembly sandbox of its own (pkg/h264), a picture at a time as the
+// that plays in the viewer: the video track of its file, decoded in a
+// WebAssembly sandbox of its own (pkg/h264, pkg/vp9), a picture at a time as the
 // sound comes to it. The sound is the clock, as in Telegram Desktop: a
 // pause, a move or another speed of the sound moves the picture with it.
 type roundVideo struct {
-	rt    *h264.Runtime
-	video *h264.Video
+	rt    interface{ Close(context.Context) error }
+	video pictureDecoder
+	// index is the WebM it plays, nil for an MP4.
+	index *webm.Index
+	// turn is how many degrees clockwise its pictures are turned to show, as a
+	// phone records; coded holds a picture before that.
+	turn  int
+	coded []uint8
 	// box is the size the picture is drawn at, in pixels, its width over
 	// its height: the pictures are scaled to cover it, a video message's,
 	// or to fit in it, cover unset, and no larger than they are.
@@ -71,9 +92,17 @@ func openRound(ctx context.Context, data []byte) (*roundVideo, error) {
 
 // openVideoFile starts decoding the video of f, read where it lies as it
 // plays, fetching the decoder first if it is not there. A file that is not
-// H.264 in MP4, or without a decoder, goes to the external player:
-// errFormat.
+// H.264 in MP4 or VP9 in WebM, or without a decoder, goes to the external player:
+// errFormat. A WebM has all of its block headers read first: it tells its frames
+// nowhere else.
 func openVideoFile(ctx context.Context, f *audioFile) (*roundVideo, error) {
+	index, err := webm.ReadIndex(f.r, f.size)
+	if err == nil {
+		return openWebMVideo(ctx, index)
+	}
+	if !errors.Is(err, webm.ErrNotWebM) {
+		return nil, fmt.Errorf("%w: %w", errFormat, err)
+	}
 	file, err := mp4.DemuxAt(f.r, f.size)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFormat, err)
@@ -91,11 +120,15 @@ func openVideoFile(ctx context.Context, f *audioFile) (*roundVideo, error) {
 		rt.Close(context.Background())
 		return nil, fmt.Errorf("%w: %w", errFormat, err)
 	}
-	return &roundVideo{rt: rt, video: video}, nil
+	round := &roundVideo{rt: rt, video: video}
+	if meta, err := mp4.ReadMeta(f.r, f.size); err == nil {
+		round.turn = meta.Turn
+	}
+	return round, nil
 }
 
 // duration is how long the video plays.
-func (r *roundVideo) duration() time.Duration { return r.video.File.Duration }
+func (r *roundVideo) duration() time.Duration { return r.video.Duration() }
 
 // close frees the decoder and the pictures; run must have returned.
 func (r *roundVideo) close() {
@@ -136,7 +169,11 @@ func (r *roundVideo) drawn(now time.Time) bool {
 // show converts the picture decoded last into pixels the view does not
 // use, and makes it the one to draw.
 func (r *roundVideo) show() {
-	size := image.Pt(r.video.File.Width, r.video.File.Height)
+	size := r.video.Size()
+	quarter := r.turn%180 != 0
+	if quarter {
+		size = image.Pt(size.Y, size.X)
+	}
 	b := r.box.Load()
 	if box := image.Pt(int(int32(b>>32)), int(int32(b))); box.X > 0 && box.Y > 0 {
 		if fit := resample.Fit(size.X, size.Y, box, r.cover); fit.X < size.X {
@@ -167,10 +204,46 @@ func (r *roundVideo) show() {
 	r.mu.Unlock()
 	// The view never draws these pixels while they are written: they are
 	// neither the picture to draw nor the one it drew.
-	im := r.video.PictureInto(&image.RGBA{Pix: free, Stride: size.X * 4, Rect: image.Rectangle{Max: size}})
+	var im *image.RGBA
+	if r.turn == 0 {
+		im = r.video.PictureInto(&image.RGBA{Pix: free, Stride: size.X * 4, Rect: image.Rectangle{Max: size}})
+	} else {
+		lying := size
+		if quarter {
+			lying = image.Pt(size.Y, size.X)
+		}
+		if len(r.coded) != n {
+			r.coded = make([]uint8, n)
+		}
+		src := r.video.PictureInto(&image.RGBA{Pix: r.coded, Stride: lying.X * 4, Rect: image.Rectangle{Max: lying}})
+		im = &image.RGBA{Pix: free, Stride: size.X * 4, Rect: image.Rectangle{Max: size}}
+		turnPicture(im, src, r.turn)
+	}
 	r.mu.Lock()
 	r.picture = im
 	r.mu.Unlock()
+}
+
+// turnPicture puts src in dst, of the size it has so turned, turned clockwise by turn
+// degrees: 90, 180 or 270.
+func turnPicture(dst, src *image.RGBA, turn int) {
+	if src == nil {
+		return
+	}
+	w, h := src.Rect.Dx(), src.Rect.Dy()
+	for y := range h {
+		row := src.Pix[y*src.Stride : y*src.Stride+w*4]
+		for x := range w {
+			nx, ny := h-1-y, x
+			switch turn {
+			case 180:
+				nx, ny = w-1-x, h-1-y
+			case 270:
+				nx, ny = y, w-1-x
+			}
+			copy(dst.Pix[ny*dst.Stride+nx*4:ny*dst.Stride+nx*4+4], row[x*4:x*4+4])
+		}
+	}
 }
 
 // usesPixels reports whether im lies over pix.

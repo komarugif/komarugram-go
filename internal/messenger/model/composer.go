@@ -169,6 +169,9 @@ type SendFailure struct {
 	// Text is what went wrong, as it was told; NoFFprobe says it was ErrNoFFprobe.
 	Text      string
 	NoFFprobe bool
+	// AsFile tells of no failure: a video went as a file, nothing being able to
+	// tell its size and length.
+	AsFile bool
 }
 
 // SendFailureSource tells of messages that failed, which the queue accepted long

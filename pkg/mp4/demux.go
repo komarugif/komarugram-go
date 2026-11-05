@@ -778,52 +778,76 @@ func readMoov(r io.ReaderAt, size int64) ([]byte, error) {
 	var moov []byte
 	sawFtyp := false
 	for at := int64(0); at < size; {
-		var h [16]byte
-		n, err := r.ReadAt(h[:min(16, size-at)], at)
-		if n < 8 {
-			if err == nil {
-				err = io.ErrUnexpectedEOF
-			}
-			return nil, fmt.Errorf("mp4: box header: %w", err)
+		b, err := boxAt(r, at, size)
+		if err != nil {
+			return nil, err
 		}
-		length, header, kind := int64(binary.BigEndian.Uint32(h[:])), int64(8), string(h[4:8])
-		switch length {
-		case 0:
-			length = size - at
-		case 1:
-			if n < 16 {
-				return nil, fmt.Errorf("mp4: truncated %q header", kind)
-			}
-			length, header = int64(binary.BigEndian.Uint64(h[8:])), 16
-		}
-		if length < header || length > size-at {
+		if b.length < b.header || b.length > size-at {
 			if !sawFtyp {
 				return nil, ErrNotMP4
 			}
-			return nil, fmt.Errorf("mp4: %q box of %d bytes in %d", kind, length, size-at)
+			return nil, fmt.Errorf("mp4: %q box of %d bytes in %d", b.kind, b.length, size-at)
 		}
-		switch kind {
+		switch b.kind {
 		case "ftyp":
 			sawFtyp = true
 		case "moov":
-			if length-header > maxMoov {
-				return nil, fmt.Errorf("mp4: movie box of %d bytes", length-header)
-			}
-			moov = make([]byte, length-header)
-			if _, err := r.ReadAt(moov, at+header); err != nil && !errors.Is(err, io.EOF) {
+			if moov, err = b.read(r, at); err != nil {
 				return nil, err
 			}
 		}
 		if moov != nil {
 			break
 		}
-		at += length
+		at += b.length
 	}
 	if !sawFtyp && moov == nil {
 		return nil, ErrNotMP4
 	}
 	if moov == nil {
 		return nil, fmt.Errorf("mp4: no moov box")
+	}
+	return moov, nil
+}
+
+// box is the header of a box of a file.
+type box struct {
+	kind           string
+	header, length int64
+}
+
+// boxAt reads the header of the box at, in a file of size bytes. Its length is
+// unchecked: 0 in the file is as much as is left, and it may be anything else.
+func boxAt(r io.ReaderAt, at, size int64) (box, error) {
+	var h [16]byte
+	n, err := r.ReadAt(h[:min(16, size-at)], at)
+	if n < 8 {
+		if err == nil {
+			err = io.ErrUnexpectedEOF
+		}
+		return box{}, fmt.Errorf("mp4: box header: %w", err)
+	}
+	b := box{kind: string(h[4:8]), header: 8, length: int64(binary.BigEndian.Uint32(h[:]))}
+	switch b.length {
+	case 0:
+		b.length = size - at
+	case 1:
+		if n < 16 {
+			return box{}, fmt.Errorf("mp4: truncated %q header", b.kind)
+		}
+		b.length, b.header = int64(binary.BigEndian.Uint64(h[8:])), 16
+	}
+	return b, nil
+}
+
+// read reads the movie box b, found at, within maxMoov.
+func (b box) read(r io.ReaderAt, at int64) ([]byte, error) {
+	if b.length-b.header > maxMoov {
+		return nil, fmt.Errorf("mp4: movie box of %d bytes", b.length-b.header)
+	}
+	moov := make([]byte, b.length-b.header)
+	if _, err := r.ReadAt(moov, at+b.header); err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
 	}
 	return moov, nil
 }
@@ -849,8 +873,8 @@ func parseMP4A(body []byte, t *track) error {
 	if len(body) < at {
 		return fmt.Errorf("mp4: truncated mp4a entry")
 	}
-	return walk(body[at:], func(kind string, body []byte) error {
-		if kind != "esds" || t.config != nil {
+	esds := func(body []byte) error {
+		if t.config != nil {
 			return nil
 		}
 		_, rest, err := fullBox(body)
@@ -863,6 +887,22 @@ func parseMP4A(body []byte, t *track) error {
 			return nil
 		}
 		return err
+	}
+	return walk(body[at:], func(kind string, body []byte) error {
+		switch kind {
+		case "esds":
+			return esds(body)
+		case "wave":
+			// As a MOV has it, among other boxes and an end that is no box.
+			var err error
+			walkSome(body, func(kind string, body []byte) {
+				if kind == "esds" && err == nil {
+					err = esds(body)
+				}
+			})
+			return err
+		}
+		return nil
 	})
 }
 
