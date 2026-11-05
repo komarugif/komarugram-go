@@ -87,6 +87,9 @@ func (v *Video) Next(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	v.sample = sample
+	if colors, ok := packetColors(sample, v.index.Width, v.index.Height); ok {
+		v.scaler.Colors = colors
+	}
 	picture, err := v.decoder.Decode(ctx, sample)
 	if err != nil {
 		return 0, err

@@ -17,6 +17,7 @@ import (
 	"gioui.org/layout"
 
 	"komarugram/internal/crash"
+	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/wasmmodule"
@@ -48,8 +49,9 @@ func videoHD(width, height int) bool {
 // (chatmedia.Manager.SandboxGIFs). FFmpeg plays any video; the sandbox
 // plays HD ones in MP4, MOV, 3GP, WebM and MKV, those last being let try without a
 // size told, as Telegram keeps none of one, and any other goes to the external
-// player, as does what proves to be in a codec it does not decode.
-func videoEngineOf(m model.Message, player string, sandbox bool) string {
+// player, as does what proves to be in a codec it does not decode. With an FFmpeg,
+// ffmpeg being set, it plays what the sandbox does not, rather than that player.
+func videoEngineOf(m model.Message, player string, sandbox, ffmpeg bool) string {
 	if player == videoExternal || m.Kind != model.MessageVideo || m.Media == nil {
 		return videoExternal
 	}
@@ -65,6 +67,9 @@ func videoEngineOf(m model.Message, player string, sandbox bool) string {
 		if m.Media.Width <= 0 || m.Media.Height <= 0 || videoHD(m.Media.Width, m.Media.Height) {
 			return videoWASM
 		}
+	}
+	if ffmpeg {
+		return videoFFmpeg
 	}
 	return videoExternal
 }
@@ -347,6 +352,18 @@ func (v *viewerVideo) open(source model.ConversationStore, m model.Message, engi
 		defer work.Done()
 		defer crash.Recover("video", func(e *crash.Panic) { v.fail(m, e) })
 		err := v.load(ctx, source, m, engine, ffmpeg, max(start, 0), work)
+		if engine == videoWASM && errors.Is(err, errFormat) && ctx.Err() == nil && video.ResolveFFmpeg(ffmpeg) != "" {
+			// A codec the sandbox does not decode, and an FFmpeg to.
+			v.mu.Lock()
+			mine := v.key == m.Key
+			if mine {
+				v.engine = videoFFmpeg
+			}
+			v.mu.Unlock()
+			if mine {
+				err = v.load(ctx, source, m, videoFFmpeg, ffmpeg, max(start, 0), work)
+			}
+		}
 		if err != nil && ctx.Err() == nil {
 			if errors.Is(err, errFormat) && v.external != nil {
 				v.mu.Lock()
@@ -742,17 +759,32 @@ func (p *chatPage) playVideo(gtx layout.Context, m model.Message, at time.Durati
 	p.playFrom(gtx, m, at, p.reportMedia, l)
 }
 
+// configureViewerDecoders gives the media managers of v the decoders chosen, its GIFs
+// in the sandbox whatever is chosen for those of the chats.
+func configureViewerDecoders(v *mediaViewer, stickersWASM bool, ffmpeg string) {
+	for _, m := range []*chatmedia.Manager{v.full, v.mid, v.thumbs} {
+		m.ConfigureDecoders(stickersWASM, true, ffmpeg)
+	}
+}
+
 // videoEngine is where m plays, as the settings choose.
 func (a *App) videoEngine(m model.Message) string {
 	g := a.preferences.Global()
-	sandbox := g.AnimationPlayer == "wasm" || video.ResolveFFmpeg(g.FFmpegPath) == ""
-	return videoEngineOf(m, g.VideoPlayer, sandbox)
+	found := video.ResolveFFmpeg(g.FFmpegPath) != "" && video.ResolveFFprobe(g.FFmpegPath) != ""
+	return videoEngineOf(m, g.VideoPlayer, g.AnimationPlayer == "wasm" || !found, found)
 }
 
 // configureViewer lets v play videos as the settings choose, at the volume
 // the client's sound has, pausing the window's audio player as one starts.
 func (a *App) configureViewer(v *mediaViewer) {
 	v.videoEngine = a.videoEngine
+	// What it shows of its own, GIFs playing in the sandbox whatever is chosen for the
+	// chat's: they are small, and it is what the viewer gives them. A GIF the sandbox
+	// does not take falls to the FFmpeg chosen. Read in the viewer's own frames.
+	v.configureDecoders = func() {
+		g := a.preferences.Global()
+		configureViewerDecoders(v, g.StickerPlayer == "wasm", g.FFmpegPath)
+	}
 	if store := a.store; store != nil {
 		// What the viewer forwards goes to the account's chats.
 		v.share.chats = store.Chats

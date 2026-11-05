@@ -114,6 +114,27 @@ func TestWebMGoesApartFromAnAlbum(t *testing.T) {
 	}
 }
 
+// The picture H.264's decoder makes has the colors of the video: its levels read as
+// their range, and not as JPEG's, which makes it pale.
+func TestThumbnailKeepsColors(t *testing.T) {
+	needDecoder(t)
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg unavailable")
+	}
+	path := filepath.Join(t.TempDir(), "clip.mp4")
+	if out, err := exec.Command(ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=0xC02020:s=1280x720:r=5:d=0.4", "-vf", "format=gbrp,scale=out_color_matrix=bt709:out_range=tv:flags=accurate_rnd+full_chroma_int,format=yuv420p", "-c:v", "libx264", "-preset", "ultrafast", "-qp", "0", "-colorspace", "bt709", "-color_range", "tv", path).CombinedOutput(); err != nil {
+		t.Skipf("this FFmpeg cannot: %v: %s", err, out)
+	}
+	img, err := decodedThumbnail(context.Background(), path, 320)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !near(img.At(160, 90), color.RGBA{0xC0, 0x20, 0x20, 255}) {
+		t.Fatalf("%v", img.At(160, 90))
+	}
+}
+
 // A turned video's picture is turned, as FFmpeg's own is: the same way.
 func TestVideoThumbnailTurnedAsFFmpeg(t *testing.T) {
 	needDecoder(t)

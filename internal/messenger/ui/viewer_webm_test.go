@@ -16,7 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
+	"komarugram/internal/messenger/sendfiles"
 	"komarugram/pkg/audio"
 	"komarugram/pkg/video"
 	"komarugram/pkg/webm"
@@ -168,6 +170,52 @@ func TestWebMThatLiesOfItsLength(t *testing.T) {
 	}
 }
 
+// What the sandbox proves not to decode goes to FFmpeg, where there is one, and not to
+// the external player: there is no way to tell by a video's type.
+func TestSandboxFallsToFFmpeg(t *testing.T) {
+	if video.ResolveFFprobe("") == "" {
+		t.Skip("no ffprobe")
+	}
+	data := webmClip(t, "-c:v", "libvpx", "-deadline", "realtime", "-cpu-used", "8")
+	path := filepath.Join(t.TempDir(), "vp8.webm")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := sendfiles.Inspect(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &boxFile{File: info, ready: true, shown: image.Pt(320, 180), long: 3 * time.Second}
+	media, items, current := boxGallery(mockstore.New(time.Now(), 0), 2, []*boxFile{f}, f)
+	var images imageOps
+	v := newMediaViewer(media, &images, func() {})
+	defer v.Destroy()
+	v.video.play = func(src audio.Source) (audioPlayback, error) {
+		return &silentPlayback{src: src, playing: true}, nil
+	}
+	external := false
+	v.video.external = func(model.Message, time.Duration) { external = true }
+	v.openList(2, current, mediaList{items: items, ended: [2]bool{true, true}, gallery: galleryBox})
+	v.video.open(media, current, videoWASM, "", -1)
+	defer v.video.stop()
+	deadline := time.Now().Add(20 * time.Second)
+	for !v.video.state(current).playing {
+		if err := v.video.takeErr(); err != nil {
+			t.Fatal(err)
+		}
+		if external {
+			t.Fatal("it went to the external player")
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("it did not start")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if v.video.engine != videoFFmpeg {
+		t.Fatalf("plays with %s", v.video.engine)
+	}
+}
+
 // A WebM plays in the sandbox whatever is told of its size, unless it is told to be
 // over HD; with FFmpeg it plays there.
 func TestWebMEngine(t *testing.T) {
@@ -184,7 +232,7 @@ func TestWebMEngine(t *testing.T) {
 		{video(1920, 1080), true, videoExternal},
 		{video(0, 0), false, videoFFmpeg},
 	} {
-		if got := videoEngineOf(c.m, "", c.sandbox); got != c.want {
+		if got := videoEngineOf(c.m, "", c.sandbox, false); got != c.want {
 			t.Errorf("%dx%d, sandbox %v: %s, not %s", c.m.Media.Width, c.m.Media.Height, c.sandbox, got, c.want)
 		}
 	}

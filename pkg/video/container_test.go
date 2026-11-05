@@ -99,6 +99,47 @@ func TestSoundOfAMOV(t *testing.T) {
 	}
 }
 
+// An H.264 file tells its matrix and its range, as its parameter set says, for the
+// sandbox to read it by.
+func TestFileTellsItsColors(t *testing.T) {
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg unavailable")
+	}
+	for _, c := range []struct {
+		name   string
+		args   []string
+		matrix int
+		full   bool
+	}{
+		{"BT.709 limited", []string{"-colorspace", "bt709", "-color_range", "tv"}, 1, false},
+		{"BT.601 limited", []string{"-colorspace", "smpte170m", "-color_range", "tv"}, 6, false},
+		{"BT.709 full", []string{"-colorspace", "bt709", "-color_range", "pc"}, 1, true},
+		{"nothing told", nil, 2, false},
+		{"high profile", []string{"-profile:v", "high", "-colorspace", "bt2020nc"}, 9, false},
+		{"baseline", []string{"-profile:v", "baseline", "-colorspace", "bt709"}, 1, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "clip.mp4")
+			args := append([]string{"-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=0.2", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-bsf:v", "h264_metadata=colour_primaries=2"}, c.args...)
+			if out, err := exec.Command(ffmpeg, append(args, path)...).CombinedOutput(); err != nil {
+				t.Skipf("this FFmpeg cannot: %v: %s", err, out)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f, err := mp4.DemuxAt(bytes.NewReader(data), int64(len(data)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if f.Matrix != c.matrix || f.FullRange != c.full {
+				t.Fatalf("matrix %d, full %v", f.Matrix, f.FullRange)
+			}
+		})
+	}
+}
+
 // A recording in a stream, as from a browser, says no length, and is added up.
 func TestReadContainerStreamedWebM(t *testing.T) {
 	ffmpeg, err := exec.LookPath("ffmpeg")

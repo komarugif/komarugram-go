@@ -88,6 +88,10 @@ type File struct {
 	Times []time.Duration
 	// Duration is how long one loop lasts.
 	Duration time.Duration
+	// Matrix is H.273's code of the matrix of the pictures, 2 for one not told, and
+	// FullRange tells levels in the full range.
+	Matrix    int
+	FullRange bool
 }
 
 // FrameDuration is the average time a picture shows.
@@ -153,6 +157,11 @@ type track struct {
 	// long is set for a video read where it lies, which may have up to
 	// MaxVideoSamples pictures.
 	long bool
+
+	// colrMatrix and colrFull are what a colr box tells, colrRange that it tells the
+	// range too.
+	colrMatrix          int
+	colrFull, colrRange bool
 }
 
 // playable tells whether t is a video track of a codec read here.
@@ -406,6 +415,9 @@ func parseTable(kind string, body []byte, t *track) error {
 			t.width = int(binary.BigEndian.Uint16(body[24:]))
 			t.height = int(binary.BigEndian.Uint16(body[26:]))
 			return walk(body[78:], func(kind string, body []byte) error {
+				if kind == "colr" {
+					t.readColr(body)
+				}
 				if kind == "esds" && t.codec == "mp4v" && !t.mpeg4 {
 					_, rest, err := fullBox(body)
 					if err != nil {
@@ -580,6 +592,7 @@ func (t *track) timing(file *File) error {
 	if t.codec == "mp4v" {
 		file.Codec = MPEG4
 	}
+	t.colors(file)
 	if !file.Keyframe(0) {
 		return fmt.Errorf("mp4: the first sample is not a keyframe")
 	}

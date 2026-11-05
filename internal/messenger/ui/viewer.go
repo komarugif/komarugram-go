@@ -66,8 +66,11 @@ const (
 // its neighbours and a strip of thumbnails below. It pages the chat's photos and videos, its
 // GIFs, or the photos of its profile, as the strip comes near either end.
 type mediaViewer struct {
-	shortcuts shortcutPreferences
-	source    model.ConversationStore
+	// configureDecoders gives its media managers the settings of the decoders, in its
+	// own frames; nil leaves them as they are.
+	configureDecoders func()
+	shortcuts         shortcutPreferences
+	source            model.ConversationStore
 	// caption takes the clicks on a caption with spoilers, which uncover
 	// them on the message captionRevealed.
 	caption         gesture.Click
@@ -317,6 +320,7 @@ func newMediaViewer(source model.ConversationStore, images *imageOps, invalidate
 	v.share.rights, _ = source.(model.RightsSource)
 	v.gif.maker, _ = source.(model.GIFMaker)
 	v.full = chatmedia.NewSized(source, invalidate, viewerFullLimit, 4096)
+	// Until it is told otherwise, GIFs play in the sandbox: see configureViewer.
 	v.mid = chatmedia.NewSized(source, invalidate, 3, 1024)
 	v.thumbs = chatmedia.NewSized(source, invalidate, 96, 256)
 	v.strip.Axis = layout.Horizontal
@@ -690,6 +694,9 @@ func (v *mediaViewer) show(items []model.Message, i int, center bool) {
 }
 
 func (v *mediaViewer) Layout(gtx layout.Context, l localization.Catalog, animate bool) {
+	if v.configureDecoders != nil {
+		v.configureDecoders()
+	}
 	if !v.open {
 		return
 	}

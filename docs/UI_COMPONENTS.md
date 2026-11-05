@@ -403,6 +403,12 @@ size-stability fixes remain in place.
   is at once.
   `VIEWER_EDIT` renders it: paint, crop, text, shapes, turned, stickers, opening, opening-late, choice,
   work, failed, discard, with `VIEWER_DARK` for dialogs of a dark theme.
+- **Colors of video in the sandboxes**: `resample.Colors` says how a frame's planes are
+  read, as its stream tells (VP9's frame header, H.264's parameter set, `colr`), and by
+  its size where it tells nothing, as players guess; the zero value is JPEG's. Read as
+  JPEG's, as they once were, a video's black is gray and its white dim. FFmpeg does this
+  by itself. The viewer's GIFs always play in the sandbox (`configureViewerDecoders`); a
+  video it does not take goes to FFmpeg, where there is one.
 - **Videos Telegram does not keep as videos**: a WebM, MKV, AVI or OGV comes back a
   file. With an FFmpeg and an ffprobe, Send in the box of files asks first
   (`boxConvert`, `composer_send_convert.go`; radios, converting chosen): the MP4s go
