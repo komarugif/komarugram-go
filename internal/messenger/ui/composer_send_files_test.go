@@ -69,6 +69,26 @@ func boxPaths(t *testing.T, kinds ...string) []string {
 			shape := shapes[photo%len(shapes)]
 			paths = append(paths, pictureFile(t, dir, fmt.Sprintf("photo-%d.jpg", photo+1), shape[0], shape[1], photo))
 			photo++
+		case "pattern":
+			// Sharp stripes and squares, which a blur shows on.
+			img := image.NewRGBA(image.Rect(0, 0, 1000, 800))
+			for y := range 800 {
+				for x := range 1000 {
+					c := color.RGBA{R: 240, G: 240, B: 230, A: 255}
+					if (x/50+y/50)%2 == 0 {
+						c = color.RGBA{R: 30, G: 60, B: 160, A: 255}
+					}
+					if x%100 < 8 {
+						c = color.RGBA{R: 220, G: 40, B: 40, A: 255}
+					}
+					img.Set(x, y, c)
+				}
+			}
+			var b bytes.Buffer
+			if err := png.Encode(&b, img); err != nil {
+				t.Fatal(err)
+			}
+			paths = append(paths, writeTemp(t, dir, fmt.Sprintf("pattern-%d.png", len(paths)), b.Bytes()))
 		case "video":
 			paths = append(paths, writeTemp(t, dir, "holiday.mp4", []byte("a video that is not one")))
 		case "webm":

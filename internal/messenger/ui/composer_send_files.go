@@ -13,9 +13,12 @@ import (
 	"unicode/utf16"
 
 	"gio-mw/token"
+	"gio-mw/wdk"
 	"gio-mw/widget/checkbox"
 	"gio-mw/widget/scroll"
 
+	"gioui.org/f32"
+	"gioui.org/io/event"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -49,6 +52,23 @@ type filesBox struct {
 	// which box opening they are for.
 	results    chan boxResult
 	generation int
+	// drag moves a picture of the grid to another place, as Telegram
+	// Desktop's AlbumPreview does: the order the files go in.
+	drag boxDrag
+	// tips shows what the buttons over the files do: see tooltip.go.
+	tips tooltips
+}
+
+// boxDrag is a picture of the box's grid being dragged.
+type boxDrag struct {
+	// file is the one pressed, nil for none; active is set once it moved
+	// far enough to be dragged, and target is the place it would take.
+	file   *boxFile
+	active bool
+	target int
+	// start and at are where it was pressed and where the pointer is, grab
+	// where in the picture it was taken, in the grid's pixels.
+	start, at, grab f32.Point
 }
 
 // boxFile is a file in the box.
@@ -60,6 +80,11 @@ type boxFile struct {
 	ready           bool
 	restrictionTold bool
 	remove          surface
+	// spoiler hides the photo or video under a spoiler, which hide toggles;
+	// blurred is its picture as shown then, made of blurredOf.
+	spoiler            bool
+	hide               surface
+	blurred, blurredOf *image.RGBA
 	// open opens it in the viewer. shown and long are a video's size and
 	// length, as FFmpeg tells them.
 	open  widget.Clickable
@@ -301,7 +326,7 @@ func (c *messageComposer) submitFiles() {
 		paths[i] = f.Path
 	}
 	way := b.way
-	c.submit(c.chat, model.OutgoingMessage{Text: caption, Files: &model.OutgoingFiles{Paths: paths, Documents: way.Documents, Group: way.Group, HighQuality: way.HighQuality, Animated: boxAnimated(b.files), SilentAsVideo: c.silentAsVideo != nil && c.silentAsVideo()}})
+	c.submit(c.chat, model.OutgoingMessage{Text: caption, Files: &model.OutgoingFiles{Paths: paths, Documents: way.Documents, Group: way.Group, HighQuality: way.HighQuality, Animated: boxAnimated(b.files), Spoilers: boxSpoilers(b.files, way), SilentAsVideo: c.silentAsVideo != nil && c.silentAsVideo()}})
 	for _, path := range paths {
 		if c.pasted[path] {
 			c.uploading[path] = true
@@ -317,6 +342,24 @@ func boxAnimated(files []*boxFile) []int {
 	for i, f := range files {
 		if f.Kind == sendfiles.KindAnimation && strings.HasPrefix(f.MIME, "video/") {
 			places = append(places, i)
+		}
+	}
+	return places
+}
+
+// boxSpoilers are the places of the photos and videos that go under a spoiler:
+// only media sent as media shows a picture to hide.
+func boxSpoilers(files []*boxFile, way sendfiles.Way) []int {
+	if way.Documents {
+		return nil
+	}
+	var places []int
+	for i, f := range files {
+		switch f.Kind {
+		case sendfiles.KindPhoto, sendfiles.KindVideo, sendfiles.KindAnimation:
+			if f.spoiler {
+				places = append(places, i)
+			}
 		}
 	}
 	return places
@@ -360,8 +403,17 @@ func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l loca
 		if len(c.pasted) > len(c.uploading) {
 			c.forgetPasted(nil)
 		}
+		b.tips = tooltips{}
 		return
 	}
+	// What the buttons over the files do shows over all of the box.
+	tipArea := b.tips.begin(top)
+	defer func() {
+		if b.modal.Shown() {
+			b.tips.layout(top)
+		}
+		tipArea.Pop()
+	}()
 	// The checkboxes follow the way; a click on one changes it.
 	b.group.Update(gtx)
 	b.documents.Update(gtx)
@@ -385,8 +437,15 @@ func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l loca
 		if b.add.Clicked(gtx) {
 			c.chooseMore()
 		}
+		// A picture dragged and let go where it was is not a click on it.
+		dragged := b.drag.active
+		for _, f := range b.files {
+			if f.hide.Clicked(gtx) && !dragged {
+				f.spoiler = !f.spoiler
+			}
+		}
 		for i, f := range b.files {
-			if f.remove.Clicked(gtx) {
+			if f.remove.Clicked(gtx) && !dragged {
 				b.files = slices.Delete(b.files, i, i+1)
 				if len(b.files) == 0 {
 					b.modal.Close()
@@ -395,7 +454,7 @@ func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l loca
 			}
 		}
 		for _, f := range b.files {
-			if f.open.Clicked(gtx) && boxViewable(f) && p.openBoxFiles != nil {
+			if f.open.Clicked(gtx) && !dragged && boxViewable(f) && p.openBoxFiles != nil {
 				media, items, current := boxGallery(p.source, c.chat, b.files, f)
 				media.ffmpeg, media.replaced = c.ffmpegPath, c.replaceBoxPath
 				b.viewing = true
@@ -673,11 +732,128 @@ func (c *messageComposer) layoutTiles(gtx layout.Context, p *chatPage, tiles []*
 	columns := tileColumns(len(tiles))
 	cell := (width - gap*(columns-1)) / columns
 	rows := (len(tiles) + columns - 1) / columns
-	for i, f := range tiles {
-		at := image.Pt(i%columns*(cell+gap), i/columns*(cell+gap))
-		offset(gtx, at, func(gtx layout.Context) layout.Dimensions { return c.layoutTile(gtx, p, f, image.Pt(cell, cell), l) })
+	size := image.Pt(width, rows*cell+(rows-1)*gap)
+	slot := func(i int) image.Point { return image.Pt(i%columns*(cell+gap), i/columns*(cell+gap)) }
+	b := &c.files
+	order := b.dragTiles(gtx, tiles, columns, cell+gap, slot)
+	d := &b.drag
+	for i, f := range order {
+		if d.active && f == d.file {
+			continue
+		}
+		offset(gtx, slot(i), func(gtx layout.Context) layout.Dimensions { return c.layoutTile(gtx, p, f, image.Pt(cell, cell), l) })
 	}
-	return layout.Dimensions{Size: image.Pt(width, rows*cell+(rows-1)*gap)}
+	if d.active {
+		// Over the others, where the pointer holds it, inside the grid.
+		at := d.at.Sub(d.grab).Round()
+		at = image.Pt(min(max(at.X, 0), size.X-cell), min(max(at.Y, 0), size.Y-cell))
+		// Lifted off the grid, as a menu is over the page.
+		drawShadow(gtx, image.Rectangle{Min: at, Max: at.Add(image.Pt(cell, cell))}, gtx.Dp(8), menuShadow)
+		offset(gtx, at, func(gtx layout.Context) layout.Dimensions {
+			return c.layoutTile(gtx, p, d.file, image.Pt(cell, cell), l)
+		})
+	}
+	// Over the pictures, letting their clicks through to them.
+	pass := pointer.PassOp{}.Push(gtx.Ops)
+	area := clip.Rect(image.Rectangle{Max: size}).Push(gtx.Ops)
+	event.Op(gtx.Ops, d)
+	if d.active {
+		pointer.CursorGrabbing.Add(gtx.Ops)
+	}
+	area.Pop()
+	pass.Pop()
+	return layout.Dimensions{Size: size}
+}
+
+// dragTiles follows the pointer over the grid of tiles, columns a row, step
+// pixels apart, and moves the picture let go to where it was dragged. It is
+// the order the pictures show in meanwhile: the one dragged at its target.
+func (b *filesBox) dragTiles(gtx layout.Context, tiles []*boxFile, columns, step int, slot func(int) image.Point) []*boxFile {
+	d := &b.drag
+	placeAt := func(pos f32.Point) int {
+		col := min(max(int(pos.X)/step, 0), columns-1)
+		row := max(int(pos.Y)/step, 0)
+		return min(row*columns+col, len(tiles)-1)
+	}
+	slop := float32(gtx.Dp(6))
+	// The order the picture let go in this frame made, which the frame shows:
+	// tiles are still the order before it.
+	var dropped []*boxFile
+	for {
+		ev, ok := gtx.Event(pointer.Filter{Target: d, Kinds: pointer.Press | pointer.Drag | pointer.Release | pointer.Cancel})
+		if !ok {
+			break
+		}
+		e, ok := ev.(pointer.Event)
+		if !ok {
+			continue
+		}
+		switch e.Kind {
+		case pointer.Press:
+			if e.Buttons != pointer.ButtonPrimary {
+				break
+			}
+			i := placeAt(e.Position)
+			*d = boxDrag{file: tiles[i], target: i, start: e.Position, at: e.Position, grab: e.Position.Sub(layout.FPt(slot(i)))}
+		case pointer.Drag:
+			if d.file == nil {
+				break
+			}
+			d.at = e.Position
+			if moved := d.at.Sub(d.start); !d.active && moved.X*moved.X+moved.Y*moved.Y > slop*slop {
+				d.active = true
+			}
+			if d.active {
+				d.target = placeAt(e.Position)
+			}
+		case pointer.Release:
+			if d.active {
+				if from := slices.Index(tiles, d.file); from >= 0 {
+					b.files = reorderTiles(b.files, tiles, from, d.target)
+					dropped = moveTile(tiles, from, d.target)
+				}
+			}
+			*d = boxDrag{}
+		case pointer.Cancel:
+			*d = boxDrag{}
+		}
+	}
+	if dropped != nil {
+		return dropped
+	}
+	from := slices.Index(tiles, d.file)
+	if from < 0 {
+		// Taken out meanwhile, or never pressed.
+		*d = boxDrag{}
+	}
+	if !d.active {
+		return tiles
+	}
+	return moveTile(tiles, from, min(d.target, len(tiles)-1))
+}
+
+// moveTile is tiles with the one at from moved to place to, the others
+// making room.
+func moveTile(tiles []*boxFile, from, to int) []*boxFile {
+	order := slices.Clone(tiles)
+	f := order[from]
+	order = slices.Delete(order, from, from+1)
+	return slices.Insert(order, to, f)
+}
+
+// reorderTiles is files with the tile at from of tiles moved to place to of
+// them; the files shown as rows keep their places between them.
+func reorderTiles(files, tiles []*boxFile, from, to int) []*boxFile {
+	order := moveTile(tiles, from, to)
+	out := slices.Clone(files)
+	k := 0
+	for i, f := range out {
+		if slices.Contains(tiles, f) {
+			out[i] = order[k]
+			k++
+		}
+	}
+	return out
 }
 
 // boxOverlay is the color under the marks drawn over a picture.
@@ -695,8 +871,12 @@ func (c *messageComposer) layoutTile(gtx layout.Context, p *chatPage, f *boxFile
 	tile.Constraints = layout.Exact(size)
 	f.open.Layout(tile, func(gtx layout.Context) layout.Dimensions {
 		pointer.CursorPointer.Add(gtx.Ops)
-		if f.thumb != nil && p.images != nil {
-			widget.Image{Src: p.images.Op(f.thumb), Fit: widget.Cover, Position: layout.Center}.Layout(gtx)
+		if thumb := f.shownThumb(); thumb != nil && p.images != nil {
+			widget.Image{Src: p.images.Op(thumb), Fit: widget.Cover, Position: layout.Center}.Layout(gtx)
+		}
+		if f.spoiler {
+			// As Telegram Desktop shows media it will hide: blurred, darker.
+			fillRect(gtx, spoilerDim, size)
 		}
 		return layout.Dimensions{Size: size}
 	})
@@ -717,9 +897,86 @@ func (c *messageComposer) layoutTile(gtx layout.Context, p *chatPage, f *boxFile
 	}
 	d := gtx.Dp(28)
 	offset(gtx, image.Pt(size.X-d-gtx.Dp(6), gtx.Dp(6)), func(gtx layout.Context) layout.Dimensions {
-		return removeButton(gtx, &f.remove, d, l.T("files.remove"))
+		return removeButton(gtx, &c.files.tips, &f.remove, d, l.T("files.remove"))
+	})
+	// Beside it, the one that hides it under a spoiler, or shows it again.
+	hide, name := iconBlurOn, l.T("files.spoiler")
+	if f.spoiler {
+		hide, name = iconBlurOff, l.T("files.spoiler_off")
+	}
+	offset(gtx, image.Pt(size.X-2*d-gtx.Dp(10), gtx.Dp(6)), func(gtx layout.Context) layout.Dimensions {
+		return boxIconButton(gtx, &c.files.tips, &f.hide, d, name, hide)
 	})
 	return layout.Dimensions{Size: size}
+}
+
+// spoilerDim darkens a picture to go under a spoiler, over its blur.
+var spoilerDim = token.NewMatColorFromHexRGBA(0x00000040)
+
+// shownThumb is the picture the tile of f shows: blurred under a spoiler.
+func (f *boxFile) shownThumb() *image.RGBA {
+	if !f.spoiler || f.thumb == nil {
+		return f.thumb
+	}
+	if f.blurredOf != f.thumb {
+		f.blurred, f.blurredOf = blurredPicture(f.thumb), f.thumb
+	}
+	return f.blurred
+}
+
+// blurredPicture is src made small and blurred, which drawn at the size of
+// src shows its colors and nothing of what is in it, as Telegram Desktop
+// blurs media under a spoiler.
+func blurredPicture(src *image.RGBA) *image.RGBA {
+	const side = 24
+	r := src.Bounds()
+	w, h := r.Dx(), r.Dy()
+	if w <= 0 || h <= 0 {
+		return src
+	}
+	dw, dh := max(1, w*side/max(w, h)), max(1, h*side/max(w, h))
+	dst := image.NewRGBA(image.Rect(0, 0, dw, dh))
+	// Each pixel is the mean of the pixels of src it covers.
+	for y := range dh {
+		y0, y1 := y*h/dh, max(y*h/dh+1, (y+1)*h/dh)
+		for x := range dw {
+			x0, x1 := x*w/dw, max(x*w/dw+1, (x+1)*w/dw)
+			var sum [4]int
+			for sy := y0; sy < y1; sy++ {
+				row := src.Pix[src.PixOffset(r.Min.X+x0, r.Min.Y+sy):]
+				for sx := range x1 - x0 {
+					for c := range 4 {
+						sum[c] += int(row[sx*4+c])
+					}
+				}
+			}
+			n := (y1 - y0) * (x1 - x0)
+			for c := range 4 {
+				dst.Pix[y*dst.Stride+x*4+c] = uint8(sum[c] / n)
+			}
+		}
+	}
+	// Then twice through a box of three each way, for the steps between
+	// its pixels not to show once drawn large.
+	tmp := image.NewRGBA(dst.Rect)
+	for range 2 {
+		for _, pass := range [2]image.Point{{1, 0}, {0, 1}} {
+			for y := range dh {
+				for x := range dw {
+					for c := range 4 {
+						sum := 0
+						for k := -1; k <= 1; k++ {
+							sx, sy := min(max(x+k*pass.X, 0), dw-1), min(max(y+k*pass.Y, 0), dh-1)
+							sum += int(dst.Pix[sy*dst.Stride+sx*4+c])
+						}
+						tmp.Pix[y*tmp.Stride+x*4+c] = uint8((sum + 1) / 3)
+					}
+				}
+			}
+			dst, tmp = tmp, dst
+		}
+	}
+	return dst
 }
 
 // layoutTag draws a short word on a dark plate, as a mark over a picture.
@@ -737,14 +994,20 @@ func layoutTag(gtx layout.Context, text string) layout.Dimensions {
 }
 
 // removeButton is the round button that takes a file out of the box.
-func removeButton(gtx layout.Context, s *surface, d int, name string) layout.Dimensions {
+func removeButton(gtx layout.Context, tips *tooltips, s *surface, d int, name string) layout.Dimensions {
+	return boxIconButton(gtx, tips, s, d, name, iconClear)
+}
+
+// boxIconButton is a round button with icon over a picture, on a dark plate,
+// whose tooltip, where tips is set, tells name.
+func boxIconButton(gtx layout.Context, tips *tooltips, s *surface, d int, name string, icon wdk.IconWidget) layout.Dimensions {
 	white := token.NewMatColorFromHexRGB(0xffffff)
 	size := image.Pt(d, d)
-	style := surfaceStyle{radius: d / 2, content: white, background: boxOverlay, button: name}
+	style := surfaceStyle{radius: d / 2, content: white, background: boxOverlay, button: name, tips: tips}
 	return s.Layout(gtx, size, style, func(gtx layout.Context) layout.Dimensions {
 		inner := d * 5 / 9
 		return offset(gtx, image.Pt((d-inner)/2, (d-inner)/2), func(gtx layout.Context) layout.Dimensions {
-			return exact(gtx, image.Pt(inner, inner), func(gtx layout.Context) layout.Dimensions { return iconClear(gtx, white) })
+			return exact(gtx, image.Pt(inner, inner), func(gtx layout.Context) layout.Dimensions { return icon(gtx, white) })
 		})
 	})
 }
@@ -804,7 +1067,7 @@ func (c *messageComposer) layoutFileRow(gtx layout.Context, p *chatPage, f *boxF
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			d := gtx.Dp(32)
 			return layout.Inset{Left: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return quietRemove(gtx, &f.remove, d, sc.SurfaceVariant.OnColor, l.T("files.remove"))
+				return quietRemove(gtx, &c.files.tips, &f.remove, d, sc.SurfaceVariant.OnColor, l.T("files.remove"))
 			})
 		}),
 	)
@@ -827,9 +1090,9 @@ func songName(f sendfiles.File) string {
 
 // quietRemove is the button of a row that takes its file out: a cross
 // without a plate.
-func quietRemove(gtx layout.Context, s *surface, d int, color token.MatColor, name string) layout.Dimensions {
+func quietRemove(gtx layout.Context, tips *tooltips, s *surface, d int, color token.MatColor, name string) layout.Dimensions {
 	size := image.Pt(d, d)
-	style := surfaceStyle{radius: d / 2, content: color, background: color.SetOpacity(0), button: name}
+	style := surfaceStyle{radius: d / 2, content: color, background: color.SetOpacity(0), button: name, tips: tips}
 	return s.Layout(gtx, size, style, func(gtx layout.Context) layout.Dimensions {
 		inner := d * 5 / 9
 		return offset(gtx, image.Pt((d-inner)/2, (d-inner)/2), func(gtx layout.Context) layout.Dimensions {

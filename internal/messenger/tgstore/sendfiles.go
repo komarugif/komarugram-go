@@ -66,7 +66,7 @@ func (s *Store) sendFiles(ctx context.Context, api *tg.Client, chat int64, peer 
 			if outgoing.fileDone(at[i]) {
 				continue
 			}
-			media, err := s.prepareFile(ctx, api, chat, peer, f, way, msg.FFmpeg, outgoing, at[i], len(g.Files) > 1)
+			media, err := s.prepareFile(ctx, api, chat, peer, f, way, msg.FFmpeg, outgoing, at[i], len(g.Files) > 1, out.IsSpoiler(at[i]) && spoilerable(f, way))
 			if err != nil {
 				return err
 			}
@@ -117,8 +117,9 @@ func (s *Store) sendFiles(ctx context.Context, api *tg.Client, chat int64, peer 
 }
 
 // prepareFile uploads the file at place of outgoing, for an album as what the
-// server already has. It is nil for a file cancelled, before or meanwhile.
-func (s *Store) prepareFile(ctx context.Context, api *tg.Client, chat int64, peer peerRecord, f sendfiles.File, way sendfiles.Way, ffmpeg string, outgoing *outgoingEntry, place int, album bool) (tg.InputMediaClass, error) {
+// server already has, under a spoiler if spoiler is set. It is nil for a file
+// cancelled, before or meanwhile.
+func (s *Store) prepareFile(ctx context.Context, api *tg.Client, chat int64, peer peerRecord, f sendfiles.File, way sendfiles.Way, ffmpeg string, outgoing *outgoingEntry, place int, album, spoiler bool) (tg.InputMediaClass, error) {
 	fileCtx, end, ok := s.startFile(ctx, outgoing, place)
 	if !ok {
 		return nil, nil
@@ -131,11 +132,19 @@ func (s *Store) prepareFile(ctx context.Context, api *tg.Client, chat int64, pee
 		// sendMultiMedia fails with MEDIA_EMPTY.
 		doc.NosoundVideo = true
 	}
+	if spoiler {
+		hideUnderSpoiler(media)
+	}
 	if err == nil && album {
 		var server tg.MessageMediaClass
 		server, err = api.MessagesUploadMedia(fileCtx, &tg.MessagesUploadMediaRequest{Peer: peer.input(), Media: media})
 		if err == nil {
 			media, err = inputMedia(server)
+		}
+		if err == nil && spoiler {
+			// What the album refers to says it again, as Telegram Desktop's
+			// sendAlbumWithUploaded does: the upload's flag stays with the upload.
+			hideUnderSpoiler(media)
 		}
 		if err != nil {
 			err = fmt.Errorf("%s: %w", f.Name, err)
@@ -148,6 +157,32 @@ func (s *Store) prepareFile(ctx context.Context, api *tg.Client, chat int64, pee
 		return nil, err
 	}
 	return media, nil
+}
+
+// spoilerable reports whether f can go under a spoiler the way it goes: a
+// photo, video or GIF sent as media, as Telegram Desktop's box offers it.
+func spoilerable(f sendfiles.File, way sendfiles.Way) bool {
+	switch f.Kind {
+	case sendfiles.KindPhoto, sendfiles.KindVideo, sendfiles.KindAnimation:
+		return !way.Documents
+	}
+	return false
+}
+
+// hideUnderSpoiler marks media to go under a spoiler, as Telegram Desktop marks
+// what its box hid: photos, and videos and GIFs, sent as media; a document
+// shows no picture to hide.
+func hideUnderSpoiler(media tg.InputMediaClass) {
+	switch m := media.(type) {
+	case *tg.InputMediaUploadedPhoto:
+		m.Spoiler = true
+	case *tg.InputMediaUploadedDocument:
+		m.Spoiler = !m.ForceFile
+	case *tg.InputMediaPhoto:
+		m.Spoiler = true
+	case *tg.InputMediaDocument:
+		m.Spoiler = true
+	}
 }
 
 // inspectOutgoing is the file at path as it goes. A video nothing can tell the size

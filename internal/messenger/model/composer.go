@@ -89,11 +89,19 @@ type OutgoingFiles struct {
 	// SilentAsVideo sends videos without sound as videos, which Telegram would
 	// otherwise make GIFs of.
 	SilentAsVideo bool
+	// Spoilers are the places in Paths of photos and videos hidden under a
+	// spoiler until they are tapped, as Telegram Desktop's box hides them.
+	Spoilers []int `json:",omitempty"`
 }
 
 // IsAnimated reports whether the file at place i goes as a GIF.
 func (f *OutgoingFiles) IsAnimated(i int) bool {
 	return f != nil && slices.Contains(f.Animated, i)
+}
+
+// IsSpoiler reports whether the file at place i goes under a spoiler.
+func (f *OutgoingFiles) IsSpoiler(i int) bool {
+	return f != nil && slices.Contains(f.Spoilers, i)
 }
 
 // VoiceNote is what Telegram shows of a voice message before it is played.

@@ -101,6 +101,8 @@ func (s *Store) outgoingMessages(ctx context.Context, chat int64, msg model.Outg
 					}
 				}
 				m.Media = media
+				// index is the file's place: the groups keep the files' order.
+				m.MediaSpoiler = msg.Files.IsSpoiler(index) && spoilerable(f, way)
 				if len(g.Files) > 1 {
 					m.GroupedID = msg.RandomID + int64(gi)
 					if m.GroupedID == 0 {

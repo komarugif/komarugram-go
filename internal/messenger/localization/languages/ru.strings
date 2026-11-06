@@ -796,6 +796,8 @@
 "files.path_prompt" = "Выбрать файлы нельзя: введите путь к файлу";
 "files.quality" = "Высокое качество";
 "files.remove" = "Убрать из отправки";
+"files.spoiler" = "Скрыть под спойлер";
+"files.spoiler_off" = "Убрать спойлер";
 "files.video" = "Отправить видео";
 
 "filters.add" = "Добавить";

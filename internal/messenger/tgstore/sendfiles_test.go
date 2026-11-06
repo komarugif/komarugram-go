@@ -134,6 +134,52 @@ func TestSendFilesAsAnAlbum(t *testing.T) {
 	}
 }
 
+// Photos the box hid go under a spoiler: the upload says so, and in an album
+// the photo it refers to says it again; the others go as they are.
+func TestSendFilesUnderSpoiler(t *testing.T) {
+	s, server := filesStore(t)
+	dir := t.TempDir()
+	paths := []string{picture(t, dir, "a.png", 30, 20), picture(t, dir, "b.png", 30, 20), picture(t, dir, "c.png", 30, 20)}
+	err := s.Send(context.Background(), 5, model.OutgoingMessage{RandomID: 70, Files: &model.OutgoingFiles{Paths: paths, Group: true, Spoilers: []int{0, 2}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(server.albums) != 1 || len(server.uploaded) != 3 {
+		t.Fatalf("%d albums, %d uploaded", len(server.albums), len(server.uploaded))
+	}
+	for i, item := range server.albums[0].MultiMedia {
+		want := i != 1
+		if up := server.uploaded[i].(*tg.InputMediaUploadedPhoto); up.Spoiler != want {
+			t.Errorf("upload %d: spoiler %v", i, up.Spoiler)
+		}
+		if photo := item.Media.(*tg.InputMediaPhoto); photo.Spoiler != want {
+			t.Errorf("item %d: spoiler %v", i, photo.Spoiler)
+		}
+	}
+	// One by itself says it too; a document has no picture to hide.
+	notes := filepath.Join(dir, "notes.txt")
+	if err := os.WriteFile(notes, []byte("notes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = s.Send(context.Background(), 5, model.OutgoingMessage{RandomID: 80, Files: &model.OutgoingFiles{Paths: []string{paths[0], notes}, Spoilers: []int{0, 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if photo := server.singles[0].Media.(*tg.InputMediaUploadedPhoto); !photo.Spoiler {
+		t.Error("the photo went without its spoiler")
+	}
+	if doc := server.singles[1].Media.(*tg.InputMediaUploadedDocument); doc.Spoiler {
+		t.Error("the document went under a spoiler")
+	}
+	err = s.Send(context.Background(), 5, model.OutgoingMessage{RandomID: 90, Files: &model.OutgoingFiles{Paths: paths[:1], Documents: true, Spoilers: []int{0}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc := server.singles[2].Media.(*tg.InputMediaUploadedDocument); doc.Spoiler {
+		t.Error("a photo sent as a file went under a spoiler")
+	}
+}
+
 // Without grouping, each file is a message; the caption goes on the last,
 // and a file that is no photo goes as a document.
 func TestSendFilesOneByOne(t *testing.T) {

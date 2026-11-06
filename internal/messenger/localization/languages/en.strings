@@ -750,6 +750,8 @@
 "files.path_prompt" = "No file chooser: enter the file path";
 "files.quality" = "High Quality";
 "files.remove" = "Remove from sending";
+"files.spoiler" = "Hide with Spoiler";
+"files.spoiler_off" = "Remove Spoiler";
 "files.video" = "Send a video file";
 
 "filters.add" = "Add";

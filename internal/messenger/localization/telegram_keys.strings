@@ -261,6 +261,7 @@
 "files.images_selected" = "lng_send_images_selected";
 "files.invalid" = "lng_send_media_invalid_files";
 "files.quality" = "lng_send_high_quality";
+"files.spoiler" = "lng_context_spoiler_effect";
 "files.video" = "lng_send_video";
 
 "format.bold" = "lng_menu_formatting_bold";
