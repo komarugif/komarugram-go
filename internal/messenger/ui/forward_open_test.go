@@ -3,11 +3,14 @@
 package ui
 
 import (
+	"image"
 	"testing"
 	"time"
 
 	"gioui.org/f32"
 	"gioui.org/io/pointer"
+	"gioui.org/layout"
+	"gioui.org/unit"
 
 	"komarugram/internal/messenger/model"
 )
@@ -41,6 +44,29 @@ func TestForwardLineOpensItsSender(t *testing.T) {
 	h.clickAcross(4, &opened)
 	if len(opened) != 0 {
 		t.Fatalf("a forward of a hidden sender opened %+v", opened)
+	}
+}
+
+// A forward's bubble is as wide as what it holds, with the avatar of whom
+// it came from as without it: the name beside the avatar was Flexed, given
+// the rest of the history's width as its minimum, and the bubble took all
+// of it.
+func TestForwardLineKeepsBubbleNarrow(t *testing.T) {
+	h := newMenuHarness(t, func(_ *menuStore, m []model.Message) {
+		m[2].ForwardDate, m[2].ForwardFromID, m[2].ForwardName = time.Unix(10, 0), 77, "Pavel"
+		m[3].ForwardDate, m[3].ForwardName = time.Unix(10, 0), "Pavel"
+	})
+	h.page.avatar = func(gtx layout.Context, _ int64, _ model.ChatKind, _ string, size unit.Dp) layout.Dimensions {
+		return layout.Dimensions{Size: image.Pt(gtx.Dp(size), gtx.Dp(size))}
+	}
+	h.frames(3)
+	with, without := h.page.rows[3], h.page.rows[4]
+	if with == nil || without == nil {
+		t.Fatal("rows not laid out")
+	}
+	// The avatar and the space after it, about 30 px, are all it may add.
+	if with.bodySize.X > without.bodySize.X+40 {
+		t.Fatalf("a forward with its sender's avatar is %d px wide, %d without it", with.bodySize.X, without.bodySize.X)
 	}
 }
 

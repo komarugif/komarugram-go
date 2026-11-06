@@ -928,7 +928,10 @@ func (p *chatPage) forwardLine(gtx layout.Context, r *messageRow, m model.Messag
 				return p.avatar(gtx, m.ForwardFromID, kind, m.ForwardName, unit.Dp(float32(side)/gtx.Metric.PxPerDp))
 			}),
 			layout.Rigid(layout.Spacer{Width: 4}.Layout),
-			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			// Rigid, not Flexed: a Flexed child is given the whole rest of
+			// the width as its minimum, and the bubble grew to its widest
+			// with it. Rigid still ends a long name with an ellipsis.
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, text, token.TypestyleLabelMedium, sc.Primary.Color, 1)
 			}),
 		)
