@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -25,6 +26,21 @@ func uploadAttributes(ctx context.Context, path, mime string, asMedia bool, ffmp
 	if !asMedia || !strings.HasPrefix(mime, "video/") {
 		return attrs, nil
 	}
+	v, err := videoAttribute(ctx, path, ffmpeg)
+	if err != nil {
+		return nil, err
+	}
+	return append(attrs, v), nil
+}
+
+// videoAttribute is what Telegram is told of the video at path: as its container
+// says, read here for any codec; for what is not read here, AVI or OGV, as ffprobe
+// says, and model.ErrNoFFprobe without one. Only a file read here can tell that it
+// plays as it comes, as Telegram Desktop asks: its movie box comes first.
+func videoAttribute(ctx context.Context, path, ffmpeg string) (*tg.DocumentAttributeVideo, error) {
+	if c, err := video.ReadContainer(path); err == nil {
+		return &tg.DocumentAttributeVideo{W: c.Width, H: c.Height, Duration: c.Duration.Seconds(), SupportsStreaming: c.Streaming}, nil
+	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	path, err := filepath.Abs(path)
@@ -35,7 +51,7 @@ func uploadAttributes(ctx context.Context, path, mime string, asMedia bool, ffmp
 	if ffprobe == "" {
 		return nil, model.ErrNoFFprobe
 	}
-	out, err := program.CommandContext(ctx, ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,duration:format=duration", "-of", "json", "-i", path).Output()
+	out, err := program.CommandContext(ctx, ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,duration:stream_side_data=rotation:stream_tags=rotate:format=duration", "-of", "json", "-i", path).Output()
 	if err != nil {
 		return nil, model.ErrNoFFprobe
 	}
@@ -43,6 +59,10 @@ func uploadAttributes(ctx context.Context, path, mime string, asMedia bool, ffmp
 		Streams []struct {
 			Width, Height int
 			Duration      string
+			// The turn a phone records its videos with, in the newer
+			// FFmpeg's place and in the older's.
+			SideData []struct{ Rotation float64 } `json:"side_data_list"`
+			Tags     struct{ Rotate string }
 		}
 		Format struct{ Duration string }
 	}
@@ -60,6 +80,26 @@ func uploadAttributes(ctx context.Context, path, mime string, asMedia bool, ffmp
 	if stream.Width <= 0 || stream.Height <= 0 {
 		return nil, errors.New("invalid video dimensions")
 	}
-	attrs = append(attrs, &tg.DocumentAttributeVideo{W: stream.Width, H: stream.Height, Duration: duration, SupportsStreaming: mime == "video/mp4"})
-	return attrs, nil
+	// The size is the one it shows at, as its thumbnail has: a quarter turn
+	// swaps the sides.
+	rotation, _ := strconv.ParseFloat(stream.Tags.Rotate, 64)
+	for _, side := range stream.SideData {
+		if side.Rotation != 0 {
+			rotation = side.Rotation
+		}
+	}
+	if int(math.Abs(rotation))%180 == 90 {
+		stream.Width, stream.Height = stream.Height, stream.Width
+	}
+	return &tg.DocumentAttributeVideo{W: stream.Width, H: stream.Height, Duration: duration}, nil
+}
+
+// videoHasNoSound tells a video known to have no sound; one nothing can read is
+// not known to.
+func videoHasNoSound(ctx context.Context, path, ffmpeg string) bool {
+	if c, err := video.ReadContainer(path); err == nil {
+		return !c.Sound
+	}
+	probed, err := video.ProbeMedia(ctx, path, ffmpeg)
+	return err == nil && !probed.Sound
 }

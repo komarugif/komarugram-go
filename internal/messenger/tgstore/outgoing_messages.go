@@ -3,19 +3,22 @@
 package tgstore
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image"
 	"strings"
 	"time"
 
 	"github.com/gotd/td/tg"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/sendfiles"
+	"komarugram/pkg/video"
 )
 
 // outgoingMessages builds the same media and grouping the accepted messages
 // will have, before starting any network operation.
-func (s *Store) outgoingMessages(chat int64, msg model.OutgoingMessage, at time.Time) ([]*pendingMessage, error) {
+func (s *Store) outgoingMessages(ctx context.Context, chat int64, msg model.OutgoingMessage, at time.Time) ([]*pendingMessage, error) {
 	me := s.Me()
 	base := model.Message{Text: msg.Text, Entities: msg.Entities, SenderID: me.ID, SenderName: me.Name(), Date: at, Outgoing: true, ReplyToMessageID: msg.ReplyTo, Sending: true}
 	c := s.history
@@ -33,17 +36,27 @@ func (s *Store) outgoingMessages(chat int64, msg model.OutgoingMessage, at time.
 	}
 	paths := outgoingPaths(msg)
 	if len(paths) > 0 {
-		files := make([]sendfiles.File, 0, len(paths))
-		for _, path := range paths {
-			f, err := sendfiles.Inspect(path)
-			if err != nil {
-				return nil, err
-			}
-			files = append(files, f)
-		}
 		way := sendfiles.Way{Documents: !msg.AsMedia}
 		if msg.Files != nil {
 			way = sendfiles.Way{Documents: msg.Files.Documents, Group: msg.Files.Group, HighQuality: msg.Files.HighQuality}
+		}
+		files := make([]sendfiles.File, 0, len(paths))
+		wentAsFile := false
+		for i, path := range paths {
+			f, asFile, err := inspectOutgoing(ctx, path, msg.FFmpeg, way.Documents)
+			if err != nil {
+				return nil, err
+			}
+			wentAsFile = wentAsFile || asFile
+			if msg.Files.IsAnimated(i) {
+				f = f.AsAnimation()
+			}
+			files = append(files, f)
+		}
+		if wentAsFile {
+			// Told once, and here: this message is built once, however often it
+			// is tried.
+			s.sendFailure.Store(&model.SendFailure{AsFile: true})
 		}
 		groups := sendfiles.Divide(files, way)
 		cg, cf := sendfiles.CaptionTarget(groups)
@@ -57,19 +70,25 @@ func (s *Store) outgoingMessages(chat int64, msg model.OutgoingMessage, at time.
 					m.Text, m.Entities = trimmed.Text, trimmed.Entities
 				}
 				m.Kind = model.MessageFile
-				media := &model.MessageMedia{ID: fmt.Sprintf("outbox/%d/%d", msg.RandomID, index), FileName: f.Name, MIMEType: f.MIME, Size: f.Size, Width: f.Width, Height: f.Height, Duration: f.Duration, Title: f.Title, Performer: f.Performer, Preview: f.Cover}
+				media := &model.MessageMedia{ID: fmt.Sprintf("outbox/%d/%d", msg.RandomID, index), FileName: f.Name, MIMEType: f.MIME, Size: f.Size, Width: f.Width, Height: f.Height, Duration: f.Duration, Title: f.Title, Performer: f.Performer}
 				if !way.Documents {
 					switch f.Kind {
 					case sendfiles.KindPhoto:
 						m.Kind = model.MessagePhoto
 					case sendfiles.KindVideo:
 						m.Kind = model.MessageVideo
+						s.showOutgoingVideo(ctx, media, msg.RandomID, index, f, msg.FFmpeg)
 					case sendfiles.KindAnimation:
 						m.Kind = model.MessageGIF
 					}
 				}
 				if f.Kind == sendfiles.KindMusic {
 					m.Kind = model.MessageMusic
+					// What its button shows until Telegram has it: the file's
+					// own cover may be many times larger.
+					if thumb, err := sendfiles.DocumentThumbnail(f.Cover); err == nil {
+						media.Preview = thumb
+					}
 				}
 				if msg.Voice != nil {
 					m.Kind = model.MessageVoice
@@ -82,6 +101,8 @@ func (s *Store) outgoingMessages(chat int64, msg model.OutgoingMessage, at time.
 					}
 				}
 				m.Media = media
+				// index is the file's place: the groups keep the files' order.
+				m.MediaSpoiler = msg.Files.IsSpoiler(index) && spoilerable(f, way)
 				if len(g.Files) > 1 {
 					m.GroupedID = msg.RandomID + int64(gi)
 					if m.GroupedID == 0 {
@@ -114,15 +135,48 @@ func (s *Store) outgoingMessages(chat int64, msg model.OutgoingMessage, at time.
 	return pending, nil
 }
 
+// outgoingVideoPatience is how long a message being sent waits to tell of its
+// video: it does not show until then.
+const outgoingVideoPatience = 5 * time.Second
+
+// showOutgoingVideo gives media, file index of the message randomID, what its
+// video shows while it is sent: its shape and length, and its first picture,
+// kept as Telegram's thumbnails are. What cannot be told is left out.
+func (s *Store) showOutgoingVideo(ctx context.Context, media *model.MessageMedia, randomID int64, index int, f sendfiles.File, ffmpeg string) {
+	ctx, cancel := context.WithTimeout(ctx, outgoingVideoPatience)
+	defer cancel()
+	if attrs, err := uploadAttributes(ctx, f.Path, f.MIME, true, ffmpeg); err == nil {
+		for _, a := range attrs {
+			if v, ok := a.(*tg.DocumentAttributeVideo); ok {
+				media.Width, media.Height = v.W, v.H
+				media.Duration = time.Duration(v.Duration * float64(time.Second))
+			}
+		}
+	}
+	thumb, err := sendfiles.VideoDocumentThumbnail(ctx, video.ResolveFFmpeg(ffmpeg), f.Path)
+	if err != nil {
+		return
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(thumb))
+	if err != nil {
+		return
+	}
+	id := fmt.Sprintf("outbox-thumb/%d/%d", randomID, index)
+	if cache := s.Cache(); cache == nil || cache.SaveMedia(ctx, id, thumb) != nil {
+		return
+	}
+	media.Thumbnail = &model.MessageMedia{ID: id, MIMEType: "image/jpeg", Size: int64(len(thumb)), Width: cfg.Width, Height: cfg.Height}
+}
+
 // acceptOutgoing records an acknowledgement before applying updates or sending
 // the next file. Retrying a partially delivered batch skips accepted groups.
 func (s *Store) acceptOutgoing(ctx context.Context, e *outgoingEntry, res tg.UpdatesClass, randomIDs []int64) error {
 	if len(e.pending) == 0 {
 		return fmt.Errorf("outbox: missing pending message")
 	}
+	q := &s.outbox
 	for _, random := range randomIDs {
 		id := sentID(res, random)
-		e.Done[random] = id
 		index := 0
 		for i := range e.pending {
 			if outgoingRandomID(e.Request.RandomID, i) == random {
@@ -130,9 +184,15 @@ func (s *Store) acceptOutgoing(ctx context.Context, e *outgoingEntry, res tg.Upd
 				break
 			}
 		}
+		q.mu.Lock()
+		e.Done[random] = id
+		q.mu.Unlock()
+		q.uploads.remove(e.pending[index].msg.Key)
 		if id > 0 {
 			if e.LocalEmoji {
+				q.mu.Lock()
 				m := e.Messages[index]
+				q.mu.Unlock()
 				if err := s.keepLocalEmoji(ctx, e.Peer.key(), id, m.Text, e.localEmojiEntities(m.Entities)); err != nil {
 					return err
 				}
@@ -142,6 +202,8 @@ func (s *Store) acceptOutgoing(ctx context.Context, e *outgoingEntry, res tg.Upd
 			s.history.mu.Unlock()
 		}
 	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
 	return s.Cache().PutOutgoing(ctx, e.Request.RandomID, e, nil)
 }
 

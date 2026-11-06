@@ -664,7 +664,13 @@ func (s *Store) sendOnce(ctx context.Context, chat int64, msg model.OutgoingMess
 		if typ == "" {
 			typ = "application/octet-stream"
 		}
-		attrs, err := uploadAttributes(ctx, msg.Path, typ, msg.AsMedia, msg.FFmpeg)
+		asMedia := msg.AsMedia
+		attrs, err := uploadAttributes(ctx, msg.Path, typ, asMedia, msg.FFmpeg)
+		if err != nil && ctx.Err() == nil {
+			// A video nothing can read goes as a file, as outgoingMessages has it.
+			asMedia = false
+			attrs, err = uploadAttributes(ctx, msg.Path, typ, asMedia, msg.FFmpeg)
+		}
 		if err != nil {
 			return err
 		}
@@ -680,19 +686,19 @@ func (s *Store) sendOnce(ctx context.Context, chat int64, msg model.OutgoingMess
 		switch {
 		case msg.Voice != nil:
 			action = model.ActionUploadVoice
-		case msg.AsMedia && (typ == "image/jpeg" || typ == "image/png"):
+		case asMedia && (typ == "image/jpeg" || typ == "image/png"):
 			action = model.ActionUploadPhoto
-		case msg.AsMedia && strings.HasPrefix(typ, "video/"):
+		case asMedia && strings.HasPrefix(typ, "video/"):
 			action = model.ActionUploadVideo
 		}
-		file, err := s.uploader(api, shown, action).FromPath(ctx, msg.Path)
+		file, err := s.fileUploader(api, shown, action, outgoing, 0).FromPath(ctx, msg.Path)
 		if err != nil {
 			return err
 		}
-		if msg.AsMedia && (typ == "image/jpeg" || typ == "image/png") {
+		if asMedia && (typ == "image/jpeg" || typ == "image/png") {
 			media = &tg.InputMediaUploadedPhoto{File: file}
 		} else {
-			media = &tg.InputMediaUploadedDocument{File: file, MimeType: typ, ForceFile: !msg.AsMedia && msg.Voice == nil, Attributes: attrs}
+			media = &tg.InputMediaUploadedDocument{File: file, MimeType: typ, ForceFile: !asMedia && msg.Voice == nil, Attributes: attrs}
 		}
 	}
 	var res tg.UpdatesClass
@@ -700,6 +706,9 @@ func (s *Store) sendOnce(ctx context.Context, chat int64, msg model.OutgoingMess
 	clearDraft := s.outgoingClearDraft(outgoing)
 	wireEntities := outgoing.wireEntities(msg.Entities)
 	if media != nil {
+		if msg.Path != "" && len(s.claimFiles(outgoing, []int{0})) == 0 {
+			return errOutgoingCancelled
+		}
 		caption := msg.Text
 		if len(msg.Tasks) > 0 {
 			caption = ""

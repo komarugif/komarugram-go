@@ -22,6 +22,7 @@ func channelRights(ch *tg.Channel) peerRights {
 	r.Until = int64(ch.BannedRights.UntilDate)
 	r.Muted = ch.Left || ch.Broadcast && !r.Post
 	r.Banned = !r.Admin && (r.Default|r.Personal)&model.SendText != 0
+	r.ChangeInfo = channelChangesInfo(ch)
 	if ch.Broadcast && ch.BroadcastMessagesAllowed && ch.LinkedMonoforumID != 0 {
 		r.DirectMessagesID = peerID(&tg.PeerChannel{ChannelID: ch.LinkedMonoforumID})
 	}

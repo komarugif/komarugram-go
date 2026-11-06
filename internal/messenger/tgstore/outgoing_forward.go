@@ -80,7 +80,7 @@ func (s *Store) queueForward(ctx context.Context, from int64, ids []model.Messag
 		if m.NoForwards {
 			return errors.New("message forwarding is protected")
 		}
-		pending, err := s.outgoingMessages(to, model.OutgoingMessage{Text: m.Text, Entities: m.Entities}, e.Created)
+		pending, err := s.outgoingMessages(ctx, to, model.OutgoingMessage{Text: m.Text, Entities: m.Entities}, e.Created)
 		if err != nil {
 			return err
 		}

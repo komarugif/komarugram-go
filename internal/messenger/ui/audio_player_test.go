@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"image"
+	"image/draw"
+	"image/png"
 	"io"
 	"os"
 	"sync"
@@ -23,6 +25,7 @@ import (
 	"gio-mw/wdk"
 
 	"gioui.org/f32"
+	"gioui.org/gpu/headless"
 	"gioui.org/io/input"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
@@ -118,6 +121,84 @@ func waitAudio(t *testing.T, what string, done func() bool) {
 	}
 }
 
+// Music with a cover shows it on its button, the thumbnail once it has come
+// and its own picture while it is being sent; other audio shows none.
+func TestSongCoverOfItsButton(t *testing.T) {
+	p, _, find := audioHarnessPage(t)
+	p.images = &imageOps{}
+	size := image.Pt(44, 44)
+	vr := &audioRow{}
+	music := find("demo/music")
+	waitAudio(t, "the cover did not load", func() bool { return p.songCover(vr, music, size) != nil })
+	plain := music.WithMedia(&model.MessageMedia{ID: "plain"})
+	if p.songCover(vr, plain, size) != nil || p.songCover(vr, find("demo/voice"), size) != nil {
+		t.Fatal("audio without a cover has one")
+	}
+	// A plain file has a thumbnail of its own, which is no cover.
+	file := music
+	file.Kind = model.MessageFile
+	if p.songCover(vr, file, size) != nil {
+		t.Fatal("a file shows a cover")
+	}
+
+	var cover bytes.Buffer
+	if err := png.Encode(&cover, image.NewRGBA(image.Rect(0, 0, 100, 100))); err != nil {
+		t.Fatal(err)
+	}
+	sending := model.Message{Kind: model.MessageMusic, Media: &model.MessageMedia{ID: "outbox/1/0", Preview: cover.Bytes()}}
+	got := p.songCover(vr, sending, size)
+	if got == nil || got.Bounds().Dx() != 44 {
+		t.Fatalf("while it is sent: %v", got)
+	}
+	if p.songCover(vr, sending, size) != got {
+		t.Fatal("decoded again")
+	}
+	sending.Media = &model.MessageMedia{ID: "outbox/1/1", Preview: []byte("no picture")}
+	if p.songCover(vr, sending, size) != nil {
+		t.Fatal("a broken cover shows")
+	}
+}
+
+// The button lies on the cover, shaded, the icon white over it: on a white
+// cover too, where the icon would be lost without the shade.
+func TestSongCoverIsShadedUnderAWhiteIcon(t *testing.T) {
+	p, _, _ := audioHarnessPage(t)
+	p.images = &imageOps{}
+	size := image.Pt(44, 44)
+	win, err := headless.NewWindow(size.X, size.Y)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer win.Release()
+	cover := image.NewRGBA(image.Rectangle{Max: size})
+	draw.Draw(cover, cover.Bounds(), image.White, image.Point{}, draw.Src)
+	ops := new(op.Ops)
+	gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
+	// The dark theme, whose color on the primary one is not white.
+	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineDark()))
+	p.images.BeginFrame()
+	p.audioButton(gtx, &audioRow{}, audioState{}, cover)
+	p.images.EndFrame()
+	if err := win.Frame(ops); err != nil {
+		t.Fatal(err)
+	}
+	shot := image.NewRGBA(image.Rectangle{Max: size})
+	if err := win.Screenshot(shot); err != nil {
+		t.Fatal(err)
+	}
+	// The icon's middle, then the cover beside the icon, then outside the circle.
+	if c := shot.RGBAAt(21, 22); c.R != 255 || c.G != 255 || c.B != 255 {
+		t.Fatalf("the icon is %v", c)
+	}
+	// As bright as in Telegram Desktop, whose shade leaves 60% of white.
+	if c := shot.RGBAAt(5, 22); c.R < 150 || c.R > 156 || c.G != c.R || c.B != c.R {
+		t.Fatalf("the shaded cover is %v", c)
+	}
+	if c := shot.RGBAAt(0, 0); c.A != 0 {
+		t.Fatalf("the cover goes outside its circle: %v", c)
+	}
+}
+
 // While its file opens, the button of an audio row draws the ring of a
 // file's download, and a click on its cross cancels the opening.
 func TestAudioButtonCancelsOpening(t *testing.T) {
@@ -136,7 +217,7 @@ func TestAudioButtonCancelsOpening(t *testing.T) {
 		gtx := layout.Context{Ops: new(op.Ops), Source: router.Source(), Now: time.Now(), Constraints: layout.Exact(image.Pt(100, 100)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
 		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
 		state, _ := vr.update(gtx, p, m)
-		p.audioButton(gtx, vr, state)
+		p.audioButton(gtx, vr, state, nil)
 		router.Frame(gtx.Ops)
 	}
 	p.audio.toggle(p, m, -1)

@@ -129,6 +129,30 @@ func TestInspectSaysWhatAFileIsSentAs(t *testing.T) {
 }
 
 // A photo taken sideways is shown, measured and sent upright.
+// A photo is shown turned as its Exif asks, and one that asks nothing as it is.
+func TestShownPhotoIsTurned(t *testing.T) {
+	dir := t.TempDir()
+	plain := jpegBytes(t, gradient(40, 20))
+	path := filepath.Join(dir, "plain.jpg")
+	if err := os.WriteFile(path, plain, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ShownPhoto(path); err != nil || !bytes.Equal(got, plain) {
+		t.Fatalf("plain: %d bytes, %v", len(got), err)
+	}
+	if err := os.WriteFile(path, withOrientation(plain, 6, binary.BigEndian), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ShownPhoto(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(got))
+	if err != nil || cfg.Width != 20 || cfg.Height != 40 {
+		t.Fatalf("turned: %dx%d, %v", cfg.Width, cfg.Height, err)
+	}
+}
+
 func TestExifOrientationTurnsPhotos(t *testing.T) {
 	for _, order := range []binary.AppendByteOrder{binary.LittleEndian, binary.BigEndian} {
 		data := withOrientation(jpegBytes(t, gradient(40, 20)), 6, order)

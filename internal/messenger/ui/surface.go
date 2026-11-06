@@ -38,6 +38,8 @@ type surfaceStyle struct {
 	// button, if set, describes the element to accessibility as a button
 	// labeled so, for elements without text of their own.
 	button string
+	// tips, if set, shows button as the element's tooltip: see tooltip.go.
+	tips *tooltips
 }
 
 // Clicked reports whether the element was clicked since the last call.
@@ -81,6 +83,9 @@ func (s *surface) Layout(gtx layout.Context, size image.Point, style surfaceStyl
 		if style.button != "" {
 			semantic.Button.Add(gtx.Ops)
 			semantic.LabelOp(style.button).Add(gtx.Ops)
+			if style.tips != nil {
+				style.tips.target(gtx, &s.click, style.button)
+			}
 		}
 		pointer.CursorPointer.Add(gtx.Ops)
 		return layout.Dimensions{Size: size}

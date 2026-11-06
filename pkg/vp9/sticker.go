@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"image/draw"
 	"time"
 
 	"komarugram/pkg/resample"
@@ -85,7 +84,7 @@ func (s *Sticker) FrameAt(ctx context.Context, elapsed time.Duration) (*image.RG
 		if s.frame == nil {
 			s.frame = image.NewRGBA(image.Rectangle{Max: s.Size})
 		}
-		draw.Draw(s.frame, s.frame.Rect, s.planes, image.Point{}, draw.Src)
+		resample.Convert(s.frame, s.planes, s.scaler.Colors)
 		if s.mask != nil {
 			applyAlpha(s.frame, s.mask)
 		}
@@ -164,6 +163,9 @@ func (s *Sticker) seek(ctx context.Context, elapsed time.Duration) error {
 // decode decodes frame i of both streams into planes and mask.
 func (s *Sticker) decode(ctx context.Context, i int) error {
 	frame := s.File.Frames[i]
+	if colors, ok := packetColors(frame.Data, s.Size.X, s.Size.Y); ok {
+		s.scaler.Colors = colors
+	}
 	colour, err := s.colour.Decode(ctx, frame.Data)
 	if err != nil {
 		return fmt.Errorf("%s: colour frame %d: %w", s.Name, i, err)

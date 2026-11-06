@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +24,13 @@ type Media struct {
 	Info
 	Duration time.Duration
 	Sound    bool
+	// AudioCodec is the name of its sound's codec, "" for none.
+	AudioCodec string
+	// ColorSpace and ColorRange are as its picture states them, "" for not.
+	ColorSpace, ColorRange string
+	// PixelAspect is how wide a pixel of its picture shows, its height being
+	// 1, as turned; 0 for a square one.
+	PixelAspect float64
 }
 
 // maxFPS bounds the rate pictures are decoded at: a file may state any.
@@ -31,6 +39,14 @@ const maxFPS = 60
 // ProbeMedia reads what Media tells of the file at path, a path or a URL,
 // with the ffprobe next to ffmpeg (the one found for "").
 func ProbeMedia(ctx context.Context, path, ffmpeg string) (Media, error) {
+	return probeMedia(ctx, path, ffmpeg, mediaFormats)
+}
+
+// mediaFormats are the demuxers a video played or edited is read by.
+const mediaFormats = "mov,matroska,webm,gif"
+
+// probeMedia is ProbeMedia reading by the demuxers of formats.
+func probeMedia(ctx context.Context, path, ffmpeg, formats string) (Media, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	ffprobe := ResolveFFprobe(ffmpeg)
@@ -38,9 +54,9 @@ func ProbeMedia(ctx context.Context, path, ffmpeg string) (Media, error) {
 		return Media{}, errors.New("ffprobe is not installed")
 	}
 	args := append(LimitArgs(ProbeMemory),
-		"-format_whitelist", "mov,matroska,webm",
+		"-format_whitelist", formats,
 		"-v", "error",
-		"-show_entries", "stream=codec_type,width,height,r_frame_rate:format=duration",
+		"-show_entries", "stream=codec_type,codec_name,width,height,r_frame_rate,sample_aspect_ratio,color_space,color_range:stream_side_data=rotation:stream_tags=rotate:format=duration",
 		"-of", "json", path)
 	out, err := outputLimited(program.CommandContext(ctx, ffprobe, args...), ProbeMemory)
 	if err != nil {
@@ -48,10 +64,22 @@ func ProbeMedia(ctx context.Context, path, ffmpeg string) (Media, error) {
 	}
 	var probed struct {
 		Streams []struct {
-			Type      string `json:"codec_type"`
-			Width     int    `json:"width"`
-			Height    int    `json:"height"`
-			FrameRate string `json:"r_frame_rate"`
+			Type       string `json:"codec_type"`
+			Codec      string `json:"codec_name"`
+			Width      int    `json:"width"`
+			Height     int    `json:"height"`
+			FrameRate  string `json:"r_frame_rate"`
+			Aspect     string `json:"sample_aspect_ratio"`
+			ColorSpace string `json:"color_space"`
+			ColorRange string `json:"color_range"`
+			// The turn a phone records with, in the newer FFmpeg's place and
+			// in the older's.
+			SideData []struct {
+				Rotation float64 `json:"rotation"`
+			} `json:"side_data_list"`
+			Tags struct {
+				Rotate string `json:"rotate"`
+			} `json:"tags"`
 		} `json:"streams"`
 		Format struct {
 			Duration string `json:"duration"`
@@ -65,6 +93,9 @@ func ProbeMedia(ctx context.Context, path, ffmpeg string) (Media, error) {
 	for _, s := range probed.Streams {
 		switch s.Type {
 		case "audio":
+			if !m.Sound {
+				m.AudioCodec = s.Codec
+			}
 			m.Sound = true
 		case "video":
 			if picture {
@@ -75,6 +106,22 @@ func ProbeMedia(ctx context.Context, path, ffmpeg string) (Media, error) {
 				return Media{}, fmt.Errorf("video dimensions %dx%d exceed limit", s.Width, s.Height)
 			}
 			m.Width, m.Height, m.FPS = s.Width, s.Height, 30
+			// FFmpeg turns the pictures as they are decoded: this is their
+			// size then.
+			rotation, _ := strconv.ParseFloat(s.Tags.Rotate, 64)
+			for _, side := range s.SideData {
+				if side.Rotation != 0 {
+					rotation = side.Rotation
+				}
+			}
+			m.ColorSpace, m.ColorRange = s.ColorSpace, s.ColorRange
+			m.PixelAspect = pixelAspect(s.Aspect)
+			if int(math.Abs(rotation))%180 == 90 {
+				m.Width, m.Height = s.Height, s.Width
+				if m.PixelAspect > 0 {
+					m.PixelAspect = 1 / m.PixelAspect
+				}
+			}
 			if num, den, ok := strings.Cut(s.FrameRate, "/"); ok {
 				n, errN := strconv.ParseFloat(num, 64)
 				d, errD := strconv.ParseFloat(den, 64)

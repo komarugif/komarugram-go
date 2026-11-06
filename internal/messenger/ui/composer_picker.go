@@ -166,6 +166,125 @@ func (c *messageComposer) pickerRows(width, cell int, l localization.Catalog) []
 	}
 	return rows
 }
+
+// takePickerPage takes a page of the picker that came.
+func (c *messageComposer) takePickerPage(r pickerResult) {
+	if r.generation != c.generation {
+		return
+	}
+	c.loading = false
+	c.pageLoaded = true
+	c.pickerErr = r.err
+	if r.err != nil {
+		return
+	}
+	if c.hidingPaid {
+		r.page = r.page.WithoutPaid()
+	}
+	if r.append {
+		c.page.Items = model.PreferSaved(c.page.Items, r.page.Items)
+		c.page.Next = r.page.Next
+		return
+	}
+	if r.refreshed {
+		// What was shown of a featured set stays shown.
+		keepFeatured(&r.page, c.page)
+	}
+	c.page = r.page
+	c.itemClicks = map[string]*surface{}
+	if c.query == "" && !c.featuredLoading {
+		if pack := c.selectedFeatured(); pack != nil && !pack.Complete {
+			c.loadFeatured(*pack)
+		}
+	}
+}
+
+// takeFeaturedPack takes a featured set that came in full.
+func (c *messageComposer) takeFeaturedPack(r featuredPackResult) {
+	if r.generation != c.featuredGeneration || r.tab != c.tab || r.id != c.selectedPack {
+		return
+	}
+	c.featuredLoading = false
+	c.featuredCancel = nil
+	c.pickerErr = r.err
+	if r.err != nil {
+		return
+	}
+	if pack := c.selectedFeatured(); pack != nil {
+		pack.Items = r.pack.Items
+		if c.hidingPaid {
+			pack.Items = model.WithoutPaid(pack.Items)
+		}
+		pack.Title = r.pack.Title
+		pack.Ref = r.pack.Ref
+		pack.Complete = true
+		c.list.Position = layout.Position{}
+	}
+}
+
+// updatePickerSearch takes what was typed in the picker's search.
+func (c *messageComposer) updatePickerSearch(gtx layout.Context) {
+	for {
+		_, ok := c.search.Update(gtx)
+		if !ok {
+			break
+		}
+	}
+	q := strings.TrimSpace(c.search.Text())
+	if q != c.query {
+		c.cancelFeatured()
+		c.query = q
+		c.due = gtx.Now.Add(300 * time.Millisecond)
+		c.generation++
+		if c.loadCancel != nil {
+			c.loadCancel()
+		}
+		c.loading = false
+		// What the last search found stays until the next one has come,
+		// so that the list does not empty and fill as a query is typed.
+		c.page.Next = ""
+		c.selectedPack = 0
+		c.list.Position = layout.Position{}
+	}
+}
+
+// askPickerDue asks for the page due, once its time came.
+func (c *messageComposer) askPickerDue(gtx layout.Context, l localization.Catalog) {
+	if !c.pickerOpen || c.due.IsZero() {
+		return
+	}
+	if !gtx.Now.Before(c.due) {
+		c.due = time.Time{}
+		if c.source != nil {
+			c.request(l, false)
+		}
+	} else {
+		gtx.Execute(op.InvalidateCmd{At: c.due})
+	}
+}
+
+// updatePick is what the composer's update does for a picker alone, one that
+// picks for pick: the editor's stickers.
+func (c *messageComposer) updatePick(gtx layout.Context, l localization.Catalog) {
+	for {
+		select {
+		case r := <-c.results:
+			c.takePickerPage(r)
+			continue
+		case r := <-c.featuredResults:
+			c.takeFeaturedPack(r)
+			continue
+		case e := <-c.pickerEdits:
+			c.itemEdited(e, l)
+			continue
+		default:
+		}
+		break
+	}
+	c.updatePickerSearch(gtx)
+	c.askPickerDue(gtx, l)
+}
+
 func gifAspect(i model.PickerItem) float32 {
 	if m := i.Media.Media; m != nil && m.Width > 0 && m.Height > 0 {
 		return max(.5, min(2.5, float32(m.Width)/float32(m.Height)))
@@ -211,6 +330,11 @@ func (c *messageComposer) choose(gtx layout.Context, item model.PickerItem) {
 // chooseIn sends a sticker or GIF, or inserts an emoji, chosen from tab's
 // items, which a sticker set's dialog shows too. It reports whether it did.
 func (c *messageComposer) chooseIn(gtx layout.Context, tab model.PickerTab, item model.PickerItem) bool {
+	if c.pick != nil {
+		c.pick(item)
+		gtx.Execute(op.InvalidateCmd{})
+		return true
+	}
 	d := c.draft(c.chat)
 	if d.sending || !c.pickerAllowed(tab) {
 		return false
@@ -365,7 +489,7 @@ func (c *messageComposer) pickerRow(gtx layout.Context, n int, rows []pickerRow,
 				click = new(surface)
 				c.packClicks[pack.ID] = click
 			}
-			if click.Clicked(gtx) {
+			if click.Clicked(gtx) && c.pick == nil {
 				p.stickers.open(p, pack.Ref)
 				c.pickerOpen = false
 			}

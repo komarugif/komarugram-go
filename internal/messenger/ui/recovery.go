@@ -15,6 +15,11 @@ func (a *App) RecoverFrame() bool {
 		a.chats.toast.Show(a.catalog().T("viewer.recovered"))
 		return true
 	}
+	// Closed so, it goes in the next frame's layoutBoxViewer.
+	if a.boxViewer != nil && a.boxViewer.recoverFrame() {
+		a.chats.toast.Show(a.catalog().T("viewer.recovered"))
+		return true
+	}
 	if a.recoverSettings() {
 		return true
 	}

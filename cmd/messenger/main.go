@@ -383,6 +383,7 @@ func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive
 	opts.ProfileName = "demo"
 	opts.DemoPanic = panicDemo
 	store := mockstore.New(time.Now(), chats)
+	store.ProfileVideos = true
 	openAt, err := demoMessage(store, open)
 	if err != nil {
 		log.Fatalf("-demo-open: %v", err)

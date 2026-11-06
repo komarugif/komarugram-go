@@ -211,6 +211,11 @@ type settingsPage struct {
 	composerStyle    func() preferences.ComposerStyle
 	setComposerStyle func(preferences.ComposerStyle)
 	composer         *radio.Radios[preferences.ComposerStyle]
+	// silentAsVideo and setSilentAsVideo read and choose how a video without
+	// sound goes; silentVideo are their radios.
+	silentAsVideo    func() bool
+	setSilentAsVideo func(bool)
+	silentVideo      *radio.Radios[bool]
 	// composerBlur and setComposerBlur read and switch the blur behind the
 	// floating composer; without them the checkbox is hidden.
 	composerBlur    func() bool
@@ -437,6 +442,11 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			p.setComposerStyle(style)
 		}
 	})
+	p.silentVideo = radio.NewRadios([]bool{false, true}, false, func(asVideo bool) {
+		if p.setSilentAsVideo != nil {
+			p.setSilentAsVideo(asVideo)
+		}
+	})
 	p.confirmBoxes = checkbox.NewCheckboxes([]string{"sticker", "gif"}, nil, func(values []string) {
 		if p.setConfirmations != nil {
 			p.setConfirmations(slices.Contains(values, "sticker"), slices.Contains(values, "gif"))
@@ -573,6 +583,10 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 	if p.composerStyle != nil {
 		p.composer.SetValue(p.composerStyle())
 		p.composer.Update(gtx)
+	}
+	if p.silentAsVideo != nil {
+		p.silentVideo.SetValue(p.silentAsVideo())
+		p.silentVideo.Update(gtx)
 	}
 	if p.composerBlur != nil {
 		// What blurs may have changed in another window since the last frame.
@@ -1282,6 +1296,16 @@ func (p *settingsPage) layoutChats(gtx layout.Context, l localization.Catalog) l
 						)
 					}),
 				)
+			})
+		}))
+	}
+	if p.silentAsVideo != nil {
+		cards = append(cards, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return settingsChoiceCard(gtx, p.cardHeight("choice-silent-video"), l.T("settings.silent_video"), "", func(gtx layout.Context) layout.Dimensions {
+				return p.silentVideo.Layout(gtx, radio.LeadingKind, map[bool]string{
+					false: l.T("settings.silent_video_gif"),
+					true:  l.T("settings.silent_video_video"),
+				})
 			})
 		}))
 	}

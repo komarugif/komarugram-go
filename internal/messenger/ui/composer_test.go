@@ -402,7 +402,21 @@ func TestRenderComposer(t *testing.T) {
 		h.p.list.Position.BeforeEnd = true
 		h.p.list.Position.First = len(h.p.messages) - 4
 		h.p.list.Position.Offset = 120
-	case "files", "files-one", "files-documents", "files-many", "files-caption", "files-music":
+	case "files-convert":
+		// The dialog that asks about a WebM before it goes.
+		h.p.composer.pickerOpen = false
+		h.chat = 2
+		h.frame()
+		h.p.composer.files.addPaths(h.p.composer, boxPaths(t, "webm"), false)
+		for range 200 {
+			h.frame()
+			time.Sleep(5 * time.Millisecond)
+			if h.p.composer.files.ready() {
+				break
+			}
+		}
+		h.p.composer.files.convert.askConvert()
+	case "files", "files-one", "files-documents", "files-many", "files-caption", "files-music", "files-spoiler", "files-drag":
 		// The box for sending files, with what it shows for each way.
 		h.p.composer.pickerOpen = false
 		h.chat = 2
@@ -415,6 +429,8 @@ func TestRenderComposer(t *testing.T) {
 			"files-many":      {"photo", "photo", "photo", "photo", "photo", "photo", "photo"},
 			"files-caption":   {"photo", "photo"},
 			"files-music":     {"song", "track", "file"},
+			"files-spoiler":   {"pattern", "pattern", "photo"},
+			"files-drag":      {"photo", "photo", "photo", "photo", "photo"},
 		}[os.Getenv("COMPOSER_VIEW")]
 		h.p.composer.files.addPaths(h.p.composer, boxPaths(t, kinds...), os.Getenv("COMPOSER_VIEW") == "files-documents")
 		if os.Getenv("COMPOSER_VIEW") == "files-caption" {
@@ -426,6 +442,16 @@ func TestRenderComposer(t *testing.T) {
 			if h.p.composer.files.ready() {
 				break
 			}
+		}
+		b := &h.p.composer.files
+		switch os.Getenv("COMPOSER_VIEW") {
+		case "files-spoiler":
+			// The first and the last hidden under a spoiler; the pointer rests on
+			// the first's spoiler button below.
+			b.files[0].spoiler, b.files[2].spoiler = true, true
+		case "files-drag":
+			// The first dragged over the third's place, the others making room.
+			b.drag = boxDrag{file: b.files[0], active: true, target: 2, at: f32.Pt(330, 70), grab: f32.Pt(60, 60)}
 		}
 	case "drop-photos", "drop-media", "drop-files":
 		// Files dragged over the chat, the pointer over the area of
@@ -459,6 +485,14 @@ func TestRenderComposer(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		h.frame()
 		time.Sleep(15 * time.Millisecond)
+	}
+	if os.Getenv("COMPOSER_VIEW") == "files-spoiler" {
+		// The tooltip of the first picture's spoiler button, once the box has
+		// settled: a button that moves leaves the pointer, and its tooltip goes.
+		hoverLabel(t, &h.router, localization.For("ru").T("files.spoiler_off"))
+		h.frame()
+		h.now = h.now.Add(600 * time.Millisecond)
+		h.frame()
 	}
 	if os.Getenv("COMPOSER_VIEW") == "channel-readonly-hover" {
 		// The pointer rests on Mute, whose text shows beside its icon.

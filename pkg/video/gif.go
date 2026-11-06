@@ -90,12 +90,17 @@ func PlanGIF(width, height int, duration time.Duration) GIFPlan {
 // Again is the encoding after one that gave size bytes, too many: under a
 // cap lowered by as much as it was over, which also lowers the quality.
 func (p GIFPlan) Again(size int64, duration time.Duration) GIFPlan {
+	return p.againWithin(size, duration, GIFMaxBytes)
+}
+
+// againWithin is Again for a limit of its own.
+func (p GIFPlan) againWithin(size int64, duration time.Duration, limit int64) GIFPlan {
 	rate := p.MaxRate
 	if rate <= 0 && duration > 0 {
 		rate = int(float64(size) * 8 / duration.Seconds())
 	}
 	if rate > 0 && size > 0 {
-		p.MaxRate = int(float64(rate) * GIFMaxBytes * gifFill / float64(size))
+		p.MaxRate = int(float64(rate) * float64(limit) * gifFill / float64(size))
 	}
 	p.CRF = min(p.CRF+4, 40)
 	return p

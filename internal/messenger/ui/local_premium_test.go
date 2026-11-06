@@ -114,6 +114,11 @@ func TestSendFailureToast(t *testing.T) {
 		t.Fatalf("shown %q", shown)
 	}
 	shown = nil
+	tellSendFailure(&failingStore{failure: model.SendFailure{AsFile: true}}, toast, l)
+	if len(shown) != 1 || shown[0] != l.T("composer.sent_as_file") {
+		t.Fatalf("shown %q", shown)
+	}
+	shown = nil
 	tellSendFailure(struct{}{}, toast, l)
 	if len(shown) != 0 {
 		t.Fatalf("a store without it: %q", shown)

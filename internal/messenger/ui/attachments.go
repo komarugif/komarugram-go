@@ -25,8 +25,6 @@ import (
 
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
-	"gioui.org/op/clip"
-	"gioui.org/op/paint"
 )
 
 // Exported attachments live in a private temporary directory only while this
@@ -317,8 +315,11 @@ func (p *chatPage) fileLayout(gtx layout.Context, r *messageRow, m model.Message
 		return p.voiceLayout(gtx, r, m, l)
 	}
 	playing := m.Kind == model.MessageVoice || m.Kind == model.MessageMusic
+	upload, uploading := p.uploading(gtx, m)
 	if r.media.Clicked(gtx) {
-		if playing {
+		if uploading {
+			p.cancelUpload(m)
+		} else if playing {
 			p.play(gtx, m, p.reportMedia, l)
 		} else if markdownFile(m) {
 			p.openMarkdown(m)
@@ -344,6 +345,10 @@ func (p *chatPage) fileLayout(gtx layout.Context, r *messageRow, m model.Message
 	if p.files != nil {
 		done, total, downloading = p.files.download(m.Key)
 	}
+	if uploading {
+		// Going up, it draws what going down does.
+		done, total, downloading = upload.Done, upload.Total, true
+	}
 	details := sendfiles.Size(m.Media.Size)
 	icon := iconFileRow
 	if playing {
@@ -352,7 +357,8 @@ func (p *chatPage) fileLayout(gtx layout.Context, r *messageRow, m model.Message
 	}
 	// progress is below 0 while the size is not known.
 	progress := float32(-1)
-	if downloading {
+	// Waiting for its turn to go up, it still tells its size.
+	if downloading && (!uploading || total > 0) {
 		details = sendfiles.Size(done)
 		if total > 0 {
 			progress = min(1, float32(done)/float32(total))
@@ -368,16 +374,16 @@ func (p *chatPage) fileLayout(gtx layout.Context, r *messageRow, m model.Message
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				d := gtx.Dp(44)
 				size := image.Pt(d, d)
-				paint.FillShape(gtx.Ops, sc.Primary.Color.AsNRGBA(), clip.Ellipse{Max: size}.Op(gtx.Ops))
+				ink := p.audioPlate(gtx, p.songCover(&r.audio, m, size), size)
 				gtx.Constraints = layout.Exact(size)
 				if downloading {
 					// A click on the row cancels it.
-					return r.ring.layout(gtx, d, true, progress, iconClear, sc.Primary.OnColor, wdk.AnimationsEnabled(gtx))
+					return r.ring.layout(gtx, d, true, progress, iconClear, ink, wdk.AnimationsEnabled(gtx))
 				}
 				r.ring.reset()
 				layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return exact(gtx, image.Pt(gtx.Dp(24), gtx.Dp(24)), func(gtx layout.Context) layout.Dimensions {
-						return icon(gtx, sc.Primary.OnColor)
+						return icon(gtx, ink)
 					})
 				})
 				return layout.Dimensions{Size: size}

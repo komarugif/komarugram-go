@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf16"
@@ -82,6 +83,25 @@ type OutgoingFiles struct {
 	// an album in one. HighQuality lets photos keep up to 2560 pixels a
 	// side instead of 1280.
 	Documents, Group, HighQuality bool
+	// Animated are the places in Paths of videos that go as GIFs: what the media
+	// editor makes of a GIF.
+	Animated []int
+	// SilentAsVideo sends videos without sound as videos, which Telegram would
+	// otherwise make GIFs of.
+	SilentAsVideo bool
+	// Spoilers are the places in Paths of photos and videos hidden under a
+	// spoiler until they are tapped, as Telegram Desktop's box hides them.
+	Spoilers []int `json:",omitempty"`
+}
+
+// IsAnimated reports whether the file at place i goes as a GIF.
+func (f *OutgoingFiles) IsAnimated(i int) bool {
+	return f != nil && slices.Contains(f.Animated, i)
+}
+
+// IsSpoiler reports whether the file at place i goes under a spoiler.
+func (f *OutgoingFiles) IsSpoiler(i int) bool {
+	return f != nil && slices.Contains(f.Spoilers, i)
 }
 
 // VoiceNote is what Telegram shows of a voice message before it is played.
@@ -122,6 +142,24 @@ type ComposerStore interface {
 	Send(context.Context, int64, OutgoingMessage) error
 }
 
+// UploadStatus is how far a file on its way to Telegram went: Done bytes of
+// Total, both 0 before its upload starts.
+type UploadStatus struct {
+	Done, Total int64
+}
+
+// UploadSource tells of the files on their way, one by one: each file of an
+// album is a message of its own.
+type UploadSource interface {
+	// UploadStatus is key's file's; false for what is no file on its way, or
+	// no longer is, Telegram having taken it.
+	UploadStatus(key MessageKey) (UploadStatus, bool)
+	// CancelUpload takes key's file out of its message, which goes without
+	// it; the others go on as they were. It does nothing once the request
+	// that carries the file was made.
+	CancelUpload(key MessageKey)
+}
+
 // OutboxStore accepts a message once its request and attachments are durable.
 // Delivery continues independently of the composer and its window.
 type OutboxStore interface {
@@ -139,6 +177,9 @@ type SendFailure struct {
 	// Text is what went wrong, as it was told; NoFFprobe says it was ErrNoFFprobe.
 	Text      string
 	NoFFprobe bool
+	// AsFile tells of no failure: a video went as a file, nothing being able to
+	// tell its size and length.
+	AsFile bool
 }
 
 // SendFailureSource tells of messages that failed, which the queue accepted long

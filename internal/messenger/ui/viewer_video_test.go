@@ -13,7 +13,9 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op"
 
+	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/localization"
+	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/audio"
 	"komarugram/pkg/video"
@@ -38,12 +40,55 @@ func TestVideoEngineOf(t *testing.T) {
 		{"sandbox, HD", video("video/mp4", 1280, 720), "", true, videoWASM},
 		{"sandbox, HD upright", video("video/mp4", 720, 1280), "", true, videoWASM},
 		{"sandbox, Full HD", video("video/mp4", 1920, 1080), "", true, videoExternal},
-		{"sandbox, Matroska", video("video/x-matroska", 640, 360), "", true, videoExternal},
+		{"sandbox, Matroska", video("video/x-matroska", 640, 360), "", true, videoWASM},
+		{"sandbox, MOV", video("video/quicktime", 640, 360), "", true, videoWASM},
+		{"sandbox, 3GP", video("video/3gpp", 352, 288), "", true, videoWASM},
+		{"sandbox, AVI", video("video/x-msvideo", 640, 360), "", true, videoExternal},
 		{"not a video", model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{MIMEType: "video/mp4", Width: 320, Height: 240}}, "", false, videoExternal},
 	} {
-		if got := videoEngineOf(c.m, c.player, c.sandbox); got != c.want {
+		if got := videoEngineOf(c.m, c.player, c.sandbox, false); got != c.want {
 			t.Errorf("%s: %s, not %s", c.name, got, c.want)
 		}
+	}
+}
+
+// The viewer's GIFs stay in the sandbox with an FFmpeg to hand: it is theirs.
+func TestViewerGIFsStayInTheSandbox(t *testing.T) {
+	if video.ResolveFFmpeg("") == "" {
+		t.Skip("no FFmpeg")
+	}
+	var images imageOps
+	v := newMediaViewer(mockstore.New(time.Now(), 0), &images, func() {})
+	defer v.Destroy()
+	configureViewerDecoders(v, false, "")
+	for _, m := range []*chatmedia.Manager{v.full, v.mid, v.thumbs} {
+		if !m.SandboxGIFs() {
+			t.Fatal("a GIF of the viewer goes to FFmpeg")
+		}
+	}
+}
+
+// With an FFmpeg it plays what the sandbox does not, in the sandbox being chosen too:
+// a Full HD video is for it to draw, not for the external player, unless that is what
+// the settings choose.
+func TestVideoEngineWithFFmpeg(t *testing.T) {
+	video := func(mime string, w, h int) model.Message {
+		return model.Message{Kind: model.MessageVideo, Media: &model.MessageMedia{MIMEType: mime, Width: w, Height: h}}
+	}
+	if got := videoEngineOf(video("video/mp4", 1920, 1080), "", true, true); got != videoFFmpeg {
+		t.Errorf("Full HD: %s", got)
+	}
+	if got := videoEngineOf(video("video/x-msvideo", 640, 360), "", true, true); got != videoFFmpeg {
+		t.Errorf("AVI: %s", got)
+	}
+	if got := videoEngineOf(video("video/mp4", 1280, 720), "", true, true); got != videoWASM {
+		t.Errorf("HD, the sandbox chosen: %s", got)
+	}
+	if got := videoEngineOf(video("video/mp4", 1920, 1080), "external", true, true); got != videoExternal {
+		t.Errorf("the external player chosen: %s", got)
+	}
+	if got := videoEngineOf(video("video/mp4", 1920, 1080), "", true, false); got != videoExternal {
+		t.Errorf("no FFmpeg: %s", got)
 	}
 }
 

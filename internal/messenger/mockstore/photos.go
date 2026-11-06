@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"image/jpeg"
 	"math"
+	"os"
 	"strings"
 	"time"
 
@@ -181,6 +182,10 @@ func (s *Store) ProfilePhotos(ctx context.Context, chat int64, offset string, li
 	}
 	total := demoProfilePhotos(chat)
 	page := model.GalleryPage{Total: total}
+	if from == 0 && total > 0 {
+		// The demo's profiles show their first photo.
+		page.Current = model.ProfilePhotoID(0)
+	}
 	for i := from; i < min(total, from+limit); i++ {
 		page.Messages = append(page.Messages, s.profilePhoto(chat, i))
 	}
@@ -192,10 +197,17 @@ func (s *Store) ProfilePhotos(ctx context.Context, chat int64, offset string, li
 
 func (s *Store) profilePhoto(chat int64, i int) model.Message {
 	n := int(uint64(chat)%uint64(len(demoPhotoSizes))) + i + 1
+	media := demoPhoto(n)
+	if i == 0 && s.ProfileVideos {
+		// The one a profile opens with plays, as one set by a video does, in the shape of
+		// the demo's video.
+		media = &model.MessageMedia{ID: "demo/portrait", MIMEType: "image/png", Width: 720, Height: 1280, Preview: media.Preview,
+			Motion: &model.MessageMedia{ID: "demo/gifv", MIMEType: "video/mp4", Width: 720, Height: 1280, Size: 7789765, Duration: 36 * time.Second}}
+	}
 	return model.Message{
 		Kind:       model.MessagePhoto,
 		Key:        model.MessageKey{ChatID: chat, MessageID: model.ProfilePhotoID(i)},
-		Media:      demoPhoto(n),
+		Media:      media,
 		SenderName: s.chatTitle(chat),
 		Date:       time.Date(2024, 3, 1, 12, 0, 0, 0, time.UTC).AddDate(0, 0, -i),
 	}
@@ -209,4 +221,67 @@ func (s *Store) chatTitle(chat int64) string {
 		}
 	}
 	return ""
+}
+
+var _ model.ProfilePhotoSetter = (*Store)(nil)
+
+// CanSetProfilePhoto implements model.ProfilePhotoSetter: the demo's account may
+// set its own photo and those of its groups and channels.
+func (s *Store) CanSetProfilePhoto(chat int64) bool {
+	if chat == s.Me().ID {
+		return true
+	}
+	for _, c := range s.Chats() {
+		if c.ID == chat {
+			return c.Kind == model.KindGroup || c.Kind == model.KindChannel
+		}
+	}
+	return false
+}
+
+// SetProfilePhoto implements model.ProfilePhotoSetter: nothing reaches Telegram,
+// and the photo stays as it was.
+func (s *Store) SetProfilePhoto(ctx context.Context, chat int64, path string, progress func(done, total int64)) error {
+	if !s.CanSetProfilePhoto(chat) {
+		return model.ErrProfilePhotoForbidden
+	}
+	if _, err := os.Stat(path); err != nil {
+		return err
+	}
+	if progress != nil {
+		progress(1, 1)
+	}
+	return ctx.Err()
+}
+
+var _ model.ProfilePhotoEditor = (*Store)(nil)
+
+// CanDeleteProfilePhoto implements model.ProfilePhotoEditor: any photo of the demo
+// account's own, the current one of its groups and channels.
+func (s *Store) CanDeleteProfilePhoto(m model.Message) bool {
+	return model.IsProfilePhoto(m.Key.MessageID) && s.CanSetProfilePhoto(m.Key.ChatID) &&
+		(m.Key.ChatID == s.Me().ID || m.Key.MessageID == model.ProfilePhotoID(0))
+}
+
+// CanMakeProfilePhotoMain implements model.ProfilePhotoEditor: any but the first,
+// the one the demo's profiles show.
+func (s *Store) CanMakeProfilePhotoMain(m model.Message) bool {
+	return model.IsProfilePhoto(m.Key.MessageID) && m.Key.MessageID != model.ProfilePhotoID(0) && s.CanSetProfilePhoto(m.Key.ChatID)
+}
+
+// DeleteProfilePhoto implements model.ProfilePhotoEditor: nothing reaches
+// Telegram, and the photos stay as they were.
+func (s *Store) DeleteProfilePhoto(ctx context.Context, m model.Message) error {
+	if !s.CanDeleteProfilePhoto(m) {
+		return model.ErrProfilePhotoForbidden
+	}
+	return ctx.Err()
+}
+
+// MakeProfilePhotoMain implements model.ProfilePhotoEditor, as DeleteProfilePhoto.
+func (s *Store) MakeProfilePhotoMain(ctx context.Context, m model.Message) error {
+	if !s.CanMakeProfilePhotoMain(m) {
+		return model.ErrProfilePhotoForbidden
+	}
+	return ctx.Err()
 }

@@ -91,6 +91,9 @@ type Global struct {
 	LockOnMinimize  bool          `json:"lock_on_minimize,omitempty"`
 	LockOnClose     bool          `json:"lock_on_close,omitempty"`
 	Composer        ComposerStyle `json:"composer,omitempty"`
+	// SilentVideoAsVideo sends a video without sound as a video: left to itself,
+	// Telegram makes a GIF of one, as it does by default here.
+	SilentVideoAsVideo bool `json:"silent_video_as_video,omitempty"`
 	// ComposerBlur blurs the history behind the floating composer, while
 	// animations are on.
 	ComposerBlur bool `json:"composer_blur"`
@@ -707,10 +710,10 @@ type fileData struct {
 
 // Store is a process-wide, persistent and observable preference store.
 type Store struct {
-	mu          sync.Mutex
-	path        string
-	global      Global
-	accounts    map[string]json.RawMessage
+	mu       sync.Mutex
+	path     string
+	global   Global
+	accounts map[string]json.RawMessage
 	// parsed is accounts as Account, asked in frames: read once, and made
 	// again when one changes.
 	parsed      map[string]Account
@@ -1258,6 +1261,12 @@ func (s *Store) SetConfirmations(sticker, gif bool) error {
 // SetComposer changes the message composer style for all windows.
 func (s *Store) SetComposer(value ComposerStyle) error {
 	return s.change(func(g *Global) { g.Composer = value })
+}
+
+// SetSilentVideoAsVideo chooses how a video without sound goes: as a video, or
+// as Telegram takes it, a GIF.
+func (s *Store) SetSilentVideoAsVideo(on bool) error {
+	return s.change(func(g *Global) { g.SilentVideoAsVideo = on })
 }
 
 // SetComposerBlur switches the blur behind the floating composer.

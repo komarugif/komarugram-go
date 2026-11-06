@@ -30,6 +30,8 @@ type fileLocation struct {
 	Photo                      bool
 	Thumb                      string
 	Peer                       *peerRecord
+	// FileSize is the size of the document, for a picture made of its start.
+	FileSize int64 `json:",omitempty"`
 	// Big asks for the large picture of a peer's photo, not the small one.
 	Big bool `json:",omitempty"`
 	// ProfileMessage is the service message that tells a group's profile
@@ -377,7 +379,14 @@ func documentMedia(d *tg.Document) (model.MessageKind, *model.MessageMedia, *fil
 	if k == model.MessageFile && d.MimeType == "image/gif" {
 		k = model.MessageGIF
 	}
-	return k, m, &fileLocation{ID: d.ID, Hash: d.AccessHash, Reference: d.FileReference, DC: d.DCID}
+	if d.MimeType == "video/webm" && (k == model.MessageFile || k == model.MessageVideo) {
+		// A WebM sent as a video comes back a file, and Telegram for Android shows
+		// it as one. One that is no sticker shows here as the video it is, with a
+		// picture made here: see webm_first.go.
+		k = model.MessageVideo
+		giveWebMThumbnail(m, d.ID)
+	}
+	return k, m, &fileLocation{ID: d.ID, Hash: d.AccessHash, Reference: d.FileReference, DC: d.DCID, FileSize: d.Size}
 }
 
 func stickerSetRef(set tg.InputStickerSetClass) *model.StickerSetRef {

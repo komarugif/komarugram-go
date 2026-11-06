@@ -34,7 +34,7 @@ type render struct {
 
 func renders() []render {
 	var all []render
-	for _, view := range []string{"channel-readonly", "channel-readonly-hover", "restricted-text", "restricted-media", "emoji", "stickers", "gif", "featured-stickers", "featured-emoji", "emoji-search", "floating", "classic", "text", "text-classic", "floating-translucent", "classic-translucent", "blur", "avatars", "voice", "files", "files-one", "files-documents", "files-many", "files-caption", "files-music", "drop-photos", "drop-media", "drop-files", "tasks", "toast", "toast-classic", "bot-keyboard", "bot-keyboard-hidden", "edit", "edit-classic", "edit-menu"} {
+	for _, view := range []string{"channel-readonly", "channel-readonly-hover", "restricted-text", "restricted-media", "emoji", "stickers", "gif", "featured-stickers", "featured-emoji", "emoji-search", "floating", "classic", "text", "text-classic", "floating-translucent", "classic-translucent", "blur", "avatars", "voice", "files", "files-one", "files-documents", "files-many", "files-convert", "files-caption", "files-music", "files-spoiler", "files-drag", "drop-photos", "drop-media", "drop-files", "tasks", "toast", "toast-classic", "bot-keyboard", "bot-keyboard-hidden", "edit", "edit-classic", "edit-menu"} {
 		all = append(all, render{"composer-" + view, "TestRenderComposer", []string{"COMPOSER_VIEW=" + view, "COMPOSER_PNG={out}/composer-" + view + ".png"}})
 	}
 	all = append(all, render{"composer-motion", "TestRenderComposerMotion", []string{"COMPOSER_MOTION_PNG={out}/composer-motion"}})
@@ -60,9 +60,24 @@ func renders() []render {
 		render{"reacted", "TestRenderReacted", []string{"REACTED_PNG={out}/reacted.png"}},
 		render{"viewer", "TestRenderMediaViewer", []string{"VIEWER_PNG={out}/viewer.png"}},
 		render{"viewer-zoom", "TestRenderMediaViewer", []string{"VIEWER_ZOOM=2", "VIEWER_PNG={out}/viewer-zoom.png"}},
+		render{"viewer-profile-plays", "TestRenderMediaViewer", []string{"VIEWER_PROFILE=plays", "VIEWER_PNG={out}/viewer-profile-plays.png"}},
 		render{"viewer-gifs", "TestRenderMediaViewer", []string{"VIEWER_GIFS=1", "VIEWER_PNG={out}/viewer-gifs.png"}},
 		render{"viewer-stories", "TestRenderMediaViewer", []string{"VIEWER_STORIES=1", "VIEWER_PNG={out}/viewer-stories.png"}},
 		render{"viewer-save-gif", "TestRenderMediaViewer", []string{"VIEWER_SAVE_GIF=1", "VIEWER_PNG={out}/viewer-save-gif.png"}},
+		render{"viewer-edit-paint", "TestRenderMediaViewer", []string{"VIEWER_EDIT=paint", "VIEWER_PNG={out}/viewer-edit-paint.png"}},
+		render{"viewer-edit-crop", "TestRenderMediaViewer", []string{"VIEWER_EDIT=crop", "VIEWER_PNG={out}/viewer-edit-crop.png"}},
+		render{"viewer-edit-text", "TestRenderMediaViewer", []string{"VIEWER_EDIT=text", "VIEWER_PNG={out}/viewer-edit-text.png"}},
+		render{"viewer-edit-shapes", "TestRenderMediaViewer", []string{"VIEWER_EDIT=shapes", "VIEWER_PNG={out}/viewer-edit-shapes.png"}},
+		render{"viewer-edit-turned", "TestRenderMediaViewer", []string{"VIEWER_EDIT=turned", "VIEWER_PNG={out}/viewer-edit-turned.png"}},
+		render{"viewer-edit-opening", "TestRenderMediaViewer", []string{"VIEWER_EDIT=opening", "VIEWER_PNG={out}/viewer-edit-opening.png"}},
+		render{"viewer-edit-opening-late", "TestRenderMediaViewer", []string{"VIEWER_EDIT=opening-late", "VIEWER_PNG={out}/viewer-edit-opening-late.png"}},
+		render{"viewer-edit-trim", "TestRenderMediaViewer", []string{"VIEWER_EDIT=trim", "VIEWER_PNG={out}/viewer-edit-trim.png"}},
+		render{"viewer-edit-stickers", "TestRenderMediaViewer", []string{"VIEWER_EDIT=stickers", "VIEWER_PNG={out}/viewer-edit-stickers.png"}},
+		render{"viewer-edit-choice", "TestRenderMediaViewer", []string{"VIEWER_EDIT=choice", "VIEWER_PNG={out}/viewer-edit-choice.png"}},
+		render{"viewer-edit-choice-dark", "TestRenderMediaViewer", []string{"VIEWER_EDIT=choice", "VIEWER_DARK=1", "VIEWER_PNG={out}/viewer-edit-choice-dark.png"}},
+		render{"viewer-edit-work", "TestRenderMediaViewer", []string{"VIEWER_EDIT=work", "VIEWER_PNG={out}/viewer-edit-work.png"}},
+		render{"viewer-edit-failed", "TestRenderMediaViewer", []string{"VIEWER_EDIT=failed", "VIEWER_PNG={out}/viewer-edit-failed.png"}},
+		render{"viewer-edit-discard", "TestRenderMediaViewer", []string{"VIEWER_EDIT=discard", "VIEWER_PNG={out}/viewer-edit-discard.png"}},
 		render{"player", "TestRenderPlayerChoice", []string{"PLAYER_PNG={out}/player.png"}},
 		render{"comments", "TestRenderCommentsHead", []string{"COMMENTS_PNG={out}/comments.png"}},
 		render{"forum", "TestRenderForum", []string{"FORUM_PNG={out}/forum.png"}},

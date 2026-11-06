@@ -165,6 +165,10 @@ type App struct {
 	// none.
 	community *communityPage
 	viewer    *mediaViewer
+	// boxViewer shows the files of a box of files about to go, while it is
+	// open, and boxViewerClosed is told when it closes: viewer_box.go.
+	boxViewer       *mediaViewer
+	boxViewerClosed func()
 	// openWindow is the host of the windows the viewer and articles open
 	// in; viewerWindows and articleWindows, their lists, which close with
 	// this window and when it locks.
@@ -493,6 +497,12 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	}
 	a.settings.setInput = func(manualFocus, pickerOnClick bool) {
 		if err := services.Preferences.SetComposerInput(manualFocus, pickerOnClick); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.silentAsVideo = func() bool { return a.preferences.Global().SilentVideoAsVideo }
+	a.settings.setSilentAsVideo = func(on bool) {
+		if err := services.Preferences.SetSilentVideoAsVideo(on); err != nil {
 			log.Printf("save settings: %v", err)
 		}
 	}
@@ -829,6 +839,9 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 	p.openStory = func(m model.Message) { a.viewer.OpenChatStories(p.chat, m, p.viewerItems()) }
 	p.openStoryOf = func(story model.StoryRef) { a.viewer.OpenStory(story.Peer, story.ID) }
 	p.openGIF = func(m model.Message) { a.viewer.OpenGIF(p.chat, m, p.viewerItems()) }
+	p.openBoxFiles = func(media *boxMedia, chat int64, current model.Message, items []model.Message, closed func()) {
+		a.openBoxFiles(p, media, chat, current, items, closed)
+	}
 	p.releaseMemory, p.keepMemory = w.ReleaseMemoryLater, w.KeepMemory
 	formula.SetRelease(w.MemoryReleaser())
 	p.openWebApp = a.launchWebApp
@@ -842,6 +855,7 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 			return g.ManualFocus, g.PickerOnClick
 		}
 		p.composer.ffmpeg = func() string { return a.preferences.Global().FFmpegPath }
+		p.composer.silentAsVideo = func() bool { return a.preferences.Global().SilentVideoAsVideo }
 	}
 	p.addFilter = func(pattern preferences.FilterPattern) {
 		a.changeVisibility(func(v *preferences.Visibility) {
@@ -890,6 +904,9 @@ func (a *App) Close() {
 	}
 	if a.settings != nil && a.settings.chats.thumbs != nil {
 		a.settings.chats.thumbs.Close()
+	}
+	if a.boxViewer != nil {
+		a.boxViewer.Destroy()
 	}
 	if a.viewer != nil {
 		a.viewer.Destroy()
@@ -1513,6 +1530,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	if a.viewer != nil {
 		a.viewer.Layout(overlayGtx, a.catalog(), a.window.Motion.AnimationsEnabled())
 	}
+	a.layoutBoxViewer(overlayGtx)
 	// An emoji, a sticker or a GIF held, over everything, taking nothing.
 	a.history.layoutHoldPreview(overlayGtx)
 	if a.comments != nil {
@@ -1705,6 +1723,9 @@ func (a *App) SetSuspended(hidden bool) {
 	}
 	if a.comments != nil {
 		a.comments.media.Release()
+	}
+	if a.boxViewer != nil {
+		a.boxViewer.Release()
 	}
 	if a.viewer != nil {
 		a.viewer.Release()

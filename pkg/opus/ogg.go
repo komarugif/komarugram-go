@@ -19,6 +19,9 @@ type Stream struct {
 	// starts[i] is the sample packet i begins at, counted from the first
 	// the decoder puts out; starts has one more entry, the end.
 	starts []int64
+	// read, when set, reads packet i into buf, grown as needed, for packets that
+	// lie in a file: see NewStream.
+	read func(i int, buf []byte) ([]byte, error)
 	// length is the samples of sound, without preSkip and the padding the
 	// last page's position cuts off.
 	length int64
@@ -131,6 +134,43 @@ func Parse(data []byte) (*Stream, error) {
 		return nil, errors.New("opus: no sound")
 	}
 	return s, nil
+}
+
+// NewStream is the Opus stream of packets kept elsewhere, as those of a WebM file:
+// head is its OpusHead, tocs the first two bytes of each packet, which say how long
+// it plays, and read reads packet i into buf, grown as needed. A packet is read when
+// it is played.
+func NewStream(head []byte, tocs [][2]byte, read func(i int, buf []byte) ([]byte, error)) (*Stream, error) {
+	s := &Stream{read: read}
+	if err := s.head(head); err != nil {
+		return nil, err
+	}
+	if len(tocs) == 0 {
+		return nil, ErrFormat
+	}
+	s.starts = make([]int64, len(tocs)+1)
+	for i, toc := range tocs {
+		s.starts[i+1] = s.starts[i] + int64(samples(toc[:]))
+		if s.starts[i+1] > maxLength {
+			return nil, errors.New("opus: stream too long")
+		}
+	}
+	s.length = s.starts[len(tocs)] - s.preSkip
+	if s.length <= 0 {
+		return nil, errors.New("opus: no sound")
+	}
+	return s, nil
+}
+
+// count is how many packets the stream has.
+func (s *Stream) count() int { return len(s.starts) - 1 }
+
+// packet is packet i, read into buf when it lies elsewhere.
+func (s *Stream) packet(i int, buf []byte) ([]byte, error) {
+	if s.read != nil {
+		return s.read(i, buf)
+	}
+	return s.packets[i], nil
 }
 
 // head reads the OpusHead packet.

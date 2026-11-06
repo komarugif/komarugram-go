@@ -5,6 +5,7 @@ package ui
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -26,6 +27,18 @@ func (s outgoingRenderSource) Media(context.Context, model.Message) ([]byte, err
 	return s.picture, nil
 }
 
+// UploadStatus tells of every file on its way, at a share of its own but for
+// the one with no size known yet.
+func (s outgoingRenderSource) UploadStatus(key model.MessageKey) (model.UploadStatus, bool) {
+	share := int64(-key.MessageID) % 5
+	if share == 0 {
+		return model.UploadStatus{}, true
+	}
+	return model.UploadStatus{Done: share * 200000, Total: 1000000}, true
+}
+
+func (s outgoingRenderSource) CancelUpload(model.MessageKey) {}
+
 func TestRenderOutgoingDelivery(t *testing.T) {
 	path := os.Getenv("OUTBOX_PNG")
 	if path == "" {
@@ -43,13 +56,17 @@ func TestRenderOutgoingDelivery(t *testing.T) {
 	}
 	h := newMenuHarnessOn(t, nil, func(s *menuStore) model.ConversationStore { return outgoingRenderSource{s, encoded.Bytes()} })
 	var messages []model.Message
-	for i, kind := range []model.MessageKind{model.MessagePhoto, model.MessageFile, model.MessageSticker, model.MessageVoice} {
+	for i, kind := range []model.MessageKind{model.MessagePhoto, model.MessageVideo, model.MessageFile, model.MessageSticker, model.MessageVoice} {
 		media := &model.MessageMedia{ID: "pending", FileName: "report.pdf", Size: 250000, MIMEType: "application/pdf"}
 		if kind == model.MessagePhoto || kind == model.MessageSticker {
 			media.MIMEType = "image/png"
 			media.Preview = encoded.Bytes()
 			media.Width = 240
 			media.Height = 100
+		}
+		if kind == model.MessageVideo {
+			media.MIMEType, media.Width, media.Height, media.Duration = "video/mp4", 480, 200, 95*time.Second
+			media.Thumbnail = &model.MessageMedia{ID: "pending/thumb", MIMEType: "image/png", Width: 240, Height: 100}
 		}
 		if kind == model.MessageVoice {
 			media.MIMEType = "audio/ogg"
@@ -62,7 +79,13 @@ func TestRenderOutgoingDelivery(t *testing.T) {
 		}
 		messages = append(messages, m)
 	}
-	h.store.benchmarkHistory.h = model.History{Revision: 2, Messages: messages}
+	// An album on its way, each file with its own ring, and music.
+	for i, id := range []int{1073741950, 1073741951, 1073741952} {
+		media := &model.MessageMedia{ID: fmt.Sprintf("pending/%d", i), MIMEType: "image/png", Preview: encoded.Bytes(), Width: 240, Height: 100}
+		messages = append(messages, model.Message{Key: model.MessageKey{ChatID: 1, MessageID: model.MessageID(-id)}, Date: time.Now(), Kind: model.MessagePhoto, Media: media, Outgoing: true, SenderID: 1, Sending: true, GroupedID: 9, ContentRevision: 1})
+	}
+	messages = append(messages, model.Message{Key: model.MessageKey{ChatID: 1, MessageID: -1073741963}, Date: time.Now(), Kind: model.MessageMusic, Media: &model.MessageMedia{ID: "pending/music", MIMEType: "audio/mpeg", Title: "Night Tram", Performer: "Band", Duration: 95 * time.Second, Size: 900000}, Outgoing: true, SenderID: 1, Sending: true, ContentRevision: 1})
+	h.store.benchmarkHistory.h = model.History{Revision: 2, Messages: model.GroupAlbums(messages)}
 	h.page.list.Position = layout.Position{}
 	renderFrames(t, image.Pt(700, 800), path, func(gtx layout.Context) {
 		h.page.images.BeginFrame()

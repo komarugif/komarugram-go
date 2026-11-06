@@ -17,6 +17,7 @@ import (
 	"gioui.org/layout"
 
 	"komarugram/internal/crash"
+	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/wasmmodule"
@@ -46,16 +47,29 @@ func videoHD(width, height int) bool {
 // setting, "external" or else the client's own; sandbox is set when MP4
 // animations play in the sandbox, as chosen or for want of an FFmpeg
 // (chatmedia.Manager.SandboxGIFs). FFmpeg plays any video; the sandbox
-// plays HD ones in MP4, and any other goes to the external player.
-func videoEngineOf(m model.Message, player string, sandbox bool) string {
+// plays HD ones in MP4, MOV, 3GP, WebM and MKV, those last being let try without a
+// size told, as Telegram keeps none of one, and any other goes to the external
+// player, as does what proves to be in a codec it does not decode. With an FFmpeg,
+// ffmpeg being set, it plays what the sandbox does not, rather than that player.
+func videoEngineOf(m model.Message, player string, sandbox, ffmpeg bool) string {
 	if player == videoExternal || m.Kind != model.MessageVideo || m.Media == nil {
 		return videoExternal
 	}
 	if !sandbox {
 		return videoFFmpeg
 	}
-	if (m.Media.MIMEType == "video/mp4" || m.Media.MIMEType == "") && videoHD(m.Media.Width, m.Media.Height) {
-		return videoWASM
+	switch m.Media.MIMEType {
+	case "video/mp4", "video/quicktime", "video/3gpp", "":
+		if videoHD(m.Media.Width, m.Media.Height) {
+			return videoWASM
+		}
+	case "video/webm", "video/x-matroska":
+		if m.Media.Width <= 0 || m.Media.Height <= 0 || videoHD(m.Media.Width, m.Media.Height) {
+			return videoWASM
+		}
+	}
+	if ffmpeg {
+		return videoFFmpeg
 	}
 	return videoExternal
 }
@@ -338,6 +352,18 @@ func (v *viewerVideo) open(source model.ConversationStore, m model.Message, engi
 		defer work.Done()
 		defer crash.Recover("video", func(e *crash.Panic) { v.fail(m, e) })
 		err := v.load(ctx, source, m, engine, ffmpeg, max(start, 0), work)
+		if engine == videoWASM && errors.Is(err, errFormat) && ctx.Err() == nil && video.ResolveFFmpeg(ffmpeg) != "" {
+			// A codec the sandbox does not decode, and an FFmpeg to.
+			v.mu.Lock()
+			mine := v.key == m.Key
+			if mine {
+				v.engine = videoFFmpeg
+			}
+			v.mu.Unlock()
+			if mine {
+				err = v.load(ctx, source, m, videoFFmpeg, ffmpeg, max(start, 0), work)
+			}
+		}
 		if err != nil && ctx.Err() == nil {
 			if errors.Is(err, errFormat) && v.external != nil {
 				v.mu.Lock()
@@ -381,7 +407,11 @@ func (v *viewerVideo) load(ctx context.Context, source model.ConversationStore, 
 		}
 		pictures = round
 		releases = append(releases, round.close)
-		sound, samples, err = openVideoSound(ctx, f, round.duration())
+		if round.index != nil {
+			sound, samples, err = openWebMSound(ctx, round.index, round.duration())
+		} else {
+			sound, samples, err = openVideoSound(ctx, f, round.duration())
+		}
 		if err != nil {
 			release()
 			return err
@@ -403,6 +433,7 @@ func (v *viewerVideo) load(ctx context.Context, source model.ConversationStore, 
 			release()
 			return fmt.Errorf("%w: %w", errFormat, err)
 		}
+		media = webmLength(m, f, media)
 		long := m.Media.Duration
 		if media.Duration > 0 {
 			long = media.Duration
@@ -728,22 +759,42 @@ func (p *chatPage) playVideo(gtx layout.Context, m model.Message, at time.Durati
 	p.playFrom(gtx, m, at, p.reportMedia, l)
 }
 
+// configureViewerDecoders gives the media managers of v the decoders chosen, its GIFs
+// in the sandbox whatever is chosen for those of the chats.
+func configureViewerDecoders(v *mediaViewer, stickersWASM bool, ffmpeg string) {
+	for _, m := range []*chatmedia.Manager{v.full, v.mid, v.thumbs} {
+		m.ConfigureDecoders(stickersWASM, true, ffmpeg)
+	}
+}
+
 // videoEngine is where m plays, as the settings choose.
 func (a *App) videoEngine(m model.Message) string {
 	g := a.preferences.Global()
-	sandbox := g.AnimationPlayer == "wasm" || video.ResolveFFmpeg(g.FFmpegPath) == ""
-	return videoEngineOf(m, g.VideoPlayer, sandbox)
+	found := video.ResolveFFmpeg(g.FFmpegPath) != "" && video.ResolveFFprobe(g.FFmpegPath) != ""
+	return videoEngineOf(m, g.VideoPlayer, g.AnimationPlayer == "wasm" || !found, found)
 }
 
 // configureViewer lets v play videos as the settings choose, at the volume
 // the client's sound has, pausing the window's audio player as one starts.
 func (a *App) configureViewer(v *mediaViewer) {
 	v.videoEngine = a.videoEngine
+	// What it shows of its own, GIFs playing in the sandbox whatever is chosen for the
+	// chat's: they are small, and it is what the viewer gives them. A GIF the sandbox
+	// does not take falls to the FFmpeg chosen. Read in the viewer's own frames.
+	v.configureDecoders = func() {
+		g := a.preferences.Global()
+		configureViewerDecoders(v, g.StickerPlayer == "wasm", g.FFmpegPath)
+	}
 	if store := a.store; store != nil {
 		// What the viewer forwards goes to the account's chats.
 		v.share.chats = store.Chats
+		// What the editor saves goes to the account's own chat.
+		v.savedChat = a.savedChat
 	}
+	// What it did and closed on, the window tells.
+	v.told = a.toast.Show
 	v.ffmpeg = func() string { return a.preferences.Global().FFmpegPath }
+	v.silentAsVideo = func() bool { return a.preferences.Global().SilentVideoAsVideo }
 	if a.history != nil {
 		audio := a.history.audio
 		v.pauseAudio = audio.pause

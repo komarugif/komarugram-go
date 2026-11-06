@@ -68,6 +68,31 @@ func TestCustomFFmpegPlayer(t *testing.T) {
 	t.Fatal("custom FFmpeg did not produce a frame")
 }
 
+// A video recorded turned is told at the size its pictures come out at, as
+// FFmpeg turns them: the scaler would squeeze them otherwise.
+func TestProbeMediaTellsTheTurnedSize(t *testing.T) {
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip(err)
+	}
+	dir := t.TempDir()
+	stored, turned := filepath.Join(dir, "stored.mp4"), filepath.Join(dir, "turned.mp4")
+	if out, err := exec.Command(ffmpeg, "-v", "error", "-f", "lavfi", "-i", "testsrc=s=64x36:d=0.2", stored).CombinedOutput(); err != nil {
+		t.Fatalf("fixture: %v %s", err, out)
+	}
+	if out, err := exec.Command(ffmpeg, "-v", "error", "-display_rotation", "90", "-i", stored, "-c", "copy", turned).CombinedOutput(); err != nil {
+		t.Skipf("this FFmpeg cannot turn a video: %v %s", err, out)
+	}
+	m, err := ProbeMedia(context.Background(), stored, ffmpeg)
+	if err != nil || m.Width != 64 || m.Height != 36 {
+		t.Fatalf("stored: %+v, %v", m, err)
+	}
+	m, err = ProbeMedia(context.Background(), turned, ffmpeg)
+	if err != nil || m.Width != 36 || m.Height != 64 {
+		t.Fatalf("turned: %+v, %v", m, err)
+	}
+}
+
 // With searching off, only the FFmpeg the user set is found, and the
 // ffprobe beside it.
 func TestResolveWithSearchingOff(t *testing.T) {

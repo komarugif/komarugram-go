@@ -29,6 +29,8 @@ type Reader struct {
 	skip int64
 	// ready are samples decoded and not put out yet.
 	ready []int16
+	// buf holds the packet decoded last, of a stream read as it plays.
+	buf []byte
 }
 
 // NewReader reads s with d, from the start.
@@ -46,8 +48,8 @@ func (r *Reader) SeekSample(pos int64) error {
 	target := pos + r.stream.preSkip
 	// The first packet to decode begins at least preRoll before target.
 	from := max(0, target-preRoll)
-	k := sort.Search(len(r.stream.packets), func(i int) bool { return r.stream.starts[i+1] > from })
-	k = min(k, len(r.stream.packets)-1)
+	k := sort.Search(r.stream.count(), func(i int) bool { return r.stream.starts[i+1] > from })
+	k = min(k, r.stream.count()-1)
 	if err := r.decoder.Reset(r.ctx); err != nil {
 		return err
 	}
@@ -66,12 +68,17 @@ func (r *Reader) Read(out []audio.Frame) (int, error) {
 			break
 		}
 		if len(r.ready) == 0 {
-			if r.next >= len(r.stream.packets) {
+			if r.next >= r.stream.count() {
 				// The packets ran out before the end the pages told.
 				r.pos = r.stream.length
 				continue
 			}
-			pcm, err := r.decoder.Decode(r.ctx, r.stream.packets[r.next])
+			packet, err := r.stream.packet(r.next, r.buf)
+			if err != nil {
+				return n, err
+			}
+			r.buf = packet
+			pcm, err := r.decoder.Decode(r.ctx, packet)
 			if err != nil {
 				return n, err
 			}

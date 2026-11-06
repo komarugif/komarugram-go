@@ -48,11 +48,32 @@ func (r *Runtime) OpenFile(ctx context.Context, file *mp4.File) (*Video, error) 
 	if err != nil {
 		return nil, err
 	}
-	return &Video{File: file, decoder: decoder}, nil
+	v := &Video{File: file, decoder: decoder}
+	v.scaler.Colors = fileColors(file)
+	return v, nil
+}
+
+// fileColors is how the pictures of file are read: as it tells, or as players guess.
+func fileColors(file *mp4.File) resample.Colors {
+	colors := resample.Colors{Limited: !file.FullRange}
+	switch file.Matrix {
+	case 1, 7: // BT.709, SMPTE 240M, which lies near it
+		colors.Matrix = resample.BT709
+	case 4, 5, 6: // FCC, BT.601
+		colors.Matrix = resample.BT601
+	case 9, 10: // BT.2020
+		colors.Matrix = resample.BT2020
+	default:
+		colors.Matrix = resample.GuessMatrix(file.Width, file.Height)
+	}
+	return colors
 }
 
 // Size is the size the container gives the pictures.
 func (v *Video) Size() image.Point { return image.Pt(v.File.Width, v.File.Height) }
+
+// Duration is how long one loop lasts.
+func (v *Video) Duration() time.Duration { return v.File.Duration }
 
 // Next decodes the next picture and returns its index in the loop, starting
 // the loop again after its last picture. The picture is read with Picture.

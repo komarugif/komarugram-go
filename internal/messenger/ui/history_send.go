@@ -243,6 +243,8 @@ func tellSendFailure(source any, toast func(string), l localization.Catalog) {
 	case !ok:
 	case f.NoFFprobe:
 		toast(l.T("composer.send_no_ffprobe"))
+	case f.AsFile:
+		toast(l.T("composer.sent_as_file"))
 	default:
 		toast(l.T("composer.send_failed") + ": " + mediaErrorText(errors.New(f.Text)))
 	}

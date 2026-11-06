@@ -16,6 +16,9 @@ import (
 )
 
 type Store struct {
+	// ProfileVideos makes the first photo of each profile one that plays a video, as
+	// the client's demo has it: tests of profiles do not read and decode it.
+	ProfileVideos bool
 	// registration is what the demo's registration points were asked about.
 	registration registrationState
 

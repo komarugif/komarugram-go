@@ -74,6 +74,17 @@ type Way struct {
 	Group bool
 	// HighQuality lets photos keep up to 2560 pixels a side, not 1280.
 	HighQuality bool
+	// SilentAsVideo sends videos without sound as videos, not as Telegram takes
+	// them: GIFs.
+	SilentAsVideo bool
+}
+
+// AsAnimation is f, a video, to go as a GIF; anything else stays as it is.
+func (f File) AsAnimation() File {
+	if f.Kind == KindVideo {
+		f.Kind = KindAnimation
+	}
+	return f
 }
 
 // Photo sizes: Telegram Desktop scales a photo down to fit a square of
@@ -89,6 +100,8 @@ const (
 var videoExtensions = map[string]string{
 	".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
 	".mkv": "video/x-matroska", ".avi": "video/x-msvideo", ".3gp": "video/3gpp", ".ogv": "video/ogg",
+	".flv": "video/x-flv", ".wmv": "video/x-ms-wmv", ".asf": "video/x-ms-asf", ".mpg": "video/mpeg", ".mpeg": "video/mpeg",
+	".m2ts": "video/mp2t", ".mts": "video/mp2t",
 }
 
 // MIMEOf is the type of the file at path: by its name, as Telegram Desktop
@@ -194,6 +207,9 @@ func albumOf(f File, way Way) AlbumType {
 	case KindPhoto, KindVideo:
 		switch {
 		case way.Group && !way.Documents:
+			if f.Kind == KindVideo && !SentAsVideo(f.MIME) {
+				return NoAlbum
+			}
 			return PhotoVideoAlbum
 		case way.Group:
 			return FileAlbum
@@ -208,6 +224,14 @@ func albumOf(f File, way Way) AlbumType {
 		}
 	}
 	return NoAlbum
+}
+
+// SentAsVideo tells a video Telegram keeps as one, by its type: as Telegram Desktop's
+// IsMimeSentAsVideo, MP4 and MOV. Others may come back files, as a WebM does, which
+// Telegram for Android shows as one and which would fail an album of media: the box
+// offers to convert them first.
+func SentAsVideo(mime string) bool {
+	return mime == "" || mime == "video/mp4" || mime == "video/quicktime"
 }
 
 // Group is files sent in one message: an album, or a file by itself.

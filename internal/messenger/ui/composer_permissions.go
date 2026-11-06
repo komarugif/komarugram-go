@@ -51,6 +51,9 @@ func composerErrorText(err error, l localization.Catalog) string {
 	return mediaErrorText(err)
 }
 func (c *messageComposer) pickerAllowed(tab model.PickerTab) bool {
+	if c.pick != nil {
+		return tab == model.PickerStickers
+	}
 	return c.permissions(c.chat).Allows(model.PickerSendKind(tab))
 }
 func (c *messageComposer) checkMessage(chat int64, msg model.OutgoingMessage) error {

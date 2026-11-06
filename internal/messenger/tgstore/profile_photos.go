@@ -167,10 +167,19 @@ func (s *Store) ProfilePhotos(ctx context.Context, chat int64, offset string, li
 	c := s.history
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// The photo the profile shows now is where Telegram puts it: a user's may be any of
+	// the list, as Telegram Desktop finds it there.
+	var current int64
+	if peer.Photo != nil {
+		current = peer.Photo.ID
+	}
 	for _, f := range photos {
 		meta := c.rememberProfilePhoto(f.photo, f.message)
 		if meta == nil {
 			continue
+		}
+		if current != 0 && f.photo.ID == current && page.Current == 0 {
+			page.Current = model.ProfilePhotoID(index + len(page.Messages))
 		}
 		page.Messages = append(page.Messages, model.Message{
 			Kind:       model.MessagePhoto,
@@ -211,7 +220,28 @@ func (c *conversation) rememberProfilePhoto(p *tg.Photo, message int) *model.Mes
 		ref.Thumb = v.ID[strings.LastIndexByte(v.ID, '/')+1:]
 		c.refs[v.ID] = ref
 	}
+	if video := largestVideoSize(p); video != nil {
+		meta.Motion = &model.MessageMedia{ID: fmt.Sprintf("photo/%d/video/%s", p.ID, video.Type), MIMEType: "video/mp4", Size: int64(video.Size), Width: video.W, Height: video.H, Preview: meta.Preview}
+		ref.Thumb = video.Type
+		c.refs[meta.Motion.ID] = ref
+	}
 	return meta
+}
+
+// largestVideoSize is the video of photo p to play in full, as Telegram Desktop takes
+// it: the largest. nil for a photo with none; an emoji's or a sticker's markup is none.
+func largestVideoSize(p *tg.Photo) *tg.VideoSize {
+	var largest *tg.VideoSize
+	for _, v := range p.VideoSizes {
+		v, ok := v.(*tg.VideoSize)
+		if !ok || v.W <= 0 || v.H <= 0 {
+			continue
+		}
+		if largest == nil || v.W*v.H > largest.W*largest.H {
+			largest = v
+		}
+	}
+	return largest
 }
 
 // refreshProfilePhoto renews the file reference of one photo of a profile,

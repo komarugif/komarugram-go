@@ -27,7 +27,7 @@ func Resize(src image.Image, w, h int) *image.RGBA {
 		return dst
 	}
 	if im, ok := src.(*image.YCbCr); ok && sb.Min == (image.Point{}) {
-		resizeYCbCr(dst, im)
+		resizeYCbCr(dst, im, Colors{})
 		return dst
 	}
 	read := rowReader(src)
@@ -52,8 +52,10 @@ func Resize(src image.Image, w, h int) *image.RGBA {
 // its own resolution and converts to RGB only the destination pixels. The
 // filter is linear and the conversion affine, so this is the same picture
 // as converting first, for a quarter of the work with 4:2:0 chroma. Chroma
-// is also filtered rather than repeated, as image.YCbCr.At would.
-func resizeYCbCr(dst *image.RGBA, im *image.YCbCr) {
+// is also filtered rather than repeated, as image.YCbCr.At would. Colors says
+// how the planes are read: the zero value is JPEG's.
+func resizeYCbCr(dst *image.RGBA, im *image.YCbCr, colors Colors) {
+	c := colors.conversion()
 	w, h := dst.Rect.Dx(), dst.Rect.Dy()
 	sw, sh := im.Rect.Dx(), im.Rect.Dy()
 	cw, ch := chromaSize(im.SubsampleRatio, sw, sh)
@@ -72,11 +74,10 @@ func resizeYCbCr(dst *image.RGBA, im *image.YCbCr) {
 		yr, cb, cr := ys.row(y), cbs.row(y), crs.row(y)
 		pix := dst.Pix[y*dst.Stride : y*dst.Stride+w*4]
 		for x := range w {
-			// JFIF, as color.YCbCrToRGB, in floating point.
-			l, u, v := yr[x], cb[x]-128, cr[x]-128
-			pix[x*4] = uint8(clamp(l+1.402*v, 255) + .5)
-			pix[x*4+1] = uint8(clamp(l-0.344136*u-0.714136*v, 255) + .5)
-			pix[x*4+2] = uint8(clamp(l+1.772*u, 255) + .5)
+			l, u, v := (yr[x]-c.black)*c.gain, cb[x]-128, cr[x]-128
+			pix[x*4] = uint8(clamp(l+c.rv*v, 255) + .5)
+			pix[x*4+1] = uint8(clamp(l-c.gu*u-c.gv*v, 255) + .5)
+			pix[x*4+2] = uint8(clamp(l+c.bu*u, 255) + .5)
 			pix[x*4+3] = 255
 		}
 	}
@@ -287,6 +288,9 @@ func rowReader(src image.Image) func(y int, line []float32) {
 // VideoScaler scales decoded video frames, with the alpha of a second frame,
 // to premultiplied RGBA, reusing its buffers from one frame to the next.
 type VideoScaler struct {
+	// Colors says how the frames are read, as their stream tells: the zero value is
+	// JPEG's, not a video's.
+	Colors Colors
 	small  []float32
 	sums   []uint32
 	opaque *image.YCbCr
@@ -322,7 +326,11 @@ func (s *VideoScaler) ResizeInto(dst *image.RGBA, im, alpha *image.YCbCr) *image
 	}
 	if alpha == nil && im.SubsampleRatio == image.YCbCrSubsampleRatio420 {
 		if w == sw && h == sh {
-			draw.Draw(dst, dst.Rect, im, im.Rect.Min, draw.Src)
+			if s.Colors == (Colors{}) {
+				draw.Draw(dst, dst.Rect, im, im.Rect.Min, draw.Src)
+				return dst
+			}
+			Convert(dst, im, s.Colors)
 			return dst
 		}
 		// Video without alpha averages blocks down to the destination
@@ -338,9 +346,10 @@ func (s *VideoScaler) ResizeInto(dst *image.RGBA, im, alpha *image.YCbCr) *image
 		if fx > 1 || fy > 1 {
 			im = s.shrink(im, fx, fy, (sw+fx-1)/fx, (sh+fy-1)/fy)
 		}
-		resizeYCbCr(dst, im)
+		resizeYCbCr(dst, im, s.Colors)
 		return dst
 	}
+	c := s.Colors.conversion()
 	bw, bh := (sw+fx-1)/fx, (sh+fy-1)/fy
 	s.average(im, alpha, fx, fy, bw, bh)
 	small := s.small
@@ -349,13 +358,13 @@ func (s *VideoScaler) ResizeInto(dst *image.RGBA, im, alpha *image.YCbCr) *image
 		acc := sc.row(y)
 		pix := dst.Pix[y*dst.Stride : y*dst.Stride+w*4]
 		for x := 0; x < w*4; x += 4 {
-			// JFIF, as color.YCbCrToRGB, on premultiplied planes; colour
+			// On premultiplied planes, black being premultiplied too; colour
 			// stays within its alpha, as Catmull-Rom may overshoot.
 			a := clamp(acc[x+3], 255)
-			l, u, v := acc[x], acc[x+1], acc[x+2]
-			pix[x] = uint8(clamp(l+1.402*v, a) + .5)
-			pix[x+1] = uint8(clamp(l-0.344136*u-0.714136*v, a) + .5)
-			pix[x+2] = uint8(clamp(l+1.772*u, a) + .5)
+			l, u, v := (acc[x]-c.black*acc[x+3]/255)*c.gain, acc[x+1], acc[x+2]
+			pix[x] = uint8(clamp(l+c.rv*v, a) + .5)
+			pix[x+1] = uint8(clamp(l-c.gu*u-c.gv*v, a) + .5)
+			pix[x+2] = uint8(clamp(l+c.bu*u, a) + .5)
 			pix[x+3] = uint8(a + .5)
 		}
 	}

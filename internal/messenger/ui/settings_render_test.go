@@ -75,6 +75,7 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	var images imageOps
 	p.images = &images
 	p.composerStyle = func() preferences.ComposerStyle { return preferences.ComposerFloating }
+	p.silentAsVideo = func() bool { return false }
 	p.composerBlur = func() bool { return true }
 	overlays := preferences.Overlays{Transparency: 30, MenusBlur: true, Shadow: preferences.ShadowDefault}
 	windowBlur := true

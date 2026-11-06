@@ -18,10 +18,13 @@ import (
 func (s *Store) appendFiles(chat int64, h model.History, first model.MessageID, out model.OutgoingMessage) error {
 	way := sendfiles.Way{Documents: out.Files.Documents, Group: out.Files.Group, HighQuality: out.Files.HighQuality}
 	files := make([]sendfiles.File, 0, len(out.Files.Paths))
-	for _, path := range out.Files.Paths {
+	for i, path := range out.Files.Paths {
 		f, err := sendfiles.Inspect(path)
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
+		}
+		if out.Files.IsAnimated(i) {
+			f = f.AsAnimation()
 		}
 		files = append(files, f)
 	}
@@ -58,6 +61,13 @@ func (s *Store) appendFiles(chat int64, h model.History, first model.MessageID, 
 				m.Kind = model.MessageMusic
 				media.Title, media.Performer, media.Duration = f.Title, f.Performer, f.Duration
 				data, _ = os.ReadFile(f.Path)
+				if thumb, err := sendfiles.DocumentThumbnail(f.Cover); err == nil {
+					if s.files == nil {
+						s.files = map[string][]byte{}
+					}
+					media.Thumbnail = &model.MessageMedia{ID: media.ID + "/thumb", MIMEType: "image/jpeg"}
+					s.files[media.Thumbnail.ID] = thumb
+				}
 			default:
 				m.Kind = model.MessageFile
 			}

@@ -93,3 +93,83 @@ func tiffOrientation(t []byte) int {
 	}
 	return 1
 }
+
+// stripJPEGMetadata is the JPEG data without what tells where, when and with
+// what it was taken: Exif (with its GPS and its thumbnail), XMP and IPTC, the
+// comments and the other application segments, and what comes after the end
+// of the image, where phones put more pictures with their own (MPF). The JFIF
+// header, the ICC color profile and Adobe's segment, which decoders need for
+// the colors, stay, and the picture's own data is not touched. ok is false for
+// data that is not a JPEG it can read through.
+func stripJPEGMetadata(data []byte) (out []byte, ok bool) {
+	if len(data) < 4 || data[0] != 0xff || data[1] != 0xd8 {
+		return nil, false
+	}
+	out = make([]byte, 0, len(data))
+	out = append(out, 0xff, 0xd8)
+	i := 2
+	for i < len(data) {
+		if data[i] != 0xff {
+			// Entropy-coded data of a scan, kept as it is up to the next
+			// marker: a 0xff in it is followed by 0x00 or a restart marker.
+			j := i
+			for j < len(data) && !(data[j] == 0xff && j+1 < len(data) && data[j+1] != 0x00 && (data[j+1] < 0xd0 || data[j+1] > 0xd7)) {
+				j++
+			}
+			out = append(out, data[i:j]...)
+			i = j
+			continue
+		}
+		if i+1 >= len(data) {
+			return nil, false
+		}
+		marker := data[i+1]
+		switch {
+		case marker == 0xff:
+			// Fill byte.
+			i++
+			continue
+		case marker == 0xd9:
+			// The end of the image: nothing after it is kept.
+			return append(out, 0xff, 0xd9), true
+		case marker == 0x00 || marker >= 0xd0 && marker <= 0xd7 || marker == 0x01:
+			// Stuffed byte, restart marker, or TEM: no length.
+			out = append(out, data[i:i+2]...)
+			i += 2
+			continue
+		}
+		if i+4 > len(data) {
+			return nil, false
+		}
+		size := int(binary.BigEndian.Uint16(data[i+2:]))
+		if size < 2 || i+2+size > len(data) {
+			return nil, false
+		}
+		segment := data[i+4 : i+2+size]
+		if keepJPEGSegment(marker, segment) {
+			out = append(out, data[i:i+2+size]...)
+		}
+		i += 2 + size
+	}
+	// No end of image: a file cut short is not one to pass on.
+	return nil, false
+}
+
+// keepJPEGSegment tells whether the segment of marker, its payload, stays: all
+// but the application segments and comments, of which only the JFIF and JFXX
+// headers (APP0), the ICC profile (APP2) and Adobe's color transform (APP14).
+func keepJPEGSegment(marker byte, segment []byte) bool {
+	switch {
+	case marker == 0xfe:
+		return false
+	case marker == 0xe0:
+		return bytes.HasPrefix(segment, []byte("JFIF\x00")) || bytes.HasPrefix(segment, []byte("JFXX\x00"))
+	case marker == 0xe2:
+		return bytes.HasPrefix(segment, []byte("ICC_PROFILE\x00"))
+	case marker == 0xee:
+		return bytes.HasPrefix(segment, []byte("Adobe"))
+	case marker >= 0xe0 && marker <= 0xef:
+		return false
+	}
+	return true
+}

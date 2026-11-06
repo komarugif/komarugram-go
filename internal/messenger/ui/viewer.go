@@ -66,8 +66,24 @@ const (
 // its neighbours and a strip of thumbnails below. It pages the chat's photos and videos, its
 // GIFs, or the photos of its profile, as the strip comes near either end.
 type mediaViewer struct {
-	shortcuts shortcutPreferences
-	source    model.ConversationStore
+	// configureDecoders gives its media managers the settings of the decoders, in its
+	// own frames; nil leaves them as they are.
+	configureDecoders func()
+	// tips shows what the buttons do: see tooltip.go.
+	tips tooltips
+	// avatar deletes a profile's photo or makes it the main one: see
+	// viewer_avatar.go.
+	avatar viewerAvatar
+	// told tells what was done once the viewer closed on it, where the window
+	// shows it; nil tells it in the viewer.
+	told func(string)
+	// moveTo is where the photo a profile opened with turned out to be, for the next
+	// frame to show; zero for nowhere new. v.mu guards it.
+	moveTo model.MessageID
+	// shownMotion is the picture of a profile photo's video drawn last, nil for none.
+	shownMotion image.Image
+	shortcuts   shortcutPreferences
+	source      model.ConversationStore
 	// caption takes the clicks on a caption with spoilers, which uncover
 	// them on the message captionRevealed.
 	caption         gesture.Click
@@ -177,6 +193,22 @@ type mediaViewer struct {
 	share viewerShare
 	// gif saves a video as a GIF: see viewer_gif.go.
 	gif viewerGIF
+	// edit edits what is shown: see viewer_edit.go.
+	edit viewerEdit
+	// savedChat is the account's own chat, where the editor saves what it made; nil
+	// for none.
+	savedChat func() int64
+	// silentAsVideo tells that what the editor sends goes as a video when it has no
+	// sound; nil is as Telegram takes it, a GIF.
+	silentAsVideo func() bool
+	// editSink, when set, takes what the editor makes instead of a message: the
+	// box of files', which has no message yet to reply to or replace. stickerStore
+	// is where its stickers come from, its source being the box's alone.
+	editSink     func(ctx context.Context, m model.Message, path string) (editedFile, error)
+	stickerStore model.ConversationStore
+	// replaced shows what the editor made of an item until its new file, on its
+	// way from Telegram, has come.
+	replaced viewerReplaced
 }
 
 type viewerThumbState struct {
@@ -185,6 +217,8 @@ type viewerThumbState struct {
 	// mid the one shown while the original loads.
 	msg, mid model.Message
 	size     int
+	// of is the file msg was made of: a message's file may be replaced.
+	of string
 }
 
 // stripDrag scrolls the thumbnail strip by dragging it with a mouse. Touch
@@ -233,6 +267,9 @@ const (
 	// videos alone, as Telegram Desktop's viewer goes through those of
 	// the shared media it opened from: see mediaViewer.sharedKind.
 	galleryShared
+	// galleryBox is the files about to go in the box of files, read from the
+	// disk: all it holds comes with it, none of any chat (viewer_box.go).
+	galleryBox
 )
 
 // before reports whether the item of a goes before b's: by their ids, the
@@ -251,6 +288,9 @@ func (g viewerGallery) holds(m model.Message) bool {
 	}
 	if g == galleryGIFs {
 		return m.Kind == model.MessageGIF
+	}
+	if g == galleryBox {
+		return m.Kind == model.MessagePhoto || m.Kind == model.MessageVideo || m.Kind == model.MessageGIF
 	}
 	if g == galleryShared {
 		// Filtered by the section's kind in mediaViewer.holds.
@@ -277,6 +317,8 @@ func (v *mediaViewer) pages(g viewerGallery) bool {
 		return v.chatStories != nil
 	case galleryShared:
 		return v.shared != nil
+	case galleryBox:
+		return false
 	}
 	return v.photos != nil
 }
@@ -294,6 +336,7 @@ func newMediaViewer(source model.ConversationStore, images *imageOps, invalidate
 	v.share.rights, _ = source.(model.RightsSource)
 	v.gif.maker, _ = source.(model.GIFMaker)
 	v.full = chatmedia.NewSized(source, invalidate, viewerFullLimit, 4096)
+	// Until it is told otherwise, GIFs play in the sandbox: see configureViewer.
 	v.mid = chatmedia.NewSized(source, invalidate, 3, 1024)
 	v.thumbs = chatmedia.NewSized(source, invalidate, 96, 256)
 	v.strip.Axis = layout.Horizontal
@@ -332,6 +375,7 @@ func (v *mediaViewer) openList(chat int64, m model.Message, list mediaList) {
 			v.cancel()
 		}
 		v.session++
+		v.moveTo = 0
 		v.sharedKind = list.shared
 		v.items = v.sharedOnly(mergeMedia(list.gallery, nil, list.items))
 		// Stories open before Telegram has told them: m is the one to show.
@@ -367,6 +411,8 @@ func (v *mediaViewer) openList(chat int64, m model.Message, list mediaList) {
 		}
 	}()
 	v.open, v.focus, v.center, v.alone, v.seen, v.storyGone = true, true, true, false, 0, false
+	// A GIF plays by itself: its controls show for a moment, as a video's do.
+	v.controls.wake(time.Now())
 	v.zoom.reset()
 	v.chat, v.current = chat, m.Key.MessageID
 	v.strip.Position = layout.Position{}
@@ -421,16 +467,21 @@ func (v *mediaViewer) Close() {
 		v.cancel = nil
 	}
 	v.session++
-	v.items, v.total, v.offset = nil, 0, ""
+	v.items, v.total, v.offset, v.moveTo = nil, 0, "", 0
 	v.mu.Unlock()
 	v.open = false
+	v.tips = tooltips{}
+	v.avatar.reset()
 	v.video.stop()
 	v.closeGIF()
+	v.closeEdit()
+	v.replaced = viewerReplaced{}
 	v.autoplay = 0
 	// A closed viewer keeps no decoded pixels.
 	v.full.Clear()
 	v.mid.Clear()
 	v.thumbs.Clear()
+	v.full.PlayGIFs()
 	clear(v.thumbState)
 }
 
@@ -448,6 +499,7 @@ func (v *mediaViewer) Release() {
 	v.full.Release()
 	v.mid.Release()
 	v.thumbs.Release()
+	v.edit.releaseView()
 }
 
 // fetch reads the next gallery page past anchor in the background; the
@@ -533,6 +585,11 @@ func (v *mediaViewer) fetch(ctx context.Context, session, dir int, anchor model.
 			v.total = page.Total
 		}
 		v.offset = page.Next
+		if gallery == galleryProfile && offset == "" {
+			v.items, page.Messages = placeShown(v.items, page)
+			// The next frame goes there, if it is still on the one opened.
+			v.moveTo = page.Current
+		}
 		v.items = v.sharedOnly(mergeMedia(gallery, v.items, page.Messages))
 	}()
 }
@@ -562,7 +619,8 @@ func (v *mediaViewer) thumbnailTarget(m model.Message) (model.Message, bool) {
 	if m.Media == nil || m.Media.Thumbnail == nil {
 		return m, false
 	}
-	if t, ok := v.targets[m.Key.MessageID]; ok {
+	// Kept for the file it is of: a message's file may be replaced.
+	if t, ok := v.targets[m.Key.MessageID]; ok && t.Media.ID == m.Media.Thumbnail.ID {
 		return t, true
 	}
 	thumb := *m.Media.Thumbnail
@@ -593,6 +651,42 @@ func mergeMedia(gallery viewerGallery, items, add []model.Message) []model.Messa
 	}
 	sort.Slice(items, func(i, j int) bool { return gallery.before(items[i].Key.MessageID, items[j].Key.MessageID) })
 	return items
+}
+
+// placeShown puts the photo a profile opened with, known from the chat alone, where
+// the first page of its photos tells it is, as Telegram Desktop opens it there: in
+// the place of the page's, whose video it takes, staying as it is, already decoded.
+// It stays first when the page tells none: a photo the list lacks. Copies: the frame
+// under way goes through the list it has.
+func placeShown(items []model.Message, page model.GalleryPage) (kept, add []model.Message) {
+	opened := model.ProfilePhotoID(0)
+	i := slices.IndexFunc(items, func(o model.Message) bool { return o.Key.MessageID == opened })
+	j := slices.IndexFunc(page.Messages, func(o model.Message) bool { return o.Key.MessageID == page.Current })
+	if page.Current == 0 || i < 0 || j < 0 || items[i].Media == nil || page.Messages[j].Media == nil {
+		return items, page.Messages
+	}
+	shown := *items[i].Media
+	shown.Motion = page.Messages[j].Media.Motion
+	add = slices.Clone(page.Messages)
+	add[j] = add[j].WithMedia(&shown)
+	return slices.Delete(slices.Clone(items), i, i+1), add
+}
+
+// motionPlaying is the video of photo m, when it is to play: not in the editor, where
+// what is edited is the photo.
+func (v *mediaViewer) motionPlaying(m model.Message) (model.Message, bool) {
+	motion, ok := motionOf(m)
+	return motion, ok && !v.edit.opened()
+}
+
+// motionOf is the video photo m plays, as a looping GIF is drawn.
+func motionOf(m model.Message) (model.Message, bool) {
+	if m.Media == nil || m.Media.Motion == nil {
+		return m, false
+	}
+	motion := m.WithMedia(m.Media.Motion)
+	motion.Kind = model.MessageGIF
+	return motion, true
 }
 
 // place is where item i of items is in the whole gallery, and how many
@@ -630,6 +724,13 @@ func (v *mediaViewer) place(items []model.Message, i int) (n, amount int, ok boo
 func (v *mediaViewer) snapshot() (items []model.Message, loading, exhausted [2]bool, ctx context.Context, session int) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	if v.moveTo != 0 {
+		// Taken with the list that has it in its place.
+		if v.current == model.ProfilePhotoID(0) {
+			v.current, v.center = v.moveTo, true
+		}
+		v.moveTo = 0
+	}
 	return v.items, v.loading, v.exhausted, v.ctx, v.session
 }
 
@@ -654,16 +755,26 @@ func (v *mediaViewer) show(items []model.Message, i int, center bool) {
 		v.previous, v.current = v.current, items[i].Key.MessageID
 		v.since = time.Time{}
 		v.zoom.reset()
+		v.controls.wake(time.Now())
 		v.center = v.center || center
 	}
 }
 
 func (v *mediaViewer) Layout(gtx layout.Context, l localization.Catalog, animate bool) {
+	if v.configureDecoders != nil {
+		v.configureDecoders()
+	}
 	if !v.open {
 		return
 	}
 	v.layingOut = true
+	// What its buttons do shows over all of it, the dialogs too.
+	tips := v.tips.begin(gtx)
 	v.layout(gtx, l, animate)
+	if v.open {
+		v.tips.layout(gtx)
+	}
+	tips.Pop()
 	v.layingOut = false
 }
 
@@ -701,6 +812,13 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 		v.Close()
 		return
 	}
+	// The editor is a mode of the viewer, over the same backdrop and picture. All
+	// the input is its own meanwhile: Escape closes it, not the viewer.
+	editing := v.edit.opened()
+	if editing {
+		v.updateEdit(gtx, l, animate)
+		editing = v.edit.opened()
+	}
 	size := gtx.Constraints.Max
 	bar, strip, side := gtx.Dp(viewerBar), gtx.Dp(viewerStrip), gtx.Dp(viewerSide)
 	stage := image.Rect(side, bar, max(side, size.X-side), max(bar, size.Y-strip))
@@ -710,13 +828,15 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	// An enlarged picture spreads under the side zones, up to the window edges.
 	view := image.Rect(0, stage.Min.Y, size.X, stage.Max.Y)
 	i := indexOf(items, v.current)
-	v.keyEvents(gtx, items, i, native(items[i]), stage.Size())
-	if !v.open {
-		return
+	if !editing {
+		v.keyEvents(gtx, items, i, native(items[i]), stage.Size())
+		if !v.open {
+			return
+		}
+		i = indexOf(items, v.current)
+		v.zoomEvents(gtx, items, i, view, native(items[i]), fitScale(native(items[i]), stage.Size()))
+		i = indexOf(items, v.current)
 	}
-	i = indexOf(items, v.current)
-	v.zoomEvents(gtx, items, i, view, native(items[i]), fitScale(native(items[i]), stage.Size()))
-	i = indexOf(items, v.current)
 	if v.prev.Clicked(gtx) {
 		v.show(items, i-1, true)
 	}
@@ -731,13 +851,15 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 			v.show(items, indexOf(items, id), false)
 		}
 	}
-	if v.backdrop.Clicked(gtx) && !v.standalone || v.close.Clicked(gtx) {
+	if !editing && (v.backdrop.Clicked(gtx) && !v.standalone || v.close.Clicked(gtx)) {
 		v.Close()
 		return
 	}
 	v.updateKept(gtx)
 	v.updateShare(gtx, items[indexOf(items, v.current)], l)
 	v.updateGIF(gtx, items[indexOf(items, v.current)], l)
+	v.updateEditButton(gtx, items[indexOf(items, v.current)])
+	v.updateAvatar(gtx, items[indexOf(items, v.current)], l)
 	select {
 	case err := <-v.playErrs:
 		v.toast.Show(mediaErrorText(err))
@@ -752,7 +874,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	}
 	v.updateVideo(gtx, items[indexOf(items, v.current)], l)
 	if cur := items[indexOf(items, v.current)]; canKeep(cur) {
-		if v.save.Clicked(gtx) {
+		if v.save.Clicked(gtx) && v.canSave(cur) {
 			v.keepPhoto(cur, false, l)
 		}
 		if v.copy.Clicked(gtx) {
@@ -781,6 +903,10 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 				keep = append(keep, t.Media.ID)
 			}
 		}
+	}
+	// The video of the one shown too, which goes on from where it is.
+	if motion, ok := motionOf(items[i]); ok {
+		keep = append(keep, motion.Media.ID)
 	}
 	v.full.Retain(keep...)
 	// Read further into the cache before the strip runs out.
@@ -813,20 +939,43 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 		return layout.Dimensions{Size: size}
 	})
 
-	v.layoutCurrent(gtx, items[i], stage, view, fit, l, animate)
-	captionStage := stage
-	if top, ok := v.layoutVideoControls(gtx, items[i], stage, l); ok {
-		// The caption goes over the controls.
-		captionStage.Max.Y = top
+	if editing {
+		v.edit.placeStage(gtx, size)
 	}
-	captionTop := v.layoutCaption(gtx, items[i], captionStage, l, animate)
-	v.layoutSides(gtx, view, i > 0, i < len(items)-1)
-	// Over the side zones, so that the wheel works there too; it passes
-	// clicks on to them.
-	v.zoomArea(gtx, view, photo)
-	v.layoutBar(gtx, items, i, l)
-	v.layoutStrip(gtx, items, i, image.Rect(0, size.Y-strip, size.X, size.Y))
+	v.layoutCurrent(gtx, items[i], stage, view, fit, l, animate)
+	captionTop := math.MaxInt
+	// What the editor puts away fades out, and takes no input from then on.
+	chrome := v.edit.chromeAlpha()
+	chromeGtx := gtx
+	if editing {
+		chromeGtx = gtx.Disabled()
+	}
+	if chrome > 0 {
+		fading := paint.PushOpacity(gtx.Ops, chrome)
+		captionStage := stage
+		if top, ok := v.layoutVideoControls(chromeGtx, items[i], stage, l); ok {
+			// The caption goes over the controls.
+			captionStage.Max.Y = top
+		}
+		captionTop = v.layoutCaption(chromeGtx, items[i], captionStage, l, animate)
+		v.layoutSides(chromeGtx, view, i > 0, i < len(items)-1, l)
+		if !editing {
+			// Over the side zones, so that the wheel works there too; it passes
+			// clicks on to them.
+			v.zoomArea(gtx, view, photo)
+		}
+		v.layoutBar(chromeGtx, items, i, l)
+		fading.Pop()
+	}
+	// The strip goes down out of the window, and comes back up.
+	if down := int(v.edit.stripShift() * float32(strip)); down < strip {
+		v.layoutStrip(chromeGtx, items, i, image.Rect(0, size.Y-strip+down, size.X, size.Y+down))
+	}
 	v.toast.Layout(gtx, image.Rect(0, bar, size.X, min(size.Y-strip, captionTop)))
+	if editing {
+		v.layoutEdit(gtx, l, animate)
+		return
+	}
 	// Decode the neighbours ahead, so that the arrows switch at once.
 	for _, j := range []int{i - 1, i + 1} {
 		if j >= 0 && j < len(items) {
@@ -837,6 +986,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	}
 	v.layoutShare(gtx, l)
 	v.layoutGIF(gtx, l)
+	v.layoutAvatar(gtx, l)
 }
 
 func (v *mediaViewer) keyEvents(gtx layout.Context, items []model.Message, i int, photo, stage image.Point) {
@@ -866,6 +1016,8 @@ func (v *mediaViewer) keyEvents(gtx layout.Context, items []model.Message, i int
 		if e.State != key.Press {
 			continue
 		}
+		// Chromium's: a key hides the tooltip.
+		v.tips.hide()
 		switch id {
 		case "viewer.previous":
 			v.show(items, i-1, true)
@@ -906,6 +1058,7 @@ func (v *mediaViewer) keyEvents(gtx layout.Context, items []model.Message, i int
 func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stage, view image.Rectangle, fit float32, l localization.Catalog, animate bool) {
 	v.drawn = item.Key.MessageID
 	video := item.Kind == model.MessageVideo
+	gif := item.Kind == model.MessageGIF
 	m, decodable := v.viewerTarget(item)
 	box := stage.Size()
 	if v.zoom.active() && v.zoom.target > fit {
@@ -917,6 +1070,14 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 	if decodable {
 		// A GIF opened plays, with animations off too: it was asked for.
 		status = v.full.StatusFit(m, animate || item.Kind == model.MessageGIF, box, false)
+	}
+	// The video of a profile photo plays over the photo, and what fails of it leaves the
+	// photo: it is no failure to tell. As a GIF opened, it plays with animations off too:
+	// it was asked for.
+	motion, moving := v.motionPlaying(item)
+	var motionFrame image.Image
+	if moving {
+		motionFrame = v.full.StatusFit(motion, true, box, false).Frame
 	}
 	w, h := m.Media.Width, m.Media.Height
 	if status.Frame != nil && (w <= 0 || h <= 0) {
@@ -938,8 +1099,22 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 		center := layout.FPt(view.Min.Add(view.Max)).Mul(.5).Add(v.zoom.offset)
 		origin = image.Pt(int(math.Round(float64(center.X)-float64(shown.X)/2)), int(math.Round(float64(center.Y)-float64(shown.Y)/2)))
 	}
+	editing := v.edit.opened()
+	if editing {
+		// It moves over where the bar is, and takes no click.
+		view = image.Rectangle{Max: gtx.Constraints.Max}
+		gtx = gtx.Disabled()
+	}
 	defer clip.Rect(view).Push(gtx.Ops).Pop()
 	im := status.Frame
+	holding := false
+	if r := &v.replaced; r.picture != nil && r.key == item.Key {
+		if im != nil {
+			r.picture = nil
+		} else {
+			im, holding = r.picture, true
+		}
+	}
 	if im == nil && decodable {
 		// Half the stage in a smaller variant, decoded in a few milliseconds
 		// and usually cached by the chat tile, then the thumbnail, then the
@@ -957,6 +1132,10 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 	if im == nil {
 		im = status.Preview
 	}
+	v.shownMotion = nil
+	if motionFrame != nil {
+		im, v.shownMotion = motionFrame, motionFrame
+	}
 	showRing := status.Err != nil
 	if status.Loading {
 		if wait := v.since.Add(viewerRingDelay); gtx.Now.Before(wait) {
@@ -972,8 +1151,16 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 			v.controls.wake(gtx.Now)
 		case video:
 			v.playVideo(gtx, item, -1, l)
+		case motionFrame != nil:
+			v.full.ToggleGIF(motion)
+			v.controls.wake(gtx.Now)
+			gtx.Execute(op.InvalidateCmd{})
 		case status.Err != nil || status.Cancelled:
 			v.full.Retry(m)
+		case gif:
+			v.full.ToggleGIF(item)
+			v.controls.wake(gtx.Now)
+			gtx.Execute(op.InvalidateCmd{})
 		}
 	}
 	// A video that plays here shows its pictures over its thumbnail, and a
@@ -984,12 +1171,27 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 			im = picture
 		}
 	}
-	showRing = showRing || vs.loading
+	showRing = (showRing || vs.loading) && !holding
+	playMark := float32(1)
+	if editing {
+		e := &v.edit
+		alpha := e.pictureAlpha()
+		if alpha <= 0 {
+			// The editor's own covers it; it stays decoded for the way back.
+			return
+		}
+		if alpha < 1 {
+			defer paint.PushOpacity(gtx.Ops, alpha).Pop()
+		}
+		origin, shown = e.pictureAt(origin, shown, image.Pt(w, h))
+		playMark = e.chromeAlpha()
+		showRing = false
+	}
 	offset(gtx, origin, func(gtx layout.Context) layout.Dimensions {
 		return v.picture.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			if video || status.Err != nil || status.Cancelled {
-				// A press plays the video, or pauses it, or loads the picture
-				// again.
+			if video || gif || motionFrame != nil || status.Err != nil || status.Cancelled {
+				// A press plays the video or the GIF, or pauses it, or loads the
+				// picture again.
 				pointer.CursorPointer.Add(gtx.Ops)
 			}
 			gtx.Constraints = layout.Exact(shown)
@@ -998,8 +1200,9 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 			} else {
 				widget.Image{Src: v.images.Op(im), Fit: widget.Fill}.Layout(gtx)
 			}
-			if video && !showRing && !vs.playing {
+			if (video && !showRing && !vs.playing || gif && v.full.GIFPaused(item) || motionFrame != nil && v.full.GIFPaused(motion)) && playMark > 0 {
 				d := min(gtx.Dp(64), shown.X, shown.Y)
+				defer paint.PushOpacity(gtx.Ops, playMark).Pop()
 				offset(gtx, shown.Sub(image.Pt(d, d)).Div(2), func(gtx layout.Context) layout.Dimensions {
 					paint.FillShape(gtx.Ops, color.NRGBA{A: 150}, clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
 					inner := d * 3 / 4
@@ -1027,7 +1230,7 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 					return layout.Dimensions{Size: image.Pt(diameter, diameter)}
 				})
 			}
-			if status.Err != nil {
+			if status.Err != nil && !editing {
 				errGtx := gtx
 				errGtx.Constraints = layout.Constraints{Max: image.Pt(shown.X, shown.Y/2)}
 				offset(errGtx, image.Pt(0, shown.Y/2+gtx.Dp(36)), func(gtx layout.Context) layout.Dimensions {
@@ -1122,21 +1325,22 @@ func (v *mediaViewer) layoutCaption(gtx layout.Context, m model.Message, stage i
 // layoutSides lays out the zones beside the picture that switch to its
 // neighbours: the whole height of the stage, not only the arrow drawn in it,
 // is the target.
-func (v *mediaViewer) layoutSides(gtx layout.Context, view image.Rectangle, prev, next bool) {
+func (v *mediaViewer) layoutSides(gtx layout.Context, view image.Rectangle, prev, next bool, l localization.Catalog) {
 	w := gtx.Dp(viewerSide)
 	if prev {
-		sideZone(gtx, &v.prev, image.Rect(view.Min.X, view.Min.Y, view.Min.X+w, view.Max.Y), iconChevronLeft)
+		sideZone(gtx, &v.tips, &v.prev, image.Rect(view.Min.X, view.Min.Y, view.Min.X+w, view.Max.Y), iconChevronLeft, l.T("viewer.tip_previous"))
 	}
 	if next {
-		sideZone(gtx, &v.next, image.Rect(view.Max.X-w, view.Min.Y, view.Max.X, view.Max.Y), iconChevron)
+		sideZone(gtx, &v.tips, &v.next, image.Rect(view.Max.X-w, view.Min.Y, view.Max.X, view.Max.Y), iconChevron, l.T("viewer.tip_next"))
 	}
 }
 
-func sideZone(gtx layout.Context, c *widget.Clickable, r image.Rectangle, icon wdk.IconWidget) {
+func sideZone(gtx layout.Context, tips *tooltips, c *widget.Clickable, r image.Rectangle, icon wdk.IconWidget, tip string) {
 	offset(gtx, r.Min, func(gtx layout.Context) layout.Dimensions {
 		size := r.Size()
 		gtx.Constraints = layout.Exact(size)
 		return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			tips.target(gtx, c, tip)
 			pointer.CursorPointer.Add(gtx.Ops)
 			if c.Hovered() {
 				paint.FillShape(gtx.Ops, color.NRGBA{R: 255, G: 255, B: 255, A: 10}, clip.Rect{Max: size}.Op())
@@ -1167,8 +1371,10 @@ func viewerIcon(gtx layout.Context, hovered bool, icon wdk.IconWidget, d int) la
 	return layout.Dimensions{Size: size}
 }
 
-func viewerButton(gtx layout.Context, c *widget.Clickable, icon wdk.IconWidget, d int) layout.Dimensions {
+// viewerButton is a round button of the viewer, whose tooltip tells tip.
+func viewerButton(gtx layout.Context, tips *tooltips, c *widget.Clickable, icon wdk.IconWidget, d int, tip string) layout.Dimensions {
 	return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		tips.target(gtx, c, tip)
 		pointer.CursorPointer.Add(gtx.Ops)
 		return viewerIcon(gtx, c.Hovered(), icon, d)
 	})
@@ -1216,7 +1422,7 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layoutLike(gtx, &v.share.like, *m.Story, d)
+					return layoutLike(gtx, &v.tips, &v.share.like, *m.Story, d, l)
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1224,7 +1430,7 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return viewerButton(gtx, &v.share.forward, iconForward, d)
+					return viewerButton(gtx, &v.tips, &v.share.forward, iconForward, d, l.T("viewer.tip_forward"))
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1232,7 +1438,31 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return viewerButton(gtx, &v.gif.button, iconGIF, d)
+					return viewerButton(gtx, &v.tips, &v.gif.button, iconGIF, d, l.T("viewer.gif_title"))
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if !v.canEdit(m) {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return viewerButton(gtx, &v.tips, &v.edit.button, iconEditBrush, d, l.T("viewer.tip_edit"))
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if !v.canMakeAvatarMain(m) {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return viewerButton(gtx, &v.tips, &v.avatar.main, iconCheck, d, l.T("viewer.avatar_main"))
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if !v.canDeleteAvatar(m) {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return viewerButton(gtx, &v.tips, &v.avatar.remove, iconDelete, d, l.T("viewer.avatar_delete"))
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1240,15 +1470,15 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return viewerButton(gtx, &v.copy, iconCopy, d)
+					return viewerButton(gtx, &v.tips, &v.copy, iconCopy, d, l.T("viewer.tip_copy"))
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if !canKeep(m) {
+				if !v.canSave(m) {
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return viewerButton(gtx, &v.save, iconDownload, d)
+					return viewerButton(gtx, &v.tips, &v.save, iconDownload, d, l.T("viewer.tip_save"))
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1256,10 +1486,12 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return viewerButton(gtx, &v.detach, iconOpenInNew, d)
+					return viewerButton(gtx, &v.tips, &v.detach, iconOpenInNew, d, l.T("viewer.tip_window"))
 				})
 			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return viewerButton(gtx, &v.close, iconClear, d) }),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return viewerButton(gtx, &v.tips, &v.close, iconClear, d, l.T("viewer.close"))
+			}),
 		)
 	})
 }
@@ -1284,6 +1516,9 @@ func (v *mediaViewer) title(m model.Message, items []model.Message, i int, l loc
 		return what
 	}
 	switch {
+	case v.gallery == galleryBox:
+		// What is about to go, whatever it is.
+		what = l.T("viewer.attachment")
 	case v.gallery == galleryPhotos && !v.alone && !v.isStory(m) && m.StoryOf == nil:
 		// The chat's photos and videos, one after the other.
 		what = l.T("viewer.attachment")
@@ -1319,12 +1554,12 @@ func (v *mediaViewer) thumb(m model.Message, side int) *model.Message {
 		st = &viewerThumbState{}
 		v.thumbState[m.Key.MessageID] = st
 	}
-	if st.size != side || st.msg.Media == nil {
+	if st.size != side || st.msg.Media == nil || st.of != m.Media.ID {
 		variant := *m.Media.Variant(side, side)
 		if variant.Preview == nil {
 			variant.Preview = m.Media.Preview
 		}
-		st.msg, st.size = m.WithMedia(&variant), side
+		st.msg, st.size, st.of = m.WithMedia(&variant), side, m.Media.ID
 	}
 	return &st.msg
 }

@@ -40,7 +40,8 @@ type Photo struct {
 // PreparePhoto makes the image at path a photo: turned as its Exif asks,
 // scaled down to fit a square of 1280 pixels a side, or 2560 for high
 // quality, with alpha flattened on white and saved as JPEG. A JPEG that
-// needs none of that is sent as it is.
+// needs none of that is sent as it is, without its metadata
+// (stripJPEGMetadata); one that cannot be read through is saved again.
 func PreparePhoto(path string, highQuality bool) (Photo, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -63,14 +64,41 @@ func PreparePhoto(path string, highQuality bool) (Photo, error) {
 	scaled := b.Dx() > side || b.Dy() > side
 	img = orient(fit(img, side), turn)
 	b = img.Bounds()
-	if !scaled && format == "jpeg" && turn == 1 && len(data) <= maxPhotoBytes {
-		return Photo{JPEG: data, Width: b.Dx(), Height: b.Dy()}, nil
+	if !scaled && format == "jpeg" && turn == 1 {
+		// Sent as it is, but for what tells where, when and with what it was
+		// taken: Telegram's servers keep none of it in the photo they make, but
+		// the file goes to them whole.
+		if clean, ok := stripJPEGMetadata(data); ok && len(clean) <= maxPhotoBytes {
+			return Photo{JPEG: clean, Width: b.Dx(), Height: b.Dy()}, nil
+		}
 	}
 	var out bytes.Buffer
 	if err := jpeg.Encode(&out, flatten(img), &jpeg.Options{Quality: jpegQuality}); err != nil {
 		return Photo{}, err
 	}
 	return Photo{JPEG: out.Bytes(), Width: b.Dx(), Height: b.Dy()}, nil
+}
+
+// ShownPhoto is the file of the image at path to decode for showing it: as it
+// is, or turned, for a JPEG whose Exif asks for it, which no decoder minds.
+func ShownPhoto(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	turn := orientationOf(data)
+	if turn == 1 {
+		return data, nil
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	if err := jpeg.Encode(&out, orient(img, turn), &jpeg.Options{Quality: jpegQuality}); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
 }
 
 // Thumbnail decodes the image at path, turned as it is shown, and scales it
@@ -118,6 +146,24 @@ func DocumentThumbnail(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return encodeThumbnail(img)
+}
+
+// VideoDocumentThumbnail makes the first picture of the video at path the
+// thumbnail it is sent with, as DocumentThumbnail does for music. Telegram
+// makes none itself of a large file, which would show as an empty box.
+func VideoDocumentThumbnail(ctx context.Context, ffmpeg, path string) ([]byte, error) {
+	img, err := VideoThumbnail(ctx, ffmpeg, path, thumbSide)
+	if err != nil {
+		return nil, err
+	}
+	if b := img.Bounds(); !ValidDimensions(b.Dx(), b.Dy()) {
+		return nil, errors.New("the picture has no shape a thumbnail takes")
+	}
+	return encodeThumbnail(img)
+}
+
+func encodeThumbnail(img image.Image) ([]byte, error) {
 	var out bytes.Buffer
 	if err := jpeg.Encode(&out, flatten(img), &jpeg.Options{Quality: thumbQuality}); err != nil {
 		return nil, err
@@ -125,14 +171,22 @@ func DocumentThumbnail(data []byte) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// VideoThumbnail asks ffmpeg for the first picture of the video at path,
-// scaled to fit a square of side pixels.
+// VideoThumbnail is the first picture of the video at path, scaled to fit a square
+// of side pixels: ffmpeg's, and without it, or where it fails, the client's own
+// decoders', for what they decode.
 func VideoThumbnail(ctx context.Context, ffmpeg, path string, side int) (*image.RGBA, error) {
-	if ffmpeg == "" {
-		return nil, errors.New("no ffmpeg")
+	if ffmpeg != "" {
+		if img, err := ffmpegThumbnail(ctx, ffmpeg, path, side); err == nil {
+			return img, nil
+		}
 	}
+	return decodedThumbnail(ctx, path, side)
+}
+
+// ffmpegThumbnail asks ffmpeg for the first picture of the video at path.
+func ffmpegThumbnail(ctx context.Context, ffmpeg, path string, side int) (*image.RGBA, error) {
 	cmd := program.CommandContext(ctx, ffmpeg, "-v", "error", "-i", path, "-frames:v", "1",
-		"-vf", "scale='min("+itoa(side)+",iw)':-2", "-f", "image2pipe", "-c:v", "png", "-")
+		"-vf", "scale='min("+itoa(side)+",iw)':'min("+itoa(side)+",ih)':force_original_aspect_ratio=decrease", "-f", "image2pipe", "-c:v", "png", "-")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err
@@ -235,4 +289,40 @@ func orient(img image.Image, o int) image.Image {
 		}
 	}
 	return dst
+}
+
+// profilePhotoQuality is Telegram Desktop's, for the photo a profile is set to
+// (PreparePeerPhoto).
+const profilePhotoQuality = 87
+
+// PrepareProfilePhoto makes the image at path a profile's photo: turned as its
+// Exif asks, the largest square in its middle, as Telegram Desktop's editor cuts
+// one, scaled down to StandardSide a side, on white and saved as JPEG.
+func PrepareProfilePhoto(path string) (Photo, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Photo{}, err
+	}
+	img, format, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return Photo{}, err
+	}
+	if format == "jpeg" {
+		img = orient(img, orientationOf(data))
+	}
+	b := img.Bounds()
+	side := min(b.Dx(), b.Dy())
+	if side <= 0 {
+		return Photo{}, errors.New("the picture is empty")
+	}
+	at := b.Min.Add(image.Pt((b.Dx()-side)/2, (b.Dy()-side)/2))
+	square := image.NewRGBA(image.Rect(0, 0, side, side))
+	draw.Draw(square, square.Bounds(), img, at, draw.Src)
+	out := flatten(fit(square, StandardSide))
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, out, &jpeg.Options{Quality: profilePhotoQuality}); err != nil {
+		return Photo{}, err
+	}
+	s := out.Bounds().Size()
+	return Photo{JPEG: buf.Bytes(), Width: s.X, Height: s.Y}, nil
 }

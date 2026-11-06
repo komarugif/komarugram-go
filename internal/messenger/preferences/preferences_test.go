@@ -1,11 +1,11 @@
 package preferences
 
 import (
-	"strings"
-	"strconv"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"gio-mw/exp/powersave"
@@ -13,6 +13,28 @@ import (
 	"komarugram/pkg/miniapp"
 	"komarugram/pkg/player"
 )
+
+// A video without sound goes as a GIF until chosen otherwise, which stays.
+func TestSilentVideoChoice(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	s, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Global().SilentVideoAsVideo {
+		t.Error("a video without sound goes as a video by default")
+	}
+	if err := s.SetSilentVideoAsVideo(true); err != nil {
+		t.Fatal(err)
+	}
+	again, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !again.Global().SilentVideoAsVideo {
+		t.Error("the choice was not kept")
+	}
+}
 
 func TestPersistsAndNotifies(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
