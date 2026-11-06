@@ -230,9 +230,38 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			})
 			bottom = at.Y + dims.Size.Y
 		}
+		// The time of the message, where its bubble asked for it on the
+		// tile and the tile has room for it.
+		inset := gtx.Dp(8)
+		t := &r.time
+		t.drawn = t.size.X > 0 && t.size.X+2*inset <= size.X && t.size.Y+2*inset <= size.Y
+		reserve := 0
+		if t.drawn {
+			reserve = t.size.X
+		}
+		lift := 0
 		if inline && !loading && !cancelled && err == nil {
 			paused := p.media.GIFPaused(m)
-			r.gif.layout(gtx, size, paused, r.media.Hovered(), p.media.GIFPosition(m), m.Media.Duration)
+			lift = r.gif.layout(gtx, size, paused, r.media.Hovered(), p.media.GIFPosition(m), m.Media.Duration, reserve)
+		}
+		if t.drawn {
+			// It fades out while the pointer is over the tile, for the
+			// picture to be seen whole, as a video's plate does; on a GIF
+			// that plays here it fades in, as the GIF's time does.
+			target := boolFloat(!r.media.Hovered())
+			if inline {
+				target = boolFloat(r.media.Hovered() || r.gif.seeking)
+			}
+			r.timeFade.Duration = token.DurationShort2
+			if shown := r.timeFade.Animate(gtx, target); shown > 0 {
+				func() {
+					defer paint.PushOpacity(gtx.Ops, shown).Pop()
+					offset(gtx, image.Pt(size.X-inset-t.size.X, size.Y-inset-lift-t.size.Y), func(gtx layout.Context) layout.Dimensions {
+						t.call.Add(gtx.Ops)
+						return layout.Dimensions{Size: t.size}
+					})
+				}()
+			}
 		}
 		// The plate of a video fades out while the pointer is over it, for
 		// the picture to be seen whole, and back in when it leaves.
@@ -254,9 +283,17 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			pgtx.Constraints.Min = image.Point{}
 			dims := mediaPlate(pgtx, videoPlateText(m, gif, p.videoTimeOnly, l))
 			call := macro.Stop()
-			inset := gtx.Dp(8)
-			// In a tile too low for both, how far it went is what matters.
-			if top := max(0, size.Y-inset-dims.Size.Y); top >= bottom {
+			top := max(0, size.Y-inset-dims.Size.Y)
+			if reserve > 0 && 2*inset+dims.Size.X+gtx.Dp(mediaPlateGap)+reserve > size.X {
+				// Beside the message's time it does not go: in the top
+				// corner, as Telegram for Android puts a video's.
+				top = inset
+			} else if top < bottom {
+				// In a tile too low for both, how far it went is what
+				// matters.
+				top = -1
+			}
+			if top >= 0 {
 				offset(gtx, image.Pt(inset, top), func(gtx layout.Context) layout.Dimensions {
 					call.Add(gtx.Ops)
 					return dims
@@ -289,6 +326,10 @@ func videoPlateText(m model.Message, gif, timeOnly bool, l localization.Catalog)
 	}
 	return text
 }
+
+// mediaPlateGap is the least space between two plates side by side at the
+// bottom of a tile.
+const mediaPlateGap unit.Dp = 6
 
 // mediaPlate draws text on the plate of a tile's corner, small and
 // translucent over the picture, as a GIF's time and a video message's are:
@@ -456,8 +497,18 @@ func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Messag
 			offset(tileGtx, image.Pt(x, y), func(gtx layout.Context) layout.Dimensions {
 				child := albumRow(gtx, r, member, l)
 				child.corners = corners
+				// The last tile, at the album's bottom right, carries the
+				// message's time, as a single one would.
+				child.time = timePlate{}
+				lastTile := i+j == len(m.Attachments)-1
+				if lastTile {
+					child.time = r.time
+				}
 				p.partPresses(gtx, m, child, member)
 				dims := p.mediaTile(gtx, child, member, image.Pt(w, height), true, l, animate)
+				if lastTile {
+					r.time.drawn = child.time.drawn
+				}
 				partPressArea(gtx, child, image.Pt(w, height))
 				return dims
 			})

@@ -90,6 +90,7 @@ func renders() []render {
 		render{"pinned", "TestRenderPinned", []string{"PINNED_PNG={out}/pinned.png"}},
 		render{"bubble-fit", "TestRenderBubbleFit", []string{"BUBBLE_FIT_PNG={out}/bubble-fit.png"}},
 		render{"media-inset", "TestRenderMediaInset", []string{"MEDIA_INSET_PNG={out}/media-inset.png"}},
+		render{"media-time", "TestRenderMediaTime", []string{"MEDIA_TIME_PNG={out}/media-time.png"}},
 		render{"chat-search", "TestRenderChatSearch", []string{"CHAT_SEARCH_PNG={out}/chat-search.png"}},
 		render{"snapshot", "TestRenderSnapshotDialog", []string{"SHOT_PNG={out}/snapshot.png"}},
 		render{"saved-empty", "TestRenderEmptySavedMessages", []string{"SAVED_EMPTY_PNG={out}/saved-empty.png"}},

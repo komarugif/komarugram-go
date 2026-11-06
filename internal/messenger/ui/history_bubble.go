@@ -282,11 +282,12 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 	return dims
 }
 
-// bubblePadTop is the space over what a bubble holds, and bubblePadSide
-// beside it.
+// bubblePadTop is the space over what a bubble holds, bubblePadSide
+// beside it and bubblePadBottom under it.
 const (
-	bubblePadTop  unit.Dp = 8
-	bubblePadSide unit.Dp = 12
+	bubblePadTop    unit.Dp = 8
+	bubblePadSide   unit.Dp = 12
+	bubblePadBottom unit.Dp = 7
 )
 
 // mediaInset is the space between the edges of a bubble and a photo, a
@@ -318,7 +319,7 @@ func (p *chatPage) bubble(gtx layout.Context, r *messageRow, m model.Message, jo
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			content := func(gtx layout.Context) layout.Dimensions {
-				return layout.Inset{Top: bubblePadTop, Bottom: 7, Left: bubblePadSide, Right: bubblePadSide}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Top: bubblePadTop, Bottom: bubblePadBottom, Left: bubblePadSide, Right: bubblePadSide}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return p.bubbleBody(gtx, r, m, join, l, animate)
 				})
 			}
@@ -651,6 +652,21 @@ func (p *chatPage) bubbleBody(gtx layout.Context, r *messageRow, m model.Message
 		}
 		break
 	}
+	// Media that end the bubble carry its time on a plate in their corner,
+	// as Telegram for Android puts it, where it fits there: the tile tells
+	// (timePlate).
+	r.time = timePlate{}
+	last := -1
+	for i, part := range parts {
+		if part.kind != partSpace {
+			last = i
+		}
+	}
+	if last >= 0 && parts[last].edge && !m.Streaming {
+		macro := op.Record(gtx.Ops)
+		size := p.mediaFooter(cgtx, r, l).Size
+		r.time = timePlate{call: macro.Stop(), size: size}
+	}
 	egtx := cgtx
 	egtx.Constraints.Max.X += 2 * out
 	for i, part := range parts {
@@ -687,10 +703,13 @@ func (p *chatPage) bubbleBody(gtx layout.Context, r *messageRow, m model.Message
 		r.caption.check(laid[text].size.Y)
 		base = max(base, laid[text].size.X)
 	}
+	onMedia := r.time.drawn
 	macro := op.Record(gtx.Ops)
 	footer := p.bubbleFooter(cgtx, r, l)
 	foot := macro.Stop()
-	base = max(base, footer.Size.X)
+	if !onMedia {
+		base = max(base, footer.Size.X)
+	}
 	right, bottom, onText := r.lastLine()
 	onText = onText && r.textLast
 	if onText {
@@ -726,8 +745,11 @@ func (p *chatPage) bubbleBody(gtx layout.Context, r *messageRow, m model.Message
 		laid[reactions].size = p.placeReactions(cgtx, r, r.chips, w).Size
 		laid[reactions].call = macro.Stop()
 	}
-	y, width, textTop, chipsTop := -lift, 0, 0, 0
+	y, width, textTop, chipsTop, mediaBottom := -lift, 0, 0, 0, 0
 	for i, lp := range laid {
+		if i == last {
+			mediaBottom = y + lp.size.Y
+		}
 		switch parts[i].kind {
 		case partSpace:
 			y += lp.size.Y
@@ -744,6 +766,11 @@ func (p *chatPage) bubbleBody(gtx layout.Context, r *messageRow, m model.Message
 		stack.Pop()
 		y += lp.size.Y
 		width = max(width, lp.size.X+2*lp.x)
+	}
+	if onMedia {
+		// The media end the bubble, mediaInset from its bottom as from its
+		// sides, the time on them.
+		return layout.Dimensions{Size: image.Pt(width, mediaBottom-(gtx.Dp(bubblePadBottom)-gtx.Dp(mediaInset)))}
 	}
 	width = max(width, footer.Size.X)
 	at := image.Pt(0, y+gtx.Dp(footerSpace))
@@ -766,6 +793,30 @@ func (p *chatPage) bubbleBody(gtx layout.Context, r *messageRow, m model.Message
 	foot.Add(gtx.Ops)
 	stack.Pop()
 	return layout.Dimensions{Size: image.Pt(width, height)}
+}
+
+// timePlate is the time of a message on a plate, for the tile of media
+// that end its bubble to draw in its corner: recorded by the bubble, and
+// drawn, when the tile has room for it, by mediaTile, which sets drawn.
+type timePlate struct {
+	call  op.CallOp
+	size  image.Point
+	drawn bool
+}
+
+// mediaFooter is the line of the time of the message r shows on a plate,
+// as on media: the footer's, in the colors of the plates over pictures.
+func (p *chatPage) mediaFooter(gtx layout.Context, r *messageRow, l localization.Catalog) layout.Dimensions {
+	msg := &r.shown
+	sc := scheme(gtx)
+	macro := op.Record(gtx.Ops)
+	dims := layout.Inset{Top: 2, Bottom: 2, Left: 7, Right: 7}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return messageFooterIn(gtx, *msg, l, !p.showsComments(*msg), p.sendState(gtx, *msg), sc.InverseSurface.OnColor)
+	})
+	call := macro.Stop()
+	fillRounded(gtx, sc.InverseSurface.Color.SetOpacity(0.55), dims.Size, dims.Size.Y/2)
+	call.Add(gtx.Ops)
+	return dims
 }
 
 // bubbleFooter is the line of the time of the message r shows, which it

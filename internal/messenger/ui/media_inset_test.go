@@ -39,6 +39,8 @@ func drawHistory(t *testing.T, h *menuHarness, size image.Point) *image.RGBA {
 	ops := new(op.Ops)
 	gtx := layout.Context{Ops: ops, Now: h.now, Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
 	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	// What fades is drawn as it ends.
+	wdk.SetAnimationsEnabled(gtx, false)
 	h.page.Layout(gtx, model.Chat{ID: 1, Title: "Chat", Kind: model.KindGroup}, localization.For("en"), false)
 	if err := win.Frame(ops); err != nil {
 		t.Fatal(err)
@@ -72,9 +74,21 @@ func TestMediaInsetInBubble(t *testing.T) {
 	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
 	sc := scheme(gtx)
 	tile, bubble := sc.SurfaceContainerHigh.AsNRGBA(), sc.Surface.Color.AsNRGBA()
-	// The tile's bounds: the longest run of its color across, over the
-	// composer, which is of its color too, then down and up from it, off
-	// the play button in its middle.
+	box := findTile(img, tile)
+	if box.Dx() < 150 || box.Dy() < 300 {
+		t.Fatalf("no tile found: %v", box)
+	}
+	if box.Dx() > 210 {
+		t.Fatalf("the tile is %v: more than the video", box)
+	}
+	checkInsets(t, img, box, tile, bubble)
+}
+
+// findTile is the bounds of the widest tile of color in img: the longest
+// run of its color across, over the composer, which is of its color too,
+// then down and up from it, off the play button in its middle.
+func findTile(img *image.RGBA, tile color.NRGBA) image.Rectangle {
+	size := img.Bounds().Size()
 	var box image.Rectangle
 	for y := range size.Y - 120 {
 		for x := 0; x < size.X; {
@@ -92,21 +106,32 @@ func TestMediaInsetInBubble(t *testing.T) {
 			x = end
 		}
 	}
-	if !box.Empty() {
-		col := box.Min.X + 10
-		for box.Min.Y > 0 && near(img.RGBAAt(col, box.Min.Y-1), tile) {
-			box.Min.Y--
+	if box.Empty() {
+		return box
+	}
+	// Up and down the middle, past the play button and the plates at the
+	// bottom's corners, to the last of the tile's color.
+	col, row := box.Min.X+box.Dx()/2, box.Min.Y
+	extend := func(dir int) int {
+		last := row
+		for y, gap := row+dir, 0; y >= 0 && y < size.Y && gap < 50; y += dir {
+			if near(img.RGBAAt(col, y), tile) {
+				last, gap = y, 0
+			} else {
+				gap++
+			}
 		}
-		for box.Max.Y < size.Y && near(img.RGBAAt(col, box.Max.Y), tile) {
-			box.Max.Y++
-		}
+		return last
 	}
-	if box.Dx() < 150 || box.Dy() < 300 {
-		t.Fatalf("no tile found: %v", box)
-	}
-	if box.Dx() > 210 {
-		t.Fatalf("the tile is %v: more than the video", box)
-	}
+	box.Min.Y, box.Max.Y = extend(-1), extend(1)+1
+	return box
+}
+
+// checkInsets checks that the bubble is 3 px on each side of the tile in
+// box, and over it, and that the caption under it keeps 12 px.
+func checkInsets(t *testing.T, img *image.RGBA, box image.Rectangle, tile, bubble color.NRGBA) {
+	t.Helper()
+	size := img.Bounds().Size()
 	// run counts the bubble's pixels past (x, y), the tile's own, by step,
 	// to the bubble's edge.
 	run := func(x, y, dx, dy int) int {

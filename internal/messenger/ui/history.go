@@ -87,7 +87,11 @@ type messageRow struct {
 	caption captionFit
 	// corners are the top corners of the row's tile, where it is at the
 	// top of its bubble.
-	corners    tileCorners
+	corners tileCorners
+	// time is the plate of the time the bubble asks the row's tile to draw
+	// in its corner, and timeFade how much of it shows.
+	time       timePlate
+	timeFade   wdk.FloatTween
 	chipWidths []int
 	lastChips  image.Rectangle
 	// comments is the bar that opens a channel post's comments.

@@ -110,8 +110,10 @@ const gifBarHeight = 18
 
 // layout draws the controls over a GIF of size, playing at position of
 // long or paused, the pointer over it while hovered, and takes the
-// presses on it.
-func (c *gifControls) layout(gtx layout.Context, size image.Point, paused, hovered bool, position, long time.Duration) {
+// presses on it. Its time keeps off reserve px at the bottom right, the
+// plate of the message's time there: in the top corner when the two do not
+// go side by side. lift is how far the bar lifts what is over the bottom.
+func (c *gifControls) layout(gtx layout.Context, size image.Point, paused, hovered bool, position, long time.Duration, reserve int) (lift int) {
 	event.Op(gtx.Ops, c)
 	white := token.NewMatColorFromHexRGB(0xffffff)
 	if paused {
@@ -130,7 +132,7 @@ func (c *gifControls) layout(gtx layout.Context, size image.Point, paused, hover
 	}
 	if long <= 0 {
 		c.over, c.seeking = false, false
-		return
+		return 0
 	}
 	inset := gtx.Dp(8)
 	strip := gtx.Dp(gifBarHeight)
@@ -152,24 +154,28 @@ func (c *gifControls) layout(gtx layout.Context, size image.Point, paused, hover
 	c.time.Duration, c.track.Duration = token.DurationShort2, token.DurationShort2
 	timeShown := c.time.Animate(gtx, boolFloat(hovered || c.seeking))
 	trackShown := c.track.Animate(gtx, boolFloat(c.over || c.seeking))
+	// Over the bar while it shows.
+	lift = int(trackShown * float32(gtx.Dp(6)))
 	if timeShown > 0 {
 		// The time on a plate in the corner, as a video message's: where
 		// it plays, or would go.
 		macro := op.Record(gtx.Ops)
 		plate := mediaPlate(gtx, playTime(shown))
 		call := macro.Stop()
-		// Over the bar while it shows.
-		lift := int(trackShown * float32(gtx.Dp(6)))
+		y := max(0, size.Y-inset-lift-plate.Size.Y)
+		if reserve > 0 && 2*inset+plate.Size.X+gtx.Dp(mediaPlateGap)+reserve > size.X {
+			y = inset
+		}
 		func() {
 			defer paint.PushOpacity(gtx.Ops, timeShown).Pop()
-			offset(gtx, image.Pt(inset, max(0, size.Y-inset-lift-plate.Size.Y)), func(gtx layout.Context) layout.Dimensions {
+			offset(gtx, image.Pt(inset, y), func(gtx layout.Context) layout.Dimensions {
 				call.Add(gtx.Ops)
 				return plate
 			})
 		}()
 	}
 	if trackShown <= 0 {
-		return
+		return lift
 	}
 	defer paint.PushOpacity(gtx.Ops, trackShown).Pop()
 	offset(gtx, bar.Min, func(gtx layout.Context) layout.Dimensions {
@@ -186,6 +192,7 @@ func (c *gifControls) layout(gtx layout.Context, size image.Point, paused, hover
 		paint.FillShape(gtx.Ops, color.NRGBA{R: 255, G: 255, B: 255, A: 255}, clip.Ellipse{Min: center.Sub(image.Pt(d/2, d/2)), Max: center.Add(image.Pt(d/2, d/2))}.Op(gtx.Ops))
 		return layout.Dimensions{Size: bar.Size()}
 	})
+	return lift
 }
 
 // boolFloat is 1 for true and 0 for false.
