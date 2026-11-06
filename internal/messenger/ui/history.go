@@ -42,9 +42,10 @@ type messageRow struct {
 	// shown is the message as the row was drawn last, which what draws it
 	// reads in its closures instead of capturing a copy of its own.
 	shown model.Message
-	// children is what bubbleContent made of the row last, kept to be filled
-	// again.
-	children []layout.FlexChild
+	// parts is what bubbleContent made of the row last, and laid where
+	// bubbleBody laid them out, kept to be filled again.
+	parts []bubblePart
+	laid  []laidPart
 	// mediaTold is the failure to load the row's media told in the toast
 	// last, so that a failure is told once, not on every frame.
 	mediaTold error
@@ -77,6 +78,15 @@ type messageRow struct {
 	// shownReactions are the message's reactions in the order of the
 	// chips.
 	shownReactions []model.Reaction
+	// chips are the reactions' chips measured in this frame, and
+	// chipWidths their widths, for the bubble to choose where they wrap;
+	// lastChips is the row of chips placed last, in the reactions'
+	// coordinates, which the time may go on.
+	chips      []reactionChip
+	// caption is the width the text wraps at under narrower media.
+	caption captionFit
+	chipWidths []int
+	lastChips  image.Rectangle
 	// comments is the bar that opens a channel post's comments.
 	comments surface
 	// reply is the quote of the message replied to, which shows it.

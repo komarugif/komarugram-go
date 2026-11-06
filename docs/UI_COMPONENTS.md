@@ -122,15 +122,35 @@ The history is drawn as materialgram draws it:
 - `replyQuote` is the quote of a replied message, which jumps to it;
   `messageFooter` has the comments, views, author, edit mark and time;
   `reactions` wraps reaction chips.
+- `bubbleContent` lists what a bubble holds as `bubblePart`s, and
+  `bubbleBody` lays them out itself, not in a `layout.Flex`: what takes
+  its own width first, then the quote of the reply and the reactions,
+  which fit around it.
 - `bubbleBody` puts the footer at the bubble's bottom right: on the
   text's last line when it fits there 10 dp after the text (`footerGap`),
+  or in the middle of the reactions' last row when they end the bubble
+  and it fits there (Telegram Desktop's `InlineList::updateSkipBlock`),
   the bubble widening for it up to its width, as Telegram Desktop's skip
   block and Telegram for Android do; on a line of its own otherwise, and
-  under media, a link preview, reactions, a quote or code that ends the
-  text, a last line that does not start at the left (right to left), and
-  a bot's text while it streams. The footer's own width decides, so the
-  seconds and the edit mark move it off the line sooner.
-  `TestTimeOnLastLine`.
+  under media, a link preview, a quote or code that ends the text, a last
+  line that does not start at the left (right to left), and a bot's text
+  while it streams. The footer's own width decides, so the seconds and the
+  edit mark move it off the line sooner. `TestTimeOnLastLine`,
+  `TestTimeOnReactionsRow`.
+- What would make a bubble much wider than the rest of what it holds
+  wraps. `captionWidth` wraps a text under media narrower than it (a
+  tall video) at the narrowest width that keeps its lines, or, where a
+  line more saves 64 dp and a quarter of it, on a line more, not narrower
+  than `minCaptionWidth`; measured with `textFlow` once and kept in the
+  row (`captionFit`). `reactionFit` chooses where the reactions wrap, the narrowest
+  bubble of no more height (the rows come out even), or a row more when
+  that saves at least 64 dp and a quarter of the width and the rows keep
+  three chips each on average (`minChipsPerRow`); Telegram Desktop wraps
+  them at the widest a bubble may be. `replyLines` puts the text of a
+  quote on two lines, about half as wide, where that saves 48 dp and an
+  eighth of the width, the second cut with an ellipsis (`richLabel.flat`).
+  `BUBBLE_FIT_PNG` renders them, with a post as
+  https://t.me/uxfromhell/12666 is (`postLikeChannel`).
 - Channel posts have no avatar; groups, channels and bots have an icon of
   their kind before the title in the chat list (`chatKindIcon`).
 
@@ -882,7 +902,7 @@ new piece sits next to its neighbours.
   and emoji pack states; `TestRenderMessageMenu`, the message menu over a
   reply, with a floating and a classic composer. They are skipped unless their
   variable (`COMPOSER_PNG`, `COMPOSER_MOTION_PNG`, `SETTINGS_PNG`,
-  `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `POLL_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `COMMUNITY_PNG`, `CHAT_PREVIEW_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
+  `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `POLL_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `BUBBLE_FIT_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `COMMUNITY_PNG`, `CHAT_PREVIEW_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
   first dialog exists. `COMPOSER_VIEW=emoji-search`, the picker's emoji found for a word;
   `COMPOSER_VIEW=featured-stickers` or `featured-emoji`
   with `COMPOSER_PNG` shows the picker's recommendations; `COMPOSER_VIEW=voice`,

@@ -329,10 +329,51 @@ func (p *chatPage) bubble(gtx layout.Context, r *messageRow, m model.Message, jo
 	)
 }
 
+// bubblePartKind is what a part of a bubble is, for bubbleBody to place it.
+type bubblePartKind uint8
+
+const (
+	// partWidget is drawn by its widget, as it would be alone.
+	partWidget bubblePartKind = iota
+	// partMedia is a photo, a video, an album or a file, drawn by its
+	// widget; a text under one narrower than it wraps to keep the bubble
+	// narrow (captionWidth).
+	partMedia
+	// partSpace is a gap of its space.
+	partSpace
+	// partText is the message's text, whose last line the time may go on.
+	partText
+	// partArticle is a rich message's article; what is over it is measured,
+	// for links to its anchors.
+	partArticle
+	// partReply is the quote of the message replied to, which takes two
+	// lines where one would make the bubble much wider than the rest.
+	partReply
+	// partReactions are the reactions, wrapped to keep the bubble narrow,
+	// with the time on their last row when it fits there.
+	partReactions
+)
+
+// bubblePart is one of what a bubble holds, top to bottom.
+type bubblePart struct {
+	kind   bubblePartKind
+	space  unit.Dp
+	widget layout.Widget
+}
+
+// laidPart is a part of a bubble laid out, to be drawn where it goes.
+type laidPart struct {
+	call op.CallOp
+	size image.Point
+}
+
+func bubbleWidget(w layout.Widget) bubblePart { return bubblePart{widget: w} }
+func bubbleGap(dp unit.Dp) bubblePart         { return bubblePart{kind: partSpace, space: dp} }
+
 // bubbleContent is what a bubble holds, top to bottom: the sender, where a
-// forward came from, the message replied to, media, the text, buttons,
-// reactions and the line of its time.
-func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Message, join bubbleJoin, l localization.Catalog, animate bool) []layout.FlexChild {
+// forward came from, the message replied to, media, the text, buttons and
+// reactions; bubbleBody adds the line of its time.
+func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Message, join bubbleJoin, l localization.Catalog, animate bool) []bubblePart {
 	// The closures below, kept in what this returns, read the message from
 	// the row: captured, m itself would be moved to the heap, 480 bytes for
 	// each message drawn in each frame.
@@ -341,57 +382,49 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 	sc := scheme(gtx)
 	// The row keeps what it held last, for this frame to fill again: grown
 	// from nothing, the list was made anew in each frame.
-	children := r.children[:0]
-	defer func() { r.children = children[:0] }()
+	parts := r.parts[:0]
+	defer func() { r.parts = parts[:0] }()
 	// As Telegram Desktop's Message::hasFromName: a chat with one person,
 	// a bot or Saved Messages names no sender over a message, whatever
 	// Telegram told of it; where a forward came from says the rest.
 	private := p.kind == model.KindUser || p.kind == model.KindBot || p.kind == model.KindSaved
 	if msg.SenderName != "" && !msg.Outgoing && !private && join&joinAbove == 0 {
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		parts = append(parts, bubbleWidget(func(gtx layout.Context) layout.Dimensions {
 			return p.layoutSenderName(gtx, msg)
-		}), vspace(3))
+		}), bubbleGap(3))
 	}
 	if msg.StoryOf != nil && !msg.StoryOf.Mention {
 		// Whose story it is, as Telegram Desktop heads one: it drops the
 		// forward's own.
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		parts = append(parts, bubbleWidget(func(gtx layout.Context) layout.Dimensions {
 			text := l.Format("history.story_from", map[string]string{"user": msg.StoryOf.From})
 			return label(gtx, text, token.TypestyleLabelMedium, sc.Primary.Color, 1)
-		}), vspace(4))
+		}), bubbleGap(4))
 	} else if !msg.ForwardDate.IsZero() {
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		parts = append(parts, bubbleWidget(func(gtx layout.Context) layout.Dimensions {
 			return p.forwardLine(gtx, r, *msg, l)
-		}), vspace(4))
+		}), bubbleGap(4))
 	}
 	// In a thread, as the comments to a post, what replies to its root
 	// quotes nothing, as in Telegram Desktop: all of it does.
 	if msg.ReplyToMessageID != 0 && msg.ReplyToMessageID != p.threadRoot || msg.ReplyToStory != nil {
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return p.replyQuote(gtx, r, *msg, l)
-		}), vspace(6))
+		parts = append(parts, bubblePart{kind: partReply}, bubbleGap(6))
 	}
 	if len(msg.Attachments) > 1 {
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.albumLayout(gtx, r, *msg, l, animate) }), vspace(6))
+		parts = append(parts, bubblePart{kind: partMedia, widget: func(gtx layout.Context) layout.Dimensions { return p.albumLayout(gtx, r, *msg, l, animate) }}, bubbleGap(6))
 	} else if msg.Media != nil {
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.mediaLayout(gtx, r, *msg, l, animate) }), vspace(6))
+		parts = append(parts, bubblePart{kind: partMedia, widget: func(gtx layout.Context) layout.Dimensions { return p.mediaLayout(gtx, r, *msg, l, animate) }}, bubbleGap(6))
 	}
 	if msg.Poll != nil {
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.pollLayout(gtx, msg, l) }))
+		parts = append(parts, bubbleWidget(func(gtx layout.Context) layout.Dimensions { return p.pollLayout(gtx, msg, l) }))
 	}
 	if msg.Todo != nil {
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.todoLayout(gtx, msg, l) }))
+		parts = append(parts, bubbleWidget(func(gtx layout.Context) layout.Dimensions { return p.todoLayout(gtx, msg, l) }))
 	}
 	if r.article != nil {
-		// What is over the article is measured, for links to its anchors.
-		above := children
-		children = []layout.FlexChild{layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx, above...)
-			r.articleAbove = dims.Size.Y
-			return dims
-		}), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.articleLayout(gtx, r, *msg, l, animate) })}
+		parts = append(parts, bubblePart{kind: partArticle, widget: func(gtx layout.Context) layout.Dimensions { return p.articleLayout(gtx, r, *msg, l, animate) }})
 		if r.article.part && p.openArticle != nil {
-			children = append(children, vspace(6), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.showMore(gtx, r, *msg, l) }))
+			parts = append(parts, bubbleGap(6), bubbleWidget(func(gtx layout.Context) layout.Dimensions { return p.showMore(gtx, r, *msg, l) }))
 		}
 	} else if len(msg.Attachments) > 1 {
 		seen := map[string]bool{}
@@ -399,19 +432,19 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 			if member.Text != "" && !seen[member.Text] {
 				seen[member.Text] = true
 				member := member
-				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				parts = append(parts, bubbleWidget(func(gtx layout.Context) layout.Dimensions {
 					child := albumRow(gtx, r, member, l)
 					p.refreshStamps(gtx, child, member, l)
 					return p.richText(gtx, child, l, animate)
-				}), vspace(4))
+				}), bubbleGap(4))
 			}
 		}
 	} else if msg.Text != "" {
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.richText(gtx, r, l, animate) }))
+		parts = append(parts, bubblePart{kind: partText, widget: func(gtx layout.Context) layout.Dimensions { return p.richText(gtx, r, l, animate) }})
 		// The time may go on its last line; not while a bot streams it.
 		r.textLast = !msg.Streaming
 	} else if msg.Media == nil && msg.Poll == nil && msg.Todo == nil {
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		parts = append(parts, bubbleWidget(func(gtx layout.Context) layout.Dimensions {
 			if msg.Kind == model.MessageService {
 				return label(gtx, p.serviceText(*msg, l), token.TypestyleBodyMedium, sc.Surface.OnColor, 0)
 			}
@@ -433,52 +466,246 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 	}
 	if msg.WebPage != nil && msg.Rich == nil {
 		r.textLast = false
-		children = append(children, vspace(6), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.webPreview(gtx, r, *msg, l, animate) }))
+		parts = append(parts, bubbleGap(6), bubbleWidget(func(gtx layout.Context) layout.Dimensions { return p.webPreview(gtx, r, *msg, l, animate) }))
 	}
 	if len(msg.Reactions) > 0 {
 		r.textLast = false
-		children = append(children, vspace(8), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return p.reactions(gtx, r, *msg, animate)
-		}))
+		parts = append(parts, bubbleGap(8), bubblePart{kind: partReactions})
 	}
-	return children
+	return parts
 }
+
+// captionFit is the width a caption under media wraps at, as captionWidth
+// found it, for the text, the width and the scale it was found for.
+type captionFit struct {
+	revision uint64
+	most     int
+	least    int
+	metric   unit.Metric
+	width    int
+	// height is how high the text is at width: a text laid out higher, as
+	// in another font, is measured again.
+	height int
+}
+
+// check forgets the width when the text, laid out at it, is not as high as
+// it was measured: it is found again in the next frame.
+func (c *captionFit) check(height int) {
+	if c.width > 0 && height != c.height {
+		*c = captionFit{}
+	}
+}
+
+// captionWidth is the width the text of r, under media least wide, wraps
+// at: the narrowest, but not narrower than the media, that keeps it on as
+// many lines as the whole width does, so that a caption of two lines under
+// a narrow video leaves no half of the bubble empty beside the video; or,
+// where a line more saves a good deal of the width, as for the reactions
+// (reactionFit), the narrowest on a line more, but not narrower than
+// minCaptionWidth. A text of quotes or code keeps the whole width. It is
+// measured once, with the layout of the text, and kept in the row.
+func (p *chatPage) captionWidth(gtx layout.Context, r *messageRow, l localization.Catalog, animate bool, least int) int {
+	most := gtx.Constraints.Max.X
+	c := &r.caption
+	if c.width > 0 && c.revision == r.revision && c.most == most && c.least == least && c.metric == gtx.Metric {
+		return c.width
+	}
+	r.prepareTextBlocks()
+	for _, b := range r.textBlocks {
+		if r.runs[b.first].Block != 0 {
+			return most
+		}
+	}
+	line := 0
+	height := func(w int) int {
+		mgtx := gtx
+		mgtx.Constraints = layout.Constraints{Max: image.Pt(w, gtx.Constraints.Max.Y)}
+		keep := len(r.text.fragments)
+		macro := op.Record(gtx.Ops)
+		h := 0
+		for i := range r.textBlocks {
+			b := &r.textBlocks[i]
+			if b.end-b.first == 1 && r.runs[b.first].Text == "\n" && (b.trimStart || b.trimEnd) {
+				continue
+			}
+			if h > 0 {
+				h += gtx.Dp(6)
+			}
+			h += p.textFlow(mgtx, r, b, image.Pt(0, h), animate).Size.Y
+		}
+		macro.Stop()
+		for _, f := range r.text.fragments[keep:] {
+			line = max(line, f.Line.Dy())
+		}
+		r.text.fragments = r.text.fragments[:keep]
+		return h
+	}
+	// narrowest is the narrowest width from floor on, to a few pixels,
+	// where the text is no higher than limit.
+	narrowest := func(floor, limit int) int {
+		lo, hi := min(floor, most), most
+		if height(lo) <= limit {
+			return lo
+		}
+		for hi-lo > gtx.Dp(4) {
+			mid := (lo + hi) / 2
+			if height(mid) <= limit {
+				hi = mid
+			} else {
+				lo = mid
+			}
+		}
+		return hi
+	}
+	full := height(most)
+	width := narrowest(least, full)
+	if more := narrowest(max(least, gtx.Dp(minCaptionWidth)), full+line); more <= width-max(gtx.Dp(64), width/4) {
+		width = more
+	}
+	*c = captionFit{revision: r.revision, most: most, least: least, metric: gtx.Metric, width: width, height: height(width)}
+	return width
+}
+
+// minCaptionWidth is the narrowest a caption takes a line more to be.
+const minCaptionWidth unit.Dp = 200
 
 // footerGap is the least space between the end of a text's last line and
 // the time beside it, Telegram Desktop's msgDateSpace less msgDateDelta.x.
 const footerGap unit.Dp = 10
 
+// footerSpace is the space over the time on a line of its own.
+const footerSpace unit.Dp = 4
+
 // bubbleBody lays out what a bubble holds, and its time at the bottom
-// right: on the text's last line when it fits there with footerGap before
-// it, the bubble widening for it as far as it may, as Telegram Desktop and
-// Telegram for Android place it (lib_ui's skip block); on a line of its
+// right: on the text's last line, or the last row of the reactions, when
+// it fits there with footerGap before it, the bubble widening for it as far
+// as it may, as Telegram Desktop and Telegram for Android place it (lib_ui's
+// skip block, the reactions' InlineList::updateSkipBlock); on a line of its
 // own otherwise. What the time says, the seconds and the edited mark
 // included, sets its width.
+//
+// What would make the bubble much wider than the rest of what it holds
+// wraps to keep it narrow: a caption under narrower media as narrow as it
+// keeps its lines, the reactions onto more rows, the quote of the message
+// replied to onto two lines.
 func (p *chatPage) bubbleBody(gtx layout.Context, r *messageRow, m model.Message, join bubbleJoin, l localization.Catalog, animate bool) layout.Dimensions {
 	r.textLast = false
-	children := p.bubbleContent(gtx, r, m, join, l, animate)
+	parts := p.bubbleContent(gtx, r, m, join, l, animate)
+	most := gtx.Constraints.Max.X
+	cgtx := gtx
+	cgtx.Constraints.Min = image.Point{}
+	// What takes its own width is laid out first; a caption, the reply and
+	// the reactions then fit around it.
+	laid := r.laid[:0]
+	defer func() { r.laid = laid[:0] }()
+	base, text, reply, reactions := 0, -1, -1, -1
+	media := false
+	for _, part := range parts {
+		media = media || part.kind == partMedia
+	}
+	for i, part := range parts {
+		var lp laidPart
+		switch {
+		case part.kind == partSpace:
+			lp.size.Y = gtx.Dp(part.space)
+		case part.kind == partReply:
+			reply = i
+		case part.kind == partReactions:
+			reactions = i
+		case part.kind == partText && media:
+			text = i
+		default:
+			macro := op.Record(gtx.Ops)
+			lp.size = part.widget(cgtx).Size
+			lp.call = macro.Stop()
+			base = max(base, lp.size.X)
+		}
+		laid = append(laid, lp)
+	}
+	if text >= 0 {
+		tgtx := cgtx
+		tgtx.Constraints.Max.X = p.captionWidth(cgtx, r, l, animate, base)
+		macro := op.Record(gtx.Ops)
+		laid[text].size = parts[text].widget(tgtx).Size
+		laid[text].call = macro.Stop()
+		r.caption.check(laid[text].size.Y)
+		base = max(base, laid[text].size.X)
+	}
 	macro := op.Record(gtx.Ops)
-	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
-	body := macro.Stop()
-	footerGtx := gtx
-	footerGtx.Constraints.Min = image.Point{}
-	macro = op.Record(gtx.Ops)
-	footer := p.bubbleFooter(footerGtx, r, l)
+	footer := p.bubbleFooter(cgtx, r, l)
 	foot := macro.Stop()
-	width := max(dims.Size.X, footer.Size.X)
-	at := image.Pt(0, dims.Size.Y+gtx.Dp(4))
-	height := at.Y + footer.Size.Y
-	if right, bottom, ok := r.lastLine(); ok && r.textLast {
-		if inline := right + gtx.Dp(footerGap) + footer.Size.X; inline <= gtx.Constraints.Max.X {
-			// The text is the last of what the bubble holds.
-			top := dims.Size.Y - r.text.size.Y
-			width = max(dims.Size.X, inline)
-			at.Y = top + bottom - footer.Size.Y
-			height = dims.Size.Y
+	base = max(base, footer.Size.X)
+	right, bottom, onText := r.lastLine()
+	onText = onText && r.textLast
+	if onText {
+		if end := right + gtx.Dp(footerGap) + footer.Size.X; end <= most {
+			base = max(base, end)
+		} else {
+			onText = false
 		}
 	}
+	var fit reactionFit
+	if reactions >= 0 {
+		chips := p.measureReactions(cgtx, r, m, animate)
+		fit = newReactionFit(gtx, r, chips, base, most, footer.Size)
+	}
+	if reply >= 0 {
+		// The reply wraps to the width the reactions keep the bubble at,
+		// when they keep it wider than the rest.
+		within := base
+		if reactions >= 0 {
+			_, within, _ = fit.at(fit.choose())
+		}
+		macro := op.Record(gtx.Ops)
+		laid[reply].size = p.replyQuote(cgtx, r, m, l, within).Size
+		laid[reply].call = macro.Stop()
+		base = max(base, laid[reply].size.X)
+	}
+	onChips := false
+	if reactions >= 0 {
+		fit.base = base
+		w := fit.choose()
+		_, _, onChips = fit.at(w)
+		macro := op.Record(gtx.Ops)
+		laid[reactions].size = p.placeReactions(cgtx, r, r.chips, w).Size
+		laid[reactions].call = macro.Stop()
+	}
+	y, width, textTop, chipsTop := 0, 0, 0, 0
+	for i, lp := range laid {
+		switch parts[i].kind {
+		case partSpace:
+			y += lp.size.Y
+			continue
+		case partText:
+			textTop = y
+		case partArticle:
+			r.articleAbove = y
+		case partReactions:
+			chipsTop = y
+		}
+		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
+		lp.call.Add(gtx.Ops)
+		stack.Pop()
+		y += lp.size.Y
+		width = max(width, lp.size.X)
+	}
+	width = max(width, footer.Size.X)
+	at := image.Pt(0, y+gtx.Dp(footerSpace))
+	height := at.Y + footer.Size.Y
+	switch {
+	case onText:
+		// The text is the last of what the bubble holds.
+		width = max(width, right+gtx.Dp(footerGap)+footer.Size.X)
+		at.Y = textTop + bottom - footer.Size.Y
+		height = y
+	case onChips:
+		// The reactions are: the time is in the middle of their last row.
+		row := r.lastChips
+		width = max(width, row.Max.X+gtx.Dp(footerGap)+footer.Size.X)
+		at.Y = chipsTop + row.Min.Y + (row.Dy()-footer.Size.Y)/2
+		height = y
+	}
 	at.X = width - footer.Size.X
-	body.Add(gtx.Ops)
 	stack := op.Offset(at).Push(gtx.Ops)
 	foot.Add(gtx.Ops)
 	stack.Pop()
@@ -624,6 +851,23 @@ func shortCount(n int) string {
 // click on a chip chooses the reaction or takes it back, as in Telegram
 // Desktop; the paid one is left to clients that pay.
 func (p *chatPage) reactions(gtx layout.Context, r *messageRow, m model.Message, animate bool) layout.Dimensions {
+	chips := p.measureReactions(gtx, r, m, animate)
+	return p.placeReactions(gtx, r, chips, gtx.Constraints.Max.X)
+}
+
+// reactionChip is the chip of a reaction laid out, before it is placed.
+type reactionChip struct {
+	call                op.CallOp
+	size                image.Point
+	background, content token.MatColor
+	// still is set for a chip that takes no clicks: the paid reaction's,
+	// or any where the account cannot react.
+	still bool
+}
+
+// measureReactions lays out the chips of the reactions to m, which the row
+// keeps, and chooses or takes back the reaction of one clicked.
+func (p *chatPage) measureReactions(gtx layout.Context, r *messageRow, m model.Message, animate bool) []reactionChip {
 	var rank func(model.Reaction) (int, bool)
 	if orderer, ok := p.source.(model.ReactionOrderer); ok {
 		rank = orderer.ReactionRank
@@ -631,23 +875,20 @@ func (p *chatPage) reactions(gtx layout.Context, r *messageRow, m model.Message,
 	r.shownReactions = model.ShownReactions(r.shownReactions, m.Reactions, rank)
 	reactions := r.shownReactions
 	sc := scheme(gtx)
-	maxWidth := gtx.Constraints.Max.X
-	gap := gtx.Dp(6)
-	x, y, lineHeight, width := 0, 0, 0, 0
 	for len(r.reactions) < len(reactions) {
 		r.reactions = append(r.reactions, surface{})
 	}
 	reactor, canReact := p.source.(model.Reactor)
 	canReact = canReact && p.canReact(m)
+	chips := r.chips[:0]
 	for i, reaction := range reactions {
-		chip := &r.reactions[i]
-		if chip.Clicked(gtx) && canReact && !reaction.Paid {
+		if r.reactions[i].Clicked(gtx) && canReact && !reaction.Paid {
 			reactor.ToggleReaction(m, reaction, p.reportMedia)
 		}
 		background, content := reactionChipColors(sc, reaction.Chosen, m.Outgoing)
 		macro := op.Record(gtx.Ops)
 		cgtx := gtx
-		cgtx.Constraints = layout.Constraints{Max: image.Pt(maxWidth, gtx.Dp(40))}
+		cgtx.Constraints = layout.Constraints{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(40))}
 		dims := layout.Inset{Top: 4, Bottom: 4, Left: 8, Right: 10}.Layout(cgtx, func(gtx layout.Context) layout.Dimensions {
 			// An emoji of the fonts sits on the count's baseline, which puts
 			// its middle at the digits', as in Telegram Desktop; a picture
@@ -666,28 +907,174 @@ func (p *chatPage) reactions(gtx layout.Context, r *messageRow, m model.Message,
 				}),
 			)
 		})
-		call := macro.Stop()
-		if x > 0 && x+dims.Size.X > maxWidth {
+		chips = append(chips, reactionChip{call: macro.Stop(), size: dims.Size, background: background, content: content, still: !canReact || reaction.Paid})
+	}
+	r.chips = chips
+	return chips
+}
+
+// reactionGap is the space between reaction chips, across and down.
+const reactionGap unit.Dp = 6
+
+// placeReactions draws chips in rows width wide, a chip that would go
+// past the end starting the next, and keeps the last row in the row.
+func (p *chatPage) placeReactions(gtx layout.Context, r *messageRow, chips []reactionChip, width int) layout.Dimensions {
+	gap := gtx.Dp(reactionGap)
+	x, y, lineHeight, widest := 0, 0, 0, 0
+	for i, c := range chips {
+		if x > 0 && x+c.size.X > width {
 			x, y = 0, y+lineHeight+gap
 			lineHeight = 0
 		}
+		chip := &r.reactions[i]
 		offset(gtx, image.Pt(x, y), func(gtx layout.Context) layout.Dimensions {
-			if !canReact || reaction.Paid {
-				fillRounded(gtx, background, dims.Size, dims.Size.Y/2)
-				call.Add(gtx.Ops)
-				return dims
+			if c.still {
+				fillRounded(gtx, c.background, c.size, c.size.Y/2)
+				c.call.Add(gtx.Ops)
+				return layout.Dimensions{Size: c.size}
 			}
-			style := surfaceStyle{radius: dims.Size.Y / 2, background: background, content: content}
-			return chip.Layout(gtx, dims.Size, style, func(gtx layout.Context) layout.Dimensions {
-				call.Add(gtx.Ops)
-				return dims
+			style := surfaceStyle{radius: c.size.Y / 2, background: c.background, content: c.content}
+			return chip.Layout(gtx, c.size, style, func(gtx layout.Context) layout.Dimensions {
+				c.call.Add(gtx.Ops)
+				return layout.Dimensions{Size: c.size}
 			})
 		})
-		x += dims.Size.X + gap
-		width = max(width, x-gap)
-		lineHeight = max(lineHeight, dims.Size.Y)
+		x += c.size.X
+		widest = max(widest, x)
+		lineHeight = max(lineHeight, c.size.Y)
+		r.lastChips = image.Rect(0, y, x, y+lineHeight)
+		x += gap
 	}
-	return layout.Dimensions{Size: image.Pt(width, y+lineHeight)}
+	return layout.Dimensions{Size: image.Pt(widest, y+lineHeight)}
+}
+
+// reactionRows wraps chips of widths into rows w wide, gap apart, as
+// placeReactions does, and tells how many rows they take, how wide the
+// widest is and where the last ends.
+func reactionRows(widths []int, gap, w int) (rows, widest, last int) {
+	x := 0
+	rows = 1
+	for _, cw := range widths {
+		if x > 0 && x+cw > w {
+			rows++
+			x = 0
+		}
+		x += cw
+		widest = max(widest, x)
+		last = x
+		x += gap
+	}
+	return rows, widest, last
+}
+
+// reactionFit chooses the width a bubble's reactions wrap at, from the
+// widths of their chips, the width of the rest of what the bubble holds and
+// the time's. Telegram Desktop wraps them at the widest a bubble may be;
+// here they wrap where the bubble is narrowest without growing taller, so
+// that the rows come out even, and, where the chips alone would make it
+// much wider than the rest, onto a row more.
+type reactionFit struct {
+	widths []int
+	// gap is between the chips, row the height of a row of them.
+	gap, row int
+	// base is how wide the rest of the bubble is, most the widest it may be.
+	base, most int
+	foot       image.Point
+	// footGap is the space before the time beside the chips; footSpace, over
+	// one on a line of its own.
+	footGap, footSpace int
+	// worth is the least width a row more must save.
+	worth int
+}
+
+// minChipsPerRow is the fewest chips a row has on average where the
+// reactions take a row more to keep a bubble narrow.
+const minChipsPerRow = 3
+
+func newReactionFit(gtx layout.Context, r *messageRow, chips []reactionChip, base, most int, foot image.Point) reactionFit {
+	widths := r.chipWidths[:0]
+	row := 0
+	for _, c := range chips {
+		widths = append(widths, c.size.X)
+		row = max(row, c.size.Y)
+	}
+	r.chipWidths = widths
+	return reactionFit{widths: widths, gap: gtx.Dp(reactionGap), row: row, base: base, most: most, foot: foot,
+		footGap: gtx.Dp(footerGap), footSpace: gtx.Dp(footerSpace), worth: gtx.Dp(64)}
+}
+
+// at tells how high the reactions and the time under them are when the
+// chips wrap at w, how wide the bubble is then, and whether the time is on
+// the chips' last row.
+func (f *reactionFit) at(w int) (height, width int, inline bool) {
+	rows, widest, last := reactionRows(f.widths, f.gap, w)
+	height = rows*f.row + (rows-1)*f.gap
+	width = max(f.base, widest)
+	if end := last + f.footGap + f.foot.X; end <= f.most {
+		return height, max(width, end), true
+	}
+	return height + f.footSpace + f.foot.Y, max(width, f.foot.X), false
+}
+
+// choose is the width the chips wrap at. A row ends where a chip, or the
+// time after the last, ends, so only the widths of runs of chips, with the
+// time or without it, are tried.
+func (f *reactionFit) choose() int {
+	least := 0
+	for _, w := range f.widths {
+		least = max(least, w)
+	}
+	if len(f.widths) == 0 || least >= f.most {
+		return f.most
+	}
+	type pick struct{ w, height, width int }
+	tallest, _, _ := f.at(f.most)
+	even, taller := pick{w: -1}, pick{w: -1}
+	// better is whether w, height and width beat p: a narrower bubble, then
+	// a lower one, then rows as full as they can be.
+	better := func(p pick, w, height, width int) bool {
+		switch {
+		case p.w < 0:
+			return true
+		case width != p.width:
+			return width < p.width
+		case height != p.height:
+			return height < p.height
+		}
+		return w > p.w
+	}
+	try := func(w int) {
+		if w < least || w > f.most {
+			return
+		}
+		height, width, _ := f.at(w)
+		if height <= tallest && better(even, w, height, width) {
+			even = pick{w, height, width}
+		}
+		// A row more holds a few chips each: two or three alone on
+		// their rows look scattered, and save little.
+		rows, _, _ := reactionRows(f.widths, f.gap, w)
+		if height <= tallest+f.row+f.gap && len(f.widths) >= minChipsPerRow*rows && better(taller, w, height, width) {
+			taller = pick{w, height, width}
+		}
+	}
+	try(f.most)
+	try(f.base)
+	for i := range f.widths {
+		run := 0
+		for j := i; j < len(f.widths) && run <= f.most; j++ {
+			if j > i {
+				run += f.gap
+			}
+			run += f.widths[j]
+			try(run)
+			try(run + f.footGap + f.foot.X)
+		}
+	}
+	if taller.w >= 0 && taller.width <= even.width-max(f.worth, even.width/4) {
+		return taller.w
+	}
+	return even.w
 }
 
 // reactionChipColors are the background and the content of a reaction's
@@ -725,8 +1112,10 @@ func (p *chatPage) reactionIcon(gtx layout.Context, reaction model.Reaction, ani
 }
 
 // replyQuote draws the message a message replies to, as a quote with a bar
-// in its sender's color; a click shows it.
-func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog) layout.Dimensions {
+// in its sender's color; a click shows it. Its text takes one line, cut
+// where it ends, as in Telegram Desktop; two, where one would make the
+// bubble much wider than the rest of what it holds, within wide.
+func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog, within int) layout.Dimensions {
 	if m.ReplyToStory != nil && m.ReplyToMessageID == 0 {
 		return p.storyQuote(gtx, r, *m.ReplyToStory, l)
 	}
@@ -754,15 +1143,24 @@ func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message
 		}
 		runs = quoteRuns(replied, l)
 	}
+	inset := layout.Inset{Top: 5, Bottom: 5, Left: 11, Right: 10}
+	least := gtx.Dp(120)
+	lines := 1
+	if len(runs) > 0 {
+		var w int
+		if lines, w = p.replyLines(gtx, name, runs, inset, least, within); lines > 1 {
+			gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, w)
+		}
+	}
 	macro := op.Record(gtx.Ops)
-	dims := layout.Inset{Top: 5, Bottom: 5, Left: 11, Right: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	dims := inset.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, name, token.TypestyleLabelLargeEmphasized, color, 1)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				if runs != nil {
-					return p.quoteLine(gtx, runs, scheme(gtx).Surface.OnColor)
+					return p.quoteLines(gtx, runs, scheme(gtx).Surface.OnColor, lines)
 				}
 				if text == "" {
 					return layout.Dimensions{}
@@ -772,7 +1170,7 @@ func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message
 		)
 	})
 	call := macro.Stop()
-	size := image.Pt(max(dims.Size.X, gtx.Dp(120)), dims.Size.Y)
+	size := image.Pt(max(dims.Size.X, least), dims.Size.Y)
 	radius := gtx.Dp(6)
 	style := surfaceStyle{radius: radius, background: color.SetOpacity(.12), content: color}
 	return r.reply.Layout(gtx, size, style, func(gtx layout.Context) layout.Dimensions {
@@ -781,6 +1179,32 @@ func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message
 		call.Add(gtx.Ops)
 		return layout.Dimensions{Size: size}
 	})
+}
+
+// replyLines is how many lines the text of a quote takes, and how wide the
+// quote is then: two when one, as wide as it is, would make the bubble
+// wider than within by a good deal, and the two, about half as wide, save
+// it. The name stays on its line whole.
+func (p *chatPage) replyLines(gtx layout.Context, name string, runs []model.TextRun, inset layout.Inset, least, within int) (lines, width int) {
+	pad := gtx.Dp(inset.Left + inset.Right)
+	macro := op.Record(gtx.Ops)
+	measure := gtx
+	measure.Constraints = layout.Constraints{Max: image.Pt(max(0, gtx.Constraints.Max.X-pad), gtx.Constraints.Max.Y)}
+	named := label(measure, name, token.TypestyleLabelLargeEmphasized, scheme(gtx).Primary.Color, 1).Size.X
+	line := p.quoteLines(measure, runs, scheme(gtx).Surface.OnColor, 1).Size.X
+	macro.Stop()
+	one := max(named, line) + pad
+	if one <= within {
+		return 1, one
+	}
+	// Half the line, and room for a word that does not fit at the end of
+	// the first.
+	two := max(within, named+pad, least, line/2+gtx.Dp(24)+pad)
+	// A line of small text is a fair price for an eighth of the width.
+	if two > one-max(gtx.Dp(48), one/8) {
+		return 1, one
+	}
+	return 2, two
 }
 
 // storyQuote draws the story a message replies to, as Telegram Desktop's
@@ -849,10 +1273,15 @@ func quoteRuns(m model.Message, l localization.Catalog) []model.TextRun {
 
 // quoteLine draws runs, a quote's line, in color.
 func (p *chatPage) quoteLine(gtx layout.Context, runs []model.TextRun, color token.MatColor) layout.Dimensions {
+	return p.quoteLines(gtx, runs, color, 1)
+}
+
+// quoteLines is quoteLine on up to lines lines, the text one paragraph.
+func (p *chatPage) quoteLines(gtx layout.Context, runs []model.TextRun, color token.MatColor, lines int) layout.Dimensions {
 	if len(runs) == 0 {
 		return layout.Dimensions{}
 	}
-	return richLabel{runs: runs, style: token.TypestyleBodySmall, color: color, maxLines: 1, media: p.media, images: p.images, animate: p.animate}.Layout(gtx)
+	return richLabel{runs: runs, style: token.TypestyleBodySmall, color: color, maxLines: lines, flat: true, media: p.media, images: p.images, animate: p.animate}.Layout(gtx)
 }
 
 // referenced is a message another one names, as the one it replies to:

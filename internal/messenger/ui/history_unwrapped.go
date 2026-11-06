@@ -238,7 +238,7 @@ func (p *chatPage) unwrappedSide(m *model.Message, join bubbleJoin, l localizati
 				children = append(children, vspace(4))
 			}
 			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return p.replyQuote(gtx, r, *m, l)
+				return p.replyQuote(gtx, r, *m, l, gtx.Constraints.Max.X)
 			}))
 		}
 		bubble := sc.Surface.Color
