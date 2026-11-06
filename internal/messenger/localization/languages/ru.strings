@@ -1429,6 +1429,7 @@
 "preview.media_count#few" = "{count} медиа";
 "preview.media_count#many" = "{count} медиа";
 "preview.media_count#one" = "{count} медиа";
+"preview.message" = "Сообщение";
 "preview.music" = "Музыка";
 "preview.photo" = "Фото";
 "preview.photos" = "{count} фото";

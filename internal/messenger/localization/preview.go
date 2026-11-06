@@ -61,6 +61,10 @@ func (c Catalog) PreviewLine(p model.Preview, chat string, channel bool) (sender
 		return sender, "", p.Text
 	}
 	if p.Title != "" {
+		if p.Media == "preview.music" {
+			// "Music: Performer – Title", after its icon.
+			return sender, c.T(p.Media) + ": " + p.Title, p.Text
+		}
 		// A poll's question or a checklist's title, after its icon.
 		return sender, p.Title, p.Text
 	}
@@ -69,6 +73,11 @@ func (c Catalog) PreviewLine(p model.Preview, chat string, channel bool) (sender
 		// A sticker's emoji before the word, as the official clients show
 		// it, whatever a pack's lng_in_dlg_sticker_emoji puts first.
 		media = strings.TrimSpace(p.Emoji + " " + c.T(p.Media))
+	}
+	if media == "" && p.Text == "" && len(p.Thumbs) == 0 && !p.IsZero() {
+		// A message of a kind the list has no words for: never an empty
+		// line.
+		media = c.T("preview.message")
 	}
 	return sender, media, p.Text
 }

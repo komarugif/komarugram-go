@@ -144,6 +144,7 @@ func previewChats(now time.Time, inline func(n int) []byte) []model.Chat {
 		{ID: 17, Kind: model.KindUser, Title: "Длинный текст", Last: long, LastTime: ago(5 * time.Hour), Pinned: true, PinRank: 1},
 		{ID: 18, Kind: model.KindGroup, Title: "Служебное", Last: model.Preview{Service: &service}, LastTime: ago(6 * time.Hour)},
 		{ID: 19, Kind: model.KindUser, Title: "Стикер", Last: model.Preview{Media: "preview.sticker", Emoji: "😀"}, LastTime: ago(7 * time.Hour)},
+		{ID: 22, Kind: model.KindUser, Title: "Музыка", Last: model.Preview{Media: "preview.music", Title: "Демо-оркестр – Ночной трамвай"}, LastTime: ago(8 * time.Hour)},
 		{ID: 20, Kind: model.KindUser, Title: "Голосовое", Last: model.Preview{Media: "preview.voice", Sent: true, ID: 3}, ReadOutbox: 3, LastTime: ago(26 * time.Hour)},
 		{ID: 21, Kind: model.KindUser, Title: "Выбранный чат", Last: model.Preview{Text: "Выделен: курсив и фото", Entities: []model.Entity{{Kind: "italic", Offset: 9, Length: 6}}, Thumbs: []model.PreviewThumb{photo(11)}, Media: "preview.photo"}, LastTime: ago(30 * time.Hour)},
 	}

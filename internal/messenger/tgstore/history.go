@@ -1894,6 +1894,8 @@ func messageKindKey(m model.Message) string {
 		return "preview.file"
 	case model.MessageVoice:
 		return "preview.voice"
+	case model.MessageMusic:
+		return "preview.music"
 	case model.MessageRound:
 		return "preview.round"
 	case model.MessageSticker:

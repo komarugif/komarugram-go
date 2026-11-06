@@ -315,6 +315,8 @@ func previewContent(p *model.Preview, m model.Message) {
 		p.Title = strings.Join(strings.Fields(m.Poll.Question), " ")
 	case m.Todo != nil:
 		p.Title = strings.Join(strings.Fields(m.Todo.Title), " ")
+	case m.Kind == model.MessageMusic:
+		p.Title = songName(m.Media)
 	}
 	if m.GroupedID != 0 {
 		a := &model.PreviewAlbum{ID: m.GroupedID, Last: m.Key.MessageID}
@@ -324,6 +326,23 @@ func previewContent(p *model.Preview, m model.Message) {
 		}
 		p.Album = a
 	}
+}
+
+// songName is the name of a track as the list shows it after its word:
+// "Performer – Title", its title alone, or its file's name when its tags
+// have no title, on one line; empty without any.
+func songName(media *model.MessageMedia) string {
+	if media == nil {
+		return ""
+	}
+	name := media.FileName
+	if media.Title != "" {
+		name = media.Title
+		if media.Performer != "" {
+			name = media.Performer + " – " + name
+		}
+	}
+	return strings.Join(strings.Fields(name), " ")
 }
 
 // previewContent gives p, the preview of msg, the last message of a dialog,

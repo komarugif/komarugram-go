@@ -30,6 +30,12 @@ func TestPreviewLine(t *testing.T) {
 		// A poll's question and a checklist's title in place of the word.
 		{model.Preview{Media: "preview.poll", Title: "Lunch?"}, "", "Lunch?", ""},
 		{model.Preview{Media: "preview.todo", Title: "Trip", Text: "see you"}, "", "Trip", "see you"},
+		// Music's word, then the track's name.
+		{model.Preview{Media: "preview.music", Title: "Band – Song", Text: "listen"}, "", "Music: Band – Song", "listen"},
+		{model.Preview{Media: "preview.music"}, "", "Music", ""},
+		// A message of a kind without words, but a chat without messages.
+		{model.Preview{ID: 7, Sender: "Ann"}, "Ann", "Message", ""},
+		{model.Preview{}, "", "", ""},
 	} {
 		sender, media, text := l.PreviewLine(c.p, "", false)
 		if sender != c.sender || media != c.media || text != c.text {

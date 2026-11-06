@@ -116,8 +116,8 @@ func (p *previewLine) update(c model.Chat, title string, catalog localization.Ca
 	entities, thumbs := c.Last.Entities, c.Last.Thumbs
 	p.drafted, p.forwarded = draft != nil, c.Last.Forwarded
 	p.mini = nil
-	if c.Last.Title != "" && draft == nil {
-		p.mini = previewMini(c.Last.Media)
+	if draft == nil && c.Last.Album == nil {
+		p.mini = previewMini(c.Last)
 	}
 	if draft != nil {
 		sender, words, thumbs, p.forwarded = catalog.T("preview.draft"), "", nil, false
@@ -152,13 +152,17 @@ func (p *previewLine) update(c model.Chat, title string, catalog localization.Ca
 	p.blurred, p.decoded = zeroed(p.blurred, len(p.thumbs)), zeroed(p.decoded, len(p.thumbs))
 }
 
-// previewMini is the mini icon of a preview whose media is key, a poll's or
-// a checklist's, or nil.
-func previewMini(key string) wdk.IconWidget {
-	switch key {
-	case "preview.poll":
+// previewMini is the mini icon of a preview: a poll's or a checklist's
+// before its question or title, music's before its word, or nil.
+func previewMini(p model.Preview) wdk.IconWidget {
+	switch {
+	case p.Media == "preview.music":
+		return iconMusic
+	case p.Title == "":
+		return nil
+	case p.Media == "preview.poll":
 		return iconPollMini
-	case "preview.todo":
+	case p.Media == "preview.todo":
 		return iconTodoMini
 	}
 	return nil

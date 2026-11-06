@@ -1359,6 +1359,7 @@
 "preview.location" = "Location";
 "preview.media_count" = "{count} media";
 "preview.media_count#one" = "{count} media";
+"preview.message" = "Message";
 "preview.music" = "Music";
 "preview.photo" = "Photo";
 "preview.photos" = "{count} photos";

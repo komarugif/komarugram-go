@@ -42,8 +42,33 @@ func TestDocumentKindByAttributeOrder(t *testing.T) {
 		if key, _ := mediaKey(&tg.MessageMediaDocument{Document: d}); key != tc.key {
 			t.Errorf("%s: the chat list says %q, want %q", tc.name, key, tc.key)
 		}
+		// The same from a message of the history, as a new one, an edit
+		// and the cache show it.
+		m, _ := convertMessage("", &tg.Message{ID: 1, PeerID: &tg.PeerUser{UserID: 5}, Date: 10, Media: &tg.MessageMediaDocument{Document: d}}, nil)
+		if p := messagePreview(m, false); p.Media != tc.key {
+			t.Errorf("%s: the chat list says %q of the history's message, want %q", tc.name, p.Media, tc.key)
+		}
 		if tc.name == "round then audio" && meta.Duration != 1500*time.Millisecond {
 			t.Errorf("%s: lasts %v, the video's 1.5s", tc.name, meta.Duration)
+		}
+	}
+}
+
+// Music's preview names the track: its performer and title, its title, or
+// its file's name.
+func TestMusicPreviewName(t *testing.T) {
+	for _, tc := range []struct {
+		attrs []tg.DocumentAttributeClass
+		want  string
+	}{
+		{[]tg.DocumentAttributeClass{&tg.DocumentAttributeAudio{Title: "Song", Performer: "Band", Duration: 200}, &tg.DocumentAttributeFilename{FileName: "a.mp3"}}, "Band – Song"},
+		{[]tg.DocumentAttributeClass{&tg.DocumentAttributeAudio{Title: " Long\n song ", Duration: 200}}, "Long song"},
+		{[]tg.DocumentAttributeClass{&tg.DocumentAttributeAudio{Duration: 200}, &tg.DocumentAttributeFilename{FileName: "track.mp3"}}, "track.mp3"},
+	} {
+		d := &tg.Document{ID: 1, MimeType: "audio/mpeg", Attributes: tc.attrs}
+		m, _ := convertMessage("", &tg.Message{ID: 1, PeerID: &tg.PeerUser{UserID: 5}, Date: 10, Media: &tg.MessageMediaDocument{Document: d}}, nil)
+		if p := messagePreview(m, false); p.Media != "preview.music" || p.Title != tc.want {
+			t.Errorf("%q %q, want preview.music %q", p.Media, p.Title, tc.want)
 		}
 	}
 }
