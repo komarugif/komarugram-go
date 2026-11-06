@@ -230,8 +230,9 @@ type editFrame struct {
 }
 
 // canEdit reports whether the viewer offers to edit m: a photo, or a video with
-// an FFmpeg, of a message, that does not protect its content, and that a reply
-// may be made to or whose file may be replaced.
+// an FFmpeg, of a message, or a photo of a profile, that does not protect its
+// content, and that something may be done with: a reply, a replacement, a copy in
+// the account's own chat, the profile's main photo.
 func (v *mediaViewer) canEdit(m model.Message) bool {
 	e := &v.edit
 	now := time.Now()
@@ -245,11 +246,17 @@ func (v *mediaViewer) canEdit(m model.Message) bool {
 
 func (v *mediaViewer) canEditNow(m model.Message) bool {
 	// One shown alone is no file of a message: a link's preview, an article's.
-	if m.Media == nil || m.NoForwards || m.Local() || m.Key.MessageID <= 0 || v.isStory(m) || m.StoryOf != nil || v.alone {
+	profile := v.gallery == galleryProfile && model.IsProfilePhoto(m.Key.MessageID)
+	if m.Media == nil || m.NoForwards || m.Local() || m.Key.MessageID <= 0 && !profile || v.isStory(m) || m.StoryOf != nil || v.alone {
 		return false
 	}
 	switch v.gallery {
 	case galleryPhotos, galleryGIFs, galleryShared:
+	case galleryProfile:
+		// What a profile's photo plays is no file to edit: the photo is.
+		if m.Kind != model.MessagePhoto {
+			return false
+		}
 	case galleryBox:
 		if v.editSink == nil {
 			return false
@@ -266,11 +273,56 @@ func (v *mediaViewer) canEditNow(m model.Message) bool {
 	default:
 		return false
 	}
-	return v.editSink != nil || v.canReplyEdit(m) || v.canReplaceEdit(m)
+	return v.editSink != nil || len(v.editActions(m)) > 0
+}
+
+// editActions are what may be done with what the editor makes of m, the first
+// offered first: a profile's photo becomes its main one or goes to the account's
+// own chat, as there is no message to reply to; a message's file is replied with,
+// takes its place, or goes to that chat.
+func (v *mediaViewer) editActions(m model.Message) []editAction {
+	var out []editAction
+	if v.gallery == galleryProfile {
+		if v.canSetAvatarEdit() {
+			out = append(out, editAvatar)
+		}
+	} else {
+		if v.canReplyEdit(m) {
+			out = append(out, editReply)
+		}
+		if v.canReplaceEdit(m) {
+			out = append(out, editReplace)
+		}
+	}
+	if v.canSaveEdit(m) {
+		out = append(out, editSaved)
+	}
+	return out
+}
+
+// canSetAvatarEdit reports whether what the editor makes may become the main
+// photo of the profile shown.
+func (v *mediaViewer) canSetAvatarEdit() bool {
+	setter, ok := v.source.(model.ProfilePhotoSetter)
+	return ok && setter.CanSetProfilePhoto(v.chat)
+}
+
+// canSaveEdit reports whether what the editor makes of m may go to the account's
+// own chat, which takes anything.
+func (v *mediaViewer) canSaveEdit(m model.Message) bool {
+	if v.savedChat == nil || v.savedChat() == 0 {
+		return false
+	}
+	_, composer := v.source.(model.ComposerStore)
+	return composer
 }
 
 // canReplyEdit reports whether what the editor makes of m may go as a reply.
 func (v *mediaViewer) canReplyEdit(m model.Message) bool {
+	if v.gallery == galleryProfile {
+		// A profile's photo is no message to reply to.
+		return false
+	}
 	if _, ok := v.source.(model.ComposerStore); !ok {
 		return false
 	}
@@ -293,6 +345,9 @@ func (v *mediaViewer) canReplyEdit(m model.Message) bool {
 // canReplaceEdit reports whether what the editor makes of m may replace its
 // file.
 func (v *mediaViewer) canReplaceEdit(m model.Message) bool {
+	if v.gallery == galleryProfile {
+		return false
+	}
 	if _, ok := v.source.(model.MediaEditor); !ok {
 		return false
 	}

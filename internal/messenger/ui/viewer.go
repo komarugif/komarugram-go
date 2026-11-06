@@ -187,6 +187,9 @@ type mediaViewer struct {
 	gif viewerGIF
 	// edit edits what is shown: see viewer_edit.go.
 	edit viewerEdit
+	// savedChat is the account's own chat, where the editor saves what it made; nil
+	// for none.
+	savedChat func() int64
 	// silentAsVideo tells that what the editor sends goes as a video when it has no
 	// sound; nil is as Telegram takes it, a GIF.
 	silentAsVideo func() bool

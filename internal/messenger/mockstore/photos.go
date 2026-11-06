@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"image/jpeg"
 	"math"
+	"os"
 	"strings"
 	"time"
 
@@ -220,4 +221,35 @@ func (s *Store) chatTitle(chat int64) string {
 		}
 	}
 	return ""
+}
+
+var _ model.ProfilePhotoSetter = (*Store)(nil)
+
+// CanSetProfilePhoto implements model.ProfilePhotoSetter: the demo's account may
+// set its own photo and those of its groups and channels.
+func (s *Store) CanSetProfilePhoto(chat int64) bool {
+	if chat == s.Me().ID {
+		return true
+	}
+	for _, c := range s.Chats() {
+		if c.ID == chat {
+			return c.Kind == model.KindGroup || c.Kind == model.KindChannel
+		}
+	}
+	return false
+}
+
+// SetProfilePhoto implements model.ProfilePhotoSetter: nothing reaches Telegram,
+// and the photo stays as it was.
+func (s *Store) SetProfilePhoto(ctx context.Context, chat int64, path string, progress func(done, total int64)) error {
+	if !s.CanSetProfilePhoto(chat) {
+		return model.ErrProfilePhotoForbidden
+	}
+	if _, err := os.Stat(path); err != nil {
+		return err
+	}
+	if progress != nil {
+		progress(1, 1)
+	}
+	return ctx.Err()
 }

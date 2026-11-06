@@ -623,7 +623,10 @@
 "duration.years#one" = "{count} year";
 "duration.years#other" = "{count} years";
 
+"editor.as_avatar" = "Upload and set as the main photo";
 "editor.as_reply" = "Reply to the message";
+"editor.avatar_done" = "The main photo was set.";
+"editor.avatar_forbidden" = "You can't change the photo of this profile.";
 "editor.cancel" = "Cancel";
 "editor.close" = "Close";
 "editor.continue" = "Continue";
@@ -645,11 +648,12 @@
 "editor.invalid_file" = "Sorry, no way to use this file.";
 "editor.keep" = "Keep editing";
 "editor.load_failed" = "Could not open in the editor";
-"editor.not_allowed" = "You can neither reply here nor replace this file.";
+"editor.not_allowed" = "Nothing can be done with this file here.";
 "editor.preparing" = "Preparing…";
 "editor.replace" = "Replace the attachment";
 "editor.replaced" = "The attachment was replaced.";
 "editor.retry" = "Try again";
+"editor.saved_done" = "Saved to Saved Messages.";
 "editor.sending" = "Sending…";
 "editor.sent" = "Sent as a reply.";
 "editor.style_framed" = "Framed";
@@ -660,6 +664,7 @@
 "editor.title_gif" = "Edited GIF";
 "editor.title_photo" = "Edited photo";
 "editor.title_video" = "Edited video";
+"editor.to_saved" = "Save to Saved Messages";
 
 "edits.current" = "now";
 "edits.failed" = "Could not read the edits history";

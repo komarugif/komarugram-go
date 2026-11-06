@@ -145,7 +145,13 @@ func renderEditor(t *testing.T, v *mediaViewer, m model.Message, variant string,
 	case "choice":
 		drawn()
 		s := &e.send
-		s.radios = radio.NewRadios([]editAction{editReply, editReplace}, editReply, func(a editAction) { s.action = a })
+		s.actions = []editAction{editReply, editReplace, editSaved}
+		if v.gallery == galleryProfile {
+			// A profile whose photo the account may change.
+			s.actions = []editAction{editAvatar, editSaved}
+		}
+		s.action = s.actions[0]
+		s.radios = radio.NewRadios(s.actions, s.action, func(a editAction) { s.action = a })
 		s.ask(editDialogChoice)
 	case "work":
 		drawn()

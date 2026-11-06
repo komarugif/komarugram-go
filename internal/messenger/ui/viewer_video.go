@@ -788,6 +788,8 @@ func (a *App) configureViewer(v *mediaViewer) {
 	if store := a.store; store != nil {
 		// What the viewer forwards goes to the account's chats.
 		v.share.chats = store.Chats
+		// What the editor saves goes to the account's own chat.
+		v.savedChat = a.savedChat
 	}
 	v.ffmpeg = func() string { return a.preferences.Global().FFmpegPath }
 	v.silentAsVideo = func() bool { return a.preferences.Global().SilentVideoAsVideo }

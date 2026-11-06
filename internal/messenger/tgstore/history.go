@@ -83,6 +83,9 @@ type peerRights struct {
 	Delete bool `json:",omitempty"`
 	// Post: the account may post to the channel.
 	Post bool `json:",omitempty"`
+	// ChangeInfo: the account may change the chat's photo, title and about
+	// (Telegram Desktop's canEditInformation).
+	ChangeInfo bool `json:",omitempty"`
 	// Muted: the account may not send messages (banned, left, or members
 	// may not write).
 	Muted bool `json:",omitempty"`

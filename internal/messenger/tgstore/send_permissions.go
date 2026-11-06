@@ -41,7 +41,28 @@ func groupRights(ch *tg.Chat) peerRights {
 	if !r.Admin {
 		r.Default = bannedKinds(ch.DefaultBannedRights)
 	}
+	// Telegram Desktop's ChatData::canEditInformation.
+	r.ChangeInfo = !r.Left && (ch.Creator || ch.AdminRights.ChangeInfo || !ch.DefaultBannedRights.ChangeInfo)
 	return r
+}
+
+// channelChangesInfo tells whether the account may change a channel's or a
+// supergroup's photo, title and about, as Telegram Desktop's
+// ChannelData::canEditInformation: a channel's admin with the right; in a
+// supergroup also a member everyone's rights and the account's own let, a public
+// one's members never. Boosts that lift everyone's rights are not counted.
+func channelChangesInfo(ch *tg.Channel) bool {
+	if ch.Creator || ch.AdminRights.ChangeInfo {
+		return true
+	}
+	if ch.Broadcast || ch.Left {
+		return false
+	}
+	public := ch.Username != "" || len(ch.Usernames) > 0
+	if ch.DefaultBannedRights.ChangeInfo || public {
+		return false
+	}
+	return !ch.BannedRights.ChangeInfo
 }
 func (s *Store) SendPermissions(chat int64) model.SendPermissions {
 	thread := isThread(chat)

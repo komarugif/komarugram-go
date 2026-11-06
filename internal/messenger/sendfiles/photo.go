@@ -284,3 +284,39 @@ func orient(img image.Image, o int) image.Image {
 	}
 	return dst
 }
+
+// profilePhotoQuality is Telegram Desktop's, for the photo a profile is set to
+// (PreparePeerPhoto).
+const profilePhotoQuality = 87
+
+// PrepareProfilePhoto makes the image at path a profile's photo: turned as its
+// Exif asks, the largest square in its middle, as Telegram Desktop's editor cuts
+// one, scaled down to StandardSide a side, on white and saved as JPEG.
+func PrepareProfilePhoto(path string) (Photo, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Photo{}, err
+	}
+	img, format, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return Photo{}, err
+	}
+	if format == "jpeg" {
+		img = orient(img, orientationOf(data))
+	}
+	b := img.Bounds()
+	side := min(b.Dx(), b.Dy())
+	if side <= 0 {
+		return Photo{}, errors.New("the picture is empty")
+	}
+	at := b.Min.Add(image.Pt((b.Dx()-side)/2, (b.Dy()-side)/2))
+	square := image.NewRGBA(image.Rect(0, 0, side, side))
+	draw.Draw(square, square.Bounds(), img, at, draw.Src)
+	out := flatten(fit(square, StandardSide))
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, out, &jpeg.Options{Quality: profilePhotoQuality}); err != nil {
+		return Photo{}, err
+	}
+	s := out.Bounds().Size()
+	return Photo{JPEG: buf.Bytes(), Width: s.X, Height: s.Y}, nil
+}

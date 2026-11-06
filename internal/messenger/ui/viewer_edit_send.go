@@ -35,12 +35,13 @@ type editDialog uint8
 
 const (
 	editDialogNone editDialog = iota
-	// editDialogChoice asks to reply or to replace the file.
+	// editDialogChoice asks what to do with the result: editActions.
 	editDialogChoice
 	// editDialogWork tells how far the result has come, and stops it.
 	editDialogWork
-	// editDialogFailed tells a replacement failed, the result being kept, and
-	// offers to try again or to send it as a reply.
+	// editDialogFailed tells a replacement, or a profile's new photo, failed, the
+	// result being kept, and offers to try again or, a replacement, to send it as a
+	// reply.
 	editDialogFailed
 	// editDialogDiscard asks whether to leave with what was done lost.
 	editDialogDiscard
@@ -52,7 +53,21 @@ type editAction uint8
 const (
 	editReply editAction = iota
 	editReplace
+	// editSaved sends it to the account's own chat, as a message of its own.
+	editSaved
+	// editAvatar makes it the main photo of the profile it was a photo of.
+	editAvatar
 )
+
+// editActionKeys are the texts of the actions.
+var editActionKeys = map[editAction]string{
+	editReply: "editor.as_reply", editReplace: "editor.replace",
+	editSaved: "editor.to_saved", editAvatar: "editor.as_avatar",
+}
+
+// kept reports whether a result that failed to go this way is kept to be tried
+// again: one that went to the outbox is the store's to send.
+func (a editAction) kept() bool { return a == editReplace || a == editAvatar }
 
 // editStage is what a job does now.
 type editStage uint8
@@ -68,9 +83,11 @@ type editSend struct {
 	modal  modal
 	dialog editDialog
 	radios *radio.Radios[editAction]
-	action editAction
-	bar    *indicator.Indicator
-	job    *editJob
+	// actions are those the radios offer.
+	actions []editAction
+	action  editAction
+	bar     *indicator.Indicator
+	job     *editJob
 	// dir and path are the result, kept while a replacement that failed may be
 	// tried again; failure is what it failed with.
 	dir, path string
@@ -154,23 +171,27 @@ func (e *viewerEdit) finish(gtx layout.Context, v *mediaViewer, l localization.C
 		e.start(gtx, v, editReplace)
 		return
 	}
-	reply, replace := v.canReplyEdit(e.item), v.canReplaceEdit(e.item)
-	if reply && replace {
+	actions := v.editActions(e.item)
+	switch len(actions) {
+	case 0:
+		e.toast.Show(l.T("editor.not_allowed"))
+	case 1:
+		e.start(gtx, v, actions[0])
+	default:
 		s := &e.send
-		s.action = editReply
-		s.radios = radio.NewRadios([]editAction{editReply, editReplace}, editReply, func(a editAction) { s.action = a })
+		s.action, s.actions = actions[0], actions
+		s.radios = radio.NewRadios(actions, actions[0], func(a editAction) { s.action = a })
 		s.ask(editDialogChoice)
-		return
 	}
-	action := editReply
-	if !reply {
-		if !replace {
-			e.toast.Show(l.T("editor.not_allowed"))
-			return
-		}
-		action = editReplace
+}
+
+// editTarget is the chat a result goes to as action says: the account's own for
+// one saved there, the one shown for the others.
+func (v *mediaViewer) editTarget(action editAction) int64 {
+	if action == editSaved && v.savedChat != nil {
+		return v.savedChat()
 	}
-	e.start(gtx, v, action)
+	return v.edit.chat
 }
 
 // start makes the result, off the frame, and sends it as action says.
@@ -183,7 +204,7 @@ func (e *viewerEdit) start(gtx layout.Context, v *mediaViewer, action editAction
 	job := &editJob{stop: cancel, done: make(chan editOutcome, 1), ended: make(chan struct{}), share: -1}
 	s.job, s.bar, s.action = job, indicator.Linear(), action
 	s.ask(editDialogWork)
-	source, m, chat, sink := v.source, e.item, e.chat, v.editSink
+	source, m, chat, sink := v.source, e.item, v.editTarget(action), v.editSink
 	silent := v.silentAsVideo != nil && v.silentAsVideo()
 	scene := *e.scene
 	scene.Transform = e.scene.Transform
@@ -228,7 +249,7 @@ func (e *viewerEdit) start(gtx layout.Context, v *mediaViewer, action editAction
 			return
 		}
 		replaced, err := deliverEdited(ctx, source, m, chat, path, ffmpeg, silent, action, report)
-		if err != nil && action == editReplace && ctx.Err() == nil {
+		if err != nil && action.kept() && ctx.Err() == nil {
 			// Kept: the work is not lost with a connection, or with the time
 			// the message could be edited in.
 			job.done <- editOutcome{dir: dir, path: path, err: err, action: action}
@@ -247,7 +268,7 @@ func (e *viewerEdit) retry(v *mediaViewer, action editAction) {
 	job := &editJob{stop: cancel, done: make(chan editOutcome, 1), ended: make(chan struct{}), stage: stageSending, share: -1}
 	s.job, s.bar, s.action = job, indicator.Linear(), action
 	s.ask(editDialogWork)
-	source, m, chat, path, dir := v.source, e.item, e.chat, s.path, s.dir
+	source, m, chat, path, dir := v.source, e.item, v.editTarget(action), s.path, s.dir
 	silent := v.silentAsVideo != nil && v.silentAsVideo()
 	s.dir, s.path = "", ""
 	var ffmpeg string
@@ -264,7 +285,7 @@ func (e *viewerEdit) retry(v *mediaViewer, action editAction) {
 		defer crash.Recover("send what was edited", func(p *crash.Panic) { job.done <- editOutcome{err: p, action: action}; invalidate() })
 		defer invalidate()
 		replaced, err := deliverEdited(ctx, source, m, chat, path, ffmpeg, silent, action, report)
-		if err != nil && action == editReplace && ctx.Err() == nil {
+		if err != nil && action.kept() && ctx.Err() == nil {
 			job.done <- editOutcome{dir: dir, path: path, err: err, action: action}
 			return
 		}
@@ -375,20 +396,30 @@ func videoPlan(dir string, s *photoedit.Scene, media video.Media, rasters photoe
 	return plan, nil
 }
 
-// deliverEdited sends the file at path: as a reply to m, in chat, the store's to
-// send from then on, or in place of m's file, whose message it returns.
+// deliverEdited sends the file at path: as a reply to m, in chat, or as a message
+// of its own there, the account's own chat, the store's to send from then on; in
+// place of m's file, whose message it returns; or as the main photo of chat's
+// profile.
 func deliverEdited(ctx context.Context, source model.ConversationStore, m model.Message, chat int64, path, ffmpeg string, silentAsVideo bool, action editAction, report func(editStage, float64)) (*model.Message, error) {
 	report(stageSending, -1)
+	progress := func(done, total int64) {
+		if total > 0 {
+			report(stageSending, float64(done)/float64(total))
+		}
+	}
+	if action == editAvatar {
+		setter, ok := source.(model.ProfilePhotoSetter)
+		if !ok {
+			return nil, model.ErrProfilePhotoForbidden
+		}
+		return nil, setter.SetProfilePhoto(ctx, chat, path, progress)
+	}
 	if action == editReplace {
 		editor, ok := source.(model.MediaEditor)
 		if !ok {
 			return nil, model.ErrEditForbidden
 		}
-		replaced, err := editor.ReplaceMedia(ctx, m, path, ffmpeg, func(done, total int64) {
-			if total > 0 {
-				report(stageSending, float64(done)/float64(total))
-			}
-		})
+		replaced, err := editor.ReplaceMedia(ctx, m, path, ffmpeg, progress)
 		if err != nil {
 			return nil, err
 		}
@@ -396,9 +427,11 @@ func deliverEdited(ctx context.Context, source model.ConversationStore, m model.
 	}
 	msg := model.OutgoingMessage{
 		RandomID: randomMessageID(),
-		ReplyTo:  m.Key.MessageID,
 		FFmpeg:   ffmpeg,
 		Files:    &model.OutgoingFiles{Paths: []string{path}, HighQuality: true, SilentAsVideo: silentAsVideo},
+	}
+	if action == editReply {
+		msg.ReplyTo = m.Key.MessageID
 	}
 	if m.Kind == model.MessageGIF {
 		msg.Files.Animated = []int{0}
@@ -500,6 +533,8 @@ func (v *mediaViewer) updateSend(gtx layout.Context, l localization.Catalog) {
 			s.modal.Close()
 		}
 	}
+	// What failed, before a reply tried in its place says otherwise.
+	failed := s.action
 	if s.asReply.Clicked(gtx) && s.dialog == editDialogFailed && s.canReply {
 		e.retry(v, editReply)
 	}
@@ -509,7 +544,7 @@ func (v *mediaViewer) updateSend(gtx layout.Context, l localization.Catalog) {
 			s.modal.Hide()
 			e.start(gtx, v, s.action)
 		case editDialogFailed:
-			e.retry(v, editReplace)
+			e.retry(v, failed)
 		case editDialogDiscard:
 			v.leaveEdit()
 		}
@@ -524,8 +559,13 @@ func (v *mediaViewer) editOutcome(gtx layout.Context, o editOutcome, l localizat
 	switch {
 	case o.err == nil:
 		text := l.T("editor.sent")
-		if o.action == editReplace {
+		switch o.action {
+		case editReplace:
 			text = l.T("editor.replaced")
+		case editSaved:
+			text = l.T("editor.saved_done")
+		case editAvatar:
+			text = l.T("editor.avatar_done")
 		}
 		if o.replaced != nil {
 			v.takeReplaced(*o.replaced)
@@ -537,7 +577,7 @@ func (v *mediaViewer) editOutcome(gtx layout.Context, o editOutcome, l localizat
 		v.toast.Show(text)
 	case o.path != "":
 		s.dir, s.path, s.failure = o.dir, o.path, o.err
-		s.canReply = v.canReplyEdit(e.item)
+		s.canReply = o.action == editReplace && v.canReplyEdit(e.item)
 		s.ask(editDialogFailed)
 	case errors.Is(o.err, context.Canceled):
 		s.dialog = editDialogNone
@@ -557,6 +597,8 @@ func editFailureText(err error, l localization.Catalog) string {
 	switch {
 	case errors.Is(err, model.ErrEditForbidden):
 		return l.T("editor.expired")
+	case errors.Is(err, model.ErrProfilePhotoForbidden):
+		return l.T("editor.avatar_forbidden")
 	case errors.Is(err, model.ErrMediaInvalid):
 		return l.T("editor.invalid_file")
 	case errors.Is(err, video.ErrGIFTooLarge):
@@ -631,9 +673,13 @@ func (e *viewerEdit) dialogRows(gtx layout.Context, l localization.Catalog) []la
 		return []layout.FlexChild{
 			title(l.T(e.titleKey())), vspace(8),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return s.radios.Layout(gtx, radio.LeadingKind, map[editAction]string{
-					editReply: l.T("editor.as_reply"), editReplace: l.T("editor.replace"),
-				})
+				// The labels of the actions offered, and of no other: the radios take
+				// as many as they have.
+				labels := make(map[editAction]string, len(s.actions))
+				for _, a := range s.actions {
+					labels[a] = l.T(editActionKeys[a])
+				}
+				return s.radios.Layout(gtx, radio.LeadingKind, labels)
 			}),
 			vspace(8),
 			buttons(button(&s.cancel, l.T("editor.cancel")), button(&s.confirm, l.T("editor.continue"))),

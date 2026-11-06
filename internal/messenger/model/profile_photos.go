@@ -2,7 +2,10 @@
 
 package model
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // profilePhotoBase is below every message and story of a chat, so that the
 // photos of its profile are told from them.
@@ -27,4 +30,18 @@ type ProfilePhotoSource interface {
 	// the one it shows now first: from offset, the Next of the page before
 	// it, or from the first photo when offset is empty.
 	ProfilePhotos(ctx context.Context, chat int64, offset string, limit int) (GalleryPage, error)
+}
+
+// ErrProfilePhotoForbidden is what setting a profile's photo fails with where the
+// account may not change it.
+var ErrProfilePhotoForbidden = errors.New("the profile's photo may not be changed")
+
+// ProfilePhotoSetter makes a picture the main photo of a profile: the account's
+// own, or a group's or channel's whose information it may change.
+type ProfilePhotoSetter interface {
+	// CanSetProfilePhoto tells whether SetProfilePhoto may set chat's photo.
+	CanSetProfilePhoto(chat int64) bool
+	// SetProfilePhoto uploads the picture at path, the largest square in its
+	// middle, and makes it chat's main photo, telling how much of it went.
+	SetProfilePhoto(ctx context.Context, chat int64, path string, progress func(done, total int64)) error
 }

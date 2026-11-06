@@ -663,7 +663,10 @@
 "duration.years#many" = "{count} лет";
 "duration.years#one" = "{count} год";
 
+"editor.as_avatar" = "Загрузить и сделать основным аватаром";
 "editor.as_reply" = "Ответить на сообщение";
+"editor.avatar_done" = "Основной аватар обновлён.";
+"editor.avatar_forbidden" = "Менять фото этого профиля нельзя.";
 "editor.cancel" = "Отмена";
 "editor.close" = "Закрыть";
 "editor.continue" = "Продолжить";
@@ -685,11 +688,12 @@
 "editor.invalid_file" = "К сожалению, этот файл использовать нельзя.";
 "editor.keep" = "Продолжить правку";
 "editor.load_failed" = "Не удалось открыть в редакторе";
-"editor.not_allowed" = "Здесь нельзя ни ответить, ни заменить этот файл.";
+"editor.not_allowed" = "Здесь с этим файлом ничего нельзя сделать.";
 "editor.preparing" = "Подготовка…";
 "editor.replace" = "Заменить вложение";
 "editor.replaced" = "Вложение заменено.";
 "editor.retry" = "Повторить";
+"editor.saved_done" = "Сохранено в Избранное.";
 "editor.sending" = "Отправка…";
 "editor.sent" = "Отправлено ответом.";
 "editor.style_framed" = "В рамке";
@@ -700,6 +704,7 @@
 "editor.title_gif" = "Изменённая GIF";
 "editor.title_photo" = "Изменённое фото";
 "editor.title_video" = "Изменённое видео";
+"editor.to_saved" = "Сохранить в Избранное";
 
 "edits.current" = "сейчас";
 "edits.failed" = "Не удалось прочитать историю правок";
