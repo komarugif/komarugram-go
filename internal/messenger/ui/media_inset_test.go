@@ -78,7 +78,7 @@ func TestMediaInsetInBubble(t *testing.T) {
 	if box.Dx() < 150 || box.Dy() < 300 {
 		t.Fatalf("no tile found: %v", box)
 	}
-	if box.Dx() > 210 {
+	if box.Dx() > 250 {
 		t.Fatalf("the tile is %v: more than the video", box)
 	}
 	checkInsets(t, img, box, tile, bubble)
@@ -110,11 +110,15 @@ func findTile(img *image.RGBA, tile color.NRGBA) image.Rectangle {
 		return box
 	}
 	// Up and down the middle, past the play button and the plates at the
-	// bottom's corners, to the last of the tile's color.
+	// bottom's corners, to the last of the tile's color before the bubble.
+	_, bubble := tileColors()
 	col, row := box.Min.X+box.Dx()/2, box.Min.Y
 	extend := func(dir int) int {
 		last := row
-		for y, gap := row+dir, 0; y >= 0 && y < size.Y && gap < 50; y += dir {
+		for y, gap := row+dir, 0; y >= 0 && y < size.Y-120 && gap < 50; y += dir {
+			if near(img.RGBAAt(col, y), bubble) {
+				break
+			}
 			if near(img.RGBAAt(col, y), tile) {
 				last, gap = y, 0
 			} else {

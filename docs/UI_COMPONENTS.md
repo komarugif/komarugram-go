@@ -122,6 +122,9 @@ The history is drawn as materialgram draws it:
 - `replyQuote` is the quote of a replied message, which jumps to it;
   `messageFooter` has the comments, views, author, edit mark and time;
   `reactions` wraps reaction chips.
+- A photo or a video in the history is at most 420 dp wide and 430 dp
+  high (`mediaMaxHeight`, Telegram Desktop's `maxMediaSize`): an upright
+  video was half the width of its bubble at 360.
 - A photo, a video or a GIF in a bubble, and an album of them
   (`edgeMedia`, `tiledAlbum`), come `mediaInset` from the bubble's sides,
   the gap between an album's tiles (`albumGap`, 3 dp), not the 12 dp of
@@ -168,11 +171,28 @@ The history is drawn as materialgram draws it:
   tall video) at the narrowest width that keeps its lines, or, where a
   line more saves 64 dp and a quarter of it, on a line more, not narrower
   than `minCaptionWidth`; measured with `textFlow` once and kept in the
-  row (`captionFit`). `reactionFit` chooses where the reactions wrap, the narrowest
-  bubble of no more height (the rows come out even), or a row more when
-  that saves at least 64 dp and a quarter of the width and the rows keep
-  three chips each on average (`minChipsPerRow`); Telegram Desktop wraps
-  them at the widest a bubble may be. `replyLines` puts the text of a
+  row (`captionFit`). A caption with a quote that does not fold wraps so
+  too, and an album's caption, on its member's row, as narrow as the
+  album (`TestQuoteCaptionWraps`, `TestAlbumCaptionWraps`). A quote that
+  does not fold is as wide as its text; `richText` draws its plate as
+  wide as all the text (`textInteraction.plates`), as Telegram Desktop
+  does (`TestQuoteTakesItsWidth`); one that folds, and code, keep the
+  whole width, their buttons at the right. `reactionFit` chooses where the reactions wrap, the narrowest
+  bubble of no more height, or a row more when that saves a fifth of the
+  width and at least 64 dp, or 64 dp alone where the reactions then keep
+  to the rest of the bubble; of each the one within 32 dp of the narrowest
+  with the time beside the chips rather than alone on a line, then the
+  lowest, then the one whose last row is no wider than its first, then
+  the rows most even; a row more of chips keeps two each on average
+  (`minChipsPerRow`), so that one or two chips go to a row of their own
+  under an upright video (`TestFewReactionsWrapUnderVideo`). Eight reactions with a post's views and
+  time beside them go on two rows of four, the time on the second, under
+  a caption narrower than the one row (`TestReactionsWrapWithTime`). The time goes on their last row
+  where it fits the width they wrap at, or the rest of the bubble, and on
+  a line of its own otherwise, which counts as a row more: a long
+  signature of a post's author no longer widens the bubble beside them
+  (`TestLongSignatureUnderReactions`). Telegram Desktop wraps them at the
+  widest a bubble may be. `replyLines` puts the text of a
   quote on two lines, about half as wide, where that saves 48 dp and an
   eighth of the width, the second cut with an ellipsis (`richLabel.flat`).
   `BUBBLE_FIT_PNG` renders them, with a post as

@@ -374,6 +374,9 @@ type bubblePart struct {
 	// not as far as the rest of what it holds: a photo, a video or a GIF,
 	// or an album of them.
 	edge bool
+	// row is the row of a caption of an album's member, whose text the
+	// part is: the message's own row for any other.
+	row *messageRow
 }
 
 // laidPart is a part of a bubble laid out, to be drawn where it goes: x
@@ -460,11 +463,13 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 			if member.Text != "" && !seen[member.Text] {
 				seen[member.Text] = true
 				member := member
-				parts = append(parts, bubbleWidget(func(gtx layout.Context) layout.Dimensions {
-					child := albumRow(gtx, r, member, l)
+				// A caption of the album, wrapped as narrow as the
+				// album lets it be, as the message's own (captionWidth).
+				child := albumRow(gtx, r, member, l)
+				parts = append(parts, bubblePart{kind: partText, row: child, widget: func(gtx layout.Context) layout.Dimensions {
 					p.refreshStamps(gtx, child, member, l)
 					return p.richText(gtx, child, l, animate)
-				}), bubbleGap(4))
+				}}, bubbleGap(4))
 			}
 		}
 	} else if msg.Text != "" {
@@ -540,7 +545,9 @@ func (p *chatPage) captionWidth(gtx layout.Context, r *messageRow, l localizatio
 	}
 	r.prepareTextBlocks()
 	for _, b := range r.textBlocks {
-		if r.runs[b.first].Block != 0 {
+		// A quote that does not fold is measured as quoteBlock lays it
+		// out; code, or a quote with its button, keeps the whole width.
+		if run := r.runs[b.first]; run.Block != 0 && (!run.Quote || run.Collapsed) {
 			return most
 		}
 	}
@@ -553,13 +560,22 @@ func (p *chatPage) captionWidth(gtx layout.Context, r *messageRow, l localizatio
 		h := 0
 		for i := range r.textBlocks {
 			b := &r.textBlocks[i]
-			if b.end-b.first == 1 && r.runs[b.first].Text == "\n" && (b.trimStart || b.trimEnd) {
+			if b.end-b.first == 1 && r.runs[b.first].Block == 0 && r.runs[b.first].Text == "\n" && (b.trimStart || b.trimEnd) {
 				continue
 			}
 			if h > 0 {
 				h += gtx.Dp(6)
 			}
-			h += p.textFlow(mgtx, r, b, image.Pt(0, h), animate).Size.Y
+			if r.runs[b.first].Block == 0 {
+				h += p.textFlow(mgtx, r, b, image.Pt(0, h), animate).Size.Y
+				continue
+			}
+			// A quote, as quoteBlock: padded, and its whole text.
+			pad, top := min(gtx.Dp(10), w/2), gtx.Dp(6)
+			qgtx := mgtx
+			qgtx.Constraints.Max.X = max(1, w-2*pad)
+			b.maxLines = 0
+			h += p.textFlow(qgtx, r, b, image.Pt(pad, h+top), animate).Size.Y + 2*top
 		}
 		macro.Stop()
 		for _, f := range r.text.fragments[keep:] {
@@ -630,7 +646,7 @@ func (p *chatPage) bubbleBody(gtx layout.Context, r *messageRow, m model.Message
 	// the reactions then fit around it.
 	laid := r.laid[:0]
 	defer func() { r.laid = laid[:0] }()
-	base, text, reply, reactions := 0, -1, -1, -1
+	base, reply, reactions := 0, -1, -1
 	media := false
 	for _, part := range parts {
 		media = media || part.kind == partMedia
@@ -686,7 +702,7 @@ func (p *chatPage) bubbleBody(gtx layout.Context, r *messageRow, m model.Message
 		case part.kind == partReactions:
 			reactions = i
 		case part.kind == partText && media:
-			text = i
+			// Laid out next, around the media.
 		case part.edge:
 			macro := op.Record(gtx.Ops)
 			lp.size = part.widget(egtx).Size
@@ -701,14 +717,23 @@ func (p *chatPage) bubbleBody(gtx layout.Context, r *messageRow, m model.Message
 		}
 		laid = append(laid, lp)
 	}
-	if text >= 0 {
+	// The captions, the message's own or its album's.
+	captions := base
+	for i, part := range parts {
+		if part.kind != partText || !media {
+			continue
+		}
+		tr := r
+		if part.row != nil {
+			tr = part.row
+		}
 		tgtx := cgtx
-		tgtx.Constraints.Max.X = p.captionWidth(cgtx, r, l, animate, base)
+		tgtx.Constraints.Max.X = p.captionWidth(cgtx, tr, l, animate, captions)
 		macro := op.Record(gtx.Ops)
-		laid[text].size = parts[text].widget(tgtx).Size
-		laid[text].call = macro.Stop()
-		r.caption.check(laid[text].size.Y)
-		base = max(base, laid[text].size.X)
+		laid[i].size = part.widget(tgtx).Size
+		laid[i].call = macro.Stop()
+		tr.caption.check(laid[i].size.Y)
+		base = max(base, laid[i].size.X)
 	}
 	onMedia := r.time.drawn
 	macro := op.Record(gtx.Ops)
@@ -1081,6 +1106,19 @@ func reactionRows(widths []int, gap, w int) (rows, widest, last int) {
 	return rows, widest, last
 }
 
+// firstRow is how wide the first row of chips of widths is, wrapped at w,
+// gap apart.
+func firstRow(widths []int, gap, w int) int {
+	x := 0
+	for _, cw := range widths {
+		if x > 0 && x+cw > w {
+			break
+		}
+		x += cw + gap
+	}
+	return max(0, x-gap)
+}
+
 // reactionFit chooses the width a bubble's reactions wrap at, from the
 // widths of their chips, the width of the rest of what the bubble holds and
 // the time's. Telegram Desktop wraps them at the widest a bubble may be;
@@ -1103,7 +1141,7 @@ type reactionFit struct {
 
 // minChipsPerRow is the fewest chips a row has on average where the
 // reactions take a row more to keep a bubble narrow.
-const minChipsPerRow = 3
+const minChipsPerRow = 2
 
 func newReactionFit(gtx layout.Context, r *messageRow, chips []reactionChip, base, most int, foot image.Point) reactionFit {
 	widths := r.chipWidths[:0]
@@ -1119,12 +1157,15 @@ func newReactionFit(gtx layout.Context, r *messageRow, chips []reactionChip, bas
 
 // at tells how high the reactions and the time under them are when the
 // chips wrap at w, how wide the bubble is then, and whether the time is on
-// the chips' last row.
+// the chips' last row: where it fits within w, or the rest of the bubble.
+// It goes on a line of its own otherwise, which choose weighs as a row of
+// chips more: a long signature of a post's author beside the chips made
+// the bubble as wide as they and it, half of it empty over them.
 func (f *reactionFit) at(w int) (height, width int, inline bool) {
 	rows, widest, last := reactionRows(f.widths, f.gap, w)
 	height = rows*f.row + (rows-1)*f.gap
 	width = max(f.base, widest)
-	if end := last + f.footGap + f.foot.X; end <= f.most {
+	if end := last + f.footGap + f.foot.X; end <= max(w, f.base) && end <= f.most {
 		return height, max(width, end), true
 	}
 	return height + f.footSpace + f.foot.Y, max(width, f.foot.X), false
@@ -1132,7 +1173,13 @@ func (f *reactionFit) at(w int) (height, width int, inline bool) {
 
 // choose is the width the chips wrap at. A row ends where a chip, or the
 // time after the last, ends, so only the widths of runs of chips, with the
-// time or without it, are tried.
+// time or without it, are tried. Of the ways no higher than the fewest
+// rows take, and of those a row higher, each of those about as narrow as
+// the narrowest of its kind, with the time on the chips' row rather than
+// alone on a line, then the lowest: a line or a row more is taken for the
+// width it saves, not for a few px. The higher is taken where it saves a
+// fifth of the width, at least worth; worth alone where the reactions then
+// keep to the rest of the bubble.
 func (f *reactionFit) choose() int {
 	least := 0
 	for _, w := range f.widths {
@@ -1141,51 +1188,91 @@ func (f *reactionFit) choose() int {
 	if len(f.widths) == 0 || least >= f.most {
 		return f.most
 	}
-	type pick struct{ w, height, width int }
+	type pick struct {
+		w, height, width int
+		// inline is set where the time is on the chips' last row, and
+		// settled where that row is no wider than the first.
+		inline, settled bool
+	}
 	tallest, _, _ := f.at(f.most)
-	even, taller := pick{w: -1}, pick{w: -1}
-	// better is whether w, height and width beat p: a narrower bubble, then
-	// a lower one, then rows as full as they can be.
-	better := func(p pick, w, height, width int) bool {
+	fewest, _, _ := reactionRows(f.widths, f.gap, f.most)
+	// each calls visit with every width to try, and how high and wide the
+	// bubble is at it, and whether it is no higher than the fewest rows,
+	// or a row higher.
+	each := func(visit func(p pick, even, taller bool)) {
+		try := func(w int) {
+			if w < least || w > f.most {
+				return
+			}
+			height, width, inline := f.at(w)
+			// A row more of chips holds a couple each: one alone on its
+			// row looks scattered, and saves little. The time on a line of
+			// its own scatters none.
+			rows, _, last := reactionRows(f.widths, f.gap, w)
+			few := rows > fewest && len(f.widths) < minChipsPerRow*rows
+			settled := last <= firstRow(f.widths, f.gap, w)
+			visit(pick{w, height, width, inline, settled}, height <= tallest, height <= tallest+f.row+f.gap && !few)
+		}
+		try(f.most)
+		try(f.base)
+		for i := range f.widths {
+			run := 0
+			for j := i; j < len(f.widths) && run <= f.most; j++ {
+				if j > i {
+					run += f.gap
+				}
+				run += f.widths[j]
+				try(run)
+				try(run + f.footGap + f.foot.X)
+			}
+		}
+	}
+	narrowEven, narrowTaller := -1, -1
+	each(func(p pick, even, taller bool) {
+		if even && (narrowEven < 0 || p.width < narrowEven) {
+			narrowEven = p.width
+		}
+		if taller && (narrowTaller < 0 || p.width < narrowTaller) {
+			narrowTaller = p.width
+		}
+	})
+	// better is whether q beats p: the time beside the chips, not alone on
+	// a line under them, then a lower bubble, then a narrower one, then
+	// the last row no wider than the first, then rows as even as they can
+	// be: the chips wrapped as narrow as they go on as many rows, where the
+	// rest of the bubble is wider than they.
+	better := func(p, q pick) bool {
 		switch {
 		case p.w < 0:
 			return true
-		case width != p.width:
-			return width < p.width
-		case height != p.height:
-			return height < p.height
+		case q.inline != p.inline:
+			return q.inline
+		case q.height != p.height:
+			return q.height < p.height
+		case q.width != p.width:
+			return q.width < p.width
+		case q.settled != p.settled:
+			return q.settled
 		}
-		return w > p.w
+		return q.w < p.w
 	}
-	try := func(w int) {
-		if w < least || w > f.most {
-			return
+	slack := f.worth / 2
+	even, taller := pick{w: -1}, pick{w: -1}
+	each(func(q pick, isEven, isTaller bool) {
+		if isEven && q.width <= narrowEven+slack && better(even, q) {
+			even = q
 		}
-		height, width, _ := f.at(w)
-		if height <= tallest && better(even, w, height, width) {
-			even = pick{w, height, width}
+		if isTaller && q.width <= narrowTaller+slack && better(taller, q) {
+			taller = q
 		}
-		// A row more holds a few chips each: two or three alone on
-		// their rows look scattered, and save little.
-		rows, _, _ := reactionRows(f.widths, f.gap, w)
-		if height <= tallest+f.row+f.gap && len(f.widths) >= minChipsPerRow*rows && better(taller, w, height, width) {
-			taller = pick{w, height, width}
-		}
+	})
+	// Where the reactions then keep to the rest of the bubble, worth alone
+	// does.
+	saves := max(f.worth, even.width/5)
+	if taller.width <= f.base {
+		saves = f.worth
 	}
-	try(f.most)
-	try(f.base)
-	for i := range f.widths {
-		run := 0
-		for j := i; j < len(f.widths) && run <= f.most; j++ {
-			if j > i {
-				run += f.gap
-			}
-			run += f.widths[j]
-			try(run)
-			try(run + f.footGap + f.foot.X)
-		}
-	}
-	if taller.w >= 0 && taller.width <= even.width-max(f.worth, even.width/4) {
+	if taller.w >= 0 && taller.width <= even.width-saves {
 		return taller.w
 	}
 	return even.w

@@ -48,7 +48,9 @@ func (p *chatPage) mediaLayout(gtx layout.Context, r *messageRow, m model.Messag
 	if m.Kind != model.MessagePhoto && m.Kind != model.MessageVideo && m.Kind != model.MessageGIF && m.Kind != model.MessageSticker {
 		return p.fileLayout(gtx, r, m, l)
 	}
-	maxW, maxH := min(gtx.Constraints.Max.X, gtx.Dp(420)), gtx.Dp(360)
+	// As high as Telegram Desktop's maxMediaSize lets a tall one be: at
+	// 360 dp a video shot upright took half the width of the bubble.
+	maxW, maxH := min(gtx.Constraints.Max.X, gtx.Dp(420)), gtx.Dp(mediaMaxHeight)
 	if m.Kind == model.MessageSticker {
 		maxW, maxH = min(maxW, gtx.Dp(stickerMax)), gtx.Dp(stickerMax)
 	}
@@ -390,6 +392,9 @@ func ring(gtx layout.Context, diameter int, progress float32, animate bool) {
 	}
 	paint.FillShape(gtx.Ops, color.NRGBA{R: 255, G: 255, B: 255, A: 240}, clip.Stroke{Path: path.End(), Width: float32(gtx.Dp(2))}.Op())
 }
+
+// mediaMaxHeight is the highest a photo or a video in the history is.
+const mediaMaxHeight unit.Dp = 430
 
 // albumGap is the space between the tiles of an album.
 const albumGap unit.Dp = 3

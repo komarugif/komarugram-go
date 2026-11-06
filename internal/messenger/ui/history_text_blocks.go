@@ -144,6 +144,8 @@ func (p *chatPage) richText(gtx layout.Context, r *messageRow, l localization.Ca
 	}
 	p.textEvents(gtx, r, animate)
 	r.text.fragments = r.text.fragments[:0]
+	r.text.plates = r.text.plates[:0]
+	r.text.fitPlates = true
 	gtx.Constraints.Min = image.Point{}
 	macro := op.Record(gtx.Ops)
 	size := image.Point{}
@@ -163,6 +165,17 @@ func (p *chatPage) richText(gtx layout.Context, r *messageRow, l localization.Ca
 		size.Y += dims.Size.Y
 	}
 	call := macro.Stop()
+	r.text.fitPlates = false
+	// A quote is as wide as its text, for the bubble to be as wide as
+	// what it says; its plate as wide as the whole text, as Telegram
+	// Desktop's, under it.
+	for _, plate := range r.text.plates {
+		plate.Max.X = max(plate.Max.X, size.X)
+		offset(gtx, plate.Min, func(gtx layout.Context) layout.Dimensions {
+			quotePlate(gtx, plate.Size())
+			return layout.Dimensions{Size: plate.Size()}
+		})
+	}
 	typing, lines, height := p.typingStep(gtx, r, size, animate)
 	size.Y = height
 	r.text.size = size
@@ -268,10 +281,20 @@ func (p *chatPage) quoteBlock(gtx layout.Context, r *messageRow, b *messageTextB
 	if size.Y > target && limit > 0 {
 		call, _ = draw(0)
 	}
+	// One that does not fold is as wide as its text, where richText draws
+	// its plate (fitPlates); one that folds keeps the width, its button at
+	// the right.
+	fit := cell == 0 && r.text.fitPlates
+	if fit {
+		size.X = min(size.X, dims.Size.X+2*pad)
+	}
 	visible := image.Rect(pad, top, max(pad, size.X-pad-cell), max(top, size.Y-top)).Add(origin)
 	clipTextFragments(&r.text, first, visible)
-	fillRounded(gtx, scheme(gtx).SurfaceVariant.Color.SetOpacity(.55), size, gtx.Dp(6))
-	paint.FillShape(gtx.Ops, scheme(gtx).Primary.Color.AsNRGBA(), clip.UniformRRect(image.Rect(0, 0, min(size.X, gtx.Dp(3)), size.Y), gtx.Dp(1)).Op(gtx.Ops))
+	if fit {
+		r.text.plates = append(r.text.plates, image.Rectangle{Min: origin, Max: origin.Add(size)})
+	} else {
+		quotePlate(gtx, size)
+	}
 	area := clip.Rect(visible.Sub(origin)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	area.Pop()
@@ -286,6 +309,13 @@ func (p *chatPage) quoteBlock(gtx layout.Context, r *messageRow, b *messageTextB
 		})
 	}
 	return layout.Dimensions{Size: size}
+}
+
+// quotePlate draws the plate of a quote of size: tinted, with the bar of
+// the primary color at its left.
+func quotePlate(gtx layout.Context, size image.Point) {
+	fillRounded(gtx, scheme(gtx).SurfaceVariant.Color.SetOpacity(.55), size, gtx.Dp(6))
+	paint.FillShape(gtx.Ops, scheme(gtx).Primary.Color.AsNRGBA(), clip.UniformRRect(image.Rect(0, 0, min(size.X, gtx.Dp(3)), size.Y), gtx.Dp(1)).Op(gtx.Ops))
 }
 
 func compactTextIcon(gtx layout.Context, action *surface, size image.Point, icon wdk.IconWidget, label string) layout.Dimensions {

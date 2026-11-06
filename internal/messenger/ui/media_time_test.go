@@ -66,9 +66,9 @@ func TestTimeOnVideo(t *testing.T) {
 	if r == nil || !r.time.drawn {
 		t.Fatal("the time is not on the video")
 	}
-	// 360 px of video, 3 over it and 3 under it.
-	if r.bodySize.Y != 366 {
-		t.Fatalf("the bubble is %d px high, want 366: the video and 3 px over and under it", r.bodySize.Y)
+	// 430 px of video, 3 over it and 3 under it.
+	if r.bodySize.Y != 436 {
+		t.Fatalf("the bubble is %d px high, want 436: the video and 3 px over and under it", r.bodySize.Y)
 	}
 	tile, bubble := tileColors()
 	img := drawHistory(t, h, image.Pt(500, 700))
