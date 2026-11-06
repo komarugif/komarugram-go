@@ -282,8 +282,18 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 	return dims
 }
 
-// bubblePadTop is the space over what a bubble holds.
-const bubblePadTop unit.Dp = 8
+// bubblePadTop is the space over what a bubble holds, and bubblePadSide
+// beside it.
+const (
+	bubblePadTop  unit.Dp = 8
+	bubblePadSide unit.Dp = 12
+)
+
+// mediaInset is the space between the edges of a bubble and a photo, a
+// video or an album of them in it: the gap between the pictures of an
+// album, as Telegram for Android leaves it. Over media at the top of a
+// bubble it is the space over it too.
+const mediaInset = albumGap
 
 // bubble draws a message's bubble and what it holds.
 func (p *chatPage) bubble(gtx layout.Context, r *messageRow, m model.Message, join bubbleJoin, l localization.Catalog, animate bool) layout.Dimensions {
@@ -308,7 +318,7 @@ func (p *chatPage) bubble(gtx layout.Context, r *messageRow, m model.Message, jo
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			content := func(gtx layout.Context) layout.Dimensions {
-				return layout.Inset{Top: bubblePadTop, Bottom: 7, Left: 12, Right: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Top: bubblePadTop, Bottom: 7, Left: bubblePadSide, Right: bubblePadSide}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return p.bubbleBody(gtx, r, m, join, l, animate)
 				})
 			}
@@ -359,12 +369,29 @@ type bubblePart struct {
 	kind   bubblePartKind
 	space  unit.Dp
 	widget layout.Widget
+	// edge is set for media that come mediaInset from the bubble's edges,
+	// not as far as the rest of what it holds: a photo, a video or a GIF,
+	// or an album of them.
+	edge bool
 }
 
-// laidPart is a part of a bubble laid out, to be drawn where it goes.
+// laidPart is a part of a bubble laid out, to be drawn where it goes: x
+// from the left of the rest of what the bubble holds.
 type laidPart struct {
 	call op.CallOp
 	size image.Point
+	x    int
+}
+
+// edgeMedia tells whether media of kind come to the edges of a bubble, as
+// the tiles of an album do: a picture, not a file, a sticker or a round
+// video.
+func edgeMedia(kind model.MessageKind) bool {
+	switch kind {
+	case model.MessagePhoto, model.MessageVideo, model.MessageGIF:
+		return true
+	}
+	return false
 }
 
 func bubbleWidget(w layout.Widget) bubblePart { return bubblePart{widget: w} }
@@ -411,9 +438,9 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 		parts = append(parts, bubblePart{kind: partReply}, bubbleGap(6))
 	}
 	if len(msg.Attachments) > 1 {
-		parts = append(parts, bubblePart{kind: partMedia, widget: func(gtx layout.Context) layout.Dimensions { return p.albumLayout(gtx, r, *msg, l, animate) }}, bubbleGap(6))
+		parts = append(parts, bubblePart{kind: partMedia, edge: tiledAlbum(msg.Attachments), widget: func(gtx layout.Context) layout.Dimensions { return p.albumLayout(gtx, r, *msg, l, animate) }}, bubbleGap(6))
 	} else if msg.Media != nil {
-		parts = append(parts, bubblePart{kind: partMedia, widget: func(gtx layout.Context) layout.Dimensions { return p.mediaLayout(gtx, r, *msg, l, animate) }}, bubbleGap(6))
+		parts = append(parts, bubblePart{kind: partMedia, edge: edgeMedia(msg.Kind), widget: func(gtx layout.Context) layout.Dimensions { return p.mediaLayout(gtx, r, *msg, l, animate) }}, bubbleGap(6))
 	}
 	if msg.Poll != nil {
 		parts = append(parts, bubbleWidget(func(gtx layout.Context) layout.Dimensions { return p.pollLayout(gtx, msg, l) }))
@@ -584,6 +611,10 @@ const footerSpace unit.Dp = 4
 // own otherwise. What the time says, the seconds and the edited mark
 // included, sets its width.
 //
+// Photos and videos come mediaInset from the bubble's edges (edgeMedia),
+// at its top too when nothing is over them, their corners there as round
+// as the bubble's less the inset.
+//
 // What would make the bubble much wider than the rest of what it holds
 // wraps to keep it narrow: a caption under narrower media as narrow as it
 // keeps its lines, the reactions onto more rows, the quote of the message
@@ -603,6 +634,25 @@ func (p *chatPage) bubbleBody(gtx layout.Context, r *messageRow, m model.Message
 	for _, part := range parts {
 		media = media || part.kind == partMedia
 	}
+	// out is how far media go past the side of the rest; lift, how far
+	// media at the top go over it.
+	out := gtx.Dp(bubblePadSide) - gtx.Dp(mediaInset)
+	lift := 0
+	r.corners = tileCorners{}
+	for _, part := range parts {
+		if part.kind == partSpace {
+			continue
+		}
+		if part.edge {
+			lift = gtx.Dp(bubblePadTop) - gtx.Dp(mediaInset)
+			shape := shapeOf(gtx, join, m.Outgoing)
+			inset := gtx.Dp(mediaInset)
+			r.corners = tileCorners{nw: max(1, shape.nw-inset), ne: max(1, shape.ne-inset)}
+		}
+		break
+	}
+	egtx := cgtx
+	egtx.Constraints.Max.X += 2 * out
 	for i, part := range parts {
 		var lp laidPart
 		switch {
@@ -614,6 +664,12 @@ func (p *chatPage) bubbleBody(gtx layout.Context, r *messageRow, m model.Message
 			reactions = i
 		case part.kind == partText && media:
 			text = i
+		case part.edge:
+			macro := op.Record(gtx.Ops)
+			lp.size = part.widget(egtx).Size
+			lp.call = macro.Stop()
+			lp.x = -out
+			base = max(base, lp.size.X-2*out)
 		default:
 			macro := op.Record(gtx.Ops)
 			lp.size = part.widget(cgtx).Size
@@ -670,7 +726,7 @@ func (p *chatPage) bubbleBody(gtx layout.Context, r *messageRow, m model.Message
 		laid[reactions].size = p.placeReactions(cgtx, r, r.chips, w).Size
 		laid[reactions].call = macro.Stop()
 	}
-	y, width, textTop, chipsTop := 0, 0, 0, 0
+	y, width, textTop, chipsTop := -lift, 0, 0, 0
 	for i, lp := range laid {
 		switch parts[i].kind {
 		case partSpace:
@@ -683,11 +739,11 @@ func (p *chatPage) bubbleBody(gtx layout.Context, r *messageRow, m model.Message
 		case partReactions:
 			chipsTop = y
 		}
-		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
+		stack := op.Offset(image.Pt(lp.x, y)).Push(gtx.Ops)
 		lp.call.Add(gtx.Ops)
 		stack.Pop()
 		y += lp.size.Y
-		width = max(width, lp.size.X)
+		width = max(width, lp.size.X+2*lp.x)
 	}
 	width = max(width, footer.Size.X)
 	at := image.Pt(0, y+gtx.Dp(footerSpace))

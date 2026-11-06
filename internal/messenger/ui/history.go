@@ -82,9 +82,12 @@ type messageRow struct {
 	// chipWidths their widths, for the bubble to choose where they wrap;
 	// lastChips is the row of chips placed last, in the reactions'
 	// coordinates, which the time may go on.
-	chips      []reactionChip
+	chips []reactionChip
 	// caption is the width the text wraps at under narrower media.
 	caption captionFit
+	// corners are the top corners of the row's tile, where it is at the
+	// top of its bubble.
+	corners    tileCorners
 	chipWidths []int
 	lastChips  image.Rectangle
 	// comments is the bar that opens a channel post's comments.

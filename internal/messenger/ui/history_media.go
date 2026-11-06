@@ -22,6 +22,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/unit"
 	"gioui.org/widget"
 )
 
@@ -163,11 +164,12 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	}
 	draw := func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints = layout.Exact(size)
-		defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(8)).Push(gtx.Ops).Pop()
+		shape := r.corners.rrect(gtx, size)
+		defer shape.Push(gtx.Ops).Pop()
 		// A sticker lies on the chat's background once it is drawn; the
 		// plate only shows where it is going to be.
 		if m.Kind != model.MessageSticker || (frame == nil && preview == nil) {
-			fillRounded(gtx, scheme(gtx).SurfaceContainerHigh, size, gtx.Dp(8))
+			paint.FillShape(gtx.Ops, scheme(gtx).SurfaceContainerHigh.AsNRGBA(), shape.Op(gtx.Ops))
 		}
 		im := frame
 		if im == nil {
@@ -342,6 +344,31 @@ func ring(gtx layout.Context, diameter int, progress float32, animate bool) {
 	}
 	paint.FillShape(gtx.Ops, color.NRGBA{R: 255, G: 255, B: 255, A: 240}, clip.Stroke{Path: path.End(), Width: float32(gtx.Dp(2))}.Op())
 }
+
+// albumGap is the space between the tiles of an album.
+const albumGap unit.Dp = 3
+
+// tileRadius is how round a tile of media is.
+const tileRadius unit.Dp = 8
+
+// tileCorners are the radii of the top corners of a tile at the top of its
+// bubble, round as the bubble's corners there, less the space between:
+// zero for one of its own, tileRadius.
+type tileCorners struct{ nw, ne int }
+
+// rrect is the shape of a tile of size with the corners.
+func (c tileCorners) rrect(gtx layout.Context, size image.Point) clip.RRect {
+	radius := gtx.Dp(tileRadius)
+	shape := clip.RRect{Rect: image.Rectangle{Max: size}, NW: radius, NE: radius, SE: radius, SW: radius}
+	if c.nw > 0 {
+		shape.NW = c.nw
+	}
+	if c.ne > 0 {
+		shape.NE = c.ne
+	}
+	return shape
+}
+
 func albumRow(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog) *messageRow {
 	if r.album == nil {
 		r.album = map[model.MessageID]*messageRow{}
@@ -387,7 +414,7 @@ func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Messag
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 	}
 	width := min(gtx.Constraints.Max.X, gtx.Dp(500))
-	gap := gtx.Dp(3)
+	gap := gtx.Dp(albumGap)
 	y := 0
 	for i := 0; i < len(m.Attachments); {
 		count := 2
@@ -415,10 +442,20 @@ func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Messag
 				w = width - x
 			}
 			member := m.Attachments[i+j]
+			// The tiles at the album's top corners round them as the
+			// album is rounded.
+			var corners tileCorners
+			if i == 0 && j == 0 {
+				corners.nw = r.corners.nw
+			}
+			if i == 0 && j == count-1 {
+				corners.ne = r.corners.ne
+			}
 			tileGtx := gtx
 			tileGtx.Constraints = layout.Exact(image.Pt(w, height))
 			offset(tileGtx, image.Pt(x, y), func(gtx layout.Context) layout.Dimensions {
 				child := albumRow(gtx, r, member, l)
+				child.corners = corners
 				p.partPresses(gtx, m, child, member)
 				dims := p.mediaTile(gtx, child, member, image.Pt(w, height), true, l, animate)
 				partPressArea(gtx, child, image.Pt(w, height))

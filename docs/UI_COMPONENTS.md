@@ -122,6 +122,14 @@ The history is drawn as materialgram draws it:
 - `replyQuote` is the quote of a replied message, which jumps to it;
   `messageFooter` has the comments, views, author, edit mark and time;
   `reactions` wraps reaction chips.
+- A photo, a video or a GIF in a bubble, and an album of them
+  (`edgeMedia`, `tiledAlbum`), come `mediaInset` from the bubble's sides,
+  the gap between an album's tiles (`albumGap`, 3 dp), not the 12 dp of
+  the rest (`bubblePadSide`), as in Telegram for Android; from its top
+  too where nothing is over them, their top corners then as round as the
+  bubble's less the inset (`tileCorners`). Files, stickers, round videos
+  and a link preview's media keep the bubble's padding.
+  `TestMediaInsetInBubble`; `MEDIA_INSET_PNG` renders them.
 - `bubbleContent` lists what a bubble holds as `bubblePart`s, and
   `bubbleBody` lays them out itself, not in a `layout.Flex`: what takes
   its own width first, then the quote of the reply and the reactions,
@@ -902,7 +910,7 @@ new piece sits next to its neighbours.
   and emoji pack states; `TestRenderMessageMenu`, the message menu over a
   reply, with a floating and a classic composer. They are skipped unless their
   variable (`COMPOSER_PNG`, `COMPOSER_MOTION_PNG`, `SETTINGS_PNG`,
-  `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `POLL_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `BUBBLE_FIT_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `COMMUNITY_PNG`, `CHAT_PREVIEW_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
+  `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `POLL_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `BUBBLE_FIT_PNG`, `MEDIA_INSET_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `COMMUNITY_PNG`, `CHAT_PREVIEW_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
   first dialog exists. `COMPOSER_VIEW=emoji-search`, the picker's emoji found for a word;
   `COMPOSER_VIEW=featured-stickers` or `featured-emoji`
   with `COMPOSER_PNG` shows the picker's recommendations; `COMPOSER_VIEW=voice`,
