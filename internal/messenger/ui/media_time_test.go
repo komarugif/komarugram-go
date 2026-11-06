@@ -94,6 +94,93 @@ func TestTimeOnVideo(t *testing.T) {
 	}
 }
 
+// cornerCut is how many pixels in from a corner of box, along its
+// diagonal by dx and dy, the tile's rounded corner begins.
+func cornerCut(img *image.RGBA, box image.Rectangle, tile color.NRGBA, dx, dy int) int {
+	x, y := box.Min.X, box.Min.Y
+	if dx < 0 {
+		x = box.Max.X - 1
+	}
+	if dy < 0 {
+		y = box.Max.Y - 1
+	}
+	n := 0
+	for ; n < 20 && !near(img.RGBAAt(x, y), tile); n++ {
+		x, y = x+dx, y+dy
+	}
+	return n
+}
+
+// Media that are all a bubble holds, the time on them, round their bottom
+// corners as the bubble's, as they do their top ones: the bubble's corner
+// is as round at the bottom right as at the top right, and so is the
+// video's.
+func TestMediaBottomCorners(t *testing.T) {
+	h := newMenuHarness(t, func(_ *menuStore, m []model.Message) {
+		tallVideo(&m[1])
+		m[1].Text = ""
+	})
+	h.frames(2)
+	tile, _ := tileColors()
+	img := drawHistory(t, h, image.Pt(500, 700))
+	box := findTile(img, tile)
+	if box.Dx() < 150 || box.Dy() < 300 {
+		t.Fatalf("no tile found: %v", box)
+	}
+	top, bottom := cornerCut(img, box, tile, -1, 1), cornerCut(img, box, tile, -1, -1)
+	if top < 3 || bottom != top {
+		t.Fatalf("the video's top right corner is cut %d px in, its bottom right %d px", top, bottom)
+	}
+}
+
+// An album that is all its bubble holds rounds the bubble's bottom corners
+// on the tiles of its bottom row; one with a caption under it keeps the
+// tiles' own.
+func TestAlbumBottomCorners(t *testing.T) {
+	album := func(m *model.Message) {
+		m.Text = ""
+		for j := range 3 {
+			m.Attachments = append(m.Attachments, model.Message{Key: model.MessageKey{ChatID: 1, MessageID: model.MessageID(100*int(m.Key.MessageID) + j)}, Kind: model.MessagePhoto,
+				Media: &model.MessageMedia{ID: "photo/a", MIMEType: "image/jpeg", Width: 1280, Height: 960}})
+		}
+	}
+	h := newMenuHarness(t, func(_ *menuStore, m []model.Message) {
+		album(&m[1])
+		album(&m[2])
+		m[2].Attachments[0].Text = "Подпись"
+	})
+	h.frames(2)
+	bare, captioned := h.page.rows[2], h.page.rows[3]
+	if bare == nil || captioned == nil {
+		t.Fatal("rows not laid out")
+	}
+	tiles := func(r *messageRow, id model.MessageID) []tileCorners {
+		var cs []tileCorners
+		for j := range 3 {
+			child := r.album[model.MessageID(100*int(id)+j)]
+			if child == nil {
+				t.Fatalf("tile %d of %d not laid out", j, id)
+			}
+			cs = append(cs, child.corners)
+		}
+		return cs
+	}
+	// One tile over two: the top one has no bottom corners of the bubble's,
+	// the bottom left its left, the bottom right its right.
+	got := tiles(bare, 2)
+	if got[0].se != 0 || got[0].sw != 0 || got[1].sw == 0 || got[1].se != 0 || got[2].se == 0 || got[2].sw != 0 {
+		t.Fatalf("the tiles of a bare album have corners %+v", got)
+	}
+	if !bare.time.drawn {
+		t.Fatal("the time is not on the bare album")
+	}
+	for _, c := range tiles(captioned, 3) {
+		if c.se != 0 || c.sw != 0 {
+			t.Fatalf("a tile over a caption has the bubble's bottom corners: %+v", c)
+		}
+	}
+}
+
 // A GIF that plays in the chat shows the time only under the pointer, as
 // its own time.
 func TestTimeOnGIF(t *testing.T) {

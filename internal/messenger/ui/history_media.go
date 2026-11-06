@@ -164,7 +164,17 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	}
 	draw := func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints = layout.Exact(size)
-		shape := r.corners.rrect(gtx, size)
+		// The time of the message, where its bubble asked for it on the
+		// tile and the tile has room for it; the tile then ends the bubble,
+		// and its bottom corners are round as the bubble's.
+		inset := gtx.Dp(8)
+		t := &r.time
+		t.drawn = timeFits(*t, size, inset)
+		corners := r.corners
+		if t.size.X > 0 && !t.drawn {
+			corners.se, corners.sw = 0, 0
+		}
+		shape := corners.rrect(gtx, size)
 		defer shape.Push(gtx.Ops).Pop()
 		// A sticker lies on the chat's background once it is drawn; the
 		// plate only shows where it is going to be.
@@ -230,11 +240,6 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			})
 			bottom = at.Y + dims.Size.Y
 		}
-		// The time of the message, where its bubble asked for it on the
-		// tile and the tile has room for it.
-		inset := gtx.Dp(8)
-		t := &r.time
-		t.drawn = t.size.X > 0 && t.size.X+2*inset <= size.X && t.size.Y+2*inset <= size.Y
 		reserve := 0
 		if t.drawn {
 			reserve = t.size.X
@@ -392,22 +397,27 @@ const albumGap unit.Dp = 3
 // tileRadius is how round a tile of media is.
 const tileRadius unit.Dp = 8
 
-// tileCorners are the radii of the top corners of a tile at the top of its
-// bubble, round as the bubble's corners there, less the space between:
-// zero for one of its own, tileRadius.
-type tileCorners struct{ nw, ne int }
+// tileCorners are the radii of the corners of a tile at the top or the
+// bottom of its bubble, round as the bubble's corners there, less the space
+// between: zero for one of its own, tileRadius.
+type tileCorners struct{ nw, ne, se, sw int }
 
 // rrect is the shape of a tile of size with the corners.
 func (c tileCorners) rrect(gtx layout.Context, size image.Point) clip.RRect {
 	radius := gtx.Dp(tileRadius)
-	shape := clip.RRect{Rect: image.Rectangle{Max: size}, NW: radius, NE: radius, SE: radius, SW: radius}
-	if c.nw > 0 {
-		shape.NW = c.nw
+	pick := func(r int) int {
+		if r > 0 {
+			return r
+		}
+		return radius
 	}
-	if c.ne > 0 {
-		shape.NE = c.ne
-	}
-	return shape
+	return clip.RRect{Rect: image.Rectangle{Max: size}, NW: pick(c.nw), NE: pick(c.ne), SE: pick(c.se), SW: pick(c.sw)}
+}
+
+// timeFits tells whether the plate t goes in the corner of a tile of size,
+// inset from its edges.
+func timeFits(t timePlate, size image.Point, inset int) bool {
+	return t.size.X > 0 && t.size.X+2*inset <= size.X && t.size.Y+2*inset <= size.Y
 }
 
 func albumRow(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog) *messageRow {
@@ -456,6 +466,10 @@ func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Messag
 	}
 	width := min(gtx.Constraints.Max.X, gtx.Dp(500))
 	gap := gtx.Dp(albumGap)
+	// The tiles are placed first: whether the last carries the message's
+	// time tells the bottom row its corners.
+	tiles := r.tiles[:0]
+	defer func() { r.tiles = tiles[:0] }()
 	y := 0
 	for i := 0; i < len(m.Attachments); {
 		count := 2
@@ -482,40 +496,49 @@ func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Messag
 			if j == count-1 {
 				w = width - x
 			}
-			member := m.Attachments[i+j]
-			// The tiles at the album's top corners round them as the
-			// album is rounded.
-			var corners tileCorners
-			if i == 0 && j == 0 {
-				corners.nw = r.corners.nw
-			}
-			if i == 0 && j == count-1 {
-				corners.ne = r.corners.ne
-			}
-			tileGtx := gtx
-			tileGtx.Constraints = layout.Exact(image.Pt(w, height))
-			offset(tileGtx, image.Pt(x, y), func(gtx layout.Context) layout.Dimensions {
-				child := albumRow(gtx, r, member, l)
-				child.corners = corners
-				// The last tile, at the album's bottom right, carries the
-				// message's time, as a single one would.
-				child.time = timePlate{}
-				lastTile := i+j == len(m.Attachments)-1
-				if lastTile {
-					child.time = r.time
-				}
-				p.partPresses(gtx, m, child, member)
-				dims := p.mediaTile(gtx, child, member, image.Pt(w, height), true, l, animate)
-				if lastTile {
-					r.time.drawn = child.time.drawn
-				}
-				partPressArea(gtx, child, image.Pt(w, height))
-				return dims
-			})
+			tiles = append(tiles, image.Rect(x, y, x+w, y+height))
 			x += w + gap
 		}
 		y += height + gap
 		i += count
 	}
-	return layout.Dimensions{Size: image.Pt(width, max(0, y-gap))}
+	height := max(0, y-gap)
+	// The last tile, at the album's bottom right, carries the message's
+	// time, as a single one would; the album then ends the bubble.
+	last := len(tiles) - 1
+	timed := last >= 0 && timeFits(r.time, tiles[last].Size(), gtx.Dp(8))
+	r.time.drawn = timed
+	for k, tile := range tiles {
+		member := m.Attachments[k]
+		// The tiles at the album's corners round them as the album is
+		// rounded.
+		var corners tileCorners
+		if tile.Min.Y == 0 && tile.Min.X == 0 {
+			corners.nw = r.corners.nw
+		}
+		if tile.Min.Y == 0 && tile.Max.X == width {
+			corners.ne = r.corners.ne
+		}
+		if timed && tile.Max.Y == height && tile.Min.X == 0 {
+			corners.sw = r.corners.sw
+		}
+		if timed && tile.Max.Y == height && tile.Max.X == width {
+			corners.se = r.corners.se
+		}
+		tileGtx := gtx
+		tileGtx.Constraints = layout.Exact(tile.Size())
+		offset(tileGtx, tile.Min, func(gtx layout.Context) layout.Dimensions {
+			child := albumRow(gtx, r, member, l)
+			child.corners = corners
+			child.time = timePlate{}
+			if k == last {
+				child.time = r.time
+			}
+			p.partPresses(gtx, m, child, member)
+			dims := p.mediaTile(gtx, child, member, tile.Size(), true, l, animate)
+			partPressArea(gtx, child, tile.Size())
+			return dims
+		})
+	}
+	return layout.Dimensions{Size: image.Pt(width, height)}
 }

@@ -85,9 +85,11 @@ type messageRow struct {
 	chips []reactionChip
 	// caption is the width the text wraps at under narrower media.
 	caption captionFit
-	// corners are the top corners of the row's tile, where it is at the
-	// top of its bubble.
+	// corners are the corners of the row's tile where it is at the top or
+	// the bottom of its bubble; tiles are where an album's lie, as placed
+	// last.
 	corners tileCorners
+	tiles   []image.Rectangle
 	// time is the plate of the time the bubble asks the row's tile to draw
 	// in its corner, and timeFade how much of it shows.
 	time       timePlate

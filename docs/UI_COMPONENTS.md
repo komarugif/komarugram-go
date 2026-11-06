@@ -132,8 +132,12 @@ The history is drawn as materialgram draws it:
   `TestMediaInsetInBubble`; `MEDIA_INSET_PNG` renders them.
 - Media that end a bubble carry its time (`timePlate`, `mediaFooter`) on
   a plate in their bottom right corner, the last tile's in an album, and
-  the bubble ends `mediaInset` under them, as in Telegram for Android;
-  where the plate does not fit the tile, the time stays on its line. It
+  the bubble ends `mediaInset` under them, as in Telegram for Android,
+  their bottom corners then as round as the bubble's less the inset, as
+  the top ones (`tileCorners`; an album's bottom row, placed before it is
+  drawn), but over a comments bar; where the plate does not fit the tile,
+  the time stays on its line. `TestMediaBottomCorners`,
+  `TestAlbumBottomCorners`. It
   fades out under the pointer, for the picture to be seen whole, as a
   video's own plate does; on a GIF that plays here it fades in, as the
   GIF's time does. A video's own plate, or a GIF's time, that does not go

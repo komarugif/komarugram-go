@@ -666,6 +666,13 @@ func (p *chatPage) bubbleBody(gtx layout.Context, r *messageRow, m model.Message
 		macro := op.Record(gtx.Ops)
 		size := p.mediaFooter(cgtx, r, l).Size
 		r.time = timePlate{call: macro.Stop(), size: size}
+		// Where the time goes on them, the media end the bubble: their
+		// bottom corners are round as its, but over the comments bar.
+		if !p.showsComments(m) {
+			shape := shapeOf(gtx, join, m.Outgoing)
+			inset := gtx.Dp(mediaInset)
+			r.corners.se, r.corners.sw = max(1, shape.se-inset), max(1, shape.sw-inset)
+		}
 	}
 	egtx := cgtx
 	egtx.Constraints.Max.X += 2 * out
