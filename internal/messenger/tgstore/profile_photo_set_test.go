@@ -5,6 +5,7 @@ package tgstore
 import (
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"image/png"
 	"os"
@@ -110,5 +111,123 @@ func TestSetProfilePhotoAsks(t *testing.T) {
 	refuse = tgerr.New(400, "CHAT_ADMIN_REQUIRED")
 	if err := s.SetProfilePhoto(ctx, peerID(&tg.PeerChat{ChatID: 10}), path, nil); !errors.Is(err, model.ErrProfilePhotoForbidden) {
 		t.Fatalf("refused: %v", err)
+	}
+}
+
+// The account's photos may each be deleted, a group's current one only, and any
+// that is not the main one may become it, as Telegram Desktop's viewer offers.
+func TestProfilePhotoEditorRights(t *testing.T) {
+	s := testStore(t)
+	s.rememberPeers([]tg.UserClass{&tg.User{ID: 1, Self: true, AccessHash: 1, Photo: &tg.UserProfilePhoto{PhotoID: 5, DCID: 2}}, &tg.User{ID: 2, AccessHash: 2, Photo: &tg.UserProfilePhoto{PhotoID: 8, DCID: 2}}},
+		[]tg.ChatClass{&tg.Chat{ID: 10, Photo: &tg.ChatPhoto{PhotoID: 6, DCID: 2}}})
+	self, other, group := peerID(&tg.PeerUser{UserID: 1}), peerID(&tg.PeerUser{UserID: 2}), peerID(&tg.PeerChat{ChatID: 10})
+	c := s.history
+	c.mu.Lock()
+	photo := func(chat int64, id int64, i int) model.Message {
+		meta := c.rememberProfilePhoto(profilePhoto(id), 0)
+		return model.Message{Key: model.MessageKey{ChatID: chat, MessageID: model.ProfilePhotoID(i)}, Kind: model.MessagePhoto, Media: meta}
+	}
+	ownCurrent, ownOld := photo(self, 5, 0), photo(self, 4, 1)
+	otherOld := photo(other, 9, 1)
+	groupCurrent, groupOld := photo(group, 6, 0), photo(group, 7, 1)
+	c.mu.Unlock()
+	for _, x := range []struct {
+		name         string
+		m            model.Message
+		remove, main bool
+	}{
+		{"own current", ownCurrent, true, false},
+		{"own old", ownOld, true, true},
+		{"someone's", otherOld, false, false},
+		{"group's current", groupCurrent, true, false},
+		{"group's old", groupOld, false, true},
+	} {
+		if got := s.CanDeleteProfilePhoto(x.m); got != x.remove {
+			t.Errorf("%s: delete %v", x.name, got)
+		}
+		if got := s.CanMakeProfilePhotoMain(x.m); got != x.main {
+			t.Errorf("%s: main %v", x.name, got)
+		}
+	}
+}
+
+// Deleting the current photo takes it off the profile, another of the account's is
+// deleted; making one main sets it, with its reference renewed where it expired.
+func TestProfilePhotoEditorAsks(t *testing.T) {
+	s := testStore(t)
+	s.rememberPeers([]tg.UserClass{&tg.User{ID: 1, Self: true, AccessHash: 1, Photo: &tg.UserProfilePhoto{PhotoID: 5, DCID: 2}}},
+		[]tg.ChatClass{&tg.Chat{ID: 10, Photo: &tg.ChatPhoto{PhotoID: 6, DCID: 2}}})
+	self, group := peerID(&tg.PeerUser{UserID: 1}), peerID(&tg.PeerChat{ChatID: 10})
+	c := s.history
+	c.mu.Lock()
+	photo := func(chat int64, id int64, i int) model.Message {
+		meta := c.rememberProfilePhoto(profilePhoto(id), 0)
+		return model.Message{Key: model.MessageKey{ChatID: chat, MessageID: model.ProfilePhotoID(i)}, Kind: model.MessagePhoto, Media: meta}
+	}
+	ownCurrent, ownOld, groupCurrent, groupOld := photo(self, 5, 0), photo(self, 4, 1), photo(group, 6, 0), photo(group, 7, 1)
+	c.mu.Unlock()
+	var asked []string
+	expire := true
+	s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
+		switch r := in.(type) {
+		case *tg.PhotosUpdateProfilePhotoRequest:
+			switch p := r.ID.(type) {
+			case *tg.InputPhotoEmpty:
+				asked = append(asked, "own off")
+				return &tg.PhotosPhoto{Photo: &tg.PhotoEmpty{}, Users: []tg.UserClass{&tg.User{ID: 1, Self: true, AccessHash: 1}}}, nil
+			case *tg.InputPhoto:
+				asked = append(asked, fmt.Sprintf("own main %d", p.ID))
+				return &tg.PhotosPhoto{Photo: &tg.PhotoEmpty{}, Users: []tg.UserClass{&tg.User{ID: 1, Self: true, AccessHash: 1, Photo: &tg.UserProfilePhoto{PhotoID: p.ID, DCID: 2}}}}, nil
+			}
+		case *tg.PhotosDeletePhotosRequest:
+			p := r.ID[0].(*tg.InputPhoto)
+			if expire {
+				expire = false
+				return nil, tgerr.New(400, "FILE_REFERENCE_EXPIRED")
+			}
+			asked = append(asked, fmt.Sprintf("own delete %d", p.ID))
+			return &tg.LongVector{Elems: []int64{p.ID}}, nil
+		case *tg.PhotosGetUserPhotosRequest:
+			// The reference renewed.
+			return &tg.PhotosPhotos{Photos: []tg.PhotoClass{profilePhoto(4)}}, nil
+		case *tg.MessagesEditChatPhotoRequest:
+			switch p := r.Photo.(type) {
+			case *tg.InputChatPhotoEmpty:
+				asked = append(asked, "group off")
+			case *tg.InputChatPhoto:
+				asked = append(asked, fmt.Sprintf("group main %d", p.ID.(*tg.InputPhoto).ID))
+			}
+			return &tg.Updates{}, nil
+		}
+		t.Errorf("asked %T", in)
+		return nil, errors.New("unexpected")
+	})
+	ctx := context.Background()
+	for _, step := range []func() error{
+		func() error { return s.DeleteProfilePhoto(ctx, ownOld) },
+		func() error { return s.MakeProfilePhotoMain(ctx, ownOld) },
+		func() error { return s.DeleteProfilePhoto(ctx, groupCurrent) },
+		func() error { return s.MakeProfilePhotoMain(ctx, groupOld) },
+	} {
+		if err := step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// ownOld is the main one now, and ownCurrent no more: deleting it deletes it.
+	if s.CanMakeProfilePhotoMain(ownOld) || !s.CanMakeProfilePhotoMain(ownCurrent) {
+		t.Error("the main photo did not change")
+	}
+	if err := s.DeleteProfilePhoto(ctx, ownOld); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"own delete 4", "own main 4", "group off", "group main 7", "own off"}
+	if fmt.Sprint(asked) != fmt.Sprint(want) {
+		t.Fatalf("asked %v, want %v", asked, want)
+	}
+	s.history.mu.Lock()
+	gone := s.history.peers[self].Photo
+	s.history.mu.Unlock()
+	if gone != nil {
+		t.Fatalf("own photo still %+v", gone)
 	}
 }

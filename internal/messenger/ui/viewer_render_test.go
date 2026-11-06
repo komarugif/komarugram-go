@@ -22,6 +22,7 @@ import (
 
 	"gioui.org/f32"
 	"gioui.org/gpu/headless"
+	"gioui.org/io/input"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
@@ -40,6 +41,8 @@ import (
 // box of files about to go. VIEWER_EDIT opens the media editor on the photo:
 // paint, crop, text, shapes, stickers, turned, trim, opening, opening-late,
 // choice, work, failed, discard. With VIEWER_DARK its dialogs are a dark theme's.
+// VIEWER_PROFILE=group opens a group's photos, which the account may change;
+// VIEWER_AVATAR and VIEWER_TIP: see below.
 func TestRenderMediaViewer(t *testing.T) {
 	out := os.Getenv("VIEWER_PNG")
 	if out == "" {
@@ -91,8 +94,13 @@ func TestRenderMediaViewer(t *testing.T) {
 			t.Chdir("../../..")
 			store.ProfileVideos = true
 		}
-		start, _ = store.ProfilePhoto(2)
-		v.OpenProfile(2)
+		// VIEWER_PROFILE=group: a group's, whose photos the account may change.
+		profile := int64(2)
+		if os.Getenv("VIEWER_PROFILE") == "group" {
+			profile = 3
+		}
+		start, _ = store.ProfilePhoto(profile)
+		v.OpenProfile(profile)
 	} else if os.Getenv("VIEWER_GIFS") != "" {
 		for _, m := range h.Messages {
 			if m.Kind == model.MessageGIF && m.Media != nil && m.Media.ID == "demo/gif" {
@@ -126,9 +134,11 @@ func TestRenderMediaViewer(t *testing.T) {
 	}
 	defer win.Release()
 	ops := new(op.Ops)
+	// Input as a window has it: what is disabled shows no tooltip.
+	var router input.Router
 	frame := func() {
 		ops.Reset()
-		gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
+		gtx := layout.Context{Ops: ops, Source: router.Source(), Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
 		scheme := schemes.SchemeBaselineLight()
 		if os.Getenv("VIEWER_DARK") != "" {
 			// The viewer is dark in either; its dialogs are the theme's.
@@ -138,6 +148,7 @@ func TestRenderMediaViewer(t *testing.T) {
 		images.BeginFrame()
 		v.Layout(gtx, localization.For("ru"), false)
 		images.EndFrame()
+		router.Frame(ops)
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
@@ -177,11 +188,49 @@ func TestRenderMediaViewer(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
+	// VIEWER_TIP shows the tooltip of the bar's first button, as the pointer left it
+	// there a second ago; VIEWER_AVATAR=delete asks whether to delete the photo, and
+	// VIEWER_AVATAR=main shows the second photo, which may become the main one.
+	if os.Getenv("VIEWER_AVATAR") == "main" {
+		items, _, _, _, _ := v.snapshot()
+		for i := 0; len(items) < 2 && i < 200; i++ {
+			frame()
+			time.Sleep(10 * time.Millisecond)
+			items, _, _, _, _ = v.snapshot()
+		}
+		start = items[1]
+		v.show(items, 1, true)
+		for i := 0; i < 200 && v.full.StatusFit(start, false, image.Pt(1, 1), false).Frame == nil; i++ {
+			frame()
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	if os.Getenv("VIEWER_TIP") != "" && edit == "" {
+		target := &v.close
+		if v.canMakeAvatarMain(start) {
+			target = &v.avatar.main
+		} else if v.canDeleteAvatar(start) {
+			target = &v.avatar.remove
+		}
+		v.tips.over, v.tips.since, v.tips.pos = tooltipTag{target}, time.Now().Add(-time.Second), f32.Pt(float32(size.X)-250, 34)
+	}
+	if os.Getenv("VIEWER_AVATAR") == "delete" {
+		v.avatar.asked = start
+		v.avatar.modal.Open()
+		for range 30 {
+			frame()
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 	if edit != "" {
 		// Also open what the editor shows as VIEWER_EDIT names it: see
 		// viewer_edit_test.go.
 		v.ffmpeg = func() string { return "" }
 		renderEditor(t, v, start, edit, frame, changed)
+		if os.Getenv("VIEWER_TIP") != "" {
+			// The editor's Undo, at the bottom, once it is there.
+			v.tips.over, v.tips.since, v.tips.pos = tooltipTag{&v.edit.undo}, time.Now().Add(-time.Second), f32.Pt(float32(size.X)/2, float32(size.Y)-40)
+		}
 	}
 	frame()
 	frame()

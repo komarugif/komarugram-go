@@ -791,6 +791,8 @@ func (a *App) configureViewer(v *mediaViewer) {
 		// What the editor saves goes to the account's own chat.
 		v.savedChat = a.savedChat
 	}
+	// What it did and closed on, the window tells.
+	v.told = a.toast.Show
 	v.ffmpeg = func() string { return a.preferences.Global().FFmpegPath }
 	v.silentAsVideo = func() bool { return a.preferences.Global().SilentVideoAsVideo }
 	if a.history != nil {

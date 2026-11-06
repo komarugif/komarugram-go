@@ -253,3 +253,35 @@ func (s *Store) SetProfilePhoto(ctx context.Context, chat int64, path string, pr
 	}
 	return ctx.Err()
 }
+
+var _ model.ProfilePhotoEditor = (*Store)(nil)
+
+// CanDeleteProfilePhoto implements model.ProfilePhotoEditor: any photo of the demo
+// account's own, the current one of its groups and channels.
+func (s *Store) CanDeleteProfilePhoto(m model.Message) bool {
+	return model.IsProfilePhoto(m.Key.MessageID) && s.CanSetProfilePhoto(m.Key.ChatID) &&
+		(m.Key.ChatID == s.Me().ID || m.Key.MessageID == model.ProfilePhotoID(0))
+}
+
+// CanMakeProfilePhotoMain implements model.ProfilePhotoEditor: any but the first,
+// the one the demo's profiles show.
+func (s *Store) CanMakeProfilePhotoMain(m model.Message) bool {
+	return model.IsProfilePhoto(m.Key.MessageID) && m.Key.MessageID != model.ProfilePhotoID(0) && s.CanSetProfilePhoto(m.Key.ChatID)
+}
+
+// DeleteProfilePhoto implements model.ProfilePhotoEditor: nothing reaches
+// Telegram, and the photos stay as they were.
+func (s *Store) DeleteProfilePhoto(ctx context.Context, m model.Message) error {
+	if !s.CanDeleteProfilePhoto(m) {
+		return model.ErrProfilePhotoForbidden
+	}
+	return ctx.Err()
+}
+
+// MakeProfilePhotoMain implements model.ProfilePhotoEditor, as DeleteProfilePhoto.
+func (s *Store) MakeProfilePhotoMain(ctx context.Context, m model.Message) error {
+	if !s.CanMakeProfilePhotoMain(m) {
+		return model.ErrProfilePhotoForbidden
+	}
+	return ctx.Err()
+}

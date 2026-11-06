@@ -623,6 +623,8 @@ func (e *viewerEdit) takeKeys(gtx layout.Context, v *mediaViewer, l localization
 		if !isKey || ke.State != key.Press {
 			continue
 		}
+		// Chromium's: a key hides the tooltip.
+		v.tips.hide()
 		switch ke.Name {
 		case key.NameEscape:
 			e.escape(gtx, v)

@@ -172,14 +172,19 @@ func (v *mediaViewer) layoutWaiting(gtx layout.Context, l localization.Catalog, 
 	})
 	d := gtx.Dp(40)
 	offset(gtx, image.Pt(size.X-gtx.Dp(12)-d, (gtx.Dp(viewerBar)-d)/2), func(gtx layout.Context) layout.Dimensions {
-		return viewerButton(gtx, &v.close, iconClear, d)
+		return viewerButton(gtx, &v.tips, &v.close, iconClear, d, l.T("viewer.close"))
 	})
 }
 
 // layoutLike draws the heart of a story, red once the account put it, and
 // how many put theirs.
-func layoutLike(gtx layout.Context, c *widget.Clickable, story model.Story, d int) layout.Dimensions {
+func layoutLike(gtx layout.Context, tips *tooltips, c *widget.Clickable, story model.Story, d int, l localization.Catalog) layout.Dimensions {
 	return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		tip := l.T("viewer.tip_like")
+		if story.Liked {
+			tip = l.T("viewer.tip_unlike")
+		}
+		tips.target(gtx, c, tip)
 		pointer.CursorPointer.Add(gtx.Ops)
 		white := token.NewMatColorFromHexRGB(0xffffff)
 		icon, col := iconReacted, white

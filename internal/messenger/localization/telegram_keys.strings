@@ -234,6 +234,16 @@
 "editor.style_plain" = "lng_photo_editor_text_style_plain";
 "editor.style_semi" = "lng_photo_editor_text_style_semi_transparent";
 "editor.text_placeholder" = "lng_photo_editor_text_placeholder";
+"editor.tip_align" = "lng_photo_editor_align";
+"editor.tip_arrow" = "lng_photo_editor_shape_arrow";
+"editor.tip_bubble" = "lng_photo_editor_shape_bubble";
+"editor.tip_circle" = "lng_photo_editor_shape_circle";
+"editor.tip_delete" = "lng_photo_editor_menu_delete";
+"editor.tip_duplicate" = "lng_photo_editor_menu_duplicate";
+"editor.tip_fill" = "lng_photo_editor_shape_filled";
+"editor.tip_flip" = "lng_photo_editor_menu_flip";
+"editor.tip_rectangle" = "lng_photo_editor_shape_rectangle";
+"editor.tip_star" = "lng_photo_editor_shape_star";
 
 "emoji_packs.title" = "lng_custom_emoji_used_sets";
 
@@ -749,11 +759,17 @@
 "translate.failed" = "lng_translate_box_error";
 "translate.title" = "lng_context_translate";
 
+"viewer.avatar_delete" = "lng_mediaview_delete";
+"viewer.avatar_delete_confirm" = "lng_box_delete";
+"viewer.avatar_delete_sure" = "lng_delete_photo_sure";
+"viewer.avatar_main" = "lng_mediaview_set_userpic";
 "viewer.close" = "lng_close";
 "viewer.gif_cancel" = "lng_cancel";
 "viewer.file_position" = "lng_mediaview_file_n_of_amount";
 "viewer.photo" = "lng_mediaview_single_photo";
 "viewer.position" = "lng_mediaview_n_of_amount";
 "viewer.story" = "lng_in_dlg_story";
+"viewer.tip_copy" = "lng_mediaview_copy";
+"viewer.tip_forward" = "lng_mediaview_forward";
 "viewer.video" = "lng_in_dlg_video";
 "viewer.views" = "lng_stories_views";

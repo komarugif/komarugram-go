@@ -69,6 +69,14 @@ type mediaViewer struct {
 	// configureDecoders gives its media managers the settings of the decoders, in its
 	// own frames; nil leaves them as they are.
 	configureDecoders func()
+	// tips shows what the buttons do: see tooltip.go.
+	tips tooltips
+	// avatar deletes a profile's photo or makes it the main one: see
+	// viewer_avatar.go.
+	avatar viewerAvatar
+	// told tells what was done once the viewer closed on it, where the window
+	// shows it; nil tells it in the viewer.
+	told func(string)
 	// moveTo is where the photo a profile opened with turned out to be, for the next
 	// frame to show; zero for nowhere new. v.mu guards it.
 	moveTo model.MessageID
@@ -462,6 +470,8 @@ func (v *mediaViewer) Close() {
 	v.items, v.total, v.offset, v.moveTo = nil, 0, "", 0
 	v.mu.Unlock()
 	v.open = false
+	v.tips = tooltips{}
+	v.avatar.reset()
 	v.video.stop()
 	v.closeGIF()
 	v.closeEdit()
@@ -758,7 +768,13 @@ func (v *mediaViewer) Layout(gtx layout.Context, l localization.Catalog, animate
 		return
 	}
 	v.layingOut = true
+	// What its buttons do shows over all of it, the dialogs too.
+	tips := v.tips.begin(gtx)
 	v.layout(gtx, l, animate)
+	if v.open {
+		v.tips.layout(gtx)
+	}
+	tips.Pop()
 	v.layingOut = false
 }
 
@@ -843,6 +859,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	v.updateShare(gtx, items[indexOf(items, v.current)], l)
 	v.updateGIF(gtx, items[indexOf(items, v.current)], l)
 	v.updateEditButton(gtx, items[indexOf(items, v.current)])
+	v.updateAvatar(gtx, items[indexOf(items, v.current)], l)
 	select {
 	case err := <-v.playErrs:
 		v.toast.Show(mediaErrorText(err))
@@ -941,7 +958,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 			captionStage.Max.Y = top
 		}
 		captionTop = v.layoutCaption(chromeGtx, items[i], captionStage, l, animate)
-		v.layoutSides(chromeGtx, view, i > 0, i < len(items)-1)
+		v.layoutSides(chromeGtx, view, i > 0, i < len(items)-1, l)
 		if !editing {
 			// Over the side zones, so that the wheel works there too; it passes
 			// clicks on to them.
@@ -969,6 +986,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	}
 	v.layoutShare(gtx, l)
 	v.layoutGIF(gtx, l)
+	v.layoutAvatar(gtx, l)
 }
 
 func (v *mediaViewer) keyEvents(gtx layout.Context, items []model.Message, i int, photo, stage image.Point) {
@@ -998,6 +1016,8 @@ func (v *mediaViewer) keyEvents(gtx layout.Context, items []model.Message, i int
 		if e.State != key.Press {
 			continue
 		}
+		// Chromium's: a key hides the tooltip.
+		v.tips.hide()
 		switch id {
 		case "viewer.previous":
 			v.show(items, i-1, true)
@@ -1305,21 +1325,22 @@ func (v *mediaViewer) layoutCaption(gtx layout.Context, m model.Message, stage i
 // layoutSides lays out the zones beside the picture that switch to its
 // neighbours: the whole height of the stage, not only the arrow drawn in it,
 // is the target.
-func (v *mediaViewer) layoutSides(gtx layout.Context, view image.Rectangle, prev, next bool) {
+func (v *mediaViewer) layoutSides(gtx layout.Context, view image.Rectangle, prev, next bool, l localization.Catalog) {
 	w := gtx.Dp(viewerSide)
 	if prev {
-		sideZone(gtx, &v.prev, image.Rect(view.Min.X, view.Min.Y, view.Min.X+w, view.Max.Y), iconChevronLeft)
+		sideZone(gtx, &v.tips, &v.prev, image.Rect(view.Min.X, view.Min.Y, view.Min.X+w, view.Max.Y), iconChevronLeft, l.T("viewer.tip_previous"))
 	}
 	if next {
-		sideZone(gtx, &v.next, image.Rect(view.Max.X-w, view.Min.Y, view.Max.X, view.Max.Y), iconChevron)
+		sideZone(gtx, &v.tips, &v.next, image.Rect(view.Max.X-w, view.Min.Y, view.Max.X, view.Max.Y), iconChevron, l.T("viewer.tip_next"))
 	}
 }
 
-func sideZone(gtx layout.Context, c *widget.Clickable, r image.Rectangle, icon wdk.IconWidget) {
+func sideZone(gtx layout.Context, tips *tooltips, c *widget.Clickable, r image.Rectangle, icon wdk.IconWidget, tip string) {
 	offset(gtx, r.Min, func(gtx layout.Context) layout.Dimensions {
 		size := r.Size()
 		gtx.Constraints = layout.Exact(size)
 		return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			tips.target(gtx, c, tip)
 			pointer.CursorPointer.Add(gtx.Ops)
 			if c.Hovered() {
 				paint.FillShape(gtx.Ops, color.NRGBA{R: 255, G: 255, B: 255, A: 10}, clip.Rect{Max: size}.Op())
@@ -1350,8 +1371,10 @@ func viewerIcon(gtx layout.Context, hovered bool, icon wdk.IconWidget, d int) la
 	return layout.Dimensions{Size: size}
 }
 
-func viewerButton(gtx layout.Context, c *widget.Clickable, icon wdk.IconWidget, d int) layout.Dimensions {
+// viewerButton is a round button of the viewer, whose tooltip tells tip.
+func viewerButton(gtx layout.Context, tips *tooltips, c *widget.Clickable, icon wdk.IconWidget, d int, tip string) layout.Dimensions {
 	return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		tips.target(gtx, c, tip)
 		pointer.CursorPointer.Add(gtx.Ops)
 		return viewerIcon(gtx, c.Hovered(), icon, d)
 	})
@@ -1399,7 +1422,7 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layoutLike(gtx, &v.share.like, *m.Story, d)
+					return layoutLike(gtx, &v.tips, &v.share.like, *m.Story, d, l)
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1407,7 +1430,7 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return viewerButton(gtx, &v.share.forward, iconForward, d)
+					return viewerButton(gtx, &v.tips, &v.share.forward, iconForward, d, l.T("viewer.tip_forward"))
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1415,7 +1438,7 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return viewerButton(gtx, &v.gif.button, iconGIF, d)
+					return viewerButton(gtx, &v.tips, &v.gif.button, iconGIF, d, l.T("viewer.gif_title"))
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1423,7 +1446,23 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return viewerButton(gtx, &v.edit.button, iconEditBrush, d)
+					return viewerButton(gtx, &v.tips, &v.edit.button, iconEditBrush, d, l.T("viewer.tip_edit"))
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if !v.canMakeAvatarMain(m) {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return viewerButton(gtx, &v.tips, &v.avatar.main, iconCheck, d, l.T("viewer.avatar_main"))
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if !v.canDeleteAvatar(m) {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return viewerButton(gtx, &v.tips, &v.avatar.remove, iconDelete, d, l.T("viewer.avatar_delete"))
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1431,7 +1470,7 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return viewerButton(gtx, &v.copy, iconCopy, d)
+					return viewerButton(gtx, &v.tips, &v.copy, iconCopy, d, l.T("viewer.tip_copy"))
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1439,7 +1478,7 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return viewerButton(gtx, &v.save, iconDownload, d)
+					return viewerButton(gtx, &v.tips, &v.save, iconDownload, d, l.T("viewer.tip_save"))
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1447,10 +1486,12 @@ func (v *mediaViewer) layoutBar(gtx layout.Context, items []model.Message, i int
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return viewerButton(gtx, &v.detach, iconOpenInNew, d)
+					return viewerButton(gtx, &v.tips, &v.detach, iconOpenInNew, d, l.T("viewer.tip_window"))
 				})
 			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return viewerButton(gtx, &v.close, iconClear, d) }),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return viewerButton(gtx, &v.tips, &v.close, iconClear, d, l.T("viewer.close"))
+			}),
 		)
 	})
 }

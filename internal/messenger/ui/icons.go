@@ -90,6 +90,7 @@ var (
 	iconPlace         = wdk.RequireIconWidget(icons.MapsPlace)
 	iconForward       = wdk.RequireIconWidget(icons.ContentForward)
 	iconDelete        = wdk.RequireIconWidget(icons.ActionDelete)
+	iconCheck         = wdk.RequireIconWidget(icons.NavigationCheck)
 	iconGIF           = wdk.RequireIconWidget(icons.ActionGIF)
 	iconEditBrush     = wdk.RequireIconWidget(icons.ImageBrush)
 	iconEditCrop      = wdk.RequireIconWidget(icons.ImageCrop)

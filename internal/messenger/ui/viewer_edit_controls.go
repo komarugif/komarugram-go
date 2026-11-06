@@ -258,20 +258,26 @@ func (e *viewerEdit) layoutControls(gtx layout.Context, v *mediaViewer, l locali
 			return e.layoutTrim(gtx)
 		}))
 	}
-	row(gtx.Dp(editToolRow), ready(func(gtx layout.Context) layout.Dimensions { return e.layoutToolRow(gtx, l) }))
-	row(gtx.Dp(editBarRow), func(gtx layout.Context) layout.Dimensions { return e.layoutBarRow(gtx, l) })
+	row(gtx.Dp(editToolRow), ready(func(gtx layout.Context) layout.Dimensions { return e.layoutToolRow(gtx, &v.tips, l) }))
+	row(gtx.Dp(editBarRow), func(gtx layout.Context) layout.Dimensions { return e.layoutBarRow(gtx, &v.tips, l) })
 }
 
-// editIcon draws a round button of the editor, lit when it is what is in use.
-func editIcon(gtx layout.Context, c *widget.Clickable, icon wdk.IconWidget, lit, enabled bool) layout.Dimensions {
+// editIcon draws a round button of the editor, lit when it is what is in use,
+// whose tooltip tells tip: one that cannot be pressed now too, as Chromium's
+// buttons show theirs.
+func editIcon(gtx layout.Context, tips *tooltips, c *widget.Clickable, icon wdk.IconWidget, lit, enabled bool, tip string) layout.Dimensions {
 	d := gtx.Dp(40)
 	size := image.Pt(d, d)
+	source := gtx.Source
 	if !enabled {
 		gtx = gtx.Disabled()
 	}
 	gap := gtx.Dp(2)
 	gtx.Constraints = layout.Exact(size.Add(image.Pt(2*gap, 0)))
 	return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		tgtx := gtx
+		tgtx.Source = source
+		tips.target(tgtx, c, tip)
 		if enabled {
 			pointer.CursorPointer.Add(gtx.Ops)
 		}
@@ -309,7 +315,7 @@ func editBarButton(gtx layout.Context, s *surface, txt string, col token.MatColo
 }
 
 // layoutBarRow is the row of the modes and what they do, between Cancel and Done.
-func (e *viewerEdit) layoutBarRow(gtx layout.Context, l localization.Catalog) layout.Dimensions {
+func (e *viewerEdit) layoutBarRow(gtx layout.Context, tips *tooltips, l localization.Catalog) layout.Dimensions {
 	white := token.NewMatColorFromHexRGB(0xffffff)
 	accent := token.NewMatColorFromHexRGB(0x5eb5f7)
 	children := []layout.FlexChild{
@@ -326,24 +332,24 @@ func (e *viewerEdit) layoutBarRow(gtx layout.Context, l localization.Catalog) la
 			defer paint.PushOpacity(gtx.Ops, e.transition.tools).Pop()
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min = image.Point{}
-				icon := func(c *widget.Clickable, w wdk.IconWidget, lit, enabled bool) layout.FlexChild {
-					return layout.Rigid(func(gtx layout.Context) layout.Dimensions { return editIcon(gtx, c, w, lit, enabled) })
+				icon := func(c *widget.Clickable, w wdk.IconWidget, lit, enabled bool, tip string) layout.FlexChild {
+					return layout.Rigid(func(gtx layout.Context) layout.Dimensions { return editIcon(gtx, tips, c, w, lit, enabled, l.T(tip)) })
 				}
 				items := []layout.FlexChild{
-					icon(&e.modeCrop, iconEditCrop, e.mode == editCrop, true),
-					icon(&e.modePaint, iconEditBrush, e.mode == editPaint, true),
+					icon(&e.modeCrop, iconEditCrop, e.mode == editCrop, true, "editor.tip_crop"),
+					icon(&e.modePaint, iconEditBrush, e.mode == editPaint, true, "editor.tip_paint"),
 					layout.Rigid(layout.Spacer{Width: 12}.Layout),
 				}
 				if e.mode == editCrop {
-					items = append(items, icon(&e.rotate, iconEditRotate, false, true), icon(&e.flip, iconEditFlip, e.scene.Transform.Flip, true))
+					items = append(items, icon(&e.rotate, iconEditRotate, false, true, "editor.tip_rotate"), icon(&e.flip, iconEditFlip, e.scene.Transform.Flip, true, "editor.tip_flip"))
 				} else {
 					items = append(items,
-						icon(&e.undo, iconEditUndo, false, e.scene.CanUndo()),
-						icon(&e.redo, iconEditRedo, false, e.scene.CanRedo()),
+						icon(&e.undo, iconEditUndo, false, e.scene.CanUndo(), "editor.tip_undo"),
+						icon(&e.redo, iconEditRedo, false, e.scene.CanRedo(), "editor.tip_redo"),
 						layout.Rigid(layout.Spacer{Width: 12}.Layout),
-						icon(&e.sticker, iconEditSticker, e.stickers != nil && e.stickers.shown, true),
-						icon(&e.addText, iconEditText, e.text.editing, true),
-						icon(&e.shapesButton, iconEditShapes, e.shapesOpen, true),
+						icon(&e.sticker, iconEditSticker, e.stickers != nil && e.stickers.shown, true, "editor.tip_stickers"),
+						icon(&e.addText, iconEditText, e.text.editing, true, "editor.tip_text"),
+						icon(&e.shapesButton, iconEditShapes, e.shapesOpen, true, "editor.tip_shapes"),
 					)
 				}
 				return layout.Flex{Alignment: layout.Middle}.Layout(gtx, items...)
@@ -365,10 +371,10 @@ func (e *viewerEdit) layoutBarRow(gtx layout.Context, l localization.Catalog) la
 // layoutToolRow is the row of what the mode offers: the crop's proportions, or
 // the brushes, the figures, or what acts on the element selected, with the
 // colors and the size.
-func (e *viewerEdit) layoutToolRow(gtx layout.Context, l localization.Catalog) layout.Dimensions {
+func (e *viewerEdit) layoutToolRow(gtx layout.Context, tips *tooltips, l localization.Catalog) layout.Dimensions {
 	var widgets []layout.Widget
-	icon := func(c *widget.Clickable, w wdk.IconWidget, lit bool) {
-		widgets = append(widgets, func(gtx layout.Context) layout.Dimensions { return editIcon(gtx, c, w, lit, true) })
+	icon := func(c *widget.Clickable, w wdk.IconWidget, lit bool, tip string) {
+		widgets = append(widgets, func(gtx layout.Context) layout.Dimensions { return editIcon(gtx, tips, c, w, lit, true, l.T(tip)) })
 	}
 	gap := func() {
 		widgets = append(widgets, layout.Spacer{Width: 10}.Layout)
@@ -407,36 +413,36 @@ func (e *viewerEdit) layoutToolRow(gtx layout.Context, l localization.Catalog) l
 			})
 		}
 	case selected != nil:
-		icon(&e.remove, iconEditDelete, false)
-		icon(&e.repeat, iconEditCopy, false)
+		icon(&e.remove, iconEditDelete, false, "editor.tip_delete")
+		icon(&e.repeat, iconEditCopy, false, "editor.tip_duplicate")
 		if selected.Text == nil {
-			icon(&e.flipItem, iconEditFlip, selected.Flipped)
+			icon(&e.flipItem, iconEditFlip, selected.Flipped, "editor.tip_flip")
 		}
 		switch {
 		case selected.Text != nil:
 			gap()
 			word(&e.styleButton, l.T(textStyleKeys[selected.Text.Style]))
 			word(&e.fontButton, l.T(textFontKeys[selected.Text.Typeface]))
-			icon(&e.alignButton, [...]wdk.IconWidget{iconEditAlignC, iconEditAlignL, iconEditAlignR}[selected.Text.Align], false)
+			icon(&e.alignButton, [...]wdk.IconWidget{iconEditAlignC, iconEditAlignL, iconEditAlignR}[selected.Text.Align], false, "editor.tip_align")
 			gap()
 			colors()
 		case selected.Shape != nil:
-			icon(&e.fill, iconEditFill, selected.Shape.Filled)
+			icon(&e.fill, iconEditFill, selected.Shape.Filled, "editor.tip_fill")
 			gap()
 			colors()
 		}
 	case e.shapesOpen:
 		for i, w := range [...]wdk.IconWidget{iconEditCircle, iconEditShapes, iconEditStar, iconEditBubble, iconEditArrow} {
-			icon(&e.shapes[i], w, e.armed && e.armedShape == photoedit.ShapeType(i))
+			icon(&e.shapes[i], w, e.armed && e.armedShape == photoedit.ShapeType(i), editShapeTips[i])
 		}
-		icon(&e.fill, iconEditFill, e.filled)
+		icon(&e.fill, iconEditFill, e.filled, "editor.tip_fill")
 		gap()
 		size()
 		gap()
 		colors()
 	default:
 		for i, w := range [...]wdk.IconWidget{iconEditPen, iconEditArrow, iconEditMarker, iconEditEraser, iconEditBlur} {
-			icon(&e.tools[i], w, e.tool == photoedit.Tool(i))
+			icon(&e.tools[i], w, e.tool == photoedit.Tool(i), editToolTips[i])
 		}
 		gap()
 		size()
@@ -456,6 +462,10 @@ func (e *viewerEdit) layoutToolRow(gtx layout.Context, l localization.Catalog) l
 }
 
 var (
+	// editToolTips and editShapeTips tell the brushes and the figures, in the
+	// order of photoedit.Tool and photoedit.ShapeType.
+	editToolTips  = [...]string{"editor.tip_pen", "editor.tip_arrow", "editor.tip_marker", "editor.tip_eraser", "editor.tip_blur"}
+	editShapeTips = [...]string{"editor.tip_circle", "editor.tip_rectangle", "editor.tip_star", "editor.tip_bubble", "editor.tip_arrow"}
 	textStyleKeys = [...]string{"editor.style_plain", "editor.style_framed", "editor.style_semi", "editor.style_opaque"}
 	textFontKeys  = [...]string{"editor.font_default", "editor.font_italic", "editor.font_serif", "editor.font_condensed", "editor.font_monospace"}
 )

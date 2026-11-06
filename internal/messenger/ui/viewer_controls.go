@@ -306,9 +306,9 @@ func (v *mediaViewer) layoutVideoControls(gtx layout.Context, m model.Message, s
 		area.Pop()
 		d := gtx.Dp(40)
 		x := gtx.Dp(4)
-		button := func(click *widget.Clickable, icon wdk.IconWidget) {
+		button := func(click *widget.Clickable, icon wdk.IconWidget, tip string) {
 			offset(gtx, image.Pt(x, (size.Y-d)/2), func(gtx layout.Context) layout.Dimensions {
-				return plateButton(gtx, click, image.Pt(d, d), func(gtx layout.Context) layout.Dimensions {
+				return plateButton(gtx, &v.tips, click, image.Pt(d, d), tip, func(gtx layout.Context) layout.Dimensions {
 					inner := gtx.Dp(24)
 					return offset(gtx, image.Pt((d-inner)/2, (d-inner)/2), func(gtx layout.Context) layout.Dimensions {
 						gtx.Constraints = layout.Exact(image.Pt(inner, inner))
@@ -318,11 +318,11 @@ func (v *mediaViewer) layoutVideoControls(gtx layout.Context, m model.Message, s
 			})
 			x += d
 		}
-		playIcon := iconPauseFile
+		playIcon, playTip := iconPauseFile, l.T("viewer.tip_pause")
 		if !s.playing {
-			playIcon = iconPlayFile
+			playIcon, playTip = iconPlayFile, l.T("viewer.tip_play")
 		}
-		button(&c.play, playIcon)
+		button(&c.play, playIcon, playTip)
 		// The time: where it is, or where the bar is dragged to.
 		position := s.position
 		progress := float32(0)
@@ -346,10 +346,10 @@ func (v *mediaViewer) layoutVideoControls(gtx layout.Context, m model.Message, s
 		x += times.Size.Y/2 + times.Size.X
 		// The buttons at the right end, from the right.
 		right := size.X - gtx.Dp(4)
-		rightButton := func(click *widget.Clickable, w layout.Widget, wide int) int {
+		rightButton := func(click *widget.Clickable, w layout.Widget, wide int, tip string) int {
 			right -= wide
 			offset(gtx, image.Pt(right, (size.Y-d)/2), func(gtx layout.Context) layout.Dimensions {
-				return plateButton(gtx, click, image.Pt(wide, d), w)
+				return plateButton(gtx, &v.tips, click, image.Pt(wide, d), tip, w)
 			})
 			return right
 		}
@@ -365,9 +365,13 @@ func (v *mediaViewer) layoutVideoControls(gtx layout.Context, m model.Message, s
 		volumeX := 0
 		if hasSound {
 			if v.play != nil {
-				rightButton(&c.external, icon(iconExternalPlayer), d)
+				rightButton(&c.external, icon(iconExternalPlayer), d, l.T("viewer.tip_external"))
 			}
-			volumeX = rightButton(&c.volume, icon(volumeIcon(v.video.loudness())), d)
+			volumeTip := l.T("viewer.tip_mute")
+			if v.video.loudness() == 0 {
+				volumeTip = l.T("viewer.tip_unmute")
+			}
+			volumeX = rightButton(&c.volume, icon(volumeIcon(v.video.loudness())), d, volumeTip)
 			speedWide := gtx.Dp(48)
 			rightButton(&c.speed, func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints = layout.Exact(image.Pt(speedWide, d))
@@ -375,7 +379,7 @@ func (v *mediaViewer) layoutVideoControls(gtx layout.Context, m model.Message, s
 					gtx.Constraints.Min = image.Point{}
 					return label(gtx, speedText(v.video.currentSpeed()), token.TypestyleLabelLarge, white, 1)
 				})
-			}, speedWide)
+			}, speedWide, l.T("viewer.tip_speed"))
 		}
 		// The bar between them.
 		barArea := image.Rect(x+gtx.Dp(4), 0, right-gtx.Dp(8), size.Y)
@@ -414,9 +418,10 @@ func (v *mediaViewer) layoutVideoControls(gtx layout.Context, m model.Message, s
 
 // plateButton is a button of the controls' plate, of size, whose face w
 // draws, lighter while the pointer is over it.
-func plateButton(gtx layout.Context, click *widget.Clickable, size image.Point, w layout.Widget) layout.Dimensions {
+func plateButton(gtx layout.Context, tips *tooltips, click *widget.Clickable, size image.Point, tip string, w layout.Widget) layout.Dimensions {
 	gtx.Constraints = layout.Exact(size)
 	return click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		tips.target(gtx, click, tip)
 		pointer.CursorPointer.Add(gtx.Ops)
 		if click.Hovered() {
 			paint.FillShape(gtx.Ops, color.NRGBA{R: 255, G: 255, B: 255, A: 28}, clip.UniformRRect(image.Rectangle{Max: size}, size.Y/2).Op(gtx.Ops))
