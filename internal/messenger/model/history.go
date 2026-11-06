@@ -85,6 +85,9 @@ type MessageMedia struct {
 	// Waveform is a voice message's loudness in 5-bit bars, as Telegram
 	// packs it (see voice.Bars); nil when the sender gave none.
 	Waveform []byte `json:",omitempty"`
+	// Motion is the video a profile photo plays, in its place, looped; nil for one
+	// that is only a picture.
+	Motion *MessageMedia `json:",omitempty"`
 	// Variants are smaller renditions of the same picture that can be
 	// downloaded on their own, smallest first. The media itself is the
 	// largest. Messages cached before variants existed have none.
@@ -441,6 +444,9 @@ type GalleryPage struct {
 	// Next, for the photos of a profile, is where the page after this one
 	// starts; empty after the last one.
 	Next string
+	// Current, for the photos of a profile, is the key of the one among Messages the
+	// profile shows now, where the viewer opens; zero when none of them is.
+	Current MessageID
 }
 
 // ChatWatcher learns which chats are on screen, so that a store can keep

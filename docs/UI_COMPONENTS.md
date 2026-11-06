@@ -403,6 +403,12 @@ size-stability fixes remain in place.
   is at once.
   `VIEWER_EDIT` renders it: paint, crop, text, shapes, turned, stickers, opening, opening-late, choice,
   work, failed, discard, with `VIEWER_DARK` for dialogs of a dark theme.
+- **A profile photo that plays** stays a photo in the viewer (`model.MessagePhoto`, its
+  video in `MessageMedia.Motion`, of which `motionOf` makes a GIF): the video's pictures
+  go over the photo's, with animations off too, as a GIF opened plays, and anything that
+  fails of them leaves the photo. The first photo a profile opens with is known from the chat alone, which does not
+  tell its video: the first page tells it (`tellMotion`). Saved, it is an MP4. The demo's
+  first photo of each profile plays.
 - **Colors of video in the sandboxes**: `resample.Colors` says how a frame's planes are
   read, as its stream tells (VP9's frame header, H.264's parameter set, `colr`), and by
   its size where it tells nothing, as players guess; the zero value is JPEG's. Read as

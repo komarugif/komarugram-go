@@ -32,7 +32,8 @@ import (
 //
 //	VIEWER_PNG=/tmp/viewer.png go test ./internal/messenger/ui -run RenderPhotoViewer
 //
-// With VIEWER_PROFILE set it shows the photos of a chat's profile, with
+// With VIEWER_PROFILE set it shows the photos of a chat's profile (=plays, its first
+// playing its video, with the H.264 decoder that needs KOMARUGRAM_AVCDEC), with
 // VIEWER_GIFS a GIF of the chat among its GIFs, with VIEWER_STORIES the
 // stories of someone of the list's, and with VIEWER_SAVE_GIF a video saved
 // as a GIF by the bot, halfway through, and with VIEWER_BOX the files of the
@@ -85,6 +86,11 @@ func TestRenderMediaViewer(t *testing.T) {
 		v.OpenStories(peer.ID, start.Key.MessageID)
 	} else if os.Getenv("VIEWER_PROFILE") != "" {
 		// The photos of the chat's profile, as its avatar opens them.
+		if os.Getenv("VIEWER_PROFILE") == "plays" {
+			// The demo's video is read from the root of the repository.
+			t.Chdir("../../..")
+			store.ProfileVideos = true
+		}
 		start, _ = store.ProfilePhoto(2)
 		v.OpenProfile(2)
 	} else if os.Getenv("VIEWER_GIFS") != "" {
@@ -163,6 +169,12 @@ func TestRenderMediaViewer(t *testing.T) {
 		for i := 0; i < 5; i++ {
 			frame()
 			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	if motion, ok := motionOf(start); ok && os.Getenv("VIEWER_PROFILE") == "plays" {
+		for i := 0; i < 1000 && v.full.GIFPosition(motion) < 2*time.Second; i++ {
+			frame()
+			time.Sleep(10 * time.Millisecond)
 		}
 	}
 	if edit != "" {

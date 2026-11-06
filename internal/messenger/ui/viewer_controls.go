@@ -134,6 +134,12 @@ func (v *mediaViewer) seekTo(m model.Message, at time.Duration) {
 // videoKey does what a key of the video's asks: play or pause, a move back
 // or ahead, or the sound off or on.
 func (v *mediaViewer) videoKey(gtx layout.Context, m model.Message, id string) {
+	if motion, ok := motionOf(m); ok && id == "viewer.play_pause" {
+		// It has nothing to move through, or to mute.
+		v.full.ToggleGIF(motion)
+		gtx.Execute(op.InvalidateCmd{})
+		return
+	}
 	if m.Kind != model.MessageVideo && m.Kind != model.MessageGIF {
 		return
 	}

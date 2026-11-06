@@ -69,8 +69,13 @@ type mediaViewer struct {
 	// configureDecoders gives its media managers the settings of the decoders, in its
 	// own frames; nil leaves them as they are.
 	configureDecoders func()
-	shortcuts         shortcutPreferences
-	source            model.ConversationStore
+	// moveTo is where the photo a profile opened with turned out to be, for the next
+	// frame to show; zero for nowhere new. v.mu guards it.
+	moveTo model.MessageID
+	// shownMotion is the picture of a profile photo's video drawn last, nil for none.
+	shownMotion image.Image
+	shortcuts   shortcutPreferences
+	source      model.ConversationStore
 	// caption takes the clicks on a caption with spoilers, which uncover
 	// them on the message captionRevealed.
 	caption         gesture.Click
@@ -359,6 +364,7 @@ func (v *mediaViewer) openList(chat int64, m model.Message, list mediaList) {
 			v.cancel()
 		}
 		v.session++
+		v.moveTo = 0
 		v.sharedKind = list.shared
 		v.items = v.sharedOnly(mergeMedia(list.gallery, nil, list.items))
 		// Stories open before Telegram has told them: m is the one to show.
@@ -450,7 +456,7 @@ func (v *mediaViewer) Close() {
 		v.cancel = nil
 	}
 	v.session++
-	v.items, v.total, v.offset = nil, 0, ""
+	v.items, v.total, v.offset, v.moveTo = nil, 0, "", 0
 	v.mu.Unlock()
 	v.open = false
 	v.video.stop()
@@ -566,6 +572,11 @@ func (v *mediaViewer) fetch(ctx context.Context, session, dir int, anchor model.
 			v.total = page.Total
 		}
 		v.offset = page.Next
+		if gallery == galleryProfile && offset == "" {
+			v.items, page.Messages = placeShown(v.items, page)
+			// The next frame goes there, if it is still on the one opened.
+			v.moveTo = page.Current
+		}
 		v.items = v.sharedOnly(mergeMedia(gallery, v.items, page.Messages))
 	}()
 }
@@ -629,6 +640,42 @@ func mergeMedia(gallery viewerGallery, items, add []model.Message) []model.Messa
 	return items
 }
 
+// placeShown puts the photo a profile opened with, known from the chat alone, where
+// the first page of its photos tells it is, as Telegram Desktop opens it there: in
+// the place of the page's, whose video it takes, staying as it is, already decoded.
+// It stays first when the page tells none: a photo the list lacks. Copies: the frame
+// under way goes through the list it has.
+func placeShown(items []model.Message, page model.GalleryPage) (kept, add []model.Message) {
+	opened := model.ProfilePhotoID(0)
+	i := slices.IndexFunc(items, func(o model.Message) bool { return o.Key.MessageID == opened })
+	j := slices.IndexFunc(page.Messages, func(o model.Message) bool { return o.Key.MessageID == page.Current })
+	if page.Current == 0 || i < 0 || j < 0 || items[i].Media == nil || page.Messages[j].Media == nil {
+		return items, page.Messages
+	}
+	shown := *items[i].Media
+	shown.Motion = page.Messages[j].Media.Motion
+	add = slices.Clone(page.Messages)
+	add[j] = add[j].WithMedia(&shown)
+	return slices.Delete(slices.Clone(items), i, i+1), add
+}
+
+// motionPlaying is the video of photo m, when it is to play: not in the editor, where
+// what is edited is the photo.
+func (v *mediaViewer) motionPlaying(m model.Message) (model.Message, bool) {
+	motion, ok := motionOf(m)
+	return motion, ok && !v.edit.opened()
+}
+
+// motionOf is the video photo m plays, as a looping GIF is drawn.
+func motionOf(m model.Message) (model.Message, bool) {
+	if m.Media == nil || m.Media.Motion == nil {
+		return m, false
+	}
+	motion := m.WithMedia(m.Media.Motion)
+	motion.Kind = model.MessageGIF
+	return motion, true
+}
+
 // place is where item i of items is in the whole gallery, and how many
 // items it has, when that is known: counted from the end the gallery is
 // known to end at, as Telegram Desktop does. Without a total from Telegram
@@ -664,6 +711,13 @@ func (v *mediaViewer) place(items []model.Message, i int) (n, amount int, ok boo
 func (v *mediaViewer) snapshot() (items []model.Message, loading, exhausted [2]bool, ctx context.Context, session int) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	if v.moveTo != 0 {
+		// Taken with the list that has it in its place.
+		if v.current == model.ProfilePhotoID(0) {
+			v.current, v.center = v.moveTo, true
+		}
+		v.moveTo = 0
+	}
 	return v.items, v.loading, v.exhausted, v.ctx, v.session
 }
 
@@ -830,6 +884,10 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 			}
 		}
 	}
+	// The video of the one shown too, which goes on from where it is.
+	if motion, ok := motionOf(items[i]); ok {
+		keep = append(keep, motion.Media.ID)
+	}
 	v.full.Retain(keep...)
 	// Read further into the cache before the strip runs out.
 	prefetch := viewerPrefetch
@@ -990,6 +1048,14 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 		// A GIF opened plays, with animations off too: it was asked for.
 		status = v.full.StatusFit(m, animate || item.Kind == model.MessageGIF, box, false)
 	}
+	// The video of a profile photo plays over the photo, and what fails of it leaves the
+	// photo: it is no failure to tell. As a GIF opened, it plays with animations off too:
+	// it was asked for.
+	motion, moving := v.motionPlaying(item)
+	var motionFrame image.Image
+	if moving {
+		motionFrame = v.full.StatusFit(motion, true, box, false).Frame
+	}
 	w, h := m.Media.Width, m.Media.Height
 	if status.Frame != nil && (w <= 0 || h <= 0) {
 		b := status.Frame.Bounds()
@@ -1043,6 +1109,10 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 	if im == nil {
 		im = status.Preview
 	}
+	v.shownMotion = nil
+	if motionFrame != nil {
+		im, v.shownMotion = motionFrame, motionFrame
+	}
 	showRing := status.Err != nil
 	if status.Loading {
 		if wait := v.since.Add(viewerRingDelay); gtx.Now.Before(wait) {
@@ -1058,6 +1128,10 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 			v.controls.wake(gtx.Now)
 		case video:
 			v.playVideo(gtx, item, -1, l)
+		case motionFrame != nil:
+			v.full.ToggleGIF(motion)
+			v.controls.wake(gtx.Now)
+			gtx.Execute(op.InvalidateCmd{})
 		case status.Err != nil || status.Cancelled:
 			v.full.Retry(m)
 		case gif:
@@ -1092,7 +1166,7 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 	}
 	offset(gtx, origin, func(gtx layout.Context) layout.Dimensions {
 		return v.picture.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			if video || gif || status.Err != nil || status.Cancelled {
+			if video || gif || motionFrame != nil || status.Err != nil || status.Cancelled {
 				// A press plays the video or the GIF, or pauses it, or loads the
 				// picture again.
 				pointer.CursorPointer.Add(gtx.Ops)
@@ -1103,7 +1177,7 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 			} else {
 				widget.Image{Src: v.images.Op(im), Fit: widget.Fill}.Layout(gtx)
 			}
-			if (video && !showRing && !vs.playing || gif && v.full.GIFPaused(item)) && playMark > 0 {
+			if (video && !showRing && !vs.playing || gif && v.full.GIFPaused(item) || motionFrame != nil && v.full.GIFPaused(motion)) && playMark > 0 {
 				d := min(gtx.Dp(64), shown.X, shown.Y)
 				defer paint.PushOpacity(gtx.Ops, playMark).Pop()
 				offset(gtx, shown.Sub(image.Pt(d, d)).Div(2), func(gtx layout.Context) layout.Dimensions {

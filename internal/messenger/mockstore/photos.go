@@ -181,6 +181,10 @@ func (s *Store) ProfilePhotos(ctx context.Context, chat int64, offset string, li
 	}
 	total := demoProfilePhotos(chat)
 	page := model.GalleryPage{Total: total}
+	if from == 0 && total > 0 {
+		// The demo's profiles show their first photo.
+		page.Current = model.ProfilePhotoID(0)
+	}
 	for i := from; i < min(total, from+limit); i++ {
 		page.Messages = append(page.Messages, s.profilePhoto(chat, i))
 	}
@@ -192,10 +196,17 @@ func (s *Store) ProfilePhotos(ctx context.Context, chat int64, offset string, li
 
 func (s *Store) profilePhoto(chat int64, i int) model.Message {
 	n := int(uint64(chat)%uint64(len(demoPhotoSizes))) + i + 1
+	media := demoPhoto(n)
+	if i == 0 && s.ProfileVideos {
+		// The one a profile opens with plays, as one set by a video does, in the shape of
+		// the demo's video.
+		media = &model.MessageMedia{ID: "demo/portrait", MIMEType: "image/png", Width: 720, Height: 1280, Preview: media.Preview,
+			Motion: &model.MessageMedia{ID: "demo/gifv", MIMEType: "video/mp4", Width: 720, Height: 1280, Size: 7789765, Duration: 36 * time.Second}}
+	}
 	return model.Message{
 		Kind:       model.MessagePhoto,
 		Key:        model.MessageKey{ChatID: chat, MessageID: model.ProfilePhotoID(i)},
-		Media:      demoPhoto(n),
+		Media:      media,
 		SenderName: s.chatTitle(chat),
 		Date:       time.Date(2024, 3, 1, 12, 0, 0, 0, time.UTC).AddDate(0, 0, -i),
 	}

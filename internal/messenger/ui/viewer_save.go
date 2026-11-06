@@ -60,7 +60,7 @@ func (v *mediaViewer) keepPhoto(m model.Message, copy bool, l localization.Catal
 		ctx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()
 		var res viewerFile
-		data, err := source.Media(ctx, m)
+		data, err := source.Media(ctx, keptMedia(m, copy))
 		switch {
 		case err != nil:
 		case copy:
@@ -89,6 +89,16 @@ func (v *mediaViewer) keepPhoto(m model.Message, copy bool, l localization.Catal
 	}()
 }
 
+// keptMedia is what keeping photo m keeps: a profile photo that plays is saved as the
+// video it is, as Telegram Desktop saves it, and copied as its picture, as clipboards
+// take.
+func keptMedia(m model.Message, copy bool) model.Message {
+	if motion, ok := motionOf(m); ok && !copy {
+		return motion
+	}
+	return m
+}
+
 // savePhoto writes a photo's file in the user's pictures, named after its
 // chat and message, with the extension its content tells.
 func savePhoto(data []byte, m model.Message) (string, error) {
@@ -104,6 +114,8 @@ func savePhoto(data []byte, m model.Message) (string, error) {
 		ext = ".webp"
 	case "image/gif":
 		ext = ".gif"
+	case "video/mp4":
+		ext = ".mp4"
 	}
 	path := filepath.Join(dir, photoFileName(m)+ext)
 	return path, os.WriteFile(path, data, 0o644)
