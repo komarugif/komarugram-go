@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/sendfiles"
+	"komarugram/pkg/mp4"
 	"komarugram/pkg/video"
 )
 
@@ -251,11 +253,18 @@ func (s *Store) uploadMedia(ctx context.Context, api *tg.Client, f sendfiles.Fil
 	if f.Kind == sendfiles.KindAnimation && asMedia {
 		attrs = append(attrs, &tg.DocumentAttributeAnimated{})
 	}
-	file, err := up.FromPath(ctx, f.Path)
+	media := asMedia && (f.Kind == sendfiles.KindVideo || f.Kind == sendfiles.KindAnimation)
+	var file tg.InputFileClass
+	if media {
+		// A video, as a photo is, goes without what tells where and when it was
+		// shot; a file goes as it is.
+		file, err = uploadScrubbed(ctx, up, f.Path)
+	} else {
+		file, err = up.FromPath(ctx, f.Path)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", f.Name, err)
 	}
-	media := asMedia && (f.Kind == sendfiles.KindVideo || f.Kind == sendfiles.KindAnimation)
 	doc := &tg.InputMediaUploadedDocument{File: file, MimeType: f.MIME, ForceFile: !media, Attributes: attrs}
 	if way.SilentAsVideo && media && f.Kind == sendfiles.KindVideo {
 		// One that cannot be read goes as it would: only a video known to have no
@@ -365,4 +374,31 @@ func (s *Store) draftCleared(chat int64, clear *bool, outgoing *outgoingEntry) {
 		s.setDraft(chat, nil)
 		*clear = false
 	}
+}
+
+// uploadScrubbed uploads the video at path without its metadata: an MP4 or
+// QuickTime file's location, dates, make and model (mp4.MetadataPatches), patched
+// over it as it is read, the file itself untouched. A video of another container
+// goes as it is.
+func uploadScrubbed(ctx context.Context, up *uploader.Uploader, path string) (tg.InputFileClass, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	var head [8]byte
+	if _, err := f.ReadAt(head[:], 0); err != nil || string(head[4:8]) != "ftyp" {
+		return up.FromPath(ctx, path)
+	}
+	patches, err := mp4.MetadataPatches(f, info.Size())
+	if err != nil {
+		// One it cannot read through would not play either: it goes as it is,
+		// and Telegram tells what it makes of it.
+		return up.FromPath(ctx, path)
+	}
+	return up.Upload(ctx, uploader.NewUpload(filepath.Base(path), mp4.Patched(f, info.Size(), patches), info.Size()))
 }

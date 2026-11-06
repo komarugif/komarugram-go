@@ -40,7 +40,8 @@ type Photo struct {
 // PreparePhoto makes the image at path a photo: turned as its Exif asks,
 // scaled down to fit a square of 1280 pixels a side, or 2560 for high
 // quality, with alpha flattened on white and saved as JPEG. A JPEG that
-// needs none of that is sent as it is.
+// needs none of that is sent as it is, without its metadata
+// (stripJPEGMetadata); one that cannot be read through is saved again.
 func PreparePhoto(path string, highQuality bool) (Photo, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -63,8 +64,13 @@ func PreparePhoto(path string, highQuality bool) (Photo, error) {
 	scaled := b.Dx() > side || b.Dy() > side
 	img = orient(fit(img, side), turn)
 	b = img.Bounds()
-	if !scaled && format == "jpeg" && turn == 1 && len(data) <= maxPhotoBytes {
-		return Photo{JPEG: data, Width: b.Dx(), Height: b.Dy()}, nil
+	if !scaled && format == "jpeg" && turn == 1 {
+		// Sent as it is, but for what tells where, when and with what it was
+		// taken: Telegram's servers keep none of it in the photo they make, but
+		// the file goes to them whole.
+		if clean, ok := stripJPEGMetadata(data); ok && len(clean) <= maxPhotoBytes {
+			return Photo{JPEG: clean, Width: b.Dx(), Height: b.Dy()}, nil
+		}
 	}
 	var out bytes.Buffer
 	if err := jpeg.Encode(&out, flatten(img), &jpeg.Options{Quality: jpegQuality}); err != nil {

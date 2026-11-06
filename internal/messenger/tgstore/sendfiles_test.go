@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/gotd/td/bin"
+	"github.com/gotd/td/telegram/uploader"
 	"github.com/gotd/td/tg"
 
 	"komarugram/internal/messenger/model"
@@ -490,5 +491,57 @@ func TestSendVideoFileWithoutFFmpeg(t *testing.T) {
 	}
 	if doc := server.singles[0].Media.(*tg.InputMediaUploadedDocument); !doc.ForceFile || doc.Thumb != nil {
 		t.Fatalf("sent %+v", doc)
+	}
+}
+
+// mp4Box is an ISO media box of kind with body.
+func mp4Box(kind string, body ...[]byte) []byte {
+	b := bytes.Join(body, nil)
+	return append(append(binary.BigEndian.AppendUint32(nil, uint32(8+len(b))), kind...), b...)
+}
+
+// A video sent as media goes without where it was shot, patched as it is read:
+// what Telegram gets is the file's length, without the location, and the file
+// on the disk is untouched; one that is not an MP4 goes as it is.
+func TestUploadScrubbedVideo(t *testing.T) {
+	s, server := filesStore(t)
+	video := bytes.Join([][]byte{
+		mp4Box("ftyp", []byte("isom")),
+		mp4Box("moov", mp4Box("udta", mp4Box("\xa9xyz", []byte("+55.7558+037.6173/")))),
+		mp4Box("mdat", []byte("frames")),
+	}, nil)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "phone.mp4")
+	if err := os.WriteFile(path, video, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(dir, "clip.webm")
+	if err := os.WriteFile(other, []byte("\x1a\x45\xdf\xa3 webm +55.7558"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	up := uploader.NewUploader(s.history.api)
+	for _, p := range []string{path, other} {
+		if _, err := uploadScrubbed(context.Background(), up, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(server.parts) != 2 {
+		t.Fatalf("%d files uploaded", len(server.parts))
+	}
+	var sent [][]byte
+	for _, b := range server.parts {
+		sent = append(sent, b)
+	}
+	if bytes.HasPrefix(sent[0], []byte("\x1a\x45")) {
+		sent[0], sent[1] = sent[1], sent[0]
+	}
+	if len(sent[0]) != len(video) || bytes.Contains(sent[0], []byte("55.7558")) || !bytes.Contains(sent[0], []byte("frames")) {
+		t.Fatalf("sent %q", sent[0])
+	}
+	if !bytes.Contains(sent[1], []byte("55.7558")) {
+		t.Fatal("a WebM was changed")
+	}
+	if on, _ := os.ReadFile(path); !bytes.Equal(on, video) {
+		t.Fatal("the file on the disk changed")
 	}
 }
