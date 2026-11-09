@@ -69,6 +69,15 @@
 
 "app.title" = "KomaruGram Go";
 
+"archive.about" = "Messages the local cache lacks are being saved from Telegram's history. Media are not downloaded, and the chat on screen stays as it is.";
+"archive.cancel" = "Cancel";
+"archive.done" = "Messages saved to the cache.";
+"archive.failed" = "Could not save the messages";
+"archive.status" = "{cached} of {total} messages in the cache";
+"archive.status_unknown" = "{cached} messages in the cache";
+"archive.title" = "Saving messages";
+"archive.waiting" = "Telegram asks to wait {time}…";
+
 "audio.close" = "Close";
 "audio.date" = "{date} at {time}";
 "audio.next" = "Next track";
@@ -924,6 +933,11 @@
 "info.dc" = "Profile photo's data center";
 "info.description" = "Description";
 "info.link_copied" = "Link copied to clipboard.";
+"info.messages#one" = "{count} message ({cached} in the local cache)";
+"info.messages#other" = "{count} messages ({cached} in the local cache)";
+"info.messages_cached#one" = "{count} message in the local cache";
+"info.messages_cached#other" = "{count} messages in the local cache";
+"info.messages_save" = "Click to save messages to the cache";
 "info.open_chat" = "Go to private chat with user";
 "info.open_chat_new" = "You have no chat yet";
 "info.phone" = "Phone · click to copy";

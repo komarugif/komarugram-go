@@ -108,6 +108,18 @@ The history is drawn as materialgram draws it:
   there opens it, followed or not; one the account is banned from, with
   nothing of it cached, shows only its info (`chatInfo.OpenClosed`).
   The avatars in the comments and in a forum's topics do the same.
+- **Messages of a chat in its info** (`shared_archive.go`): the last row of the card of details, for a chat, group or channel, tells
+  "n messages (n in the local cache)": Telegram's count is what a search for "-" in the chat returns
+  (`model.ChatArchiver.MessageTotal`), the cache's a count of its rows. A click saves the messages the cache lacks, newest
+  first, in a `modal` with `progressRows` and a Cancel button (`ChatArchiver.ArchiveChat`, `tgstore/archive.go`): pages of
+  100 at the pace of the history's pages (`historyPacer`), a FLOOD_WAIT told in the dialog and waited out. The messages go
+  to the cache with their span, so that the history scrolls through them offline; the history on screen and the room it
+  reserves for rows not loaded do not grow by them: the runs saved are kept apart (kv key `archive/<chat>`), and the
+  measurer, which lays out the rows of a span of no height known and has the reserve grow by them, does not go into them
+  (`Store.CachedFrom` stops at the run); the rows the user scrolls over are kept with their heights and reserved as ever.
+  The runs saved are jumped over with the spans by a next saving, after a Cancel or later, which goes on from where it was.
+  The media's locations of a saved page go to the cache, not to memory (`archivingKey`). The demo's saving is made up
+  (`mockstore/archive.go`).
 - **The way back** (`chat_return.go`): a chat opened from another, as a
   sender's from the group or the comments, or a channel's discussion
   from its Discussion button, gets a back button before the avatar in

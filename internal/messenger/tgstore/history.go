@@ -1626,8 +1626,13 @@ func (s *Store) convert(ctx context.Context, raw []tg.MessageClass, live bool, s
 				inlines = append(inlines, inline)
 			}
 		}
-		for id, ref := range refs {
-			c.refs[id] = ref
+		// A page ArchiveChat saves is kept in the cache's refs alone, which
+		// find them when they are asked for: a chat of a million messages
+		// would fill the memory.
+		if ctx.Value(archivingKey{}) == nil {
+			for id, ref := range refs {
+				c.refs[id] = ref
+			}
 		}
 		c.mu.Unlock()
 		// SQLite/encryption may wait on disk or a media writer. Never keep the UI's

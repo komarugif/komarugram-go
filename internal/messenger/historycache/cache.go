@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"math"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -770,4 +771,19 @@ func (c *Cache) KeysWithPrefix(ctx context.Context, prefix string) ([]string, er
 		keys = append(keys, key)
 	}
 	return keys, rows.Err()
+}
+
+// Count is how many messages of chat the cache holds, deleted ones, which it
+// kept as markers, not counted.
+func (c *Cache) Count(ctx context.Context, chat int64) (int, error) {
+	return c.Have(ctx, chat, 0, math.MaxInt)
+}
+
+// Have is how many messages of chat in low..high the cache holds.
+func (c *Cache) Have(ctx context.Context, chat int64, low, high int) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var n int
+	err := c.db.QueryRowContext(ctx, `SELECT count(*) FROM messages WHERE chat=? AND id>=? AND id<=? AND deleted!=1 AND payload IS NOT NULL`, chat, low, high).Scan(&n)
+	return n, err
 }

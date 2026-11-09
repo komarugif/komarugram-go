@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -710,5 +711,68 @@ func TestChatInfoSupergroupIDAndCreation(t *testing.T) {
 	store.first[super] = model.Message{Key: first.Key, Date: created, Service: &model.ServiceAction{Kind: model.ServicePin}}
 	if registration, _ := p.detailTexts(l); registration != "" {
 		t.Fatalf("a creation row %q for another message", registration)
+	}
+}
+
+// The last row of the details tells how many messages the chat has and how
+// many the cache holds; a click saves the rest in a dialog with a progress
+// bar, which can be stopped, and a click again goes on from what was saved.
+func TestChatInfoSavesMessagesToTheCache(t *testing.T) {
+	store := mockstore.New(time.Now(), 0)
+	var images imageOps
+	p := newChatInfo(store, &images, func() {})
+	defer p.Destroy()
+	l := localization.For("en")
+	var router input.Router
+	frame := func() {
+		ops := new(op.Ops)
+		gtx := sharedContext(ops, image.Pt(900, 2000))
+		gtx.Source = router.Source()
+		p.Layout(gtx, l, false)
+		router.Frame(ops)
+	}
+	until := func(what string, ok func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for !ok() {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out: %s", what)
+			}
+			frame()
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	p.Open(model.Chat{ID: 4, Kind: model.KindChannel})
+	awaitShared(t, p)
+	total, _ := store.MessageTotal(context.Background(), 4)
+	cached, _ := store.CachedMessages(context.Background(), 4)
+	want := l.Count("info.messages", total, map[string]string{"count": groupDigits(total), "cached": groupDigits(cached)})
+	until("the counts", func() bool { return p.messagesText(l) == want })
+	if cached >= total {
+		t.Fatalf("the demo chat has all its %d messages cached", total)
+	}
+	// Stopped by its button, midway.
+	p.msgs.item.click.Click()
+	frame()
+	if p.msgs.dialog.job == nil || !p.msgs.dialog.modal.Shown() {
+		t.Fatal("the click began no saving")
+	}
+	until("some saved", func() bool { return p.msgs.dialog.job.state().Cached > cached })
+	p.msgs.dialog.cancel.click.Click()
+	until("the saving stopped", func() bool { return p.msgs.dialog.job == nil })
+	part, _ := store.CachedMessages(context.Background(), 4)
+	if part <= cached || part >= total {
+		t.Fatalf("%d cached after a stopped saving, want more than %d and less than %d", part, cached, total)
+	}
+	until("the dialog closed and the count came", func() bool { return !p.msgs.dialog.modal.Shown() && p.msgs.cached == part })
+	// Again, to the end.
+	p.msgs.item.click.Click()
+	frame()
+	if p.msgs.dialog.job == nil {
+		t.Fatal("no saving after one was stopped")
+	}
+	until("all saved", func() bool { return p.msgs.dialog.job == nil && p.msgs.cached == total })
+	if text := p.messagesText(l); !strings.Contains(text, "("+groupDigits(total)+" in the local cache)") {
+		t.Fatalf("row %q once all are saved", text)
 	}
 }

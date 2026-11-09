@@ -99,3 +99,23 @@ func (c *Cache) bounds(ctx context.Context, chat int64, id int) (low, high int, 
 	}
 	return s.Low, s.High, true, nil
 }
+
+// SpansIn returns the spans of chat that overlap low..high, in order.
+func (c *Cache) SpansIn(ctx context.Context, chat int64, low, high int) ([]Span, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	rows, err := c.db.QueryContext(ctx, `SELECT low,high FROM spans WHERE chat=? AND low<=? AND high>=? ORDER BY low`, chat, high, low)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Span
+	for rows.Next() {
+		var s Span
+		if err = rows.Scan(&s.Low, &s.High); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}

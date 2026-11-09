@@ -78,6 +78,15 @@
 
 "app.title" = "KomaruGram Go";
 
+"archive.about" = "Сообщения, которых нет в локальном кэше, сохраняются из истории Telegram. Медиа не скачиваются, открытый чат остаётся как был.";
+"archive.cancel" = "Отмена";
+"archive.done" = "Сообщения сохранены в кэш.";
+"archive.failed" = "Не удалось сохранить сообщения";
+"archive.status" = "{cached} из {total} сообщений в кэше";
+"archive.status_unknown" = "{cached} сообщений в кэше";
+"archive.title" = "Сохранение сообщений";
+"archive.waiting" = "Telegram просит подождать {time}…";
+
 "audio.close" = "Закрыть";
 "audio.date" = "{date} в {time}";
 "audio.next" = "Следующий трек";
@@ -973,6 +982,15 @@
 "info.dc" = "Дата-центр фото профиля";
 "info.description" = "Описание";
 "info.link_copied" = "Ссылка скопирована.";
+"info.messages#few" = "{count} сообщения ({cached} в локальном кэше)";
+"info.messages#many" = "{count} сообщений ({cached} в локальном кэше)";
+"info.messages#one" = "{count} сообщение ({cached} в локальном кэше)";
+"info.messages#other" = "{count} сообщения ({cached} в локальном кэше)";
+"info.messages_cached#few" = "{count} сообщения в локальном кэше";
+"info.messages_cached#many" = "{count} сообщений в локальном кэше";
+"info.messages_cached#one" = "{count} сообщение в локальном кэше";
+"info.messages_cached#other" = "{count} сообщения в локальном кэше";
+"info.messages_save" = "Нажмите, чтобы сохранить сообщения в кэше";
 "info.open_chat" = "Перейти в личный чат с пользователем";
 "info.open_chat_new" = "Вы ещё не переписывались";
 "info.phone" = "Телефон · нажмите, чтобы скопировать";

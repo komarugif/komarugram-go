@@ -119,3 +119,26 @@ func must(msgs []model.Message, e error) []model.Message {
 	}
 	return msgs
 }
+
+// Count and Have count a chat's messages, in a range or all, and leave out
+// those deleted, which the cache keeps as markers, and other chats'.
+func TestCountAndHave(t *testing.T) {
+	const chat, other = int64(-1000000000001), int64(-1000000000002)
+	c := spanCache(t, chat, [2]int{1, 10}, [2]int{20, 30})
+	if err := c.SaveMessages(context.Background(), []model.Message{{Key: model.MessageKey{AccountID: "a", ChatID: other, MessageID: 5}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Delete(context.Background(), chat, []int{3, 25}); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []struct {
+		low, high, want int
+	}{{0, math.MaxInt, 19}, {1, 10, 9}, {11, 19, 0}, {20, 30, 10}} {
+		if n, err := c.Have(context.Background(), chat, f.low, f.high); err != nil || n != f.want {
+			t.Fatalf("Have %d..%d = %d, %v, want %d", f.low, f.high, n, err, f.want)
+		}
+	}
+	if n, err := c.Count(context.Background(), chat); err != nil || n != 19 {
+		t.Fatalf("Count = %d, %v, want 19", n, err)
+	}
+}

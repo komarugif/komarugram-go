@@ -57,7 +57,8 @@ func (s *Store) Profiled(chat int64, env model.RenderEnvironment, version byte) 
 
 // CachedFrom reads the messages of chat the cache keeps from message from
 // on, as far as it keeps the history whole with it (model.CachedHistory):
-// as a page from the cache brings them, without those deleted.
+// as a page from the cache brings them, without those deleted, and up to
+// the first of the run ArchiveChat saved after the first of them.
 func (s *Store) CachedFrom(chat int64, from model.MessageID, limit int) []model.Message {
 	if isThread(chat) {
 		return nil
@@ -87,6 +88,17 @@ func (s *Store) CachedFrom(chat int64, from model.MessageID, limit int) []model.
 		kept = append(kept, m)
 	}
 	c.mu.Unlock()
+	// The run ArchiveChat saved is not measured: the rows of it the user
+	// scrolls over are kept with their heights and reserved as ever, but
+	// the measurer does not lay out the rest to grow the reserve by it.
+	if ranges, err := loadArchived(c.ctx, cache, chat); err == nil && len(ranges) > 0 {
+		for i := 1; i < len(kept); i++ {
+			if _, saved := ranges.has(int(kept[i].Key.MessageID)); saved {
+				kept = kept[:i]
+				break
+			}
+		}
+	}
 	for i, m := range kept {
 		kept[i] = s.applyLocalEmoji(context.Background(), m)
 	}
