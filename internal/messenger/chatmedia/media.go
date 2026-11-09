@@ -179,6 +179,14 @@ type Manager struct {
 	// quiet makes the media asked for start nothing (SetQuiet); UI thread
 	// only.
 	quiet bool
+	// deferring makes the media asked for that have no entry yet start no
+	// load, but show as loading (SetDeferring); deferred counts them since
+	// Deferred was last called. UI thread only.
+	deferring bool
+	deferred  int
+	// held keeps the blurred previews of the media deferring held back,
+	// by id: they cost no download, and show meanwhile.
+	held map[string]image.Image
 	// stopped are the GIFs the user paused, and seeks where those not
 	// loaded are to start, by media ID; UI thread only.
 	stopped map[string]bool
@@ -301,6 +309,13 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 		}
 		return e.frame, e.err
 	}
+	if m.deferring && m.entries[key] == nil {
+		// Not asked for before: no load starts, and it shows as loading,
+		// as a first call does anyway.
+		m.deferred++
+		m.holdPreview(msg)
+		return nil, nil
+	}
 	box := m.box(want)
 	animatedSticker := msg.Media.MIMEType == "application/x-tgsticker" || msg.Media.MIMEType == "application/x-custom-emoji" || msg.Kind == model.MessageSticker && msg.Media.MIMEType == "video/webm"
 	if animatedSticker {
@@ -343,6 +358,11 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 			// everything was drawn a frame ago, the cache grows, and
 			// EndFrame shrinks it once media leaves the screen.
 			m.evict(true)
+		}
+		// A preview shown while the load was held back stays until the load
+		// brings its own, not to blink.
+		if preview == nil {
+			preview = m.held[key]
 		}
 		ctx, cancel := context.WithCancel(m.ctx)
 		e = &entry{wake: make(chan struct{}, 1), consumed: make(chan struct{}, 1), wasm: wasm, ffmpeg: m.ffmpeg, sandboxGIF: m.SandboxGIFs() && !m.ffmpegGIFs[key], seen: m.generation, animate: animate, cancel: cancel, cancelled: m.cancelled[key], frame: previous, preview: preview, still: still, clip: clip, textColor: textColor, box: box, cover: cover, sticker: animatedSticker || msg.Kind == model.MessageSticker}
@@ -492,6 +512,23 @@ func (m *Manager) SetHolding(holding bool) { m.holding = holding }
 // shows as it is, and the rest as loading. Rows laid out off screen, only
 // to be measured, ask so. It runs on the UI goroutine.
 func (m *Manager) SetQuiet(quiet bool) { m.quiet = quiet }
+
+// SetDeferring makes the media asked for until SetDeferring(false), that
+// were not asked for before, start no load: they show as loading, ring
+// and all, and start when it is off. Media already on their way go on, and
+// those loaded show. The history sets it while it scrolls too fast for
+// anything to be read, when what is on screen is off it in a moment. It
+// runs on the UI goroutine.
+func (m *Manager) SetDeferring(deferring bool) { m.deferring = deferring }
+
+// Deferred tells how many media asked for since it was last called were
+// held back by SetDeferring, and starts counting anew: they are asked for
+// again by a frame that follows.
+func (m *Manager) Deferred() int {
+	n := m.deferred
+	m.deferred = 0
+	return n
+}
 
 // clipFrame is the picture of e's loop at the time of the frame, nil while
 // it stands still, and schedules the next. The caller holds e.mu.
@@ -663,6 +700,7 @@ func (m *Manager) DropLoops(done func(freed int64)) {
 // likely to be shown again.
 func (m *Manager) Forget(ids []string) {
 	for _, id := range ids {
+		delete(m.held, id)
 		if e := m.entries[id]; e != nil {
 			e.cancel()
 			delete(m.entries, id)
@@ -789,6 +827,7 @@ func (m *Manager) Retain(ids ...string) {
 // Clear cancels every load and drops every frame, so that a closed view
 // holds no pixels. It runs on the owning UI goroutine; the manager stays usable.
 func (m *Manager) Clear() {
+	clear(m.held)
 	for key, e := range m.entries {
 		e.cancel()
 		delete(m.entries, key)
@@ -1787,7 +1826,7 @@ func (m *Manager) status(msg model.Message, animate bool, want image.Point, cove
 		if !m.quiet {
 			m.loadingSeen++
 		}
-		return Status{Loading: true}
+		return Status{Loading: true, Preview: m.held[msg.Media.ID]}
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -1957,4 +1996,21 @@ func (m *Manager) trimAnimations() {
 		oldest.expired = true
 		oldest.mu.Unlock()
 	}
+}
+
+// maxHeld bounds the previews kept of media held back.
+const maxHeld = 512
+
+// holdPreview decodes the preview msg carries, once, for the media held
+// back to show it as a load that began would: from the message itself,
+// without a download.
+func (m *Manager) holdPreview(msg model.Message) {
+	id := msg.Media.ID
+	if _, ok := m.held[id]; ok {
+		return
+	}
+	if m.held == nil || len(m.held) >= maxHeld {
+		m.held = make(map[string]image.Image)
+	}
+	m.held[id] = previewImage(msg.Media.Preview)
 }

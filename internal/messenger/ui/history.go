@@ -375,6 +375,9 @@ type chatPage struct {
 	measurer     measurer
 	measuring    bool
 	quietAvatars func(bool)
+	// pace is how fast the list scrolls; media are held back while it is
+	// fast (history_pace.go).
+	pace scrollPace
 	// profiles cuts texts for rows' profiles; profiled are the revisions of
 	// the messages the history has profiles of in profileEnv, the
 	// environment without its width; profileStats, what the page took.
@@ -790,6 +793,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		}
 		p.revision = 0
 		p.list = scroll.List{List: layout.List{Axis: layout.Vertical, ScrollToEnd: true}}
+		p.pace = scrollPace{}
 		p.messages = nil
 		p.rows = map[model.MessageID]*messageRow{}
 		p.polls = nil
@@ -992,6 +996,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		defer func() { p.rowTopKnown = false }()
 		above := len(p.above)
 		rows := above + len(p.messages) + len(p.below)
+		p.holdMedia()
 		dims := p.list.Layout(gtx, rows, func(gtx layout.Context, row int) layout.Dimensions {
 			i := row - above
 			if i < 0 || i >= len(p.messages) {
@@ -1046,6 +1051,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 			p.keepMeasure(msg, height, env, !p.edgeRow(i))
 			return dims
 		})
+		p.releaseMedia(gtx, gtx.Now)
 		p.measureOffScreen(gtx, l)
 		p.stickyAvatars(gtx, cover)
 		p.stickyDate(gtx)
