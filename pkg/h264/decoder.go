@@ -114,6 +114,13 @@ type Decoder struct {
 	functions map[string]api.Function
 	// frame is the last picture, read in place in sandbox memory.
 	frame image.YCbCr
+	// format is how the stream's pictures are sampled, as its parameter
+	// set tells; told is false when it could not be read.
+	format mp4.AVCFormat
+	told   bool
+	// chroma holds the chroma planes of a picture not sampled 4:2:0,
+	// brought to 4:2:0, from one picture to the next.
+	chroma []byte
 }
 
 // NewDecoder starts a decoder for samples described by config, an avcC
@@ -134,6 +141,9 @@ func (r *Runtime) NewDecoderOf(ctx context.Context, codec mp4.Codec, config []by
 	started := time.Now()
 	d := &Decoder{runtime: r, module: module}
 	open := "h264w_new"
+	if codec == mp4.H264 {
+		d.format, d.told = mp4.ReadAVCFormat(config)
+	}
 	if codec == mp4.MPEG4 {
 		open = "h264w_new_mpeg4"
 		if module.ExportedFunction(open) == nil {
@@ -289,14 +299,25 @@ func (d *Decoder) readFrame(ctx context.Context) (*image.YCbCr, error) {
 		got[i] = v
 	}
 	w, h := int(int32(got[0])), int(int32(got[1]))
+	ratio := image.YCbCrSubsampleRatio420
 	if got[2] != 1 {
-		return nil, fmt.Errorf("h264: pictures are not 8-bit 4:2:0")
+		var err error
+		if ratio, err = d.sampling(); err != nil {
+			return nil, err
+		}
 	}
 	if w <= 0 || h <= 0 || w > d.runtime.maxSide || h > d.runtime.maxSide {
 		return nil, fmt.Errorf("h264: picture size %dx%d is over the limit of %d", w, h, d.runtime.maxSide)
 	}
-	heights := [3]int{h, (h + 1) / 2, (h + 1) / 2}
-	widths := [3]int{w, (w + 1) / 2, (w + 1) / 2}
+	cw, ch := (w+1)/2, (h+1)/2
+	switch ratio {
+	case image.YCbCrSubsampleRatio444:
+		cw, ch = w, h
+	case image.YCbCrSubsampleRatio422:
+		ch = h
+	}
+	heights := [3]int{h, ch, ch}
+	widths := [3]int{w, cw, cw}
 	var views [3][]byte
 	var strides [3]int
 	for plane := range views {
@@ -323,9 +344,69 @@ func (d *Decoder) readFrame(ctx context.Context) (*image.YCbCr, error) {
 	if strides[1] != strides[2] {
 		return nil, fmt.Errorf("h264: chroma planes of strides %d and %d", strides[1], strides[2])
 	}
-	d.frame = image.YCbCr{Y: views[0], Cb: views[1], Cr: views[2], YStride: strides[0], CStride: strides[1],
+	cb, cr, cstride := views[1], views[2], strides[1]
+	if ratio != image.YCbCrSubsampleRatio420 {
+		cb, cr, cstride = d.to420(cb, cr, cstride, ratio == image.YCbCrSubsampleRatio444, w, h)
+	}
+	d.frame = image.YCbCr{Y: views[0], Cb: cb, Cr: cr, YStride: strides[0], CStride: cstride,
 		SubsampleRatio: image.YCbCrSubsampleRatio420, Rect: image.Rect(0, 0, w, h)}
 	return &d.frame, nil
+}
+
+// to420 brings the chroma planes of a picture of w×h, of 4:4:4 (full) or
+// 4:2:2 and of stride, to 4:2:0, each sample the mean of the 2×2 or 1×2 it
+// covers, as the scaler reads 4:2:0. The scaler has its fast paths for
+// 4:2:0 alone: a 4:4:4 picture of 357×372 took it 3.2 ms to show at its
+// size, against 0.5 ms as 4:2:0 and 1.4 ms to decode. Luma stays where it
+// lies.
+func (d *Decoder) to420(cb, cr []byte, stride int, full bool, w, h int) (outCb, outCr []byte, outStride int) {
+	cw, ch := (w+1)/2, (h+1)/2
+	if cap(d.chroma) < 2*cw*ch {
+		d.chroma = make([]byte, 2*cw*ch)
+	}
+	buf := d.chroma[:2*cw*ch]
+	outCb, outCr = buf[:cw*ch], buf[cw*ch:]
+	for i, src := range [2][]byte{cb, cr} {
+		dst := [2][]byte{outCb, outCr}[i]
+		for y := range ch {
+			top, bottom := src[2*y*stride:], src[min(2*y+1, h-1)*stride:]
+			out := dst[y*cw : (y+1)*cw]
+			if !full {
+				for x := range out {
+					out[x] = uint8((uint(top[x]) + uint(bottom[x]) + 1) / 2)
+				}
+				continue
+			}
+			for x := range out {
+				l, r := 2*x, min(2*x+1, w-1)
+				out[x] = uint8((uint(top[l]) + uint(top[r]) + uint(bottom[l]) + uint(bottom[r]) + 2) / 4)
+			}
+		}
+	}
+	return outCb, outCr, cw
+}
+
+// sampling is how the pictures lie that the module says are not 8-bit
+// 4:2:0: it tells nothing more, and reads back the planes of every
+// planar format. FFmpeg picks the format of H.264's pictures by what the
+// stream's parameter set tells (get_pixel_format in h264_slice.c), so
+// that tells it here too: 4:4:4 and 4:2:2 of 8 bits are read, as many
+// old GIFs are (High 4:4:4 Predictive); other depths, and planes of G,
+// B and R, are not.
+func (d *Decoder) sampling() (image.YCbCrSubsampleRatio, error) {
+	f := d.format
+	switch {
+	case !d.told:
+	case f.Depth != 8:
+		return 0, fmt.Errorf("h264: pictures of %d bits are not read", f.Depth)
+	case f.RGB:
+		return 0, fmt.Errorf("h264: pictures in RGB are not read")
+	case f.Chroma == 3:
+		return image.YCbCrSubsampleRatio444, nil
+	case f.Chroma == 2:
+		return image.YCbCrSubsampleRatio422, nil
+	}
+	return 0, fmt.Errorf("h264: pictures are not 8-bit 4:2:0, 4:2:2 or 4:4:4")
 }
 
 // Close releases this decoder's sandbox.
@@ -340,4 +421,5 @@ func (d *Decoder) Close(ctx context.Context) {
 	d.module = nil
 	// A picture read in place would keep the sandbox's memory alive.
 	d.frame = image.YCbCr{}
+	d.chroma = nil
 }
