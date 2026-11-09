@@ -969,6 +969,7 @@
 "info.collectible_title" = "{username} — коллекционное имя, которое принадлежит";
 "info.copied" = "Скопировано.";
 "info.copy_link" = "Копировать ссылку";
+"info.created" = "Дата создания";
 "info.dc" = "Дата-центр фото профиля";
 "info.description" = "Описание";
 "info.link_copied" = "Ссылка скопирована.";

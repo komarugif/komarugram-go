@@ -920,6 +920,7 @@
 "info.collectible_title" = "{username} is a collectible username that belongs to";
 "info.copied" = "Copied to clipboard.";
 "info.copy_link" = "Copy Link";
+"info.created" = "Creation date";
 "info.dc" = "Profile photo's data center";
 "info.description" = "Description";
 "info.link_copied" = "Link copied to clipboard.";

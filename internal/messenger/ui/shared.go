@@ -81,6 +81,9 @@ type chatInfo struct {
 	// chat's photo, as materialgram's profile, under a user's ID; each row
 	// copies its text.
 	details                          model.ChatDetailer
+	// lookup finds a channel's first message, which tells when it was
+	// created, in place of the registration.
+	lookup model.MessageLookup
 	userID, registration, dataCenter settingsItem
 	themePage                        bool
 	themes                           *chatThemeController
@@ -148,6 +151,7 @@ func newChatInfo(source model.ConversationStore, images *imageOps, invalidate fu
 	p.source, _ = source.(model.SharedMediaSource)
 	p.usernames, _ = source.(model.UsernameSource)
 	p.details, _ = source.(model.ChatDetailer)
+	p.lookup, _ = source.(model.MessageLookup)
 	p.collection, _ = source.(model.SharedCollectionSource)
 	p.profiles, _ = source.(model.PeerProfileSource)
 	p.chips = map[string]*folderChip{}
@@ -730,6 +734,9 @@ func (p *chatInfo) layoutCards(gtx layout.Context, l localization.Catalog, anima
 								if registration == "" {
 									return layout.Dimensions{}
 								}
+								if p.channelLike() {
+									return p.registration.Layout(gtx, iconCalendar, registration, l.T("info.created"))
+								}
 								return p.registration.Layout(gtx, iconCalendar, registration, l.T("info.registration"))
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1097,10 +1104,40 @@ const registrationMonthSpread = 92 * 24 * time.Hour
 // userIDText is the ID of a user or a bot, the first of the details; empty
 // for another chat.
 func (p *chatInfo) userIDText() string {
-	if p.chat.ID <= 0 || p.chat.Kind != model.KindUser && p.chat.Kind != model.KindBot {
+	switch {
+	case p.chat.ID == 0:
+		return ""
+	case p.channelLike():
+		// As Telegram's tools tell it: -100 and the channel's number.
+		return strconv.FormatInt(p.chat.ID, 10)
+	case p.chat.ID < 0 || p.chat.Kind != model.KindUser && p.chat.Kind != model.KindBot:
 		return ""
 	}
 	return strconv.FormatInt(p.chat.ID, 10)
+}
+
+// channelLike is whether the chat is a channel of Telegram's, a broadcast
+// one or a supergroup (a group with an ID of a channel's, -100 and its
+// number), unlike a group of the old kind.
+func (p *chatInfo) channelLike() bool {
+	return p.chat.Kind == model.KindChannel || p.chat.Kind == model.KindGroup && p.chat.ID <= -1000000000000
+}
+
+// channelCreated is when a channel or a supergroup was created, from its
+// first message, which Telegram makes a service message of the creation;
+// false while it is on its way, and for one whose first message is
+// something else. A supergroup that was a group before has the message of
+// the move (Telegram's channelMigrateFrom, which the history hides) in its
+// place, from the day it became one.
+func (p *chatInfo) channelCreated() (time.Time, bool) {
+	if p.lookup == nil || !p.channelLike() || p.chat.ID == 0 {
+		return time.Time{}, false
+	}
+	m, state := p.lookup.LookupMessage(p.chat.ID, 1)
+	if state != model.LookupFound || m.Service == nil || m.Service.Kind != model.ServiceCreateChannel && m.Service.Kind != model.ServiceHidden || m.Date.IsZero() {
+		return time.Time{}, false
+	}
+	return m.Date, true
 }
 
 // phoneText is a user's phone number as it is read, "+7 900 123 45 67",
@@ -1109,11 +1146,18 @@ func (p *chatInfo) phoneText() string {
 	return countries.Format(countries.Digits(p.profile.Phone))
 }
 
-// detailTexts are the rows of the chat's details: when a user registered,
-// and where the chat's photo is kept; empty when not known.
+// detailTexts are the rows of the chat's details: when a user registered
+// or a channel or supergroup was created, and where the chat's photo is kept; empty when
+// not known.
 func (p *chatInfo) detailTexts(l localization.Catalog) (registration, dataCenter string) {
-	if p.details == nil || p.chat.ID == 0 {
+	if p.chat.ID == 0 {
 		return "", ""
+	}
+	if at, ok := p.channelCreated(); ok {
+		registration = at.Local().Format("02.01.2006")
+	}
+	if p.details == nil {
+		return registration, ""
 	}
 	if p.chat.Kind == model.KindUser || p.chat.Kind == model.KindBot {
 		at, how, spread := model.RegisteredAround(p.chat.ID)
