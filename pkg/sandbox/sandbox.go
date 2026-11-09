@@ -31,6 +31,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/tetratelabs/wazero"
@@ -85,12 +86,36 @@ func NewRuntime(ctx context.Context, l Limits) (*Runtime, error) {
 	if l.Budget == nil {
 		l.Budget = NewBudget(DefaultBudget)
 	}
-	// Every runtime has the same features, so they can share one cache:
-	// wazero sets up a cache's compiler with the features of the first
-	// runtime to use it.
-	config := wazero.NewRuntimeConfig().WithMemoryLimitPages(uint32(pages)).WithCompilationCache(currentCache().wazero)
+	var config wazero.RuntimeConfig
+	if interpreted.Load() {
+		// Several times slower: the time limit grows as much.
+		config = wazero.NewRuntimeConfigInterpreter().WithMemoryLimitPages(uint32(pages))
+		l.Slow *= interpreterSlowdown
+	} else {
+		// Every runtime has the same features, so they can share one cache:
+		// wazero sets up a cache's compiler with the features of the first
+		// runtime to use it.
+		config = wazero.NewRuntimeConfig().WithMemoryLimitPages(uint32(pages)).WithCompilationCache(currentCache().wazero)
+	}
 	return &Runtime{wazero: wazero.NewRuntimeWithConfig(ctx, config), limits: l}, nil
 }
+
+// interpreted is set while the runtimes made run their modules in
+// wazero's interpreter (Interpret).
+var interpreted atomic.Bool
+
+// interpreterSlowdown is how many times longer an operation may take in
+// the interpreter than its Limits.Slow: decoders run there several times
+// slower than compiled.
+const interpreterSlowdown = 20
+
+// Interpret has the runtimes made from now on run their modules in wazero's
+// interpreter, which runs as Go code, rather than compile them to machine
+// code, which runs on a stack of its own. The CPU profiler of Go on Windows
+// cannot walk a thread stopped in such code, and the whole process dies
+// (runtime.sigprof): the messenger interprets there while it profiles.
+// Runtimes made before keep how they run.
+func Interpret(on bool) { interpreted.Store(on) }
 
 // Wazero returns the underlying runtime, for setting up host modules.
 // Modules must be compiled with CompileModule and sandboxes started with
