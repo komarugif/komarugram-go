@@ -59,19 +59,24 @@ func (c *Cache) SetChannelPts(ctx context.Context, u, ch int64, v int) error {
 
 // RaiseChannelPts sets the pts of the channels kept to those of pts, by
 // channel id, which are newer, in one transaction; channels not kept stay
-// so.
-func (c *Cache) RaiseChannelPts(ctx context.Context, u int64, pts map[int64]int) error {
+// so. It returns the channels whose updates up to their pts in pts will
+// never come: those raised, which skip what lay between, and those not
+// kept, which the updates manager starts from the first update to come.
+func (c *Cache) RaiseChannelPts(ctx context.Context, u int64, pts map[int64]int) (skipped []int64, err error) {
 	newer := map[string]any{}
 	for ch, n := range pts {
 		kept, found, err := c.GetChannelPts(ctx, u, ch)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if found && kept < n {
 			newer[fmt.Sprintf("pts/%d/%d", u, ch)] = n
 		}
+		if !found || kept < n {
+			skipped = append(skipped, ch)
+		}
 	}
-	return c.PutAll(ctx, newer)
+	return skipped, c.PutAll(ctx, newer)
 }
 func (c *Cache) SetChannelAccessHash(ctx context.Context, u, ch, h int64) error {
 	return c.Put(ctx, fmt.Sprintf("hash/%d/%d", u, ch), h)

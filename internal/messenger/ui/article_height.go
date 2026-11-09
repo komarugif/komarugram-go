@@ -38,9 +38,9 @@ func articleEstimate(m model.Message, l localization.Catalog, metric unit.Metric
 		return 0
 	}
 	doc := prepareArticle(*m.Rich, l, m.Date)
-	// The bubble is at most 660 dp wide, 16 and 20 dp in from the row's
-	// edges, and holds what it shows 12 dp in from its own.
-	content := max(1, min(width-metric.Dp(36), metric.Dp(660))-metric.Dp(24))
+	// The bubble is at most bubbleMaxWidth wide, in from the row's edges,
+	// and holds what it shows bubblePadSide in from its own.
+	content := max(1, min(width-metric.Dp(rowInsetLeft)-metric.Dp(rowInsetRight), metric.Dp(bubbleMaxWidth))-2*metric.Dp(bubblePadSide))
 	h := doc.height(metric, doc.blocks, content)
 	if doc.part {
 		h += metric.Dp(42)

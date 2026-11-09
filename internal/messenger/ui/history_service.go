@@ -37,7 +37,7 @@ func (p *chatPage) servicePill(gtx layout.Context, r *messageRow, m model.Messag
 		return layout.Dimensions{}
 	}
 	sc := scheme(gtx)
-	gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(480))
+	gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(serviceMaxWidth))
 	gtx.Constraints.Min = image.Point{}
 	macro := op.Record(gtx.Ops)
 	dims := layout.Inset{Top: 5, Bottom: 5, Left: 12, Right: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

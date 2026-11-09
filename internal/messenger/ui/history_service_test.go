@@ -31,9 +31,9 @@ func TestServicePinShowsPinned(t *testing.T) {
 	p.list.Position.BeforeEnd = false
 	h.frames(3)
 	at := h.messageAt(20)
-	// The last row takes the room under the history too: the plate is at
-	// its top.
-	top := at.Y - float32(p.measures[20].HeightPx)/2
+	// The last row takes the room under the history too, in the list though
+	// not in the height kept: the plate is at its top.
+	top := at.Y - float32(p.heights.Prefix(20)-p.heights.Prefix(19))/2
 	h.press(pointer.ButtonPrimary, f32.Pt(250, top+float32(p.rows[20].bodyTop+p.rows[20].bodySize.Y/2)))
 	h.frames(3)
 	if p.list.Position.First != 0 {

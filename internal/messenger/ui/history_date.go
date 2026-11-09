@@ -14,7 +14,8 @@ import (
 // The logical first row supplies the date; prefix sums locate the next date
 // without laying out the intervening history. The next pill pushes this one out.
 func (p *chatPage) stickyDate(gtx layout.Context) {
-	first := p.list.Position.First
+	above := len(p.above)
+	first := p.list.Position.First - above
 	if first < 0 || first >= len(p.messages) || p.heights == nil {
 		return
 	}
@@ -28,7 +29,7 @@ func (p *chatPage) stickyDate(gtx layout.Context) {
 	}
 	nextTop := gtx.Constraints.Max.Y + gtx.Dp(50)
 	if i := p.nextDay[first]; i < len(p.messages) {
-		nextTop = int(p.heights.Prefix(i)-p.heights.Prefix(first)) - p.list.Position.Offset + gtx.Dp(14)
+		nextTop = int(p.heights.Prefix(above+i)-p.heights.Prefix(above+first)) - p.list.Position.Offset + gtx.Dp(14)
 	}
 	rec := op.Record(gtx.Ops)
 	pillGtx := gtx

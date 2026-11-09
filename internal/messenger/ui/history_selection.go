@@ -114,11 +114,16 @@ func (p *chatPage) rowAt(y float32) int {
 		return -1
 	}
 	first := p.list.Position.First
-	if first < 0 || first >= len(p.messages) {
+	if first < 0 || first >= len(p.above)+len(p.messages) {
 		return -1
 	}
 	absolute := p.heights.Prefix(first) + int64(p.list.Position.Offset) + int64(y)
-	index, _ := p.heights.Find(absolute)
+	row, _ := p.heights.Find(absolute)
+	index := row - len(p.above)
+	if index < 0 || index >= len(p.messages) {
+		// A skeleton, of no message loaded.
+		return -1
+	}
 	return index
 }
 func (p *chatPage) selectionEvents(gtx layout.Context) {
@@ -238,15 +243,21 @@ func (p *chatPage) startSelection(gtx layout.Context, e pointer.Event) {
 // but keep the ordinary cursor, as in Telegram Desktop. Text, media, dates
 // and the scrollbar keep their own input handling.
 func (p *chatPage) selectionAreas(gtx layout.Context) {
-	first := p.list.Position.First
-	if first < 0 || first >= len(p.messages) || p.heights == nil {
+	above := len(p.above)
+	first := p.list.Position.First - above
+	if first >= len(p.messages) || p.heights == nil {
 		return
 	}
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	top := -p.list.Position.Offset
+	if first < 0 {
+		// Under the skeletons of rows let go of.
+		top += int(p.heights.Prefix(above) - p.heights.Prefix(p.list.Position.First))
+		first = 0
+	}
 	for i := first; i < len(p.messages) && top < gtx.Constraints.Max.Y; i++ {
 		m := p.messages[i]
-		height := int(p.heights.Prefix(i+1) - p.heights.Prefix(i))
+		height := int(p.heights.Prefix(above+i+1) - p.heights.Prefix(above+i))
 		if r := p.rows[m.Key.MessageID]; r != nil && m.Kind != model.MessageService {
 			left := r.bodyLeft
 			right := left + r.bodySize.X

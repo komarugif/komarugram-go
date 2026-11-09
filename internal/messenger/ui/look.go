@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"hash/fnv"
 	"image"
 	"sync"
 
@@ -61,6 +62,21 @@ func avatarShape(gtx layout.Context, size image.Point) clip.RRect {
 	corners := min(max(lookOf(gtx).AvatarCorners, 0), preferences.AvatarRound)
 	radius := min(size.X, size.Y) / 2 * corners / preferences.AvatarRound
 	return clip.UniformRRect(image.Rectangle{Max: size}, radius)
+}
+
+// lookRevision tells the parts of look a row's height depends on: those
+// that make a message's time wider (timeFormat, the marks of edits and
+// deletions), which may then not fit on the last line of its text.
+func lookRevision(l preferences.Look) uint32 {
+	h := fnv.New32a()
+	if l.Seconds {
+		h.Write([]byte{1})
+	}
+	h.Write([]byte{0})
+	h.Write([]byte(l.EditedMark))
+	h.Write([]byte{0})
+	h.Write([]byte(l.DeletedMark))
+	return h.Sum32()
 }
 
 // timeFormat is how a message's time is written.

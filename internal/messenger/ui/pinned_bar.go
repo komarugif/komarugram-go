@@ -88,7 +88,7 @@ func (p *chatPage) pinnedHeight(gtx layout.Context, chat int64) int {
 
 // bottomMessage is the message at the bottom of what the history shows.
 func (p *chatPage) bottomMessage() model.MessageID {
-	last := p.list.Position.First + max(p.list.Position.Count, 1) - 1
+	last := p.list.Position.First - len(p.above) + max(p.list.Position.Count, 1) - 1
 	if !p.restored || last < 0 || last >= len(p.messages) {
 		return 0
 	}

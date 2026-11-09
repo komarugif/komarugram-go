@@ -167,6 +167,7 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 	}
 	r.refreshDates(gtx, m, l)
 	p.refreshStamps(gtx, r, m, l)
+	r.capture = rowCapture{on: p.wantsProfile(r, m), chips: r.capture.chips[:0], parts: r.capture.parts[:0]}
 	// Where the article is in the history, as the last frame put it.
 	r.viewKnown = p.rowTopKnown
 	if r.viewKnown {
@@ -211,7 +212,7 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 	}
 	dateHeight := 0
 	record := op.Record(gtx.Ops)
-	dims := layout.Inset{Top: top, Bottom: bottom, Left: 16, Right: 20}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	dims := layout.Inset{Top: top, Bottom: bottom, Left: rowInsetLeft, Right: rowInsetRight}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				if !date {
@@ -238,7 +239,7 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 					return dims
 				}
 				return align.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(660))
+					gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(bubbleMaxWidth))
 					gtx.Constraints.Min = image.Point{}
 					bodyDims := p.withSenderAvatar(gtx, m, func(gtx layout.Context) layout.Dimensions {
 						if p.unwrapped(m) {
@@ -268,9 +269,9 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 	}
 	call.Add(gtx.Ops)
 	r.bodyTop = gtx.Dp(top) + dateHeight
-	x := gtx.Dp(16)
+	x := gtx.Dp(rowInsetLeft)
 	if m.Outgoing {
-		x = max(x, gtx.Constraints.Max.X-gtx.Dp(20)-r.bodySize.X)
+		x = max(x, gtx.Constraints.Max.X-gtx.Dp(rowInsetRight)-r.bodySize.X)
 	}
 	r.bodyLeft = x
 	// The avatar is at the start of an incoming message, at the end of a
@@ -279,7 +280,33 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 		x += max(0, r.bodySize.X-gtx.Dp(34))
 	}
 	r.avatarPoint = image.Pt(x, r.bodyTop+r.bodySize.Y-gtx.Dp(34))
+	if r.capture.on {
+		r.capture.rest = dims.Size.Y - r.bodySize.Y
+	}
 	return dims
+}
+
+// A row of the history is rowInsetLeft and rowInsetRight in from its
+// edges; a bubble is at most bubbleMaxWidth wide, a service message's
+// plate serviceMaxWidth.
+const (
+	rowInsetLeft    unit.Dp = 16
+	rowInsetRight   unit.Dp = 20
+	bubbleMaxWidth  unit.Dp = 660
+	serviceMaxWidth unit.Dp = 480
+)
+
+// rowsWidth is the width of the history past which no row is laid out
+// wider: its rows are as high in any history wider than it, so the heights
+// of rows are kept under the history's width up to it (layoutWidth).
+func rowsWidth(m unit.Metric) int {
+	return m.Dp(rowInsetLeft) + m.Dp(rowInsetRight) + max(m.Dp(bubbleMaxWidth), m.Dp(serviceMaxWidth))
+}
+
+// layoutWidth is the width the heights of rows in a history width px wide
+// are kept under: rows are as high in any history wider than rowsWidth.
+func layoutWidth(m unit.Metric, width int) int {
+	return min(width, rowsWidth(m))
 }
 
 // bubblePadTop is the space over what a bubble holds, bubblePadSide
@@ -328,8 +355,12 @@ func (p *chatPage) bubble(gtx layout.Context, r *messageRow, m model.Message, jo
 			}
 			// The comments bar spans the bubble under what it holds.
 			dims := content(gtx)
-			width := max(dims.Size.X, min(gtx.Constraints.Max.X, commentsNatural(gtx, m, l)))
+			natural := commentsNatural(gtx, m, l)
+			width := max(dims.Size.X, min(gtx.Constraints.Max.X, natural))
 			bar := gtx.Dp(commentsBarHeight)
+			if r.capture.on {
+				r.capture.bar, r.capture.barNatural = bar, natural
+			}
 			size := image.Pt(width, dims.Size.Y+bar)
 			defer shape.rrect(size).Push(gtx.Ops).Pop()
 			offset(gtx, image.Pt(0, dims.Size.Y), func(gtx layout.Context) layout.Dimensions {
@@ -467,6 +498,8 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 				// album lets it be, as the message's own (captionWidth).
 				child := albumRow(gtx, r, member, l)
 				parts = append(parts, bubblePart{kind: partText, row: child, widget: func(gtx layout.Context) layout.Dimensions {
+					// The caption's profile is the row's.
+					child.capture = rowCapture{on: r.capture.on}
 					p.refreshStamps(gtx, child, member, l)
 					return p.richText(gtx, child, l, animate)
 				}}, bubbleGap(4))
@@ -584,6 +617,16 @@ func (p *chatPage) captionWidth(gtx layout.Context, r *messageRow, l localizatio
 		r.text.fragments = r.text.fragments[:keep]
 		return h
 	}
+	width := captionFitWidth(gtx.Metric, most, least, func() int { return line }, height)
+	*c = captionFit{revision: r.revision, most: most, least: least, metric: gtx.Metric, width: width, height: height(width)}
+	return width
+}
+
+// captionFitWidth is the width a caption wraps at under media least wide,
+// in a bubble most wide (captionWidth): height tells how high the text is
+// at a width, and line how high its highest line laid out so far is. The
+// history's row profiles (row_predict.go) find it at another width with it.
+func captionFitWidth(m unit.Metric, most, least int, line func() int, height func(int) int) int {
 	// narrowest is the narrowest width from floor on, to a few pixels,
 	// where the text is no higher than limit.
 	narrowest := func(floor, limit int) int {
@@ -591,7 +634,7 @@ func (p *chatPage) captionWidth(gtx layout.Context, r *messageRow, l localizatio
 		if height(lo) <= limit {
 			return lo
 		}
-		for hi-lo > gtx.Dp(4) {
+		for hi-lo > m.Dp(4) {
 			mid := (lo + hi) / 2
 			if height(mid) <= limit {
 				hi = mid
@@ -603,10 +646,9 @@ func (p *chatPage) captionWidth(gtx layout.Context, r *messageRow, l localizatio
 	}
 	full := height(most)
 	width := narrowest(least, full)
-	if more := narrowest(max(least, gtx.Dp(minCaptionWidth)), full+line); more <= width-max(gtx.Dp(64), width/4) {
+	if more := narrowest(max(least, m.Dp(minCaptionWidth)), full+line()); more <= width-max(m.Dp(64), width/4) {
 		width = more
 	}
-	*c = captionFit{revision: r.revision, most: most, least: least, metric: gtx.Metric, width: width, height: height(width)}
 	return width
 }
 
@@ -798,6 +840,17 @@ func (p *chatPage) bubbleBody(gtx layout.Context, r *messageRow, m model.Message
 		stack.Pop()
 		y += lp.size.Y
 		width = max(width, lp.size.X+2*lp.x)
+	}
+	if r.capture.on {
+		c := &r.capture
+		c.bubble, c.footer, c.onText, c.plate, c.textLast = true, footer.Size, onText, r.time.size, r.textLast
+		if reactions >= 0 {
+			c.chips, c.chipRow = append(c.chips[:0], fit.widths...), fit.row
+		}
+		c.parts = c.parts[:0]
+		for i, part := range parts {
+			c.parts = append(c.parts, p.partProfile(r, part, laid[i].size, most))
+		}
 	}
 	if onMedia {
 		// The media end the bubble, mediaInset from its bottom as from its
@@ -1349,8 +1402,20 @@ func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message
 	lines := 1
 	if len(runs) > 0 {
 		var w int
-		if lines, w = p.replyLines(gtx, name, runs, inset, least, within); lines > 1 {
+		var named, line, lineHeight int
+		if lines, w, named, line, lineHeight = p.replyLines(gtx, name, runs, inset, least, within); lines > 1 {
 			gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, w)
+		}
+		if r.capture.on {
+			// As wide as they are, which a narrower bubble cuts.
+			_ = named
+			natural := gtx
+			natural.Constraints = layout.Constraints{Max: image.Pt(1<<20, gtx.Constraints.Max.Y)}
+			macro := op.Record(gtx.Ops)
+			named = label(natural, name, token.TypestyleLabelLargeEmphasized, color, 1).Size.X
+			line = p.quoteLines(natural, runs, scheme(gtx).Surface.OnColor, 1).Size.X
+			macro.Stop()
+			r.capture.reply = replyProfile{named: named, line: line, lineHeight: lineHeight, lines: lines, pad: gtx.Dp(inset.Left + inset.Right), least: least}
 		}
 	}
 	macro := op.Record(gtx.Ops)
@@ -1372,6 +1437,9 @@ func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message
 	})
 	call := macro.Stop()
 	size := image.Pt(max(dims.Size.X, least), dims.Size.Y)
+	if r.capture.on {
+		r.capture.reply.size = size
+	}
 	radius := gtx.Dp(6)
 	style := surfaceStyle{radius: radius, background: color.SetOpacity(.12), content: color}
 	return r.reply.Layout(gtx, size, style, func(gtx layout.Context) layout.Dimensions {
@@ -1386,23 +1454,36 @@ func (p *chatPage) replyQuote(gtx layout.Context, r *messageRow, m model.Message
 // quote is then: two when one, as wide as it is, would make the bubble
 // wider than within by a good deal, and the two, about half as wide, save
 // it. The name stays on its line whole.
-func (p *chatPage) replyLines(gtx layout.Context, name string, runs []model.TextRun, inset layout.Inset, least, within int) (lines, width int) {
+//
+// named and line are how wide the name and one line of the text are,
+// lineHeight how high the line is.
+func (p *chatPage) replyLines(gtx layout.Context, name string, runs []model.TextRun, inset layout.Inset, least, within int) (lines, width, named, line, lineHeight int) {
 	pad := gtx.Dp(inset.Left + inset.Right)
 	macro := op.Record(gtx.Ops)
 	measure := gtx
 	measure.Constraints = layout.Constraints{Max: image.Pt(max(0, gtx.Constraints.Max.X-pad), gtx.Constraints.Max.Y)}
-	named := label(measure, name, token.TypestyleLabelLargeEmphasized, scheme(gtx).Primary.Color, 1).Size.X
-	line := p.quoteLines(measure, runs, scheme(gtx).Surface.OnColor, 1).Size.X
+	named = label(measure, name, token.TypestyleLabelLargeEmphasized, scheme(gtx).Primary.Color, 1).Size.X
+	one := p.quoteLines(measure, runs, scheme(gtx).Surface.OnColor, 1).Size
 	macro.Stop()
+	line, lineHeight = one.X, one.Y
+	lines, width = replyLineCount(gtx.Metric, named, line, pad, least, within)
+	return lines, width, named, line, lineHeight
+}
+
+// replyLineCount is replyLines' choice for a quote whose name is named wide
+// and text, on one line, line wide, pad its padding, least the narrowest
+// it is: one line, or two where they save a good deal of the width within
+// which one would go past.
+func replyLineCount(m unit.Metric, named, line, pad, least, within int) (lines, width int) {
 	one := max(named, line) + pad
 	if one <= within {
 		return 1, one
 	}
 	// Half the line, and room for a word that does not fit at the end of
 	// the first.
-	two := max(within, named+pad, least, line/2+gtx.Dp(24)+pad)
+	two := max(within, named+pad, least, line/2+m.Dp(24)+pad)
 	// A line of small text is a fair price for an eighth of the width.
-	if two > one-max(gtx.Dp(48), one/8) {
+	if two > one-max(m.Dp(48), one/8) {
 		return 1, one
 	}
 	return 2, two
@@ -1489,6 +1570,10 @@ func (p *chatPage) quoteLines(gtx layout.Context, runs []model.TextRun, color to
 // the loaded one, or else one the store looks up, which may be on its way
 // or gone. known is false when the store cannot look it up.
 func (p *chatPage) referenced(chat int64, id model.MessageID) (m model.Message, state model.LookupState, known bool) {
+	if p.measuring {
+		// Laid out off screen: nothing is looked up on Telegram for it.
+		return p.measuredReference(id)
+	}
 	if m, ok := p.messageByID(id); ok {
 		return m, model.LookupFound, true
 	}

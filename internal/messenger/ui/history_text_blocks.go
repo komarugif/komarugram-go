@@ -24,6 +24,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"golang.org/x/image/math/fixed"
 )
 
 // messageTextBlock is a flow of inline runs, optionally wrapped in a code or
@@ -44,6 +45,15 @@ type messageTextBlock struct {
 	// scratch is what textFlow works out of the block in every frame, kept
 	// to be filled again rather than made anew.
 	scratch flowScratch
+	// The block's part of the row's profile (row_profile.go), as the layout
+	// that took it left it: the pieces of its flow's spans, how wide the
+	// flow was and how far in, how much higher than its lines the block is,
+	// how high a line is and whether they differ, and how many lines it
+	// shows folded.
+	spans        []spanProfile
+	flowMax      int
+	left, chrome int
+	foldLines    int
 }
 
 // flowScratch holds textFlow's lists of a block between frames.
@@ -55,6 +65,12 @@ type flowScratch struct {
 	frames    []image.Image
 	formulas  []*ratex.List
 	formulaEm []float32
+	// advances are how far the flow's runes move the pen and extents how
+	// far they reach up and down, ends how far what each span is shaped
+	// with beside them does, for the row's profile.
+	advances []fixed.Int26_6
+	extents  []styledtext.Extent
+	ends     []styledtext.SpanEnds
 }
 
 // zeroed returns s with n zero elements, in its own array when it holds them.
@@ -143,6 +159,10 @@ func (p *chatPage) richText(gtx layout.Context, r *messageRow, l localization.Ca
 		p.textBlockAction(gtx, r, &r.textBlocks[i], l)
 	}
 	p.textEvents(gtx, r, animate)
+	// The text's profile is taken from the layout the row is drawn with,
+	// not from a caption's measures at other widths (captionWidth).
+	capture := r.capture.on
+	r.capture.textMax = gtx.Constraints.Max.X
 	r.text.fragments = r.text.fragments[:0]
 	r.text.plates = r.text.plates[:0]
 	r.text.fitPlates = true
@@ -159,10 +179,14 @@ func (p *chatPage) richText(gtx layout.Context, r *messageRow, l localization.Ca
 		}
 		origin := image.Pt(0, size.Y)
 		stack := op.Offset(origin).Push(gtx.Ops)
+		b.left, b.chrome, b.foldLines = 0, 0, 0
 		dims := p.textBlock(gtx, r, b, origin, l, animate)
 		stack.Pop()
 		size.X = max(size.X, dims.Size.X)
 		size.Y += dims.Size.Y
+	}
+	if capture {
+		r.capture.text = r.textProfile(gtx)
 	}
 	call := macro.Stop()
 	r.text.fitPlates = false
@@ -203,6 +227,7 @@ func (p *chatPage) textBlock(gtx layout.Context, r *messageRow, b *messageTextBl
 	inner := gtx
 	inner.Constraints.Max.X = max(1, gtx.Constraints.Max.X-2*pad)
 	pos := image.Pt(pad, gtx.Dp(6))
+	b.left = pad
 	macro := op.Record(gtx.Ops)
 	if run.Pre {
 		stack := op.Offset(pos).Push(gtx.Ops)
@@ -223,6 +248,7 @@ func (p *chatPage) textBlock(gtx layout.Context, r *messageRow, b *messageTextBl
 	stack := op.Offset(pos).Push(gtx.Ops)
 	dims := p.textFlow(inner, r, b, origin.Add(pos), animate)
 	stack.Pop()
+	b.chrome = pos.Y + gtx.Dp(6)
 	pos.Y += dims.Size.Y
 	size := image.Pt(gtx.Constraints.Max.X, pos.Y+gtx.Dp(6))
 	call := macro.Stop()
@@ -261,6 +287,7 @@ func (p *chatPage) quoteBlock(gtx layout.Context, r *messageRow, b *messageTextB
 	inner := gtx
 	inner.Constraints.Max.X = max(1, gtx.Constraints.Max.X-2*pad-cell)
 	pos := image.Pt(pad, top)
+	b.left, b.chrome = pad, 2*top
 	first := len(r.text.fragments)
 	draw := func(limit int) (op.CallOp, layout.Dimensions) {
 		b.maxLines = limit
@@ -275,6 +302,7 @@ func (p *chatPage) quoteBlock(gtx layout.Context, r *messageRow, b *messageTextB
 	if run.Collapsed && !b.expanded {
 		limit = 3
 	}
+	b.foldLines = limit
 	call, dims := draw(limit)
 	target := dims.Size.Y + 2*top
 	size := image.Pt(gtx.Constraints.Max.X, b.height.Value(gtx, target, animate))

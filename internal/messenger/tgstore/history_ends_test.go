@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/gotd/td/bin"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
 
 	"komarugram/internal/messenger/model"
 )
@@ -40,8 +42,11 @@ func serveHistory(first, last int) func(context.Context, bin.Encoder, bin.Decode
 				}
 			}
 		}
-		from := max(at+req.AddOffset, 0)
+		// Telegram cuts the window at the newest message; it does not
+		// move it: a page around a message near the end has fewer.
+		from := at + req.AddOffset
 		to := min(from+req.Limit, len(newest))
+		from = max(from, 0)
 		var msgs []tg.MessageClass
 		if from < to {
 			for _, id := range newest[from:to] {
@@ -125,8 +130,11 @@ func repliesOf(topic, first, last int) func(*tg.MessagesGetRepliesRequest) []tg.
 				}
 			}
 		}
-		from := max(at+req.AddOffset, 0)
+		// Telegram cuts the window at the newest message; it does not
+		// move it: a page around a message near the end has fewer.
+		from := at + req.AddOffset
 		to := min(from+req.Limit, len(newest))
+		from = max(from, 0)
 		var msgs []tg.MessageClass
 		if from < to {
 			for _, id := range newest[from:to] {
@@ -391,5 +399,81 @@ func TestGoneTopEndsTheHistory(t *testing.T) {
 	s.endTop(chat, nil, 1, 500, 80, 504)
 	if s.history.top[chat] != 505 {
 		t.Fatalf("a message newer than the page asked for was dropped: the newest %d", s.history.top[chat])
+	}
+}
+
+// A history opened at a message near its end, where it was left or at the
+// first of a few unread messages, has older messages to scroll to. The page
+// around that message has fewer than asked for because the messages after
+// it ran out, not the ones before it: taken for the chat's start, the
+// history showed the last few dozen messages and never loaded older ones.
+// A page around a message near the start does reach it.
+func TestPageAroundNearTheEndHasOlder(t *testing.T) {
+	s := testStore(t)
+	chat := peerID(&tg.PeerUser{UserID: 5})
+	s.history.peers[chat] = peerRecord{ID: 5, Hash: 1, Kind: "user"}
+	s.history.top[chat] = 500
+	s.history.api = tg.NewClient(telegram.InvokeFunc(serveHistory(101, 500)))
+	s.reveal(chat, 480, false)
+	s.OpenChat(chat)
+	h := waitHistory(t, s, chat)
+	if first := h.Messages[0].Key.MessageID; first <= 101 || !h.HasOlder {
+		t.Fatalf("opened at 480: the history from %d, HasOlder %v", first, h.HasOlder)
+	}
+	first := h.Messages[0].Key.MessageID
+	s.LoadOlder(chat)
+	if h = waitHistory(t, s, chat); h.Messages[0].Key.MessageID >= first {
+		t.Fatalf("nothing older came: the history from %d", h.Messages[0].Key.MessageID)
+	}
+
+	s.reveal(chat, 120, false)
+	s.OpenChat(chat)
+	if h = waitHistory(t, s, chat); h.HasOlder || h.Messages[0].Key.MessageID != 101 {
+		t.Fatalf("opened at 120: the history from %d, HasOlder %v", h.Messages[0].Key.MessageID, h.HasOlder)
+	}
+}
+
+// A jump to the chat's start that Telegram refuses (FLOOD_WAIT, after a
+// fast scroll) leaves the history as it was, with the error to retry: the
+// history replaced was dropped at once, and the chat stayed empty, asking
+// for nothing, until the client started again.
+func TestRefusedJumpKeepsTheHistory(t *testing.T) {
+	s := testStore(t)
+	chat := peerID(&tg.PeerUser{UserID: 5})
+	s.history.peers[chat] = peerRecord{ID: 5, Hash: 1, Kind: "user"}
+	s.history.top[chat] = 500
+	history := serveHistory(101, 500)
+	var refuse atomic.Bool
+	s.history.api = tg.NewClient(telegram.InvokeFunc(func(ctx context.Context, in bin.Encoder, out bin.Decoder) error {
+		if refuse.Load() {
+			return tgerr.New(420, "FLOOD_WAIT_8")
+		}
+		return history(ctx, in, out)
+	}))
+	s.OpenChat(chat)
+	before := waitHistory(t, s, chat)
+	s.SaveView(model.Viewport{ChatID: chat, AnchorMessageID: 450}, nil)
+
+	refuse.Store(true)
+	s.RevealFirst(chat)
+	s.OpenChat(chat) // the view asks for it on its next frame
+	deadline := time.Now().Add(3 * time.Second)
+	h := s.History(chat)
+	for (h.LoadingOlder || h.LoadingNewer) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+		h = s.History(chat)
+	}
+	if _, flood := tgerr.AsFloodWait(h.Err); !flood || len(h.Messages) != len(before.Messages) {
+		t.Fatalf("after the refused jump: %d messages (were %d), err %v", len(h.Messages), len(before.Messages), h.Err)
+	}
+	if v, _ := s.Viewport(chat); v.AnchorMessageID != 450 {
+		t.Fatalf("the history is viewed at %+v, want where it was, 450", v)
+	}
+
+	// Retried once Telegram answers, it loads where it was.
+	refuse.Store(false)
+	s.Reload(chat)
+	if h = waitHistory(t, s, chat); h.Err != nil {
+		t.Fatalf("the retry: %v", h.Err)
 	}
 }

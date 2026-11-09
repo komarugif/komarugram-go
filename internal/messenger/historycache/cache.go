@@ -34,6 +34,13 @@ type Cache struct {
 	mediaBudget, mediaBytes int64
 	unregister              func()
 	unregisterPlain         func()
+	// envIDs are the ids of environments in row_envs; heightsChecked, when
+	// the heights of each chat, and heightsCheckedAll of all chats, were
+	// last held to heightLimits (heights.go). mu guards them.
+	envIDs            map[model.RenderEnvironment]int64
+	heightLimits      heightLimits
+	heightsChecked    map[int64]time.Time
+	heightsCheckedAll time.Time
 	// filesMu guards the media files, opened at their first use, and the
 	// directory they are in; it is taken before mu.
 	filesMu    sync.Mutex
@@ -48,7 +55,7 @@ type Cache struct {
 }
 
 func Open(path, account string, protection *security.Manager) (*Cache, error) {
-	c := &Cache{path: path, account: account, protection: protection, mediaBudget: mediaBudget, stop: make(chan struct{})}
+	c := &Cache{path: path, account: account, protection: protection, mediaBudget: mediaBudget, stop: make(chan struct{}), envIDs: map[model.RenderEnvironment]int64{}, heightLimits: defaultHeightLimits, heightsChecked: map[int64]time.Time{}}
 	if err := c.open(); err != nil {
 		return nil, err
 	}
@@ -101,13 +108,14 @@ func (c *Cache) open() error {
  CREATE TABLE IF NOT EXISTS outbox(id INTEGER UNIQUE NOT NULL,payload BLOB NOT NULL);
  CREATE TABLE IF NOT EXISTS outbox_files(id INTEGER NOT NULL,file INTEGER NOT NULL,part INTEGER NOT NULL,data BLOB NOT NULL,PRIMARY KEY(id,file,part));
  CREATE TABLE IF NOT EXISTS local_media(key TEXT PRIMARY KEY,data BLOB NOT NULL);
- CREATE TABLE IF NOT EXISTS layouts(chat INTEGER,id INTEGER,env TEXT,revision INTEGER,height INTEGER,PRIMARY KEY(chat,id,env));
+ ` + heightsSchema + `
  CREATE TABLE IF NOT EXISTS media(key TEXT PRIMARY KEY,data BLOB,used INTEGER);
  CREATE TABLE IF NOT EXISTS media_files(name TEXT PRIMARY KEY,id TEXT,size INTEGER,chunks BLOB,used INTEGER);
  CREATE TABLE IF NOT EXISTS downloads(id INTEGER PRIMARY KEY,chat INTEGER,message INTEGER,media TEXT,name TEXT,path TEXT,size INTEGER,modified INTEGER,added INTEGER,tags BLOB,topic INTEGER NOT NULL DEFAULT 0,kind INTEGER NOT NULL DEFAULT 0,thumb BLOB);
  CREATE INDEX IF NOT EXISTS downloads_media ON downloads(media);
  CREATE TABLE IF NOT EXISTS edits(chat INTEGER,id INTEGER,at INTEGER,payload BLOB,PRIMARY KEY(chat,id,at));
  CREATE TABLE IF NOT EXISTS spans(chat INTEGER,low INTEGER,high INTEGER,PRIMARY KEY(chat,low));
+ CREATE TABLE IF NOT EXISTS verified(chat INTEGER,low INTEGER,high INTEGER,chain INTEGER,PRIMARY KEY(chat,low));
  DROP INDEX IF EXISTS photos;
  DELETE FROM kv WHERE key >= 'language/' AND key < 'language0';
  CREATE INDEX IF NOT EXISTS photo_videos ON messages(chat,id) WHERE ` + photoWhere + `;
@@ -519,38 +527,14 @@ func (c *Cache) SaveView(ctx context.Context, v model.Viewport, ls []model.Messa
 		return e
 	}
 	defer tx.Rollback()
-	for _, l := range ls {
-		env, _ := json.Marshal(l.Environment)
-		_, e = tx.ExecContext(ctx, `INSERT INTO layouts VALUES(?,?,?,?,?) ON CONFLICT(chat,id,env) DO UPDATE SET revision=excluded.revision,height=excluded.height`, l.Key.ChatID, l.Key.MessageID, string(env), l.ContentRevision, l.HeightPx)
-		if e != nil {
-			return e
-		}
+	if e = c.saveHeights(ctx, tx, v, ls); e == nil {
+		e = tx.Commit()
 	}
-	// Keep only a few environment generations; measurements are disposable.
-	_, e = tx.ExecContext(ctx, `DELETE FROM layouts WHERE rowid IN (SELECT rowid FROM layouts ORDER BY rowid DESC LIMIT -1 OFFSET 50000)`)
 	if e != nil {
-		return e
+		// The ids of environments made in it are gone with it.
+		clear(c.envIDs)
 	}
-	return tx.Commit()
-}
-func (c *Cache) Layouts(ctx context.Context, chat int64, env model.RenderEnvironment) ([]model.MessageLayout, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	b, _ := json.Marshal(env)
-	rows, e := c.db.QueryContext(ctx, `SELECT id,revision,height FROM layouts WHERE chat=? AND env=?`, chat, string(b))
-	if e != nil {
-		return nil, e
-	}
-	defer rows.Close()
-	var out []model.MessageLayout
-	for rows.Next() {
-		l := model.MessageLayout{Key: model.MessageKey{AccountID: c.account, ChatID: chat}, Environment: env}
-		if e = rows.Scan(&l.Key.MessageID, &l.ContentRevision, &l.HeightPx); e != nil {
-			return nil, e
-		}
-		out = append(out, l)
-	}
-	return out, rows.Err()
+	return e
 }
 
 // mediaTouch is how long a small media goes between the times a read marks
@@ -758,4 +742,32 @@ func (c *Cache) Reconcile(ctx context.Context, chat int64, low, high int, keep [
 		ids = append(ids, id)
 	}
 	return ids, nil, rows.Err()
+}
+
+// KeysWithPrefix are the keys of the values Put keeps that start with
+// prefix, which must not be empty: a set of them is read at once, rather
+// than each value asked for.
+func (c *Cache) KeysWithPrefix(ctx context.Context, prefix string) ([]string, error) {
+	if prefix == "" {
+		return nil, errors.New("historycache: empty prefix")
+	}
+	// The keys that start with prefix sort from it to the prefix whose
+	// last byte is one more.
+	end := prefix[:len(prefix)-1] + string(rune(prefix[len(prefix)-1]+1))
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	rows, err := c.db.QueryContext(ctx, `SELECT key FROM kv WHERE key>=? AND key<?`, prefix, end)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err = rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
 }

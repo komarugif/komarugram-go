@@ -22,6 +22,7 @@ import (
 	"github.com/gotd/td/tg"
 
 	"komarugram/internal/crash"
+	"komarugram/internal/messenger/historylog"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -36,14 +37,18 @@ const pagePause = 300 * time.Millisecond
 
 // Store holds what Load last read. It is safe to use from any goroutine.
 type Store struct {
-	outbox          outgoingQueue
-	localPremium    atomic.Pointer[model.LocalPremium]
-	emojiPaid       sync.Map
+	outbox       outgoingQueue
+	localPremium atomic.Pointer[model.LocalPremium]
+	emojiPaid    sync.Map
 	// sendFailure is the last message that failed, until it is told.
-	sendFailure atomic.Pointer[model.SendFailure]
+	sendFailure     atomic.Pointer[model.SendFailure]
 	localMessagesMu sync.Mutex
-	collections     localCollections
-	picker          pickerCache
+	// localEmojiIDs are, by chat, the messages the cache keeps local emoji
+	// of (hasLocalEmoji); localEmojiMu guards them.
+	localEmojiMu  sync.Mutex
+	localEmojiIDs map[int64]map[int]bool
+	collections   localCollections
+	picker        pickerCache
 	// watch hands the messages of chats watched to their watchers.
 	watch   chatWatch
 	themes  themeCatalogue
@@ -193,11 +198,16 @@ func (s *Store) reloadDialogs() {
 
 // loadDialogs reads the folders and every dialog of the main list, and
 // then the histories open: see resync. One runs at a time.
-func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) error {
+func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) (err error) {
 	if !s.dialogsLoading.CompareAndSwap(false, true) {
+		historylog.Printf("dialogs: a load runs already, this one is skipped")
 		return nil
 	}
 	defer s.dialogsLoading.Store(false)
+	historylog.Printf("dialogs: load")
+	defer func() {
+		historylog.Printf("dialogs: loaded, err=%v (only a load without one reads the histories again)", err)
+	}()
 	filters, err := api.MessagesGetDialogFilters(ctx)
 	if err != nil {
 		return fmt.Errorf("tgstore: folders: %w", err)
@@ -302,7 +312,11 @@ func (s *Store) keepChannelPts(ctx context.Context, self int64, pts map[int64]in
 	if cache == nil || len(pts) == 0 {
 		return nil
 	}
-	return cache.RaiseChannelPts(ctx, self, pts)
+	skipped, err := cache.RaiseChannelPts(ctx, self, pts)
+	// What came before the pts raised never comes: their caches cannot be
+	// vouched for from here on (history_verified.go).
+	s.endChannelChains(skipped)
+	return err
 }
 
 // keepReads keeps in chats, the dialogs read so far, the reads this client

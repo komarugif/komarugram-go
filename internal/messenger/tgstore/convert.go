@@ -76,6 +76,8 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 		// reactions or buttons changed, and asks not to show it as edited.
 		if m.EditDate != 0 && !m.EditHide {
 			out.EditedAt = time.Unix(int64(m.EditDate), 0)
+		} else if m.EditDate != 0 {
+			out.HiddenEditAt = time.Unix(int64(m.EditDate), 0)
 		}
 		if m.FromID != nil {
 			out.SenderID = peerID(m.FromID)

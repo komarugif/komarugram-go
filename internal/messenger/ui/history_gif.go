@@ -58,6 +58,11 @@ func (c *gifControls) update(gtx layout.Context, p *chatPage, m model.Message) (
 		switch e.Kind {
 		case pointer.Press:
 			c.middle = e.Buttons.Contain(pointer.ButtonTertiary)
+			if c.middle {
+				// The middle button opens the GIF, as it opens a link in
+				// Chromium, rather than scroll the history.
+				p.list.CancelAutoscroll()
+			}
 		case pointer.Release:
 			open = open || c.middle
 			c.middle = false
