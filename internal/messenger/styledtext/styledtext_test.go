@@ -3,8 +3,10 @@ package styledtext
 import (
 	"image"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"gioui.org/font"
 	"gioui.org/font/gofont"
@@ -12,6 +14,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/text"
 	"gioui.org/unit"
+	"golang.org/x/image/math/fixed"
 )
 
 func layoutFragments(t *testing.T, shaper *text.Shaper, buffer *[]Cluster, width int, spans ...SpanStyle) ([]Fragment, image.Point) {
@@ -219,6 +222,61 @@ func TestFragmentsShareTheirLine(t *testing.T) {
 		}
 		if last := frags[len(frags)-1]; last.Line.Min.Y < first.Max.Y {
 			t.Fatalf("box %v: the text did not wrap: %v", box.Size, last.Line)
+		}
+	}
+}
+
+// Advances are how far each rune moves the pen, whatever the width the text
+// wraps at: laid out on many lines or on one, a text gives the same, and on
+// one line they add up to its width.
+func TestAdvancesDoNotDependOnTheWidth(t *testing.T) {
+	shaper := text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
+	long := strings.Repeat("word wrap текст ", 20)
+	spans := []SpanStyle{
+		{Size: 14, Content: long},
+		{Size: 14, Font: font.Font{Weight: font.Bold}, Content: "bold " + long},
+		{Size: 14, Content: "box"},
+		{Size: 14, Content: "line\nbreak " + long},
+	}
+	spans[2].Box = &Box{Size: image.Pt(17, 14), Ascent: 11}
+	advances := func(width int) []fixed.Int26_6 {
+		var a []fixed.Int26_6
+		gtx := layout.Context{Ops: new(op.Ops), Constraints: layout.Constraints{Max: image.Pt(width, 1<<20)}, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}
+		style := Text(shaper, spans...)
+		style.Advances = &a
+		style.Layout(gtx, nil)
+		return a
+	}
+	wide := advances(1 << 20)
+	for _, width := range []int{90, 240, 700} {
+		if got := advances(width); !slices.Equal(got, wide) {
+			t.Fatalf("at %d px the advances differ from one line's", width)
+		}
+	}
+	runes := 0
+	for _, s := range spans {
+		runes += utf8.RuneCountInString(s.Content)
+	}
+	if len(wide) != runes {
+		t.Fatalf("%d advances for %d runes", len(wide), runes)
+	}
+	// The box's runes: its width on the first, nothing on the others.
+	at := utf8.RuneCountInString(spans[0].Content) + utf8.RuneCountInString(spans[1].Content)
+	if wide[at] != fixed.I(17) || wide[at+1] != 0 || wide[at+2] != 0 {
+		t.Fatalf("the box's advances are %v", wide[at:at+3])
+	}
+	// The first span alone on one line: as wide as its advances.
+	var sum fixed.Int26_6
+	for _, a := range wide[:utf8.RuneCountInString(spans[0].Content)] {
+		sum += a
+	}
+	_, size := layoutFragments(t, shaper, nil, 1<<20, spans[0])
+	if d := sum.Ceil() - size.X; d < -1 || d > 1 {
+		t.Fatalf("the advances add up to %v, the line is %d px", sum, size.X)
+	}
+	for i, a := range wide {
+		if a == 0 && i < utf8.RuneCountInString(spans[0].Content) {
+			t.Fatalf("rune %d of the first span has no advance", i)
 		}
 	}
 }

@@ -639,3 +639,11 @@ Run the focused check from the project root:
   (bold, italic, links) the way Telegram Desktop's field shows it: parts of
   the text drawn over, slanted or in another color, by the regions the
   editor reports. Upstream's editor paints all of its text in one material.
+- `text/shaper.go` (`Glyph.RunAscent`, `Glyph.RunDescent`), `text/gotext.go`
+  (`runLayout.ascent`, `descent`): a glyph also tells the ascent and descent
+  of its own run, its font's, beside its line's (`Ascent`, `Descent`, the
+  highest runs'). A line is as high as its highest run: the messenger's
+  history keeps, from a message laid out at one width, how high its lines
+  would be at another (`internal/messenger/ui/row_profile.go`), and a Latin
+  letter on a line with an emoji told the emoji's height in `Ascent`.
+  Upstream has the line's alone.

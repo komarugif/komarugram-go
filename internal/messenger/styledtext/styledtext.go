@@ -4,6 +4,8 @@ package styledtext
 import (
 	"image"
 	"image/color"
+	"slices"
+	"unicode"
 	"unicode/utf8"
 
 	"gioui.org/font"
@@ -38,6 +40,24 @@ type SpanStyle struct {
 	// instead of being copied and recounted for every line.
 	shaped string
 	runes  int
+}
+
+// Extent is how far glyphs reach over and under their baseline, in whole
+// pixels as the bounds of a line take them.
+type Extent struct {
+	Up, Down int
+}
+
+// Union is how far e and o reach together.
+func (e Extent) Union(o Extent) Extent {
+	return Extent{Up: max(e.Up, o.Up), Down: max(e.Down, o.Down)}
+}
+
+// SpanEnds are how far the glyphs a span is shaped with beside its own
+// reach: the truncator that ends a line the span goes on after, alone on
+// one between paragraphs, and the word joiner it ends with.
+type SpanEnds struct {
+	Truncator, Joiner Extent
 }
 
 // Box is the size of an object in a line of text, and where its baseline
@@ -108,6 +128,8 @@ type Fragment struct {
 	Bounds   image.Rectangle
 	Line     image.Rectangle
 	Clusters []Cluster
+	// Ascent is how far under the top of Bounds the span's baseline is.
+	Ascent int
 }
 
 // TextStyle presents rich text.
@@ -122,7 +144,19 @@ type TextStyle struct {
 	// Clusters, when not nil, is reused as the storage of Fragment.Clusters.
 	// A text laid out every frame then allocates nothing per glyph; fragments
 	// from an earlier Layout with the same buffer are overwritten.
-	Clusters   *[]Cluster
+	Clusters *[]Cluster
+	// Advances, when not nil, gets how far each rune of the text moves
+	// the pen as it is shaped: a cluster's advance on its first rune, 0 on
+	// the others, a box's width on its first. They do not depend on the
+	// width the text wraps at, so a layout at one width tells how the text
+	// wraps at any other (see the history's row profiles).
+	Advances *[]fixed.Int26_6
+	// Extents, when not nil, gets how far over and under the baseline each
+	// rune's glyphs reach, as Advances its advance; Ends, how far a span's
+	// truncator, which ends a line the span goes on after, and its word
+	// joiner (SpanStyle) reach. A line is as high as what is on it reaches.
+	Extents    *[]Extent
+	Ends       *[]SpanEnds
 	Styles     []SpanStyle
 	Alignment  text.Alignment
 	WrapPolicy WrapPolicy
@@ -179,18 +213,43 @@ func (t TextStyle) iterateSpan(gtx layout.Context, maxWidth int, span SpanStyle,
 	first := len(*clusters)
 	line := glyphs[:0]
 	var cluster image.Rectangle
+	var advance fixed.Int26_6
+	var extent Extent
 	start := 0
 	for g, ok := t.Shaper.NextGlyph(); ok; g, ok = t.Shaper.NextGlyph() {
+		// A line is as high as its highest run: the glyph's own reaches.
+		reach := Extent{Up: g.RunAscent.Ceil(), Down: g.RunDescent.Ceil()}
+		if g.Flags&text.FlagTruncator != 0 && t.Ends != nil {
+			e := &(*t.Ends)[span.idx]
+			e.Truncator = e.Truncator.Union(reach)
+		}
 		if g.Flags&text.FlagTruncator == 0 {
+			extent = extent.Union(reach)
 			box := image.Rect(g.X.Floor(), 0, (g.X + g.Advance).Ceil(), (g.Ascent + g.Descent).Ceil())
 			cluster = cluster.Union(box)
+			advance += g.Advance
 			if g.Flags&text.FlagClusterBreak != 0 {
 				end := min(start+int(g.Runes), runeCount)
 				if end > start {
 					*clusters = append(*clusters, Cluster{Bounds: cluster, Start: span.start + start, End: span.start + end, RTL: g.Flags&text.FlagTowardOrigin != 0})
+					// A space a line breaks at is trimmed to nothing: what it
+					// moves the pen inside a line is kept, or filled in after
+					// (fillAdvances).
+					if t.Advances != nil && advance != 0 {
+						(*t.Advances)[span.start+start] = advance
+					}
+					if t.Extents != nil {
+						(*t.Extents)[span.start+start] = extent
+					}
+				} else if t.Ends != nil && start == runeCount {
+					// The word joiner after the span's runes.
+					e := &(*t.Ends)[span.idx]
+					e.Joiner = e.Joiner.Union(extent)
 				}
 				start = end
 				cluster = image.Rectangle{}
+				advance = 0
+				extent = Extent{}
 			}
 		}
 		line, ok = ti.paintGlyph(gtx, t.Shaper, g, line)
@@ -234,6 +293,12 @@ func (t TextStyle) layoutSpan(gtx layout.Context, maxWidth int, span SpanStyle, 
 	if b := span.Box; b != nil {
 		// One cluster of all of Content, as wide and high as the box.
 		*clusters = append(*clusters, Cluster{Bounds: image.Rectangle{Max: b.Size}, Start: span.start, End: span.start + span.runes})
+		if t.Advances != nil && span.runes > 0 {
+			(*t.Advances)[span.start] = fixed.I(b.Size.X)
+		}
+		if t.Extents != nil && span.runes > 0 {
+			(*t.Extents)[span.start] = Extent{Up: b.Ascent, Down: b.Size.Y - b.Ascent}
+		}
 		return spanResults{width: b.Size.X, height: b.Size.Y, ascent: b.Ascent, runes: span.runes, clusters: (*clusters)[len(*clusters)-1:]}
 	}
 	// One line needs only the start of the span: shaping all the rest of
@@ -304,6 +369,18 @@ func (t TextStyle) Layout(gtx layout.Context, spanFn func(gtx layout.Context, id
 	}
 	// A cluster covers at least one rune, so one text needs at most start
 	// clusters, apart from lines shaped again after a forced break.
+	if t.Advances != nil {
+		*t.Advances = slices.Grow((*t.Advances)[:0], start)[:start]
+		clear(*t.Advances)
+	}
+	if t.Extents != nil {
+		*t.Extents = slices.Grow((*t.Extents)[:0], start)[:start]
+		clear(*t.Extents)
+	}
+	if t.Ends != nil {
+		*t.Ends = slices.Grow((*t.Ends)[:0], len(spans))[:len(spans)]
+		clear(*t.Ends)
+	}
 	var clusters []Cluster
 	if t.Clusters != nil {
 		clusters = (*t.Clusters)[:0]
@@ -422,7 +499,7 @@ func (t TextStyle) Layout(gtx layout.Context, spanFn func(gtx layout.Context, id
 					local := shape
 					local.offset = image.Point{}
 					line := image.Rect(bounds.Min.X, overallSize.Y, bounds.Max.X, overallSize.Y+lineDims.Y)
-					t.Decorate(gtx, Fragment{Index: span.idx, Bounds: bounds, Line: line, Clusters: clusters}, func() { span.Layout(gtx, local) })
+					t.Decorate(gtx, Fragment{Index: span.idx, Bounds: bounds, Line: line, Clusters: clusters, Ascent: shape.ascent}, func() { span.Layout(gtx, local) })
 					stack.Pop()
 				}
 
@@ -482,5 +559,52 @@ func (t TextStyle) Layout(gtx layout.Context, spanFn func(gtx layout.Context, id
 		}
 	}
 
+	if t.Advances != nil {
+		t.fillAdvances(gtx)
+	}
 	return layout.Dimensions{Size: gtx.Constraints.Constrain(overallSize)}
+}
+
+// fillAdvances gives the spaces a line broke at wherever the text was laid
+// out, trimmed to nothing there, what they move the pen inside a line: as a
+// space of the same span did, or as the space shaped alone in its font.
+func (t TextStyle) fillAdvances(gtx layout.Context) {
+	adv := *t.Advances
+	start := 0
+	for _, span := range t.Styles {
+		first := start
+		start += utf8.RuneCountInString(span.Content)
+		if span.Box != nil {
+			continue
+		}
+		i := first
+		for _, r := range span.Content {
+			if adv[i] == 0 && unicode.IsSpace(r) && r != '\n' && r != '\r' {
+				adv[i] = t.spaceAdvance(gtx, span, adv[first:start], r)
+			}
+			i++
+		}
+	}
+}
+
+// spaceAdvance is how far space r moves the pen in span, whose runes have
+// advances adv.
+func (t TextStyle) spaceAdvance(gtx layout.Context, span SpanStyle, adv []fixed.Int26_6, r rune) fixed.Int26_6 {
+	i := 0
+	for _, other := range span.Content {
+		if other == r && adv[i] != 0 {
+			return adv[i]
+		}
+		i++
+	}
+	t.Shaper.LayoutString(text.Parameters{Font: span.Font, PxPerEm: fixed.I(gtx.Sp(span.Size)), MaxWidth: 1 << 24, Locale: gtx.Locale}, "x"+string(r)+"x")
+	var sum fixed.Int26_6
+	for g, ok := t.Shaper.NextGlyph(); ok; g, ok = t.Shaper.NextGlyph() {
+		sum += g.Advance
+	}
+	t.Shaper.LayoutString(text.Parameters{Font: span.Font, PxPerEm: fixed.I(gtx.Sp(span.Size)), MaxWidth: 1 << 24, Locale: gtx.Locale}, "xx")
+	for g, ok := t.Shaper.NextGlyph(); ok; g, ok = t.Shaper.NextGlyph() {
+		sum -= g.Advance
+	}
+	return max(sum, 0)
 }

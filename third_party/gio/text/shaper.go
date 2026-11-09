@@ -114,6 +114,11 @@ type Glyph struct {
 	// Ascent is the distance from the dot to the logical top of glyphs in
 	// this glyph's face. The specific glyph may be shorter than this.
 	Ascent fixed.Int26_6
+	// RunAscent and RunDescent are Ascent and Descent of the glyph's own run,
+	// its font's: a line's are its highest runs', so a glyph of one font on
+	// a line of another's tells the other's in Ascent. They let a caller
+	// know how high the line would be with other glyphs on it.
+	RunAscent, RunDescent fixed.Int26_6
 	// Descent is the distance from the dot to the logical bottom of glyphs
 	// in this glyph's face. The specific glyph may descend less than this.
 	Descent fixed.Int26_6
@@ -454,12 +459,14 @@ func (l *Shaper) NextGlyph() (_ Glyph, ok bool) {
 			// glyph to provide ascent/descent information to the caller.
 			l.done = true
 			return Glyph{
-				X:       align,
-				Y:       int32(line.yOffset),
-				Runes:   0,
-				Flags:   FlagLineBreak | FlagClusterBreak | FlagRunBreak,
-				Ascent:  line.ascent,
-				Descent: line.descent,
+				X:          align,
+				Y:          int32(line.yOffset),
+				Runes:      0,
+				Flags:      FlagLineBreak | FlagClusterBreak | FlagRunBreak,
+				Ascent:     line.ascent,
+				Descent:    line.descent,
+				RunAscent:  line.ascent,
+				RunDescent: line.descent,
 			}, true
 		}
 		if l.glyph == len(run.Glyphs) {
@@ -486,13 +493,15 @@ func (l *Shaper) NextGlyph() (_ Glyph, ok bool) {
 			runOffset = run.Advance - l.advance
 		}
 		glyph := Glyph{
-			ID:      g.id,
-			X:       align + run.X + runOffset,
-			Y:       int32(line.yOffset),
-			Ascent:  line.ascent,
-			Descent: line.descent,
-			Advance: g.advance,
-			Runes:   uint16(g.runeCount),
+			ID:         g.id,
+			X:          align + run.X + runOffset,
+			Y:          int32(line.yOffset),
+			Ascent:     line.ascent,
+			Descent:    line.descent,
+			RunAscent:  run.ascent,
+			RunDescent: run.descent,
+			Advance:    g.advance,
+			Runes:      uint16(g.runeCount),
 			Offset: fixed.Point26_6{
 				X: g.xOffset,
 				Y: g.yOffset,

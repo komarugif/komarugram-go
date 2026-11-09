@@ -198,6 +198,8 @@ type runLayout struct {
 	// truncator indicates that this run is a text truncator standing in for remaining
 	// text.
 	truncator bool
+	// ascent and descent are the run's, as a line's (Glyph.RunAscent).
+	ascent, descent fixed.Int26_6
 }
 
 // shaperImpl implements the shaping and line-wrapping of opentype fonts.
@@ -1087,6 +1089,8 @@ func toLine(faceToIndex map[*font.Font]int, o shaping.Line, dir system.TextDirec
 			Advance:        run.Advance,
 			PPEM:           run.Size,
 			VisualPosition: int(run.VisualIndex),
+			ascent:         run.LineBounds.Ascent,
+			descent:        -run.LineBounds.Descent + run.LineBounds.Gap,
 		}
 		line.visualOrder[run.VisualIndex] = i
 		line.runeCount += run.Runes.Count
