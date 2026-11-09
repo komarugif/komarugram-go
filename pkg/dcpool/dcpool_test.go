@@ -60,3 +60,47 @@ func TestHasMediaOnly(t *testing.T) {
 		t.Error("a CDN or missing DC is not a media-only address")
 	}
 }
+
+// cdnInvoker is a CDN connection that counts its closes.
+type cdnInvoker struct{ closes *int }
+
+func (cdnInvoker) Invoke(context.Context, bin.Encoder, bin.Decoder) error { return nil }
+func (c cdnInvoker) Close() error {
+	*c.closes++
+	return nil
+}
+
+// A CDN DC's connection is opened once and kept for every file it serves:
+// a new one for each file waited for a new auth key. The pool closes it.
+func TestCDNConnectionIsKept(t *testing.T) {
+	p := NewPool(nil, 1).(*pool)
+	opened, closes := 0, 0
+	p.openCDN = func(context.Context, int, int64) (telegram.CloseInvoker, error) {
+		opened++
+		return cdnInvoker{&closes}, nil
+	}
+	for range 3 {
+		_, closer, err := p.CDN(context.Background(), 201, 4)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := closer.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if opened != 1 || closes != 0 {
+		t.Fatalf("3 files: %d connections opened, %d closed", opened, closes)
+	}
+	if _, _, err := p.CDN(context.Background(), 203, 4); err != nil || opened != 2 {
+		t.Fatalf("another CDN DC: %d connections opened, err %v", opened, err)
+	}
+	if err := p.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if closes != 2 {
+		t.Fatalf("the pool closed, %d of 2 connections closed", closes)
+	}
+	if _, _, err := p.CDN(context.Background(), 201, 4); err == nil {
+		t.Fatal("a closed pool gave a CDN connection")
+	}
+}

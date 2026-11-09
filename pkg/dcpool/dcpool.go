@@ -36,6 +36,10 @@ type pool struct {
 	closes   map[int]func() error
 	takeout  int64
 	closed   bool
+	// cdns are the connections to CDN DCs, by DC, kept for every file they
+	// serve (CDN); openCDN opens one, the client's own but in tests.
+	cdns    map[int]telegram.CloseInvoker
+	openCDN func(ctx context.Context, dc int, max int64) (telegram.CloseInvoker, error)
 }
 
 func NewPool(c *telegram.Client, size int64, middlewares ...telegram.Middleware) Pool {
@@ -47,6 +51,8 @@ func NewPool(c *telegram.Client, size int64, middlewares ...telegram.Middleware)
 		invokers:    make(map[int]tg.Invoker),
 		closes:      make(map[int]func() error),
 		takeout:     0,
+		cdns:        make(map[int]telegram.CloseInvoker),
+		openCDN:     c.CDN,
 	}
 }
 
@@ -146,8 +152,11 @@ func (p *pool) Close() (err error) {
 		return nil
 	}
 	p.closed = true
-	id, closes := p.takeout, p.closes
+	id, closes, cdns := p.takeout, p.closes, p.cdns
 	p.mu.Unlock()
+	for _, cdn := range cdns {
+		err = multierr.Append(err, cdn.Close())
+	}
 	if id != 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		err = takeout.UnTakeout(ctx, chainMiddlewares(p.api, takeout.Middleware(id)))
