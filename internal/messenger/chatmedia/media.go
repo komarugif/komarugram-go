@@ -176,6 +176,9 @@ type Manager struct {
 	paused bool
 	// holding stops the media asked for where they are; UI thread only.
 	holding bool
+	// quiet makes the media asked for start nothing (SetQuiet); UI thread
+	// only.
+	quiet bool
 	// stopped are the GIFs the user paused, and seeks where those not
 	// loaded are to start, by media ID; UI thread only.
 	stopped map[string]bool
@@ -284,6 +287,20 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 		return nil, nil
 	}
 	key := msg.Media.ID
+	if m.quiet {
+		// What has loaded shows as it is; nothing starts, and nothing is
+		// counted as seen.
+		e := m.entries[key]
+		if e == nil {
+			return nil, nil
+		}
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		if e.frame == nil && e.still != nil {
+			return e.still, e.err
+		}
+		return e.frame, e.err
+	}
 	box := m.box(want)
 	animatedSticker := msg.Media.MIMEType == "application/x-tgsticker" || msg.Media.MIMEType == "application/x-custom-emoji" || msg.Kind == model.MessageSticker && msg.Media.MIMEType == "video/webm"
 	if animatedSticker {
@@ -469,6 +486,12 @@ func (m *Manager) GIFPosition(msg model.Message) time.Duration {
 // view laid under a dialog holds them so, and they play on from there once
 // asked to play again. It runs on the UI goroutine.
 func (m *Manager) SetHolding(holding bool) { m.holding = holding }
+
+// SetQuiet makes the media asked for until SetQuiet(false) start no load,
+// play nothing and stay off the count of LoadingSeen: what has loaded
+// shows as it is, and the rest as loading. Rows laid out off screen, only
+// to be measured, ask so. It runs on the UI goroutine.
+func (m *Manager) SetQuiet(quiet bool) { m.quiet = quiet }
 
 // clipFrame is the picture of e's loop at the time of the frame, nil while
 // it stands still, and schedules the next. The caller holds e.mu.
@@ -1761,13 +1784,15 @@ func (m *Manager) status(msg model.Message, animate bool, want image.Point, cove
 	}
 	e := m.entries[msg.Media.ID]
 	if e == nil {
-		m.loadingSeen++
+		if !m.quiet {
+			m.loadingSeen++
+		}
 		return Status{Loading: true}
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	st := Status{Frame: frame, Preview: e.preview, Err: e.err, Downloaded: e.downloaded, Total: e.total, Loading: e.frame == nil && e.err == nil && !e.cancelled && !e.waiting, Cancelled: e.cancelled}
-	if st.Loading {
+	if st.Loading && !m.quiet {
 		m.loadingSeen++
 	}
 	return st
