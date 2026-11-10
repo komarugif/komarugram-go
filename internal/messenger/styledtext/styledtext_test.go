@@ -2,6 +2,7 @@ package styledtext
 
 import (
 	"image"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"gioui.org/font"
 	"gioui.org/font/gofont"
+	"gioui.org/font/opentype"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/text"
@@ -277,6 +279,57 @@ func TestAdvancesDoNotDependOnTheWidth(t *testing.T) {
 	for i, a := range wide {
 		if a == 0 && i < utf8.RuneCountInString(spans[0].Content) {
 			t.Fatalf("rune %d of the first span has no advance", i)
+		}
+	}
+}
+
+// A symbol's font may draw the space after it, and an emoji font may give
+// that space no width, as Noto Color Emoji does: a space cut to nothing where
+// a line breaks is given what it has in a line, the same at every width.
+// KOMARUGRAM_FONT_EMOJI names the emoji font to try; Go's alone, which has
+// the arrows, is the other test's.
+func TestAdvancesOfSpacesAfterSymbolsDoNotDependOnTheWidth(t *testing.T) {
+	collection := gofont.Collection()
+	typeface := "Go"
+	if path := os.Getenv("KOMARUGRAM_FONT_EMOJI"); path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		faces, err := opentype.ParseCollection(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		collection = append(collection, faces...)
+		typeface = "Go, " + string(faces[0].Font.Typeface)
+	}
+	shaper := text.NewShaper(text.NoSystemFonts(), text.WithCollection(collection))
+	span := SpanStyle{Size: 14, Font: font.Font{Typeface: font.Typeface(typeface)}, Content: strings.Repeat("Symbols → 😀🎉👍🏽 ≈ in a line — and more, ", 12)}
+	advances := func(width int) []fixed.Int26_6 {
+		var a []fixed.Int26_6
+		gtx := layout.Context{Ops: new(op.Ops), Constraints: layout.Constraints{Max: image.Pt(width, 1<<20)}, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}
+		style := Text(shaper, span)
+		style.Advances = &a
+		style.Layout(gtx, nil)
+		return a
+	}
+	wide := advances(1 << 20)
+	// On one line they add up to its width: a space the font gives no width
+	// has none.
+	var sum fixed.Int26_6
+	for _, a := range wide {
+		sum += a
+	}
+	gtx := layout.Context{Ops: new(op.Ops), Constraints: layout.Constraints{Max: image.Pt(1<<20, 1<<20)}, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}
+	if width := Text(shaper, span).Layout(gtx, nil).Size.X; sum.Ceil() < width-1 || sum.Ceil() > width+1 {
+		t.Fatalf("the advances add up to %v px, the line is %d px wide", sum, width)
+	}
+	for _, width := range []int{70, 90, 150, 240, 700} {
+		got := advances(width)
+		for i, a := range got {
+			if a != wide[i] {
+				t.Fatalf("at %d px rune %d (%q) moves the pen %v, %v in one line", width, i, []rune(span.Content)[i], a, wide[i])
+			}
 		}
 	}
 }

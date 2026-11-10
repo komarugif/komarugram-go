@@ -92,8 +92,14 @@ func TestReactionsUnderLongText(t *testing.T) {
 	if plain == nil || reacted == nil {
 		t.Fatal("rows not laid out")
 	}
-	if reacted.bodySize.X != plain.bodySize.X {
+	// The reactions keep to the text's width: the bubble is no wider for them.
+	// Without them it may be a little wider than its text, the time going
+	// beside the last line, where the font lets it.
+	if reacted.bodySize.X > plain.bodySize.X {
 		t.Fatalf("a text with reactions is %d px wide, %d without", reacted.bodySize.X, plain.bodySize.X)
+	}
+	if reacted.bodySize.X < plain.text.size.X {
+		t.Fatalf("a text with reactions is %d px wide, its text %d", reacted.bodySize.X, plain.text.size.X)
 	}
 	if reacted.lastChips.Min.Y != 0 {
 		t.Fatal("two reactions wrap under a long text")
@@ -139,22 +145,35 @@ func postLikeChannel(m []model.Message, i int, reply model.MessageID) {
 // lines: two lines under a tall video took the whole width, and the bubble
 // with them, half of it empty beside the video.
 func TestCaptionKeepsBubbleNarrow(t *testing.T) {
-	h := newMenuHarness(t, func(_ *menuStore, m []model.Message) {
-		// Two lines at the whole width, the second of a word or two.
-		m[1].Text = strings.TrimSpace(strings.Repeat("дорога ", 8))
-		m[2].Text, m[2].Kind, m[2].Media = m[1].Text, model.MessageVideo, &model.MessageMedia{ID: "document/1", MIMEType: "video/mp4", Width: 478, Height: 854}
-	})
-	h.frames(2)
-	alone, under := h.page.rows[2], h.page.rows[3]
-	if alone == nil || under == nil {
-		t.Fatal("rows not laid out")
+	// Two lines at the whole width, the second of a word or two: as many
+	// words as the font takes to go onto a second line.
+	oneLine := 0
+	for words := 1; words <= 40; words++ {
+		text := strings.TrimSpace(strings.Repeat("дорога ", words))
+		h := newMenuHarness(t, func(_ *menuStore, m []model.Message) {
+			m[1].Text = text
+			m[2].Text, m[2].Kind, m[2].Media = text, model.MessageVideo, &model.MessageMedia{ID: "document/1", MIMEType: "video/mp4", Width: 478, Height: 854}
+		})
+		h.frames(2)
+		alone, under := h.page.rows[2], h.page.rows[3]
+		if alone == nil || under == nil {
+			t.Fatal("rows not laid out")
+		}
+		if oneLine == 0 {
+			oneLine = alone.text.size.Y
+		}
+		if alone.text.size.Y < oneLine*3/2 {
+			continue
+		}
+		if under.text.size.Y != alone.text.size.Y {
+			t.Fatalf("the caption of %d words is %d px high under the video, %d alone", words, under.text.size.Y, alone.text.size.Y)
+		}
+		if under.text.size.X > alone.text.size.X*3/4 {
+			t.Fatalf("the caption of %d words is %d px wide under the video, %d alone", words, under.text.size.X, alone.text.size.X)
+		}
+		return
 	}
-	if under.text.size.Y != alone.text.size.Y {
-		t.Fatalf("the caption is %d px high under the video, %d alone", under.text.size.Y, alone.text.size.Y)
-	}
-	if under.text.size.X > alone.text.size.X*3/4 {
-		t.Fatalf("the caption is %d px wide under the video, %d alone", under.text.size.X, alone.text.size.X)
-	}
+	t.Fatal("no caption took two lines")
 }
 
 // signedPost makes m a post as https://t.me/komaru_GIF/17023 is: a photo
@@ -242,7 +261,9 @@ func komaruPost(m *model.Message) {
 	m.Text, m.Kind = "Komaru GIF / Чат / VPN", model.MessageVideo
 	m.Media = &model.MessageMedia{ID: "document/17", MIMEType: "video/mp4", Width: 478, Height: 854, Duration: 67e9}
 	m.Reactions = nil
-	for i, n := range []int{63, 15, 13, 2, 1} {
+	// Counts of thousands: their chips are wider than the video with the
+	// emoji and the digits of any font.
+	for i, n := range []int{630, 150, 130, 20, 10} {
 		m.Reactions = append(m.Reactions, model.Reaction{Emoji: []string{"😳", "❤", "🥰", "🔥", "🍌"}[i], Count: n})
 	}
 }
@@ -251,6 +272,8 @@ func komaruPost(m *model.Message) {
 // two onto a row of their own, the time under them: on one row they kept
 // the bubble half again as wide as the video.
 func TestFewReactionsWrapUnderVideo(t *testing.T) {
+	// A row of chips may be this much wider than the evenest: half a chip.
+	const chipSlack = 40
 	h := newMenuHarness(t, func(_ *menuStore, m []model.Message) {
 		komaruPost(&m[1])
 	})
@@ -262,8 +285,21 @@ func TestFewReactionsWrapUnderVideo(t *testing.T) {
 	if r.lastChips.Min.Y == 0 {
 		t.Fatalf("the chips stay on one row, the bubble %d px wide", r.bodySize.X)
 	}
-	// The row under is the shorter: three over two, not two over three. The
-	// chips of the last row are those from the end that make its width.
+	// The rows are about even: the widest is within chipSlack of as narrow as
+	// any split of the chips into two rows makes it, whatever the widths of
+	// the font's emoji and digits are, and fills a row as far as the video
+	// lets it. The chips of the last row are those from the end that make its
+	// width.
+	rowWidth := func(chips []reactionChip) int {
+		w := 0
+		for j, c := range chips {
+			if j > 0 {
+				w += 6
+			}
+			w += c.size.X
+		}
+		return w
+	}
 	under, k := 0, len(r.chips)
 	for k > 0 && under < r.lastChips.Max.X {
 		k--
@@ -272,15 +308,13 @@ func TestFewReactionsWrapUnderVideo(t *testing.T) {
 		}
 		under += r.chips[k].size.X
 	}
-	over := 0
-	for j := range k {
-		if j > 0 {
-			over += 6
-		}
-		over += r.chips[j].size.X
+	over := rowWidth(r.chips[:k])
+	best := max(over, under)
+	for split := 1; split < len(r.chips); split++ {
+		best = min(best, max(rowWidth(r.chips[:split]), rowWidth(r.chips[split:])))
 	}
-	if r.lastChips.Min.Y > r.chips[0].size.Y+6 || under > over {
-		t.Fatalf("%d chips over %d: the row under, %d px, is the wider than the one over it, %d px", k, len(r.chips)-k, under, over)
+	if r.lastChips.Min.Y > r.chips[0].size.Y+6 || max(over, under) > best+chipSlack {
+		t.Fatalf("%d chips over %d: the widest row is %d px, %d px is possible", k, len(r.chips)-k, max(over, under), best)
 	}
 	// 478 by 854 at 430 high is 240 wide, 3 px each side.
 	if r.bodySize.X > 246+40 {
@@ -351,7 +385,9 @@ func TestAlbumCaptionWraps(t *testing.T) {
 			part := model.Message{Key: model.MessageKey{ChatID: 1, MessageID: model.MessageID(200 + j)}, Kind: model.MessagePhoto,
 				Media: &model.MessageMedia{ID: "photo/s", MIMEType: "image/jpeg", Width: size.X, Height: size.Y}}
 			if j == 0 {
-				part.Text = "Да, мне абсолютно точно необходимо проверить кредитную историю в карточке маршрута. Это именно то, как должна работать контекстная реклама"
+				// Between one line and two of the album's width in any font:
+				// narrower, it still takes two lines.
+				part.Text = "Да, мне абсолютно точно необходимо проверить кредитную историю в карточке маршрута, это именно то"
 			}
 			m[1].Attachments = append(m[1].Attachments, part)
 		}

@@ -147,7 +147,19 @@ func predictTheRows(t *testing.T, avatars bool) {
 		if !ok || err != nil {
 			t.Fatalf("message %d: the profile reads as %v, %v", m.Key.MessageID, ok, err)
 		}
+		// A chip wider than the room the bubble has is cut, as wide as the
+		// room lets it be, which the profile does not tell: no window is so
+		// narrow, the page being at least pageMinWidth wide, but a font
+		// whose emoji and digits are wide enough makes the sweep reach it.
+		chipRoom := 0
+		for _, c := range prof.chips {
+			chipRoom = max(chipRoom, c)
+		}
+		chipRoom += prof.bubble.slot + int(2*bubblePadSide+rowInsetLeft+rowInsetRight)
 		for _, width := range append(widthsFrom(150, 696, 17), 600) {
+			if width < chipRoom {
+				continue
+			}
 			r, want := lay(m, width)
 			wantWidth := r.bodySize.X - prof.bubble.slot
 			got, gotWidth, exact := prof.predict(metric, width)

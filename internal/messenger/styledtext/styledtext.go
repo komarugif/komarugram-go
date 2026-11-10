@@ -580,16 +580,35 @@ func (t TextStyle) fillAdvances(gtx layout.Context) {
 		i := first
 		for _, r := range span.Content {
 			if adv[i] == 0 && unicode.IsSpace(r) && r != '\n' && r != '\r' {
-				adv[i] = t.spaceAdvance(gtx, span, adv[first:start], r)
+				adv[i] = t.spaceAdvance(gtx, span, adv[first:start], r, i-first)
 			}
 			i++
 		}
 	}
 }
 
-// spaceAdvance is how far space r moves the pen in span, whose runes have
-// advances adv.
-func (t TextStyle) spaceAdvance(gtx layout.Context, span SpanStyle, adv []fixed.Int26_6, r rune) fixed.Int26_6 {
+// spaceAdvance is how far space r, the rune at of span, moves the pen in it
+// inside a line, span's runes having advances adv. A space moves it as
+// the same space does elsewhere in the span, unless what comes before it is
+// not plain text: the font that draws an emoji draws the space after it, and
+// may give it no width, so that space is shaped with the word it ends.
+func (t TextStyle) spaceAdvance(gtx layout.Context, span SpanStyle, adv []fixed.Int26_6, r rune, at int) fixed.Int26_6 {
+	var before rune
+	if at > 0 {
+		i := 0
+		for _, other := range span.Content {
+			if i == at-1 {
+				before = other
+				break
+			}
+			i++
+		}
+	}
+	if before >= plainTextLimit {
+		if w, ok := t.contextAdvance(gtx, span, at); ok {
+			return w
+		}
+	}
 	i := 0
 	for _, other := range span.Content {
 		if other == r && adv[i] != 0 {
@@ -608,3 +627,33 @@ func (t TextStyle) spaceAdvance(gtx layout.Context, span SpanStyle, adv []fixed.
 	}
 	return max(sum, 0)
 }
+
+// plainTextLimit is the first rune past those of the scripts whose fonts
+// draw a space as the text font does: the rest, as symbols and emoji, may
+// be drawn by another.
+const plainTextLimit = 0x2000
+
+// contextAdvance is how far the space at rune at of span moves the pen, as
+// the shaper gives it after the word it follows (at most contextRunes before
+// it): the last glyph's advance.
+func (t TextStyle) contextAdvance(gtx layout.Context, span SpanStyle, at int) (fixed.Int26_6, bool) {
+	runes := []rune(span.Content)
+	if at >= len(runes) {
+		return 0, false
+	}
+	lo := at
+	for lo > 0 && at-lo < contextRunes && !unicode.IsSpace(runes[lo-1]) {
+		lo--
+	}
+	t.Shaper.LayoutString(text.Parameters{Font: span.Font, PxPerEm: fixed.I(gtx.Sp(span.Size)), MaxWidth: 1 << 24, Locale: gtx.Locale}, string(runes[lo:at+1]))
+	var last fixed.Int26_6
+	found := false
+	for g, ok := t.Shaper.NextGlyph(); ok; g, ok = t.Shaper.NextGlyph() {
+		last, found = g.Advance, true
+	}
+	return last, found
+}
+
+// contextRunes is how many runes before a space contextAdvance shapes with
+// it.
+const contextRunes = 24
