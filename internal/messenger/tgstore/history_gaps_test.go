@@ -32,8 +32,11 @@ func historyPage(ids []int, req *tg.MessagesGetHistoryRequest) []int {
 			}
 		}
 	}
-	from := max(at+req.AddOffset, 0)
+	// Telegram cuts the window at the newest message; it does not
+	// move it: a page around a message near the end has fewer.
+	from := at + req.AddOffset
 	to := min(from+req.Limit, len(newest))
+	from = max(from, 0)
 	if from >= to {
 		return nil
 	}

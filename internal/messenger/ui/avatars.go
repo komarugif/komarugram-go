@@ -165,6 +165,9 @@ func (p *chatPage) withSenderAvatar(gtx layout.Context, m model.Message, bubble 
 	if id == 0 || p.avatar == nil {
 		return bubble(gtx)
 	}
+	if r := p.rows[m.Key.MessageID]; r != nil && r.capture.on {
+		r.capture.slot, r.capture.avatar = gtx.Dp(34)+gtx.Dp(8), gtx.Dp(34)
+	}
 	avatar := layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 		return layout.Dimensions{Size: image.Pt(gtx.Dp(34), gtx.Dp(34))}
 	})
@@ -208,15 +211,16 @@ func (p *chatPage) stickyAvatars(gtx layout.Context, cover int) {
 	if p.avatar == nil || p.heights == nil {
 		return
 	}
-	first := p.list.Position.First
-	if first < 0 || first >= len(p.messages) {
+	above := len(p.above)
+	first := max(0, p.list.Position.First-above)
+	if first >= len(p.messages) {
 		return
 	}
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	visible := max(0, gtx.Constraints.Max.Y-cover)
 	size := gtx.Dp(34)
 	top := func(i int) int {
-		return int(p.heights.Prefix(i)-p.heights.Prefix(first)) - p.list.Position.Offset
+		return int(p.heights.Prefix(above+i)-p.heights.Prefix(p.list.Position.First)) - p.list.Position.Offset
 	}
 	joined := func(i int, flag bubbleJoin) bool { return i < len(p.joins) && p.joins[i]&flag != 0 }
 	for i := first; i < len(p.messages) && top(i) < gtx.Constraints.Max.Y; i++ {

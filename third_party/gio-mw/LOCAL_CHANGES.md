@@ -155,6 +155,12 @@ animate as Material 3 describes, and every animation can be turned off.
   Desktop have; horizontal lists scroll with the vertical wheel. How far
   each device scrolls is in `docs/SCROLLING.md`. `scroll_test.go`,
   `drag_test.go`.
+  A press of the middle button scrolls it by the pointer, as Chromium's
+  autoscroll: a mark where it was pressed, a dead zone of 15 dp, faster
+  the farther the pointer goes; a click leaves it scrolling until a press
+  or the wheel, a drag until the button is let go. An element that takes
+  the middle button for itself calls `CancelAutoscroll` in the frame of
+  the press. `autoscroll.go`, `autoscroll_test.go`.
 
 ## Tests
 

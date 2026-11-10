@@ -11,9 +11,12 @@ import (
 	"github.com/gotd/td/tg"
 )
 
-func testStore(t *testing.T) *Store {
+func testStore(t testing.TB) *Store {
 	t.Helper()
 	s := New(nil)
+	// The tests count pages of 80 messages, as pages were before their size
+	// followed the scroll (TestPageSizeFollowsTheScroll).
+	s.history.pageNormal, s.history.pageActive = 80, 80
 	if e := s.Configure(context.Background(), "a", filepath.Join(t.TempDir(), "h"), nil); e != nil {
 		t.Fatal(e)
 	}

@@ -105,6 +105,17 @@ func TestHistoryFrameAllocations(t *testing.T) {
 	}
 	render()
 	render()
+	// The rows out of view are laid out off screen while the list stands
+	// still, which takes its frames: a frame is counted after them.
+	for range 2000 {
+		if !p.measureLeft() {
+			break
+		}
+		render()
+	}
+	if p.measureLeft() {
+		t.Fatal("rows are left to lay out off screen after 2000 frames")
+	}
 	n := testing.AllocsPerRun(20, render)
 	rows := max(1, p.list.Position.Count)
 	if perRow := n / float64(rows); perRow > 16 {

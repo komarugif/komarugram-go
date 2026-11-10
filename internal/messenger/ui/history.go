@@ -42,9 +42,10 @@ type messageRow struct {
 	// shown is the message as the row was drawn last, which what draws it
 	// reads in its closures instead of capturing a copy of its own.
 	shown model.Message
-	// children is what bubbleContent made of the row last, kept to be filled
-	// again.
-	children []layout.FlexChild
+	// parts is what bubbleContent made of the row last, and laid where
+	// bubbleBody laid them out, kept to be filled again.
+	parts []bubblePart
+	laid  []laidPart
 	// mediaTold is the failure to load the row's media told in the toast
 	// last, so that a failure is told once, not on every frame.
 	mediaTold error
@@ -55,12 +56,19 @@ type messageRow struct {
 	bodySize    image.Point
 	bodyTop     int
 	album       map[model.MessageID]*messageRow
+	// albumSizes are the sizes of the pictures of the album the row shows,
+	// kept for its tiles to be placed by in the next frame.
+	albumSizes []image.Point
 	// partPress takes right presses on a part of an album, which tell the
 	// menu the part.
 	partPress byte
 	// textLast is set while the text is the last of what the bubble
 	// holds, whose last line its time may go on.
-	textLast   bool
+	textLast bool
+	// capture is what the layout takes of the row's profile, profiled
+	// whether the history has it (row_profile.go).
+	capture    rowCapture
+	profiled   bool
 	revision   uint64
 	runs       []model.TextRun
 	textBlocks []messageTextBlock
@@ -77,6 +85,24 @@ type messageRow struct {
 	// shownReactions are the message's reactions in the order of the
 	// chips.
 	shownReactions []model.Reaction
+	// chips are the reactions' chips measured in this frame, and
+	// chipWidths their widths, for the bubble to choose where they wrap;
+	// lastChips is the row of chips placed last, in the reactions'
+	// coordinates, which the time may go on.
+	chips []reactionChip
+	// caption is the width the text wraps at under narrower media.
+	caption captionFit
+	// corners are the corners of the row's tile where it is at the top or
+	// the bottom of its bubble; tiles are where an album's lie, as placed
+	// last.
+	corners tileCorners
+	tiles   []image.Rectangle
+	// time is the plate of the time the bubble asks the row's tile to draw
+	// in its corner, and timeFade how much of it shows.
+	time       timePlate
+	timeFade   wdk.FloatTween
+	chipWidths []int
+	lastChips  image.Rectangle
 	// comments is the bar that opens a channel post's comments.
 	comments surface
 	// reply is the quote of the message replied to, which shows it.
@@ -136,6 +162,18 @@ type messageRow struct {
 	alone bool
 }
 type chatPage struct {
+	// newerBelow: the history drawn last had newer messages, not loaded,
+	// after the last one it held. Its end was not the chat's: a list at it
+	// does not follow the end as a page comes (see rebuild).
+	newerBelow bool
+	// toldErr is the history's error the toast told last: each failure
+	// is told once, as it comes (see tellHistoryError).
+	toldErr error
+	// retryShown: the retry of a failed load was drawn in the last frame.
+	retryShown bool
+	// pagingWhy is what the journal (historylog) last told of the pages the
+	// history asks for at its ends, to tell each change once.
+	pagingWhy string
 	// act is what others do in the chat now, drawn in the header in place
 	// of its status; animated is whether the page animated last frame,
 	// which the header, drawn before it, moves its mark by.
@@ -283,9 +321,73 @@ type chatPage struct {
 	openSourceWindow func(article model.Message, title string, src articleSource)
 	// typing are the carets of drafts bots stream and of the messages
 	// they became, as their text types itself in (typing.go).
-	typing                                     map[model.MessageID]*typing
-	env                                        model.RenderEnvironment
-	heights                                    *model.HeightIndex
+	typing  map[model.MessageID]*typing
+	env     model.RenderEnvironment
+	heights *model.HeightIndex
+	// reserve is what the cache keeps below the loaded history, and below,
+	// the rows of it after the last loaded one, which the list has after
+	// its messages (history_reserve.go).
+	reserve reserve
+	below   []skeletonRow
+	// above are the rows of the messages the store let go of above the
+	// first loaded one, which keep their room, drawn as skeletons until
+	// their pages come again; room, their heights for the rows of the
+	// messages that come in their place. olderAbove and newerNow are the
+	// history's HasOlder and HasNewer for the build of it
+	// (history_window.go).
+	above      []skeletonRow
+	room       map[model.MessageID]int
+	olderAbove bool
+	newerNow   bool
+	// unsaved are the rows laid out at an end of what is loaded, with more
+	// past it: what lies next to them is not known, which their layout
+	// depends on, and their heights are not kept in the cache.
+	unsaved map[model.MessageID]bool
+	// shapes are the bubbles of the skeletons the history had, by message,
+	// in its environment: a row loaded and let go of again before any
+	// frame laid it out keeps the shape it had (history_window.go).
+	shapes map[model.MessageID]skeletonRow
+	// shapeCache is what the bubbles of skeletons in view show
+	// (skeleton_shape.go).
+	shapeCache map[model.MessageID]skeletonShape
+	// seenSkeletons are the skeletons drawn in view, for the journal
+	// (skeletonReplaced).
+	seenSkeletons map[model.MessageID]skeletonRow
+	// shapesWanted are the messages of skeletons of no bubble known, whose
+	// profiles are to be read from the cache; shapesDone brings them, and
+	// shapesAsking is set while a read is on its way.
+	shapesWanted map[model.MessageID]bool
+	shapesDone   chan shapesResult
+	shapesAsking bool
+	// loadStart is when the loads the ring stands for began, and loadLast
+	// when one was last seen (loadRing).
+	loadStart, loadLast time.Time
+	// leaps counts the leaps the history asked for, for the profiler.
+	leaps int
+	// reserveDone brings the reserve worked out off the frame, and
+	// reserveGrown is set when the measurer grew it, for the history to be
+	// built again.
+	reserveDone  chan reserveResult
+	reserveGrown bool
+	// measurer lays out off screen the rows no frame laid out, while
+	// measuring is set (history_measure.go); quietAvatars makes the
+	// avatars' media start no load meanwhile.
+	measurer     measurer
+	measuring    bool
+	quietAvatars func(bool)
+	// pace is how fast the list scrolls; media are held back while it is
+	// fast (history_pace.go).
+	pace scrollPace
+	// profiles cuts texts for rows' profiles; profiled are the revisions of
+	// the messages the history has profiles of in profileEnv, the
+	// environment without its width; profileStats, what the page took.
+	profiles     profileScratch
+	profiled     map[model.MessageID]uint64
+	profileEnv   model.RenderEnvironment
+	profileStats profileStats
+	// tail is the room under the last row of the history, the composer's,
+	// as the last frame left it: the heights kept are the rows' alone.
+	tail                                       int
 	measures                                   map[model.MessageID]model.MessageLayout
 	dirty                                      map[model.MessageID]model.MessageLayout
 	restored                                   bool
@@ -546,10 +648,25 @@ func (p *chatPage) save(force bool) {
 		return
 	}
 	pos := p.list.Position
-	if pos.First >= len(p.messages) || p.messages[pos.First].Local() {
+	first := pos.First - len(p.above)
+	var anchor model.MessageID
+	switch {
+	case first < 0:
+		// In the skeletons of rows let go of, or of the reserve: at the
+		// message of the row, which the store keeps its window around and
+		// opens the chat at.
+		anchor = p.above[pos.First].id
+	case first < len(p.messages):
+		if p.messages[first].Local() {
+			return
+		}
+		anchor = p.messages[first].Key.MessageID
+	case first-len(p.messages) < len(p.below):
+		anchor = p.below[first-len(p.messages)].id
+	default:
 		return
 	}
-	v := model.Viewport{ChatID: p.chat, AnchorMessageID: p.messages[pos.First].Key.MessageID, AnchorOffsetPx: pos.Offset, AtEnd: !pos.BeforeEnd, Environment: p.env, UpdatedAt: time.Now()}
+	v := model.Viewport{ChatID: p.chat, AnchorMessageID: anchor, AnchorOffsetPx: pos.Offset, AtEnd: !pos.BeforeEnd, Environment: p.env, UpdatedAt: time.Now()}
 	if p.heights != nil {
 		v.AbsoluteOffsetPx = p.heights.Prefix(pos.First) + int64(pos.Offset)
 	}
@@ -564,6 +681,7 @@ func (p *chatPage) save(force bool) {
 		ls = append(ls, l)
 	}
 	p.source.SaveView(v, ls)
+	p.logProfiles()
 	if p.trace != nil {
 		p.trace.Recorder.Event(p.trace.Window, "history.save-view", fmt.Sprintf("anchor:%d offset:%d end:%t", v.AnchorMessageID, v.AnchorOffsetPx, v.AtEnd), 0, len(ls))
 	}
@@ -635,6 +753,10 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 			if p.heights != nil {
 				h.TotalHeight = p.heights.Total()
 			}
+			h.Above, h.Below, h.Reserve = len(p.above), len(p.below), len(p.reserve.rows)
+			h.ReserveTaken, h.ReserveStopped = p.reserve.taken, p.reserve.stopped
+			h.OffScreen, h.Leaps = p.measurer.laidOut, p.leaps
+			h.Unsaved, h.Shapes, h.ShapesWanted = len(p.unsaved), len(p.shapes), len(p.shapesWanted)
 			p.trace.Recorder.History(h)
 			p.trace = nil
 		}()
@@ -671,10 +793,15 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		}
 		p.revision = 0
 		p.list = scroll.List{List: layout.List{Axis: layout.Vertical, ScrollToEnd: true}}
+		p.pace = scrollPace{}
 		p.messages = nil
 		p.rows = map[model.MessageID]*messageRow{}
 		p.polls = nil
 		p.measures = nil
+		p.profiled = nil
+		p.reserve, p.below, p.above, p.room, p.unsaved, p.shapes, p.seenSkeletons = reserve{}, nil, nil, nil, nil, nil, nil
+		p.shapesWanted, p.shapesDone, p.shapesAsking, p.leaps = nil, nil, false, 0
+		p.resetMeasurer()
 		p.dirty = map[model.MessageID]model.MessageLayout{}
 		p.restored = false
 		p.jump = jumpNone
@@ -738,12 +865,17 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.appearance.Update(c.ID, token.IsDarkColorSet(sc.Surface))
 	}
 	p.historyWidth = size.X
-	theme := uint32(sc.Surface.Color.AsNRGBA().R)<<16 | uint32(sc.Surface.Color.AsNRGBA().G)<<8 | uint32(sc.Surface.Color.AsNRGBA().B)
-	env := model.RenderEnvironment{WidthPx: size.X, ScaleMilli: int(gtx.Metric.PxPerDp * 1000), TextScaleMilli: int(gtx.Metric.PxPerSp * 1000), Locale: string(l.Language()), FontRevision: fonts.Revision(), ThemeRevision: theme, RendererRevision: rendererRevision(gtx)}
+	// Past rowsWidth rows are laid out as in it: a wider history keeps the
+	// heights, and finds those kept at another such width.
+	env := model.RenderEnvironment{WidthPx: layoutWidth(gtx.Metric, size.X), ScaleMilli: int(gtx.Metric.PxPerDp * 1000), TextScaleMilli: int(gtx.Metric.PxPerSp * 1000), Locale: string(l.Language()), FontRevision: fonts.Revision(), LookRevision: lookRevision(lookOf(gtx)), RendererRevision: rendererRevision(gtx)}
 	if p.trace != nil {
-		p.trace.History.Environment = fmt.Sprintf("width:%d dp:%d sp:%d locale:%s font:%d theme:%x renderer:%d", env.WidthPx, env.ScaleMilli, env.TextScaleMilli, env.Locale, env.FontRevision, env.ThemeRevision, env.RendererRevision)
+		p.trace.History.Environment = fmt.Sprintf("width:%d dp:%d sp:%d locale:%s font:%d look:%x renderer:%d", env.WidthPx, env.ScaleMilli, env.TextScaleMilli, env.Locale, env.FontRevision, env.LookRevision, env.RendererRevision)
 	}
-	changed := env != p.env || len(history.Messages) != len(p.messages)
+	// A reserve worked out builds the history again, with its rows below.
+	grown := p.reserveGrown
+	p.reserveGrown = false
+	p.takeShapes()
+	changed := p.takeReserve() || grown || env != p.env || len(history.Messages) != len(p.messages)
 	if !changed && fresh {
 		for i, m := range history.Messages {
 			if m.Key != p.messages[i].Key || m.ContentRevision != p.messages[i].ContentRevision {
@@ -762,9 +894,12 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		if p.restored && !p.list.Position.BeforeEnd {
 			prev = p.messages
 		}
+		p.olderAbove, p.newerNow = history.HasOlder, history.HasNewer
 		p.rebuild(history.Messages, env)
 		p.startFlights(gtx, prev, animate)
 	}
+	p.askShapes()
+	p.newerBelow = history.HasNewer
 	if len(p.messages) > 0 || history.Err != nil || !history.LoadingOlder && !history.LoadingNewer {
 		p.jumping = false
 	}
@@ -788,6 +923,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.restored = true
 	}
 	p.finishJump(history)
+	p.askReserve(history)
 	if p.composer != nil && p.composer.takeSentJump(c.ID) {
 		// A message sent goes to the end of the history, wherever it was
 		// scrolled, as in Telegram's clients.
@@ -817,6 +953,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	}
 	// The composer's middle is below the row's: a floating one is over the
 	// tail of the history, a classic one under it.
+	p.tail = tail
 	flightFrom := tail / 2
 	if classic {
 		flightFrom = tail + bottom/2
@@ -857,17 +994,36 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.selectionEvents(gtx)
 		p.viewHeight = gtx.Constraints.Max.Y
 		defer func() { p.rowTopKnown = false }()
-		dims := p.list.Layout(gtx, len(p.messages), func(gtx layout.Context, i int) layout.Dimensions {
+		above := len(p.above)
+		rows := above + len(p.messages) + len(p.below)
+		p.holdMedia()
+		dims := p.list.Layout(gtx, rows, func(gtx layout.Context, row int) layout.Dimensions {
+			i := row - above
+			if i < 0 || i >= len(p.messages) {
+				// Above and below what is loaded, the rows let go of and
+				// those of the reserve: their room, a skeleton in it, until
+				// their page comes.
+				p.rowContext(gtx)
+				s := p.resolveShape(gtx, p.skeletonAt(row))
+				p.seenSkeleton(s)
+				dims := p.skeleton(gtx, s)
+				if row == rows-1 {
+					dims.Size.Y += tail
+				}
+				p.heights.Set(row, dims.Size.Y)
+				return dims
+			}
 			msg := p.messages[i]
 			date := p.dayStart[i]
+			p.rowContext(gtx)
 			switch pos := p.list.Position; {
 			case p.heights == nil:
 			case !pos.BeforeEnd:
 				// At its end, the history ends at the bottom of the view.
-				p.rowTop = int(p.heights.Prefix(i)) - max(0, int(p.heights.Total())-p.viewHeight)
+				p.rowTop = int(p.heights.Prefix(row)) - max(0, int(p.heights.Total())-p.viewHeight)
 				p.rowTopKnown = true
-			case pos.First < len(p.messages):
-				p.rowTop = int(p.heights.Prefix(i)-p.heights.Prefix(pos.First)) - pos.Offset
+			case pos.First < rows:
+				p.rowTop = int(p.heights.Prefix(row)-p.heights.Prefix(pos.First)) - pos.Offset
 				p.rowTopKnown = true
 			}
 			if p.trace != nil {
@@ -875,31 +1031,28 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 			}
 			rowEnd := p.trace.Begin("history.rows")
 			end := 0
-			if i == len(p.messages)-1 {
+			if row == rows-1 {
 				end = tail
 			}
 			dims := p.flyingRow(gtx, i, p.viewHeight-tail+flightFrom, end, func(gtx layout.Context) layout.Dimensions {
 				return p.row(gtx, msg, date, p.joins[i], l, animate)
 			})
-			if i == len(p.messages)-1 {
+			// The room the composer takes under the last row is the list's,
+			// not the row's: the height kept is the row's alone, as high as
+			// it is once another message comes under it.
+			height := dims.Size.Y
+			if row == rows-1 {
 				dims.Size.Y += tail
 			}
 			rowEnd()
-			if old, ok := p.measures[msg.Key.MessageID]; !ok || old.HeightPx != dims.Size.Y || old.ContentRevision != msg.ContentRevision {
-				if p.trace != nil {
-					p.trace.History.MeasurementsChanged++
-				}
-				measurement := model.MessageLayout{Key: msg.Key, Environment: env, ContentRevision: msg.ContentRevision, HeightPx: dims.Size.Y, MeasuredAt: time.Now()}
-				p.measures[msg.Key.MessageID] = measurement
-				if !msg.Local() {
-					// The cache keeps no layout of a draft a bot streams, or
-					// of a message on its way.
-					p.dirty[msg.Key.MessageID] = measurement
-				}
-				p.heights.Set(i, dims.Size.Y)
-			}
+			p.heights.Set(row, dims.Size.Y)
+			p.laidOutOnScreen(msg.Key.MessageID, height)
+			p.skeletonReplaced(msg, height)
+			p.keepMeasure(msg, height, env, !p.edgeRow(i))
 			return dims
 		})
+		p.releaseMedia(gtx, gtx.Now)
+		p.measureOffScreen(gtx, l)
 		p.stickyAvatars(gtx, cover)
 		p.stickyDate(gtx)
 		p.selectionAreas(gtx)
@@ -933,6 +1086,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	if notice != "" {
 		p.toast.Show(notice)
 	}
+	p.tellHistoryError(history.Err, l)
 	p.botUpdate(l)
 	p.toast.bd = p.toastBackdrop()
 	p.toast.Layout(gtx, image.Rect(0, top, size.X, end))
@@ -942,10 +1096,15 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	}
 	p.menuLayout(gtx, l)
 	p.entityMenuLayout(gtx, l)
-	if p.restored && p.list.Position.First < 3 && history.HasOlder && !history.LoadingOlder && history.Err == nil {
+	p.logPaging(history)
+	// Far in the skeletons, the history leaps there; near the first loaded
+	// message, or in the rows let go of above it, it pages.
+	leapt := p.leap(history)
+	first := p.list.Position.First - len(p.above)
+	if !leapt && p.restored && first < 3 && history.HasOlder && !history.LoadingOlder && history.Err == nil {
 		p.source.LoadOlder(p.chat)
 	}
-	if p.restored && p.list.Position.First+p.list.Position.Count >= len(p.messages)-2 && history.HasNewer && !history.LoadingNewer && history.Err == nil {
+	if !leapt && p.restored && first+p.list.Position.Count >= len(p.messages)-2 && history.HasNewer && !history.LoadingNewer && history.Err == nil {
 		p.source.LoadNewer(p.chat)
 	}
 	p.save(false)
@@ -1020,20 +1179,37 @@ func (p *chatPage) restore(id model.MessageID, offset int) {
 			p.trace.Recorder.Event(p.trace.Window, "history.restore", fmt.Sprintf("chat:%d anchor:%d offset:%d linear scan", p.chat, id, offset), time.Since(start), scanned)
 		}()
 	}
+	above := len(p.above)
 	index := 0
+	for k, s := range p.above {
+		// A row let go of above what is loaded.
+		if s.id <= id {
+			index = k
+		}
+	}
 	for i, m := range p.messages {
 		scanned++
 		if m.Key.MessageID <= id {
-			index = i
+			index = above + i
 		}
 		if m.Key.MessageID == id {
 			break
+		}
+	}
+	if n := len(p.messages); n > 0 && id > p.messages[n-1].Key.MessageID {
+		// A row of the reserve below what is loaded.
+		for k, s := range p.below {
+			if s.id <= id {
+				index = above + n + k
+			}
 		}
 	}
 	p.list.Position.First = index
 	p.list.Position.Offset = max(offset, 0)
 }
 func (p *chatPage) rebuild(messages []model.Message, env model.RenderEnvironment) {
+	// Rows of other messages, or of another environment, to lay out.
+	p.measurer.loadedDone = false
 	if p.trace != nil {
 		start := time.Now()
 		p.trace.History.Rebuilt = true
@@ -1044,9 +1220,27 @@ func (p *chatPage) rebuild(messages []model.Message, env model.RenderEnvironment
 	}
 	var anchor model.MessageID
 	off := p.list.Position.Offset
-	end := !p.list.Position.BeforeEnd
-	if p.list.Position.First < len(p.messages) {
-		anchor = p.messages[p.list.Position.First].Key.MessageID
+	// A list at its end follows it, as a message that comes is shown, only
+	// when that end was the chat's. At the end of what is loaded, with
+	// newer messages after it, the page of them that comes goes below
+	// where the list is: followed, it took the list to its new end, where
+	// the next page was asked for, and so on to the chat's end, a dragged
+	// scrollbar's thumb scrolling on after it was let go.
+	end := !p.list.Position.BeforeEnd && !p.newerBelow
+	if first := p.list.Position.First - len(p.above); first < 0 {
+		// In the rows let go of above what is loaded.
+		anchor = p.above[first+len(p.above)].id
+	} else if first < len(p.messages) {
+		anchor = p.messages[first].Key.MessageID
+	} else if first-len(p.messages) < len(p.below) {
+		// In the reserve below what is loaded: at its row, wherever the
+		// pages that come put it.
+		anchor = p.below[first-len(p.messages)].id
+	}
+	p.keepRoom(messages, env)
+	if env != p.env {
+		// Bubbles of another width.
+		p.shapes = nil
 	}
 	if env != p.env || p.measures == nil {
 		p.save(true)
@@ -1056,6 +1250,7 @@ func (p *chatPage) rebuild(messages []model.Message, env model.RenderEnvironment
 			p.measures[l.Key.MessageID] = l
 		}
 		cacheEnd()
+		p.loadProfiled(env)
 		p.dirty = map[model.MessageID]model.MessageLayout{}
 	}
 	p.env = env
@@ -1087,6 +1282,17 @@ func (p *chatPage) rebuild(messages []model.Message, env model.RenderEnvironment
 			if p.trace != nil {
 				p.trace.History.LayoutHits++
 			}
+			continue
+		}
+		if h, ok := p.reserve.heights[m.Key.MessageID]; ok {
+			// As high as its skeleton was: a row of the reserve comes in at
+			// the height its profile told.
+			hs[i] = h
+			continue
+		}
+		if h, ok := p.room[m.Key.MessageID]; ok {
+			// As high as it was when it was let go of.
+			hs[i] = h
 			continue
 		}
 		if m.Rich != nil && len(m.Rich.Blocks) > 0 {
@@ -1124,12 +1330,76 @@ func (p *chatPage) rebuild(messages []model.Message, env model.RenderEnvironment
 		}
 	}
 	p.pruneSelection(alive)
+	p.below = p.reserve.after(messages)
+	for _, s := range p.below {
+		hs = append(hs, s.height)
+	}
+	if len(p.above) > 0 {
+		rows := make([]int, 0, len(p.above)+len(hs))
+		for _, s := range p.above {
+			rows = append(rows, s.height)
+		}
+		hs = append(rows, hs...)
+	}
+	if n := len(hs); n > 0 {
+		// The last row takes the composer's room under it, as the frame
+		// before laid it out.
+		hs[n-1] += p.tail
+	}
 	p.heights = model.NewHeightIndex(hs)
 	p.list.Measurements = p.heights
 	if anchor != 0 && !end {
 		p.restore(anchor, off)
 	}
 	p.list.Position.BeforeEnd = !end
+}
+
+// keepMeasure keeps height, how high msg's row is laid out in env, as a
+// frame laid it out or the measurer did, for the cache; and its profile,
+// when the row took one.
+//
+// A row not to keep, at an end of what is loaded, is measured for the
+// history alone: the cache is not told of it.
+func (p *chatPage) keepMeasure(msg model.Message, height int, env model.RenderEnvironment, keep bool) {
+	id := msg.Key.MessageID
+	if !keep {
+		if p.unsaved == nil {
+			p.unsaved = map[model.MessageID]bool{}
+		}
+		p.unsaved[id] = true
+		p.measures[id] = model.MessageLayout{Key: msg.Key, Environment: env, ContentRevision: msg.ContentRevision, HeightPx: height, MeasuredAt: time.Now()}
+		delete(p.dirty, id)
+		return
+	}
+	if p.unsaved[id] {
+		// Laid out again with what lies next to it: kept now.
+		delete(p.unsaved, id)
+		delete(p.measures, id)
+	}
+	if old, ok := p.measures[msg.Key.MessageID]; !ok || old.HeightPx != height || old.ContentRevision != msg.ContentRevision {
+		if p.trace != nil {
+			p.trace.History.MeasurementsChanged++
+		}
+		if ok && old.ContentRevision == msg.ContentRevision && old.Environment == env {
+			// The row changed of itself, as media whose state came: its
+			// profile is of the layout it had, and is taken anew.
+			p.retakeProfile(msg.Key.MessageID)
+		}
+		measurement := model.MessageLayout{Key: msg.Key, Environment: env, ContentRevision: msg.ContentRevision, HeightPx: height, MeasuredAt: time.Now()}
+		p.measures[msg.Key.MessageID] = measurement
+		if !msg.Local() {
+			// The cache keeps no layout of a draft a bot streams, or of a
+			// message on its way.
+			p.dirty[msg.Key.MessageID] = measurement
+		}
+	}
+	if r := p.rows[msg.Key.MessageID]; r != nil && r.capture.on {
+		if data := p.takeProfile(r, msg, env.WidthPx, height); data != nil {
+			m := p.measures[msg.Key.MessageID]
+			m.Profile = data
+			p.dirty[msg.Key.MessageID] = m
+		}
+	}
 }
 
 // textRunes is how many runes a message's text has, at a revision.
@@ -1285,6 +1555,12 @@ func (p *chatPage) textFlow(gtx layout.Context, r *messageRow, block *messageTex
 	}
 	flowStyles, flowRuns = splitTabs(gtx, theme.TextShaper, flowStyles, flowRuns)
 	text := styledtext.Text(theme.TextShaper, flowStyles...)
+	// The row's profile takes how the message's text wraps: an article's
+	// is not taken.
+	capture := r.capture.on && block.style == (flowStyle{})
+	if capture {
+		text.Advances, text.Extents, text.Ends = &sc.advances, &sc.extents, &sc.ends
+	}
 	text.Alignment = block.style.align
 	if runs[0].Pre {
 		text.WrapPolicy = styledtext.WrapGraphemes
@@ -1347,6 +1623,12 @@ func (p *chatPage) textFlow(gtx layout.Context, r *messageRow, block *messageTex
 	record := op.Record(gtx.Ops)
 	dims := text.Layout(gtx, nil)
 	call := record.Stop()
+	if capture {
+		start := time.Now()
+		block.spans = p.profiles.cutFlow(gtx, flowStyles, sc.advances, sc.extents, sc.ends, runs[0].Pre, block.spans)
+		block.flowMax = gtx.Constraints.Max.X
+		r.capture.took += time.Since(start)
+	}
 	if p.activeText == r {
 		selection := textInteraction{fragments: r.text.fragments[fragmentStart:], anchor: r.text.anchor, caret: r.text.caret}
 		for _, rect := range selection.selectionRegions() {
@@ -1435,8 +1717,8 @@ func historyInvalidationReason(old, next model.RenderEnvironment, previous, curr
 	if old.FontRevision != next.FontRevision {
 		reasons = append(reasons, "font")
 	}
-	if old.ThemeRevision != next.ThemeRevision {
-		reasons = append(reasons, "theme")
+	if old.LookRevision != next.LookRevision {
+		reasons = append(reasons, "look")
 	}
 	if old.RendererRevision != next.RendererRevision {
 		reasons = append(reasons, "renderer")

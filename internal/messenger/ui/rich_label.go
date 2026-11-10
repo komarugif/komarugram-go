@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"strings"
+	"unicode/utf8"
 
 	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/model"
@@ -43,6 +44,10 @@ type richLabel struct {
 	// maxLines 1 keeps the text on one line, cut with an ellipsis where it
 	// does not fit; 0 wraps all of it.
 	maxLines int
+	// flat lays the text out as one paragraph, its line breaks spaces, as
+	// maxLines 1 does, on the lines it has, the last cut with an ellipsis
+	// where the text goes on past it.
+	flat bool
 	// media and images draw the custom emoji, which stay their fallback
 	// emoji without them.
 	media   *chatmedia.Manager
@@ -105,7 +110,7 @@ func (r richLabel) Layout(gtx layout.Context) layout.Dimensions {
 	frames := make([]image.Image, len(r.runs))
 	for i, run := range r.runs {
 		content := run.Text
-		if r.maxLines == 1 {
+		if r.maxLines == 1 || r.flat {
 			content = strings.ReplaceAll(content, "\n", " ")
 		}
 		st := styledtext.SpanStyle{Font: font.Font{Typeface: ty.Font, Weight: ty.Weight}, Size: ty.Size, Content: content, Color: fg}
@@ -155,6 +160,11 @@ func (r richLabel) Layout(gtx layout.Context) layout.Dimensions {
 			paint.FillShape(gtx.Ops, styles[f.Index].Color, clip.Rect(image.Rect(0, y, size.X, y+max(gtx.Dp(1), 1))).Op())
 		}
 	}
+	if r.flat && r.maxLines > 1 {
+		if dims, ok := r.cutLast(gtx, t); ok {
+			return dims
+		}
+	}
 	if r.maxLines != 1 {
 		t.MaxLines = r.maxLines
 		return t.Layout(gtx, nil)
@@ -184,4 +194,63 @@ func (r richLabel) Layout(gtx layout.Context) layout.Dimensions {
 		return ellipsis
 	})
 	return layout.Dimensions{Size: image.Pt(width, dims.Size.Y)}
+}
+
+// cutLast lays out t, the text of r, whole, and where it goes past the
+// lines r has, draws the lines before the last of them and, on the last,
+// the rest of the text cut with an ellipsis, as on one line: styledtext
+// hides the lines past its MaxLines with no mark that the text goes on.
+// It is not ok where the text cannot be cut so.
+func (r richLabel) cutLast(gtx layout.Context, t styledtext.TextStyle) (layout.Dimensions, bool) {
+	draw := t.Decorate
+	lines, top, widest := 0, -1<<30, 0
+	cut, cutTop := -1, 0
+	t.Decorate = func(gtx layout.Context, f styledtext.Fragment, paint func()) {
+		if f.Line.Min.Y > top {
+			top = f.Line.Min.Y
+			lines++
+			if lines == r.maxLines && len(f.Clusters) > 0 {
+				cut, cutTop = f.Clusters[0].Start, top
+			}
+		}
+		if lines < r.maxLines {
+			widest = max(widest, f.Bounds.Max.X)
+		}
+		draw(gtx, f, paint)
+	}
+	t.MaxLines = 0
+	macro := op.Record(gtx.Ops)
+	dims := t.Layout(gtx, nil)
+	call := macro.Stop()
+	if lines <= r.maxLines {
+		call.Add(gtx.Ops)
+		return dims, true
+	}
+	if cut < 0 {
+		return layout.Dimensions{}, false
+	}
+	stack := clip.Rect{Max: image.Pt(dims.Size.X, cutTop)}.Push(gtx.Ops)
+	call.Add(gtx.Ops)
+	stack.Pop()
+	rest := r
+	rest.runs, rest.maxLines = runsFrom(r.runs, cut), 1
+	last := offset(gtx, image.Pt(0, cutTop), rest.Layout)
+	return layout.Dimensions{Size: image.Pt(max(widest, last.Size.X), cutTop+last.Size.Y)}, true
+}
+
+// runsFrom is runs from their rune at on, the run it falls in cut there.
+func runsFrom(runs []model.TextRun, at int) []model.TextRun {
+	for i, run := range runs {
+		n := utf8.RuneCountInString(run.Text)
+		if at >= n {
+			at -= n
+			continue
+		}
+		rest := append([]model.TextRun(nil), runs[i:]...)
+		if at > 0 {
+			rest[0].Text = string([]rune(run.Text)[at:])
+		}
+		return rest
+	}
+	return nil
 }

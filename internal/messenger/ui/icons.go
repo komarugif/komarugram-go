@@ -71,6 +71,7 @@ var (
 	iconCalendar      = wdk.RequireIconWidget(icons.ActionEvent)
 	iconDataCenter    = wdk.RequireIconWidget(icons.ActionDNS)
 	iconUserID        = wdk.RequireIconWidget(icons.ActionPermIdentity)
+	iconMessages      = wdk.RequireIconWidget(icons.CommunicationChatBubbleOutline)
 	iconPhone         = wdk.RequireIconWidget(icons.CommunicationCall)
 	iconDevices       = wdk.RequireIconWidget(icons.DeviceDevices)
 	iconChevronLeft   = wdk.RequireIconWidget(icons.NavigationChevronLeft)

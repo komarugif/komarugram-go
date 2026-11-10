@@ -279,7 +279,7 @@ Done on Linux (container, ext4-like overlay); Windows was not measured.
 
 | Root | Owner | What | Cache cleanup |
 |---|---|---|---|
-| `<config>/komarugram-go/accounts/<id>/history.db.plain` or `.secure` (+ `-journal`) | `historycache` | Messages, edits, deletion markers, spans, FTS, layouts, kv (viewports, update state), media BLOBs | Media rows only |
+| `<config>/komarugram-go/accounts/<id>/history.db.plain` or `.secure` (+ `-journal`) | `historycache` | Messages, edits, deletion markers, spans, FTS, row heights and profiles (how rows wrap at any width; by environment, bounded per chat: `historycache/heights.go`), kv (viewports, update state), media BLOBs | Media rows only |
 | `<config>/komarugram-go/accounts/<id>/session.json` | `account` | Auth key | Never |
 | `<config>/komarugram-go/accounts.db`, `security.json`, `settings.json` | `account`, `security`, `preferences` | Registry, protection, settings | Never |
 | `<config>/komarugram-go/wallpapers/` | `preferences` | Wallpaper pictures | Own policy |

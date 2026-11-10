@@ -17,6 +17,7 @@ import (
 	"komarugram/internal/crash"
 	"komarugram/internal/diagnostics"
 	"komarugram/internal/messenger/historycache"
+	"komarugram/internal/messenger/historylog"
 	"komarugram/internal/messenger/langpack"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/security"
@@ -171,6 +172,24 @@ type conversation struct {
 	liveEpoch uint64
 	// firsts are the chats' first messages, when known: see noteFirst.
 	firsts map[int64]int
+	// unrevealed are the histories Reveal replaced, with their views, until
+	// the history started again has messages: when it fails with none, the
+	// one replaced comes back (finishPageAt).
+	unrevealed map[int64]unrevealed
+	// pace spaces the pages Telegram is asked for: see historyPacer.
+	pace historyPacer
+	// commonChain is the chain of the common box's chats, kept in the
+	// cache; channelChain that of the channels whose own did not end in
+	// this run, channelChains theirs, and chainSeq the last chain given
+	// out: see chainOf.
+	commonChain, channelChain, chainSeq int64
+	channelChains                       map[int64]int64
+	// checks are the ranges shown before they were checked: see
+	// history_check.go.
+	checks historyChecks
+	// pageNormal and pageActive are how many messages a page has, alone
+	// and in a scroll that goes on: see pageLimit.
+	pageNormal, pageActive int
 	// drafts are the messages bots stream: see drafts.go.
 	drafts streamedDrafts
 	// pending are the account's messages on their way.
@@ -183,13 +202,22 @@ type conversation struct {
 	previewFrom, preview []model.Chat
 	previewLast          map[int64]model.Message
 }
+
+// unrevealed is a history Reveal replaced, and where it was viewed.
+type unrevealed struct {
+	history *model.History
+	view    model.Viewport
+	viewed  bool
+}
+
 type viewSave struct {
 	view    model.Viewport
 	layouts []model.MessageLayout
 }
 
 func newConversation() *conversation {
-	return &conversation{top: map[int64]int{}, globalDeleted: map[int]bool{}, ctx: context.Background(), peers: map[int64]peerRecord{}, histories: map[int64]*model.History{}, epochs: map[int64]uint64{}, reveals: map[int64]model.MessageID{}, views: map[int64]model.Viewport{}, refs: map[string]fileLocation{}, touched: map[model.MessageKey]uint64{}, deleted: map[model.MessageKey]bool{}, saves: make(chan viewSave, 64), live: map[int64]bool{}, firsts: map[int64]int{}}
+	c := &conversation{pageNormal: pageNormal, pageActive: pageActive, top: map[int64]int{}, globalDeleted: map[int]bool{}, ctx: context.Background(), peers: map[int64]peerRecord{}, histories: map[int64]*model.History{}, epochs: map[int64]uint64{}, reveals: map[int64]model.MessageID{}, views: map[int64]model.Viewport{}, refs: map[string]fileLocation{}, touched: map[model.MessageKey]uint64{}, deleted: map[model.MessageKey]bool{}, saves: make(chan viewSave, 64), live: map[int64]bool{}, firsts: map[int64]int{}}
+	return c
 }
 
 // SetMediaDir keeps the account's large media in dir; it is called before
@@ -241,6 +269,10 @@ func (s *Store) configureCache(ctx context.Context, account, path string, p *sec
 	}
 	c.account = account
 	c.ctx = ctx
+	if e = c.loadChains(ctx); e != nil {
+		return e
+	}
+	historylog.Printf("configure account %s: histories kept %d", account, len(c.histories))
 	chats, e := cachedDialogs(ctx, cache)
 	if e != nil {
 		return e
@@ -288,6 +320,7 @@ func (s *Store) Close() (err error) {
 		return nil
 	}
 	c.closing = true
+	s.stopChecks()
 	langpack.Unwatch(s)
 	c.watch.stopPolls()
 	close(c.saves)
@@ -318,7 +351,9 @@ func (s *Store) Attach(client *telegram.Client) {
 	s.mu.Lock()
 	s.dc = client.Config().ThisDC
 	s.me.DC = s.dc
+	self := s.me.ID
 	s.mu.Unlock()
+	s.endChainsWithoutState(self)
 	c := s.history
 	c.mu.Lock()
 	c.api = client.API()
@@ -328,6 +363,7 @@ func (s *Store) Attach(client *telegram.Client) {
 		c.pool = dcpool.NewPool(client, 4)
 	}
 	c.mu.Unlock()
+	historylog.Printf("attach: connected to DC %d", client.Config().ThisDC)
 }
 
 // lazyChannels is the updates manager's storage, which names it no channel
@@ -364,12 +400,19 @@ func (s *Store) Updates() *updates.Manager {
 func (s *Store) endLive(chat int64) {
 	c := s.history
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.liveEpoch++
+	historylog.Printf("end live chat=%d (0: all)", chat)
 	if chat == 0 {
 		clear(c.live)
 	} else {
 		delete(c.live, chat)
+	}
+	// What was missed may have changed what the cache holds too.
+	c.endChain(chat)
+	historylog.Printf("chain chat=%d (0: all) ended: common chain %d", chat, c.commonChain)
+	c.mu.Unlock()
+	if chat == 0 {
+		s.keepCommonChain()
 	}
 }
 
@@ -389,6 +432,7 @@ func (s *Store) extendLive(ctx context.Context, msgs []model.Message) error {
 		c := s.history
 		c.mu.Lock()
 		live, cache, epoch := c.live[m.Key.ChatID], c.cache, c.liveEpoch
+		chain, chained := c.chainOf(m.Key.ChatID)
 		c.mu.Unlock()
 		if !live || cache == nil {
 			continue
@@ -411,15 +455,28 @@ func (s *Store) extendLive(ctx context.Context, msgs []model.Message) error {
 		if _, e = cache.AddSpan(ctx, m.Key.ChatID, low, max(id, low)); e != nil {
 			return e
 		}
+		// A live span verified up to its newest message stays verified:
+		// the message follows it.
+		if chained && ok {
+			if verified, e := cache.Verified(ctx, m.Key.ChatID, top.High, top.High, chain); e != nil {
+				return e
+			} else if verified {
+				if e = s.verify(ctx, cache, m.Key.ChatID, low, max(id, low), chain); e != nil {
+					return e
+				}
+			}
+		}
 	}
 	return nil
 }
 func (s *Store) historyError(chat int64, e error) {
 	c := s.history
 	c.mu.Lock()
-	if h := c.histories[chat]; h != nil {
+	h := c.histories[chat]
+	if h != nil {
 		h.Err = e
 	}
+	historylog.Printf("history error chat=%d (not of a page): %v; %s", chat, e, historyState(h))
 	c.mu.Unlock()
 	s.changed()
 }
@@ -562,7 +619,9 @@ func (s *Store) OpenChat(chat int64) {
 	epoch := c.epochs[chat]
 	reveal, revealing := c.reveals[chat]
 	delete(c.reveals, chat)
+	connected := c.api != nil
 	c.mu.Unlock()
+	historylog.Printf("open chat=%d epoch=%d reveal=%d revealing=%t online=%t", chat, epoch, reveal, revealing, connected)
 	c.wg.Go(func() {
 		start := diagnostics.Start()
 		var v model.Viewport
@@ -602,6 +661,7 @@ func (s *Store) OpenChat(chat int64) {
 		}
 		c.mu.Lock()
 		if c.epochs[chat] != epoch {
+			historylog.Printf("open chat=%d epoch=%d dropped: the history is of epoch %d now", chat, epoch, c.epochs[chat])
 			c.mu.Unlock()
 			return
 		}
@@ -612,6 +672,7 @@ func (s *Store) OpenChat(chat int64) {
 		h.Messages = msgs
 		h.Revision++
 		h.HasNewer = anchor != 0
+		historylog.Printf("open chat=%d from the cache: anchor=%d view=%t atEnd=%t unread=%t online=%t err=%v; %s", chat, anchor, found, v.AtEnd, unread, online, e, historyState(h))
 		c.mu.Unlock()
 		s.changed()
 		if e != nil {
@@ -750,6 +811,19 @@ func (s *Store) reveal(chat int64, id model.MessageID, atEnd bool) {
 	c := s.history
 	c.mu.Lock()
 	c.epochs[chat]++
+	historylog.Printf("reveal chat=%d at=%d atEnd=%t epoch=%d; dropped %s", chat, id, atEnd, c.epochs[chat], historyState(c.histories[chat]))
+	// The history shown is kept until the one started again has messages:
+	// see unrevealed. A reveal while another is on its way keeps the one
+	// the first replaced.
+	if _, pending := c.unrevealed[chat]; !pending {
+		if old := c.histories[chat]; old != nil && len(old.Messages) > 0 {
+			if c.unrevealed == nil {
+				c.unrevealed = map[int64]unrevealed{}
+			}
+			view, viewed := c.views[chat]
+			c.unrevealed[chat] = unrevealed{history: old, view: view, viewed: viewed}
+		}
+	}
 	delete(c.histories, chat)
 	c.reveals[chat] = id
 	c.views[chat] = model.Viewport{AccountID: c.account, ChatID: chat, AnchorMessageID: id, AtEnd: atEnd, UpdatedAt: time.Now()}
@@ -793,6 +867,7 @@ func (s *Store) SaveView(v model.Viewport, ls []model.MessageLayout) {
 		s.profileHistory("cache.save-view.queued", v.ChatID, 0, int(v.AnchorMessageID), len(ls), time.Time{}, nil)
 	default:
 		s.profileHistory("cache.save-view.dropped", v.ChatID, 0, int(v.AnchorMessageID), len(ls), time.Time{}, nil)
+		historylog.Printf("save chat=%d DROPPED, the queue full: %d layouts lost", v.ChatID, len(ls))
 	}
 }
 func (s *Store) Layouts(chat int64, env model.RenderEnvironment) []model.MessageLayout {
@@ -833,12 +908,24 @@ func (s *Store) page(chat int64, dir int) {
 	c.mu.Lock()
 	h := c.histories[chat]
 	if c.closing || h == nil || h.LoadingOlder || h.LoadingNewer || len(h.Messages) == 0 {
+		why := "closing"
+		switch {
+		case c.closing:
+		case h == nil:
+			why = "no history"
+		case h.LoadingOlder || h.LoadingNewer:
+			why = "loading"
+		default:
+			why = "no messages"
+		}
+		refusals.refuse(chat, dir, why, h)
 		c.mu.Unlock()
 		return
 	}
 	anchor := int(h.Messages[0].Key.MessageID)
 	if dir > 0 {
 		if !h.HasNewer {
+			refusals.refuse(chat, dir, "no newer", h)
 			c.mu.Unlock()
 			return
 		}
@@ -846,10 +933,15 @@ func (s *Store) page(chat int64, dir int) {
 		h.LoadingNewer = true
 	} else {
 		if !h.HasOlder {
+			refusals.refuse(chat, dir, "no older", h)
 			c.mu.Unlock()
 			return
 		}
 		h.LoadingOlder = true
+	}
+	refusals.refuse(chat, dir, "", h)
+	if h.Err != nil {
+		historylog.Printf("page chat=%d dir=%d clears err=%v", chat, dir, h.Err)
 	}
 	h.Err = nil
 	epoch := c.epochs[chat]
@@ -874,9 +966,14 @@ func (s *Store) resync(chat int64) {
 		if c.watch.shown(id) {
 			if !h.LoadingOlder && !h.LoadingNewer {
 				ids = append(ids, id)
+				historylog.Printf("resync chat=%d shown: read again; %s", id, historyState(h))
+			} else {
+				historylog.Printf("resync chat=%d shown and loading: LEFT AS IT IS; %s", id, historyState(h))
 			}
 			continue
 		}
+		historylog.Printf("resync chat=%d hidden: dropped; %s", id, historyState(h))
+		delete(c.unrevealed, id)
 		c.epochs[id]++
 		delete(c.histories, id)
 		dropped = true
@@ -894,6 +991,7 @@ func (s *Store) Reload(chat int64) {
 	c.mu.Lock()
 	h := c.histories[chat]
 	if c.closing || h == nil || h.LoadingOlder || h.LoadingNewer {
+		historylog.Printf("reload chat=%d refused: closing=%t; %s", chat, c.closing, historyState(h))
 		c.mu.Unlock()
 		return
 	}
@@ -901,6 +999,7 @@ func (s *Store) Reload(chat int64) {
 	if v, ok := c.views[chat]; ok && !v.AtEnd {
 		anchor = int(v.AnchorMessageID)
 	}
+	historylog.Printf("reload chat=%d anchor=%d; %s", chat, anchor, historyState(h))
 	h.LoadingOlder = true
 	epoch := c.epochs[chat]
 	c.mu.Unlock()
@@ -910,7 +1009,10 @@ func (s *Store) Reload(chat int64) {
 // guardedFetch turns a panic while converting a server page into a page error,
 // which the history shows with a retry, instead of ending the process.
 func (s *Store) guardedFetch(epoch uint64, chat int64, dir, anchor int) {
-	defer crash.Recover("history fetch", func(p *crash.Panic) { s.finishPageAt(epoch, chat, dir, nil, false, p) })
+	defer crash.Recover("history fetch", func(p *crash.Panic) {
+		historylog.Printf("fetch chat=%d dir=%d anchor=%d PANIC: %v", chat, dir, anchor, p)
+		s.finishPageAt(epoch, chat, dir, nil, false, p)
+	})
 	s.fetchAt(epoch, chat, dir, anchor)
 }
 
@@ -931,18 +1033,34 @@ func (s *Store) fetchAt(epoch uint64, chat int64, dir, anchor int) {
 	c := s.history
 	c.mu.Lock()
 	api, peer, start, liveEpoch, top := c.api, c.peers[chat], c.generation, c.liveEpoch, c.top[chat]
+	chain, chained := c.chainOf(chat)
+	limit, active := c.pageNormal, c.pageActive
 	if h := c.histories[chat]; h != nil {
 		h.Offline = api == nil
 	}
+	parent := c.ctx
 	c.mu.Unlock()
-	ctx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
+	trace := traceFetch(epoch, chat, dir, anchor, api != nil, peer.Kind)
+	defer trace.done()
+	if e := parent.Err(); e != nil {
+		trace.note("the store's context ended already: %v", e)
+	}
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 
 	var cached []model.Message
 	if dir != 0 {
+		// The scroll goes on: the checks wait for it to rest, and its
+		// pages are larger.
+		if s.pageActivity() {
+			limit = active
+		}
+		trace.note("page of %d", limit)
 		var err error
 		cacheStart := diagnostics.Start()
-		cached, err = c.cache.Page(ctx, chat, anchor, dir, 80)
+		trace.at("cache page")
+		cached, err = c.cache.Page(ctx, chat, anchor, dir, limit)
+		trace.note("cache page: %d messages, err=%v", len(cached), err)
 		s.profileHistory("cache.page-read", chat, dir, anchor, len(cached), cacheStart, err)
 		if err != nil {
 			s.finishPageAt(epoch, chat, dir, nil, false, err)
@@ -951,19 +1069,52 @@ func (s *Store) fetchAt(epoch uint64, chat int64, dir, anchor int) {
 	}
 	if api == nil || peer.Kind == "" {
 		s.profileHistory("history.cache-only", chat, dir, anchor, len(cached), time.Time{}, nil)
+		trace.note("CACHE ONLY (online=%t peer=%q): %d messages", api != nil, peer.Kind, len(cached))
+		trace.at("note first (cache only)")
 		if dir <= 0 {
 			s.noteFirst(ctx, chat, cached)
 		}
 		if dir != 0 {
-			s.finishPageAt(epoch, chat, dir, cached, len(cached) >= 80, nil, start)
+			s.finishPageAt(epoch, chat, dir, cached, len(cached) >= limit, nil, start)
 		} else {
 			s.finishPageAt(epoch, chat, dir, nil, true, nil, start)
 		}
 		return
 	}
-	req := historyRequest(peer.input(), dir, anchor, 80)
-	result, e := api.MessagesGetHistory(ctx, req)
+	if chained && s.verifiedPage(ctx, chat, cached, dir, anchor, limit, chain) {
+		// The cache can vouch for the page: Telegram is not asked for it.
+		trace.note("FROM THE CACHE, verified at chain %d: %d messages", chain, len(cached))
+		trace.at("note first (verified)")
+		if dir < 0 {
+			s.noteFirst(ctx, chat, cached)
+		}
+		s.finishPageAt(epoch, chat, dir, cached, len(cached) >= limit, nil, start)
+		return
+	}
+	if low, high, whole := s.wholePage(chat, cached, dir, anchor, limit); whole {
+		// The cache has the page whole but cannot vouch for it: it is
+		// shown at once, and checked when the scroll rests.
+		trace.note("FROM THE CACHE, not verified: %d messages, %d..%d to check", len(cached), low, high)
+		if dir < 0 {
+			s.noteFirst(ctx, chat, cached)
+		}
+		s.queueCheck(rangeCheck{chat: chat, low: low, high: high, chain: chain, chained: chained})
+		s.finishPageAt(epoch, chat, dir, cached, len(cached) >= limit, nil, start)
+		return
+	}
+	req := historyRequest(peer.input(), dir, anchor, limit)
+	trace.at("paced")
+	waited, e := c.pace.wait(ctx)
+	if waited > 0 {
+		trace.note("paced %s", waited.Round(time.Millisecond))
+	}
+	var result tg.MessagesMessagesClass
+	if e == nil {
+		trace.at("messages.getHistory")
+		result, e = api.MessagesGetHistory(ctx, req)
+	}
 	if e != nil {
+		trace.note("messages.getHistory offset=%d add=%d failed: %v; %d from the cache instead", req.OffsetID, req.AddOffset, e, len(cached))
 		if len(cached) > 0 {
 			s.finishPageAt(epoch, chat, dir, cached, true, nil, start)
 		} else {
@@ -973,35 +1124,74 @@ func (s *Store) fetchAt(epoch uint64, chat int64, dir, anchor int) {
 	}
 	modified, ok := result.AsModified()
 	if !ok {
+		trace.note("messages.getHistory: NOT MODIFIED (%T)", result)
 		s.finishPageAt(epoch, chat, dir, nil, false, nil)
 		return
 	}
+	if historylog.On() {
+		ids := make([]int, 0, len(modified.GetMessages()))
+		for _, m := range modified.GetMessages() {
+			ids = append(ids, m.GetID())
+		}
+		low, high, end, spanned := pageSpan(ids, dir, anchor, req.Limit)
+		trace.note("messages.getHistory offset=%d add=%d limit=%d: %d messages (%T) span %d..%d end=%t ok=%t", req.OffsetID, req.AddOffset, req.Limit, len(ids), result, low, high, end, spanned)
+	}
 	s.rememberPeers(modified.GetUsers(), modified.GetChats())
+	trace.at("reconcile (waits for apply)")
 	if e = s.reconcile(ctx, chat, modified.GetMessages(), start, dir, anchor, req.Limit); e != nil {
 		s.finishPageAt(epoch, chat, dir, nil, false, e)
 		return
 	}
 	s.endTop(chat, modified.GetMessages(), dir, anchor, req.Limit, top)
+	trace.at("ingest (waits for apply)")
 	msgs, e := s.ingest(ctx, modified.GetMessages(), false, start)
 	if e == nil {
+		trace.at("persist dialogs")
 		e = s.persistDialogs(ctx)
 	}
 	if e == nil {
-		e = s.keepSpan(ctx, epoch, liveEpoch, chat, modified.GetMessages(), start, dir, anchor, req.Limit)
+		trace.at("keep span")
+		e = s.keepSpan(ctx, epoch, liveEpoch, chat, modified.GetMessages(), start, dir, anchor, req.Limit, chain, chained)
 	}
 	if e == nil && dir <= 0 {
+		trace.at("note first")
 		s.noteFirst(ctx, chat, msgs)
 	}
 	if e == nil && dir == 0 && anchor != 0 {
+		trace.at("learn top")
 		s.learnTop(ctx, api, peer, chat, modified.GetMessages(), anchor, req.Limit)
 	}
+	if e != nil {
+		trace.note("after the page: %v", e)
+	}
+	trace.at("finish")
 	// Telegram's page lacks the messages kept deleted; the cache has them.
 	for _, m := range cached {
 		if m.Deleted {
 			msgs = append(msgs, m)
 		}
 	}
-	s.finishPageAt(epoch, chat, dir, msgs, len(modified.GetMessages()) >= req.Limit, e, start)
+	s.finishPageAt(epoch, chat, dir, msgs, pageMore(modified.GetMessages(), dir, anchor, req.Limit), e, start)
+}
+
+// pageMore tells whether the history goes on past a page of
+// messages.getHistory, as fetchAt asks for it, the way the page was asked
+// for: to older messages for dir <= 0, to newer ones for dir > 0. A page
+// around a message near the end has fewer messages than asked for because
+// the newer ones ran out: only the ones before the message tell whether
+// older ones follow, as pageSpan reads them. Counted whole, such a page
+// ended the history, which then never loaded what is older.
+func pageMore(page []tg.MessageClass, dir, anchor, limit int) bool {
+	ids := make([]int, 0, len(page))
+	for _, m := range page {
+		ids = append(ids, m.GetID())
+	}
+	low, _, end, _ := pageSpan(ids, dir, anchor, limit)
+	if dir > 0 {
+		return !end
+	}
+	// pageSpan runs a page that reaches the chat's start down to 1.
+	return low != 1
 }
 
 // endTop lowers the chat's newest message to the newest of a page that
@@ -1029,6 +1219,7 @@ func (s *Store) endTop(chat int64, page []tg.MessageClass, dir, anchor, limit, t
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.top[chat] == top && newest < top {
+		historylog.Printf("end top chat=%d: the newest %d -> %d", chat, top, newest)
 		c.top[chat] = newest
 	}
 }
@@ -1065,6 +1256,7 @@ func (s *Store) learnTop(ctx context.Context, api *tg.Client, peer peerRecord, c
 		return
 	}
 	c.mu.Lock()
+	historylog.Printf("learn top chat=%d: the newest %d -> %d", chat, c.top[chat], max(c.top[chat], top))
 	c.top[chat] = max(c.top[chat], top)
 	c.mu.Unlock()
 }
@@ -1098,6 +1290,7 @@ func (s *Store) noteFirst(ctx context.Context, chat int64, msgs []model.Message)
 		return
 	}
 	c.mu.Lock()
+	historylog.Printf("first chat=%d: %d (was %d), its span %d..%d", chat, oldest, c.firsts[chat], span.Low, span.High)
 	c.firsts[chat] = oldest
 	c.mu.Unlock()
 }
@@ -1169,7 +1362,7 @@ func pageSpan(ids []int, dir, anchor, limit int) (low, high int, end, ok bool) {
 // keepSpan records the span a page read at epoch covers, and drops from a
 // history started again (dir 0) what lies outside it: messages from an
 // older part of the history, which the page does not reach.
-func (s *Store) keepSpan(ctx context.Context, epoch, liveEpoch uint64, chat int64, raw []tg.MessageClass, start uint64, dir, anchor, limit int) error {
+func (s *Store) keepSpan(ctx context.Context, epoch, liveEpoch uint64, chat int64, raw []tg.MessageClass, start uint64, dir, anchor, limit int, chain int64, chained bool) error {
 	ids := make([]int, 0, len(raw))
 	for _, m := range raw {
 		ids = append(ids, m.GetID())
@@ -1201,8 +1394,15 @@ func (s *Store) keepSpan(ctx context.Context, epoch, liveEpoch uint64, chat int6
 	if e != nil {
 		return e
 	}
+	// Read whole from Telegram, the page is as Telegram has it.
+	if chained {
+		if e = s.verify(ctx, cache, chat, low, high, chain); e != nil {
+			return e
+		}
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	historylog.Printf("span chat=%d dir=%d anchor=%d: %d..%d end=%t -> kept %d..%d", chat, dir, anchor, low, high, end, span.Low, span.High)
 	if end {
 		c.startLive(chat, liveEpoch)
 	}
@@ -1214,6 +1414,7 @@ func (s *Store) keepSpan(ctx context.Context, epoch, liveEpoch uint64, chat int6
 			}
 		}
 		if len(out) != len(h.Messages) {
+			historylog.Printf("span chat=%d: %d messages outside %d..%d dropped from the history", chat, len(h.Messages)-len(out), span.Low, span.High)
 			h.Messages = out
 			h.Revision++
 		}
@@ -1237,10 +1438,15 @@ func (s *Store) finishPageAt(epoch uint64, chat int64, dir int, msgs []model.Mes
 	c := s.history
 	c.mu.Lock()
 	if c.epochs[chat] != epoch {
+		historylog.Printf("finish chat=%d dir=%d epoch=%d DROPPED: the history is of epoch %d; %s", chat, dir, epoch, c.epochs[chat], historyState(c.histories[chat]))
 		c.mu.Unlock()
 		return
 	}
 	h := c.histories[chat]
+	before := ""
+	if historylog.On() {
+		before = historyState(h)
+	}
 	if h != nil {
 		h.LoadingOlder = false
 		h.LoadingNewer = false
@@ -1277,7 +1483,37 @@ func (s *Store) finishPageAt(epoch uint64, chat int64, dir int, msgs []model.Mes
 					h.HasNewer = more
 				}
 			}
+			c.trimWindow(chat, h, dir)
 		}
+	}
+	if from, ok := c.unrevealed[chat]; ok && h != nil {
+		delete(c.unrevealed, chat)
+		if err != nil && len(h.Messages) == 0 {
+			// The history started again elsewhere (Reveal) came with
+			// nothing to show: the one it replaced is back, where it was,
+			// with the error. Left empty, the chat showed no message and
+			// asked for none until the client started again.
+			c.epochs[chat]++
+			back := from.history
+			back.LoadingOlder, back.LoadingNewer, back.Err = false, false, err
+			back.Revision = max(back.Revision, h.Revision) + 1
+			c.histories[chat] = back
+			delete(c.reveals, chat)
+			if from.viewed {
+				c.views[chat] = from.view
+			} else {
+				delete(c.views, chat)
+			}
+			historylog.Printf("finish chat=%d: the history started again failed, the one before is back (epoch %d)", chat, c.epochs[chat])
+			h = back
+		}
+	}
+	if historylog.On() {
+		gen := "-"
+		if len(generation) > 0 {
+			gen = fmt.Sprint(generation[0])
+		}
+		historylog.Printf("finish chat=%d dir=%d epoch=%d: %d messages more=%t err=%v first=%d top=%d gen=%s\n\tbefore %s\n\tafter  %s", chat, dir, epoch, len(msgs), more, err, c.firsts[chat], c.top[chat], gen, before, historyState(h))
 	}
 	if r := diagnostics.Current(); r != nil {
 		scope := r.Scope(c.account)
@@ -1390,8 +1626,13 @@ func (s *Store) convert(ctx context.Context, raw []tg.MessageClass, live bool, s
 				inlines = append(inlines, inline)
 			}
 		}
-		for id, ref := range refs {
-			c.refs[id] = ref
+		// A page ArchiveChat saves is kept in the cache's refs alone, which
+		// find them when they are asked for: a chat of a million messages
+		// would fill the memory.
+		if ctx.Value(archivingKey{}) == nil {
+			for id, ref := range refs {
+				c.refs[id] = ref
+			}
 		}
 		c.mu.Unlock()
 		// SQLite/encryption may wait on disk or a media writer. Never keep the UI's
@@ -1619,10 +1860,12 @@ func (s *Store) mergeUpdate(m model.Message) (chat model.Chat, isNew bool) {
 		// An edit of a message the history has not loaded is not added:
 		// it is from another part of the history.
 		newest := len(h.Messages) == 0 || m.Key.MessageID > h.Messages[len(h.Messages)-1].Key.MessageID
-		if !found && !h.HasNewer && newest {
+		added := !found && !h.HasNewer && newest
+		if added {
 			h.Messages = append(h.Messages, m)
 			sort.Slice(h.Messages, func(i, j int) bool { return h.Messages[i].Key.MessageID < h.Messages[j].Key.MessageID })
 		}
+		historylog.Printf("update chat=%d message=%d edit=%t added=%t newest=%t; %s", m.Key.ChatID, m.Key.MessageID, found, added, newest, historyState(h))
 	}
 	c.mergeThreads(m, isNew)
 	refreshTopics := c.noteTopic(m, isNew)
@@ -1715,6 +1958,9 @@ func (s *Store) deleteMessages(ctx context.Context, chat int64, ids []int) (map[
 			} else {
 				out = append(out, m)
 			}
+		}
+		if len(out) != len(h.Messages) {
+			historylog.Printf("delete chat=%d: %d messages out of the history %d", chat, len(h.Messages)-len(out), id)
 		}
 		h.Messages = out
 		h.Revision++
@@ -1894,6 +2140,8 @@ func messageKindKey(m model.Message) string {
 		return "preview.file"
 	case model.MessageVoice:
 		return "preview.voice"
+	case model.MessageMusic:
+		return "preview.music"
 	case model.MessageRound:
 		return "preview.round"
 	case model.MessageSticker:
@@ -1984,16 +2232,9 @@ func (s *Store) readUpTo(chat int64) model.MessageID {
 }
 
 func (s *Store) reconcile(ctx context.Context, chat int64, raw []tg.MessageClass, start uint64, dir, anchor, limit int) error {
-	c := s.history
-	c.apply.Lock()
-	defer c.apply.Unlock()
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	low, high := int(^uint(0)>>1), 0
-	var keep []int
 	for _, m := range raw {
 		id := m.GetID()
-		keep = append(keep, id)
 		low = min(low, id)
 		high = max(high, id)
 	}
@@ -2026,6 +2267,22 @@ func (s *Store) reconcile(ctx context.Context, chat int64, raw []tg.MessageClass
 			low = 0
 		}
 	}
+	return s.reconcileRange(ctx, chat, raw, start, low, high)
+}
+
+// reconcileRange takes out of the cache, and the history, the messages of
+// chat in low..high that raw, Telegram's messages of that range, lacks:
+// they were deleted. Messages changed by an update newer than start stay.
+func (s *Store) reconcileRange(ctx context.Context, chat int64, raw []tg.MessageClass, start uint64, low, high int) error {
+	c := s.history
+	c.apply.Lock()
+	defer c.apply.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	keep := make([]int, 0, len(raw))
+	for _, m := range raw {
+		keep = append(keep, m.GetID())
+	}
 	for key, seq := range c.touched {
 		if key.ChatID == chat && seq > start {
 			keep = append(keep, int(key.MessageID))
@@ -2035,6 +2292,9 @@ func (s *Store) reconcile(ctx context.Context, chat int64, raw []tg.MessageClass
 	c.mu.Unlock()
 	ids, kept, e := cache.Reconcile(ctx, chat, low, high, keep)
 	c.mu.Lock()
+	if historylog.On() && (len(ids) > 0 || len(kept) > 0 || e != nil) {
+		historylog.Printf("reconcile chat=%d range %d..%d page %d: %d gone, %d kept deleted, err=%v", chat, low, high, len(raw), len(ids), len(kept), e)
+	}
 	if e != nil {
 		return e
 	}
@@ -2067,6 +2327,7 @@ func (s *Store) Disconnect() {
 	c.liveEpoch++
 	clear(c.live)
 	c.mu.Unlock()
+	historylog.Printf("disconnect: offline, histories read from the cache only")
 	if pool != nil {
 		pool.Close()
 	}

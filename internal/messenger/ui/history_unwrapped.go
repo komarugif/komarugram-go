@@ -27,7 +27,8 @@ import (
 // without a bubble, over the chat's background, as the official clients
 // draw them (Telegram Desktop's UnwrappedMedia and LargeEmoji). The time
 // sits on a plate of its own beside the picture, or over its corner for the
-// account's own; a reply or a forward goes in a small card at the side.
+// account's own and for any video message; a reply or a forward goes in a
+// small card at the side.
 const (
 	// stickerMax is the most a sticker takes on either side; a lone emoji
 	// takes half of it.
@@ -135,15 +136,36 @@ func (p *chatPage) unwrappedBody(gtx layout.Context, r *messageRow, m model.Mess
 		dims := picture(gtx)
 		call := macro.Stop()
 		call.Add(gtx.Ops)
-		if !msg.Outgoing {
+		// A video message has it inside for anyone's, in the corner under
+		// the circle's right, as its duration is under its left, as
+		// Telegram Desktop puts it.
+		if !msg.Outgoing && msg.Kind != model.MessageRound {
 			return dims
 		}
+		// Over a sticker it fades out while the pointer is on the sticker,
+		// for it to be seen whole, as the plates over a video do.
+		target := float32(1)
+		if msg.Kind == model.MessageSticker {
+			target = boolFloat(!r.sticker.click.Hovered() && !r.media.Hovered())
+		}
+		r.timeFade.Duration = token.DurationShort2
+		shown := r.timeFade.Animate(gtx, target)
+		if shown <= 0 {
+			return dims
+		}
+		defer paint.PushOpacity(gtx.Ops, shown).Pop()
 		imacro := op.Record(gtx.Ops)
 		igtx := gtx
 		igtx.Constraints.Min = image.Point{}
 		idims := info(igtx)
 		icall := imacro.Stop()
-		offset(gtx, dims.Size.Sub(idims.Size).Sub(image.Pt(gtx.Dp(4), gtx.Dp(4))), func(gtx layout.Context) layout.Dimensions {
+		// In the corner of a video message's square, as its duration is:
+		// the square keeps the circle off it (roundPad).
+		at := dims.Size.Sub(idims.Size)
+		if msg.Kind != model.MessageRound {
+			at = at.Sub(image.Pt(gtx.Dp(4), gtx.Dp(4)))
+		}
+		offset(gtx, at, func(gtx layout.Context) layout.Dimensions {
 			icall.Add(gtx.Ops)
 			return idims
 		})
@@ -172,7 +194,7 @@ func (p *chatPage) unwrappedBody(gtx layout.Context, r *messageRow, m model.Mess
 			top = side(gtx)
 		}
 		width, height := top.Size.X, top.Size.Y
-		if !msg.Outgoing {
+		if !msg.Outgoing && msg.Kind != model.MessageRound {
 			imacro := op.Record(gtx.Ops)
 			idims := info(gtx)
 			icall := imacro.Stop()
@@ -238,7 +260,7 @@ func (p *chatPage) unwrappedSide(m *model.Message, join bubbleJoin, l localizati
 				children = append(children, vspace(4))
 			}
 			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return p.replyQuote(gtx, r, *m, l)
+				return p.replyQuote(gtx, r, *m, l, gtx.Constraints.Max.X)
 			}))
 		}
 		bubble := sc.Surface.Color

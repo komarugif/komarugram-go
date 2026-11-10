@@ -35,6 +35,9 @@ func (h *HeightIndex) Prefix(n int) int64 {
 	return sum
 }
 func (h *HeightIndex) Total() int64 { return h.Prefix(len(h.heights)) }
+
+// Len is how many heights the index has.
+func (h *HeightIndex) Len() int { return len(h.heights) }
 func (h *HeightIndex) Find(offset int64) (index, inside int) {
 	if len(h.heights) == 0 {
 		return 0, 0

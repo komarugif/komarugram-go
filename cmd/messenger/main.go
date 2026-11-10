@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,6 +31,7 @@ import (
 	"komarugram/internal/crash"
 	"komarugram/internal/diagnostics"
 	"komarugram/internal/messenger/account"
+	"komarugram/internal/messenger/historylog"
 	"komarugram/internal/messenger/install"
 	"komarugram/internal/messenger/langpack"
 	"komarugram/internal/messenger/localization"
@@ -44,7 +46,6 @@ import (
 	"komarugram/internal/messenger/ui"
 	"komarugram/internal/miniappprefs"
 	"komarugram/internal/notify"
-	"komarugram/internal/profilerui"
 	"komarugram/internal/tray"
 	"komarugram/pkg/miniapp"
 	"komarugram/pkg/program"
@@ -76,6 +77,7 @@ func main() {
 	profileExport := flag.Duration("profile-export", 0, "automatically export JSON at this interval (e.g. 2s); enables collection without profiler UI")
 	profileCapture := flag.String("profile-capture", "", "capture profiles without GUI: comma-separated cpu,heap,allocs,trace,goroutine")
 	scrollLog := flag.String("scroll-log", "", "write every scroll event of the lists to this file, for measuring what the wheel and the touchpad send")
+	historyLog := flag.String("history-log", os.Getenv("KOMARUGRAM_HISTORY_LOG"), "add to this file how the histories load: each page asked for and what it changed, and why the history view asked for none (default: $KOMARUGRAM_HISTORY_LOG)")
 	notified := flag.String("notified", "", "open the chat of the notification with this tag in the running messenger; Haiku's notifications start it so when clicked")
 	noIntegrations := flag.Bool("no-integrations", false, "do not look for FFmpeg, mpv, VLC or a browser on the system; only the paths set in the settings are used, as on a machine without them")
 	uninstall := flag.Bool("uninstall", false, "show the window that uninstalls the program installed into the system; the system's list of programs runs it so")
@@ -107,6 +109,11 @@ func main() {
 	if *scrollLog != "" {
 		if err := logScroll(*scrollLog); err != nil {
 			log.Printf("scroll log: %v", err)
+		}
+	}
+	if *historyLog != "" {
+		if err := historylog.Open(*historyLog); err != nil {
+			log.Printf("history log: %v", err)
 		}
 	}
 	// fail ends the process telling why: in the log and, as a program
@@ -146,6 +153,13 @@ func main() {
 		fail("-demo runs without accounts; cannot be combined with -check or -tdata")
 	}
 	if profiling {
+		if runtime.GOOS == "windows" {
+			// Go's CPU profiler on Windows cannot walk a thread stopped in
+			// the machine code wazero compiles, and the process dies: the
+			// sandboxed decoders are interpreted while it profiles.
+			sandbox.Interpret(true)
+			log.Print("profiling: wasm modules run in wazero's interpreter")
+		}
 		r := diagnostics.Enable()
 		if *profileExport > 0 {
 			exporter, err := r.StartAutoExport(*profileDir, *profileExport)
@@ -256,7 +270,7 @@ func main() {
 		return
 	}
 	sharedMiniApps := miniApps(sharedPreferences)
-	process := newProcess(*profile, *profileDir, func() {
+	process := newProcess(*profile, *profileDir, catalog, func() {
 		if w := windows.Load(); w != nil {
 			w.Quit()
 		}
@@ -361,7 +375,7 @@ func reportLastCrash(catalog localization.Catalog) {
 func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive time.Duration, signIn bool, open string, quiet bool) {
 	prefs := preferences.Memory()
 	followLanguage(prefs)
-	process := newProcess(profile, profileDir, nil)
+	process := newProcess(profile, profileDir, localization.For(prefs.Global().Language), nil)
 	var protection *security.Manager
 	if signIn {
 		manager, remove, err := demoProtection()
@@ -522,8 +536,9 @@ func windowOptions(prefs *preferences.Store) appwindow.Options {
 
 // newProcess returns the window host, which with diagnostics enabled quits on
 // a signal, so that profiles are flushed, and opens the profiler window if
-// asked. quit ends the process, nil for closing every window.
-func newProcess(profile bool, profileDir string, quit func()) *appwindow.Host {
+// asked, in the language of catalog. quit ends the process, nil for closing
+// every window.
+func newProcess(profile bool, profileDir string, catalog localization.Catalog, quit func()) *appwindow.Host {
 	process := new(appwindow.Host)
 	process.EnableCrashDialogs()
 	if quit == nil {
@@ -535,7 +550,7 @@ func newProcess(profile bool, profileDir string, quit func()) *appwindow.Host {
 		signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 		go func() { <-signals; quit() }()
 		if profile {
-			process.Open(profilerui.Spec(r, profileDir))
+			process.Open(ui.ProfilerSpec(r, profileDir, catalog))
 		}
 	}
 	return process

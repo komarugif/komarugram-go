@@ -69,6 +69,15 @@
 
 "app.title" = "KomaruGram Go";
 
+"archive.about" = "Messages the local cache lacks are being saved from Telegram's history. Media are not downloaded, and the chat on screen stays as it is.";
+"archive.cancel" = "Cancel";
+"archive.done" = "Messages saved to the cache.";
+"archive.failed" = "Could not save the messages";
+"archive.status" = "{cached} of {total} messages in the cache";
+"archive.status_unknown" = "{cached} messages in the cache";
+"archive.title" = "Saving messages";
+"archive.waiting" = "Telegram asks to wait {time}…";
+
 "audio.close" = "Close";
 "audio.date" = "{date} at {time}";
 "audio.next" = "Next track";
@@ -892,6 +901,8 @@
 "history.reply" = "Reply to message";
 "history.reply_missing" = "Message";
 "history.retry" = "Retry";
+"history.flood_wait" = "Too many requests. Try again in {time}.";
+"history.load_failed" = "Messages did not load: {error}";
 "history.select_delete" = "Delete";
 "history.select_forward" = "Forward";
 "history.select_snapshot" = "Snapshot";
@@ -918,9 +929,15 @@
 "info.collectible_title" = "{username} is a collectible username that belongs to";
 "info.copied" = "Copied to clipboard.";
 "info.copy_link" = "Copy Link";
+"info.created" = "Creation date";
 "info.dc" = "Profile photo's data center";
 "info.description" = "Description";
 "info.link_copied" = "Link copied to clipboard.";
+"info.messages#one" = "{count} message ({cached} in the local cache)";
+"info.messages#other" = "{count} messages ({cached} in the local cache)";
+"info.messages_cached#one" = "{count} message in the local cache";
+"info.messages_cached#other" = "{count} messages in the local cache";
+"info.messages_save" = "Click to save messages to the cache";
 "info.open_chat" = "Go to private chat with user";
 "info.open_chat_new" = "You have no chat yet";
 "info.phone" = "Phone · click to copy";
@@ -1359,6 +1376,7 @@
 "preview.location" = "Location";
 "preview.media_count" = "{count} media";
 "preview.media_count#one" = "{count} media";
+"preview.message" = "Message";
 "preview.music" = "Music";
 "preview.photo" = "Photo";
 "preview.photos" = "{count} photos";
@@ -1382,6 +1400,42 @@
 "privacy.visual_body" = "Hides phone numbers and the IP addresses of devices, and covers the ID, number and username in the profile with a spoiler until it is clicked. For streams, screen recordings and screenshots.";
 "privacy.visual_on" = "visual privacy";
 
+"profiler.allocs" = "Allocations";
+"profiler.capture_failed" = "Could not save: {error}";
+"profiler.capturing" = "Recording {kind}…";
+"profiler.clear" = "Reset metrics";
+"profiler.cpu" = "CPU · 15 s";
+"profiler.empty" = "Open a chat in the main window and scroll its history. The demo makes no requests to Telegram.";
+"profiler.errors_off" = "All RPC";
+"profiler.errors_on" = "RPC errors only";
+"profiler.export" = "Export JSON";
+"profiler.filter" = "Filter: window, account, method, event…";
+"profiler.frames" = "Frames";
+"profiler.frames_note" = "FPS counts the frames of the last 2 s, 0 at rest. A frame's time is its setup, update, layout and submit; the spans inside it overlap and do not add up. The GPU is not measured.";
+"profiler.freeze" = "Freeze";
+"profiler.goroutines" = "Goroutines";
+"profiler.heading" = "Profiler";
+"profiler.heap" = "Heap";
+"profiler.history" = "History";
+"profiler.history_counters" = "Counters";
+"profiler.history_events" = "Events: the last {kept}, {dropped} let go";
+"profiler.history_note" = "Each history as its last frame left it: what is loaded, the room kept of the rows that are not, how its rows were laid out, and what it keeps.";
+"profiler.journal" = "Journal";
+"profiler.journal_count" = "{kept} kept of {written}";
+"profiler.journal_note" = "How the histories load, as -history-log writes it: the pages asked for and what they changed, the reserve, the window, the leaps. Kept while the profiler is open.";
+"profiler.journal_save" = "Save journal";
+"profiler.memory" = "Memory";
+"profiler.memory_caches" = "Caches";
+"profiler.memory_note" = "Go's heap as of the last GC; Sys is the runtime's memory, not RSS. The caches' sizes are estimates that may share pictures: do not add them up.";
+"profiler.memory_runtime" = "Runtime";
+"profiler.resume" = "Resume";
+"profiler.rpc" = "Telegram RPC";
+"profiler.rpc_done" = "Done";
+"profiler.rpc_note" = "TL payload bytes, without MTProto's framing, encryption and retries; a response of ? was not decoded.";
+"profiler.rpc_pending" = "Running";
+"profiler.subtitle" = "The profiler's own window is not counted in the frames; memory and the runtime's profiles are of the whole process.";
+"profiler.title" = "komarugram-go · Profiler";
+"profiler.trace" = "Trace · 5 s";
 "program.browser" = "Browser for Mini Apps";
 "program.choose" = "Choose file…";
 "program.custom" = "Set by you";

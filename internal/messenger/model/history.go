@@ -140,10 +140,14 @@ type Message struct {
 	Buttons     [][]MessageButton
 	// Keyboard is the reply keyboard the message sets for the chat, and
 	// KeyboardHide takes the last one away.
-	Keyboard         *ReplyKeyboard `json:",omitempty"`
-	KeyboardHide     bool           `json:",omitempty"`
-	Date             time.Time
-	EditedAt         time.Time
+	Keyboard     *ReplyKeyboard `json:",omitempty"`
+	KeyboardHide bool           `json:",omitempty"`
+	Date         time.Time
+	EditedAt     time.Time
+	// HiddenEditAt is the date of an edit Telegram asks not to show
+	// (edit_hide), which EditedAt leaves out: messages.getHistory's hash
+	// folds it all the same (see tgstore's historyHash).
+	HiddenEditAt     time.Time `json:",omitzero"`
 	Outgoing         bool
 	ReplyToMessageID MessageID
 	ForwardFromID    int64
@@ -320,12 +324,18 @@ type History struct {
 // message's measured height. It is comparable and suitable for a database
 // compound key. ScaleMilli is device scale multiplied by 1000.
 type RenderEnvironment struct {
-	WidthPx          int
-	ScaleMilli       int
-	TextScaleMilli   int
-	Locale           string
-	FontRevision     uint32
-	ThemeRevision    uint32
+	// WidthPx is the width of the history, up to the width past which no
+	// row is laid out wider: wider histories keep their heights under it.
+	WidthPx        int
+	ScaleMilli     int
+	TextScaleMilli int
+	Locale         string
+	FontRevision   uint32
+	// LookRevision tells the parts of the look that change how wide a
+	// message's time is, and so whether it fits on the text's last line:
+	// its seconds and the marks of edited and deleted messages. Colors
+	// change no height and are not in it.
+	LookRevision     uint32
 	RendererRevision uint32
 }
 
@@ -337,6 +347,80 @@ type MessageLayout struct {
 	ContentRevision uint64
 	HeightPx        int
 	MeasuredAt      time.Time
+	// Profile, when set, is what the row's layout tells of its layout at
+	// any width (the UI's row profile), kept under Environment without its
+	// width (RowProfiles).
+	Profile []byte
+}
+
+// ReserveRow is a message the cache keeps after where a history is, as
+// HistoryReserve tells it: its revision, whether it is the account's, the
+// album it is a part of, whether it has media or is a service message;
+// how high its row was laid out in the environment asked, at the revision
+// told (Height -1 where it was not), and its row's profile, at the
+// revision told (MessageLayout.Profile; nil for none).
+type ReserveRow struct {
+	ID              MessageID
+	Revision        uint64
+	Outgoing        bool
+	GroupedID       int64
+	Media, Service  bool
+	Height          int
+	HeightRevision  uint64
+	Profile         []byte
+	ProfileRevision uint64
+}
+
+// HistoryWindow is a store whose loaded history can move to the messages
+// its cache keeps around a message at once (LoadAround), rather than page
+// by page to them: the view went far into the rows whose room the history
+// keeps. LoadAround tells whether it started; the history comes as pages
+// do.
+type HistoryWindow interface {
+	LoadAround(chat int64, id MessageID) bool
+}
+
+// RowShapes is a store that reads the profiles its cache keeps of the
+// rows of a chat's messages low to high, laid out in env at any width, in
+// the encoding of version, without the messages: the history draws the
+// skeletons of rows it let go of by them. It reads the cache: it is not
+// called from a frame.
+type RowShapes interface {
+	ProfilesBetween(chat int64, env RenderEnvironment, version byte, low, high MessageID) map[MessageID][]byte
+}
+
+// HistoryReserve is a store that tells what its cache keeps of a chat's
+// history after a message: the messages of the run it keeps whole after
+// it, oldest first, at most limit of them, with their heights in env and
+// their rows' profiles of the version of their encoding asked. The
+// history reserves the room of the rows below what it has loaded by them,
+// and draws them as skeletons until their pages come. It reads the cache:
+// it is not called from a frame.
+type HistoryReserve interface {
+	Reserve(chat int64, after MessageID, env RenderEnvironment, version byte, limit int) []ReserveRow
+}
+
+// CachedHistory is a store that reads the messages of a chat's history
+// its cache keeps, without Telegram: from message from on, in the run it
+// keeps whole with it, oldest first, at most limit of them, as a page of
+// the history would bring them. The history measures by them the rows of
+// the reserve the scroll went past without laying them out. It reads the
+// cache: it is not called from a frame.
+//
+// CachedLookup is message id of chat as the store has it without
+// Telegram, for a reply that names it: in the cache's history, or looked
+// up on its own before; known is false when it has none.
+type CachedHistory interface {
+	CachedFrom(chat int64, from MessageID, limit int) []Message
+	CachedLookup(chat int64, id MessageID) (m Message, state LookupState, known bool)
+}
+
+// RowProfiles is a store that keeps the profiles of rows that come with
+// their layouts (MessageLayout.Profile): Profiled tells the revisions of
+// the messages of chat it has one of, laid out in env at any width, in the
+// version of their encoding, the first byte of each.
+type RowProfiles interface {
+	Profiled(chat int64, env RenderEnvironment, version byte) map[MessageID]uint64
 }
 
 // LayoutChunk stores a prefix-sum segment. Chunk totals let a scrollbar map a

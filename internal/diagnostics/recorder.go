@@ -91,6 +91,17 @@ type History struct {
 	RestoreScanned, LayoutHits                                                                                int
 	RebuildTime, RestoreTime                                                                                  time.Duration
 	TotalHeight                                                                                               int64
+	// The rows kept of messages not loaded: let go of above the loaded
+	// ones and the reserve's below them, how many the reserve has in all
+	// and whether it ended at a row of no height known; the rows laid out
+	// off screen and the leaps of the window, since the chat opened; the
+	// rows laid out at an end of what is loaded, not kept in the cache; the
+	// skeletons whose bubbles are known, and those whose profiles are to
+	// be read.
+	Above, Below, Reserve         int
+	ReserveTaken, ReserveStopped  bool
+	OffScreen, Leaps              int
+	Unsaved, Shapes, ShapesWanted int
 }
 type Event struct {
 	At                  time.Time

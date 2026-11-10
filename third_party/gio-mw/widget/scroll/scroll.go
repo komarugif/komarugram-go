@@ -187,6 +187,9 @@ type List struct {
 
 	visibility wdk.FloatTween
 	width      wdk.FloatTween
+
+	// auto is the scrolling by the middle button (autoscroll.go).
+	auto autoscroll
 }
 
 // Layout lays out n elements like layout.List.Layout.
@@ -195,6 +198,7 @@ func (l *List) Layout(gtx layout.Context, n int, w layout.ListElement) layout.Di
 
 	before := l.Position
 	moved := l.applyWheel(gtx)
+	l.applyAutoscroll(gtx)
 	dims := l.List.Layout(gtx, n, w)
 	if moved != 0 && l.Position.First == before.First && l.Position.Offset == before.Offset-moved {
 		// The list is at its end in the direction of the animation.
@@ -216,6 +220,7 @@ func (l *List) Layout(gtx layout.Context, n int, w layout.ListElement) layout.Di
 	if !l.HideScrollbar {
 		l.layoutScrollbar(gtx, n, dims.Size)
 	}
+	l.layoutAutoscroll(gtx, dims.Size)
 	return dims
 }
 
@@ -313,7 +318,7 @@ func (l *List) update(gtx layout.Context) {
 		all := pointer.ScrollRange{Min: math.MinInt32, Max: math.MaxInt32}
 		filter := pointer.Filter{
 			Target:  &l.area,
-			Kinds:   pointer.Scroll | pointer.Enter | pointer.Leave,
+			Kinds:   pointer.Scroll | pointer.Enter | pointer.Leave | pointer.Press | pointer.Release | pointer.Move | pointer.Drag | pointer.Cancel,
 			ScrollY: all,
 		}
 		if l.Axis == layout.Horizontal {
@@ -333,7 +338,11 @@ func (l *List) update(gtx layout.Context) {
 			l.hovered = true
 		case pointer.Leave:
 			l.hovered = false
+		case pointer.Press, pointer.Release, pointer.Move, pointer.Drag, pointer.Cancel:
+			l.autoscrollEvent(gtx, e)
 		case pointer.Scroll:
+			// The wheel ends the scrolling by the middle button.
+			l.autoscrollEvent(gtx, e)
 			l.stopPageGlide()
 			d := Pixels(e)
 			distance := d.Y
@@ -353,6 +362,21 @@ func (l *List) update(gtx layout.Context) {
 			} else {
 				l.ScrollBy(gtx, distance)
 			}
+		}
+	}
+	for {
+		all := pointer.ScrollRange{Min: math.MinInt32, Max: math.MaxInt32}
+		ev, ok := gtx.Event(pointer.Filter{
+			Target:  &l.auto.area,
+			Kinds:   pointer.Press | pointer.Release | pointer.Move | pointer.Drag | pointer.Cancel | pointer.Scroll,
+			ScrollX: all,
+			ScrollY: all,
+		})
+		if !ok {
+			break
+		}
+		if e, ok := ev.(pointer.Event); ok {
+			l.autoscrollEvent(gtx, e)
 		}
 	}
 	for {

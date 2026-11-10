@@ -7,11 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gotd/td/tg"
 
 	"komarugram/internal/crash"
+	"komarugram/internal/messenger/historycache"
 	"komarugram/internal/messenger/model"
 )
 
@@ -283,7 +286,7 @@ func (s *Store) localEmojiKinds(ctx context.Context, entities []model.Entity) ma
 // A local appearance can be edited without changing its ordinary server text.
 func (s *Store) editedLocalEmoji(ctx context.Context, chat int64, id int, text string, entities, local []model.Entity) error {
 	cache := s.Cache()
-	if err := cache.Put(ctx, localEmojiKey(chat, id), localEmoji{Text: text, Entities: local}); err != nil {
+	if err := s.putLocalEmoji(ctx, cache, chat, id, localEmoji{Text: text, Entities: local}); err != nil {
 		return err
 	}
 	if m, ok, err := cache.Message(ctx, chat, id); err != nil {
@@ -403,6 +406,49 @@ func localEmojiKey(chat int64, id int) string {
 	return fmt.Sprintf("local-premium/emoji/%d/%d", chat, id)
 }
 
+// putLocalEmoji keeps the local emoji of message id of chat, and notes it
+// has them, for hasLocalEmoji.
+func (s *Store) putLocalEmoji(ctx context.Context, cache *historycache.Cache, chat int64, id int, value localEmoji) error {
+	if err := cache.Put(ctx, localEmojiKey(chat, id), value); err != nil {
+		return err
+	}
+	s.localEmojiMu.Lock()
+	if ids := s.localEmojiIDs[chat]; ids != nil {
+		ids[id] = true
+	}
+	s.localEmojiMu.Unlock()
+	return nil
+}
+
+// hasLocalEmoji tells whether the cache may keep local emoji of message id
+// of chat: those of the chat are read at once, the first time it is asked
+// of, rather than a read for each message of each page, nearly none of
+// which have any.
+func (s *Store) hasLocalEmoji(ctx context.Context, cache *historycache.Cache, chat int64, id int) bool {
+	s.localEmojiMu.Lock()
+	defer s.localEmojiMu.Unlock()
+	ids, ok := s.localEmojiIDs[chat]
+	if !ok {
+		prefix := fmt.Sprintf("local-premium/emoji/%d/", chat)
+		keys, err := cache.KeysWithPrefix(ctx, prefix)
+		if err != nil {
+			// Not known: each message is asked for, as before.
+			return true
+		}
+		ids = make(map[int]bool, len(keys))
+		for _, key := range keys {
+			if n, err := strconv.Atoi(strings.TrimPrefix(key, prefix)); err == nil {
+				ids[n] = true
+			}
+		}
+		if s.localEmojiIDs == nil {
+			s.localEmojiIDs = map[int64]map[int]bool{}
+		}
+		s.localEmojiIDs[chat] = ids
+	}
+	return ids[id]
+}
+
 func (s *Store) keepLocalEmoji(ctx context.Context, chat int64, id int, text string, entities []model.Entity) error {
 	var emoji []model.Entity
 	for _, e := range entities {
@@ -414,7 +460,7 @@ func (s *Store) keepLocalEmoji(ctx context.Context, chat int64, id int, text str
 		return nil
 	}
 	cache := s.Cache()
-	if err := cache.Put(ctx, localEmojiKey(chat, id), localEmoji{Text: text, Entities: emoji}); err != nil {
+	if err := s.putLocalEmoji(ctx, cache, chat, id, localEmoji{Text: text, Entities: emoji}); err != nil {
 		return err
 	}
 	for _, e := range emoji {
@@ -459,7 +505,7 @@ func (s *Store) applyLocalEmoji(ctx context.Context, m model.Message) model.Mess
 		return m
 	}
 	var local localEmoji
-	if cache := s.Cache(); cache != nil {
+	if cache := s.Cache(); cache != nil && s.hasLocalEmoji(ctx, cache, m.Key.ChatID, int(m.Key.MessageID)) {
 		if ok, err := cache.Get(ctx, localEmojiKey(m.Key.ChatID, int(m.Key.MessageID)), &local); ok && err == nil && m.Text == local.Text {
 			if s.local().Media || s.savedChat(m.Key.ChatID) {
 				m.Entities = mergeLocalEmoji(m.Entities, local.Entities)

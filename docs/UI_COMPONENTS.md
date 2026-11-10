@@ -108,6 +108,18 @@ The history is drawn as materialgram draws it:
   there opens it, followed or not; one the account is banned from, with
   nothing of it cached, shows only its info (`chatInfo.OpenClosed`).
   The avatars in the comments and in a forum's topics do the same.
+- **Messages of a chat in its info** (`shared_archive.go`): the last row of the card of details, for a chat, group or channel, tells
+  "n messages (n in the local cache)": Telegram's count is what a search for "-" in the chat returns
+  (`model.ChatArchiver.MessageTotal`), the cache's a count of its rows. A click saves the messages the cache lacks, newest
+  first, in a `modal` with `progressRows` and a Cancel button (`ChatArchiver.ArchiveChat`, `tgstore/archive.go`): pages of
+  100 at the pace of the history's pages (`historyPacer`), a FLOOD_WAIT told in the dialog and waited out. The messages go
+  to the cache with their span, so that the history scrolls through them offline; the history on screen and the room it
+  reserves for rows not loaded do not grow by them: the runs saved are kept apart (kv key `archive/<chat>`), and the
+  measurer, which lays out the rows of a span of no height known and has the reserve grow by them, does not go into them
+  (`Store.CachedFrom` stops at the run); the rows the user scrolls over are kept with their heights and reserved as ever.
+  The runs saved are jumped over with the spans by a next saving, after a Cancel or later, which goes on from where it was.
+  The media's locations of a saved page go to the cache, not to memory (`archivingKey`). The demo's saving is made up
+  (`mockstore/archive.go`).
 - **The way back** (`chat_return.go`): a chat opened from another, as a
   sender's from the group or the comments, or a channel's discussion
   from its Discussion button, gets a back button before the avatar in
@@ -122,15 +134,81 @@ The history is drawn as materialgram draws it:
 - `replyQuote` is the quote of a replied message, which jumps to it;
   `messageFooter` has the comments, views, author, edit mark and time;
   `reactions` wraps reaction chips.
+- A photo or a video in the history is at most 420 dp wide and 430 dp
+  high (`mediaMaxHeight`, Telegram Desktop's `maxMediaSize`): an upright
+  video was half the width of its bubble at 360.
+- A photo, a video or a GIF in a bubble, and an album of them
+  (`edgeMedia`, `tiledAlbum`), come `mediaInset` from the bubble's sides,
+  the gap between an album's tiles (`albumGap`, 3 dp), not the 12 dp of
+  the rest (`bubblePadSide`), as in Telegram for Android; from its top
+  too where nothing is over them, their top corners then as round as the
+  bubble's less the inset (`tileCorners`). Files, stickers, round videos
+  and a link preview's media keep the bubble's padding.
+  `TestMediaInsetInBubble`; `MEDIA_INSET_PNG` renders them.
+- Media that end a bubble carry its time (`timePlate`, `mediaFooter`) on
+  a plate in their bottom right corner, the last tile's in an album, and
+  the bubble ends `mediaInset` under them, as in Telegram for Android,
+  their bottom corners then as round as the bubble's less the inset, as
+  the top ones (`tileCorners`; an album's bottom row, placed before it is
+  drawn), but over a comments bar; where the plate does not fit the tile,
+  the time stays on its line. `TestMediaBottomCorners`,
+  `TestAlbumBottomCorners`. It
+  fades out under the pointer, for the picture to be seen whole, as a
+  video's own plate does; on a GIF that plays here it fades in, as the
+  GIF's time does. A video's own plate, or a GIF's time, that does not go
+  beside it moves to the top corner. The time over the corner of a
+  sticker the account sent fades out under the pointer too. A video
+  message has the time it was sent inside, under the circle's right, for
+  anyone's, as its duration is under its left (Telegram Desktop's).
+  `TestTimeOnVideo`, `TestTimeOnGIF`, `TestTimeOnPhotoHides`,
+  `TestStickerTimeHides`, `TestRoundTimeInside`; `MEDIA_TIME_PNG` renders
+  them.
+- `bubbleContent` lists what a bubble holds as `bubblePart`s, and
+  `bubbleBody` lays them out itself, not in a `layout.Flex`: what takes
+  its own width first, then the quote of the reply and the reactions,
+  which fit around it.
 - `bubbleBody` puts the footer at the bubble's bottom right: on the
   text's last line when it fits there 10 dp after the text (`footerGap`),
+  or in the middle of the reactions' last row when they end the bubble
+  and it fits there (Telegram Desktop's `InlineList::updateSkipBlock`),
   the bubble widening for it up to its width, as Telegram Desktop's skip
   block and Telegram for Android do; on a line of its own otherwise, and
-  under media, a link preview, reactions, a quote or code that ends the
-  text, a last line that does not start at the left (right to left), and
-  a bot's text while it streams. The footer's own width decides, so the
-  seconds and the edit mark move it off the line sooner.
-  `TestTimeOnLastLine`.
+  under media, a link preview, a quote or code that ends the text, a last
+  line that does not start at the left (right to left), and a bot's text
+  while it streams. The footer's own width decides, so the seconds and the
+  edit mark move it off the line sooner. `TestTimeOnLastLine`,
+  `TestTimeOnReactionsRow`.
+- What would make a bubble much wider than the rest of what it holds
+  wraps. `captionWidth` wraps a text under media narrower than it (a
+  tall video) at the narrowest width that keeps its lines, or, where a
+  line more saves 64 dp and a quarter of it, on a line more, not narrower
+  than `minCaptionWidth`; measured with `textFlow` once and kept in the
+  row (`captionFit`). A caption with a quote that does not fold wraps so
+  too, and an album's caption, on its member's row, as narrow as the
+  album (`TestQuoteCaptionWraps`, `TestAlbumCaptionWraps`). A quote that
+  does not fold is as wide as its text; `richText` draws its plate as
+  wide as all the text (`textInteraction.plates`), as Telegram Desktop
+  does (`TestQuoteTakesItsWidth`); one that folds, and code, keep the
+  whole width, their buttons at the right. `reactionFit` chooses where the reactions wrap, the narrowest
+  bubble of no more height, or a row more when that saves a fifth of the
+  width and at least 64 dp, or 64 dp alone where the reactions then keep
+  to the rest of the bubble; of each the one within 32 dp of the narrowest
+  with the time beside the chips rather than alone on a line, then the
+  lowest, then the one whose last row is no wider than its first, then
+  the rows most even; a row more of chips keeps two each on average
+  (`minChipsPerRow`), so that one or two chips go to a row of their own
+  under an upright video (`TestFewReactionsWrapUnderVideo`). Eight reactions with a post's views and
+  time beside them go on two rows of four, the time on the second, under
+  a caption narrower than the one row (`TestReactionsWrapWithTime`). The time goes on their last row
+  where it fits the width they wrap at, or the rest of the bubble, and on
+  a line of its own otherwise, which counts as a row more: a long
+  signature of a post's author no longer widens the bubble beside them
+  (`TestLongSignatureUnderReactions`). Telegram Desktop wraps them at the
+  widest a bubble may be. `replyLines` puts the text of a
+  quote on two lines, about half as wide, where that saves 48 dp and an
+  eighth of the width, the second cut with an ellipsis (`richLabel.flat`).
+  `BUBBLE_FIT_PNG` renders them, with a post as
+  https://t.me/uxfromhell/12666 is (`postLikeChannel`).
 - Channel posts have no avatar; groups, channels and bots have an icon of
   their kind before the title in the chat list (`chatKindIcon`).
 
@@ -882,7 +960,7 @@ new piece sits next to its neighbours.
   and emoji pack states; `TestRenderMessageMenu`, the message menu over a
   reply, with a floating and a classic composer. They are skipped unless their
   variable (`COMPOSER_PNG`, `COMPOSER_MOTION_PNG`, `SETTINGS_PNG`,
-  `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `POLL_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `COMMUNITY_PNG`, `CHAT_PREVIEW_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
+  `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `POLL_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `BUBBLE_FIT_PNG`, `MEDIA_INSET_PNG`, `MEDIA_TIME_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `COMMUNITY_PNG`, `CHAT_PREVIEW_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
   first dialog exists. `COMPOSER_VIEW=emoji-search`, the picker's emoji found for a word;
   `COMPOSER_VIEW=featured-stickers` or `featured-emoji`
   with `COMPOSER_PNG` shows the picker's recommendations; `COMPOSER_VIEW=voice`,

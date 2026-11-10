@@ -226,8 +226,9 @@ func (p *chatPage) endTop(i, h int) int {
 		// As the last row at the bottom of the view.
 		return p.viewHeight - h
 	}
-	before := int(p.heights.Prefix(i))
-	after := int(p.heights.Total() - p.heights.Prefix(i+1))
+	row := len(p.above) + i
+	before := int(p.heights.Prefix(row))
+	after := int(p.heights.Total() - p.heights.Prefix(row+1))
 	return before - max(0, before+h+after-p.viewHeight)
 }
 

@@ -81,6 +81,13 @@ type chatInfo struct {
 	// chat's photo, as materialgram's profile, under a user's ID; each row
 	// copies its text.
 	details                          model.ChatDetailer
+	// archiver counts the chat's messages and saves those the cache lacks;
+	// msgs is the row that tells them, and its dialog.
+	archiver model.ChatArchiver
+	msgs     chatMessages
+	// lookup finds a channel's first message, which tells when it was
+	// created, in place of the registration.
+	lookup model.MessageLookup
 	userID, registration, dataCenter settingsItem
 	themePage                        bool
 	themes                           *chatThemeController
@@ -148,6 +155,8 @@ func newChatInfo(source model.ConversationStore, images *imageOps, invalidate fu
 	p.source, _ = source.(model.SharedMediaSource)
 	p.usernames, _ = source.(model.UsernameSource)
 	p.details, _ = source.(model.ChatDetailer)
+	p.lookup, _ = source.(model.MessageLookup)
+	p.archiver, _ = source.(model.ChatArchiver)
 	p.collection, _ = source.(model.SharedCollectionSource)
 	p.profiles, _ = source.(model.PeerProfileSource)
 	p.chips = map[string]*folderChip{}
@@ -221,6 +230,8 @@ func (p *chatInfo) Open(c model.Chat) {
 	}
 	p.loadProfile()
 	p.load(true)
+	p.resetMessages()
+	p.askMessageCounts(true)
 }
 
 // closeCollectible drops the dialog of a collectible username.
@@ -244,6 +255,7 @@ func (p *chatInfo) OpenClosed(c model.Chat, why string) {
 	p.Open(c)
 	p.stop()
 	p.closed = true
+	p.resetMessages()
 	p.kinds = nil
 	p.modal.Toast(why)
 }
@@ -260,6 +272,7 @@ func (p *chatInfo) stop() {
 // Close closes the dialog at once and releases what it shows.
 func (p *chatInfo) Close() {
 	p.stop()
+	p.resetMessages()
 	p.visible = false
 	p.modal.Hide()
 	p.renderer.media.Clear()
@@ -430,6 +443,9 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 	p.sharedMenuUpdate(gtx, l)
 	p.modeMenuUpdate(gtx)
 	// The dialogs over this one take Escape first.
+	if p.msgs.dialog.modal.Shown() {
+		p.msgs.dialog.modal.Update(gtx, p.msgs.dialog.job != nil)
+	}
 	if p.renderer.link != "" {
 		p.renderer.linkModal.Update(gtx, false)
 	}
@@ -498,6 +514,7 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 		p.modal.Close()
 		open()
 	}
+	p.updateArchive(gtx, l)
 	if p.themesButton.click.Clicked(gtx) {
 		p.OpenTheme()
 	}
@@ -508,7 +525,7 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 		p.load(false)
 	}
 	overlayGtx := gtx
-	covered := p.gift != nil || p.collectible != nil || p.renderer.link != "" || p.renderer.stickers.modal.Shown() || len(p.rendererModals()) > 0
+	covered := p.gift != nil || p.collectible != nil || p.msgs.dialog.modal.Shown() || p.renderer.link != "" || p.renderer.stickers.modal.Shown() || len(p.rendererModals()) > 0
 	if covered {
 		gtx = gtx.Disabled()
 	}
@@ -569,6 +586,7 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 	p.sharedMenuLayout(overlayGtx, l)
 	p.layoutGiftDialog(overlayGtx, l, animate)
 	p.layoutCollectible(overlayGtx, l)
+	p.layoutArchive(overlayGtx, l)
 	// The renderer's dialogs: a link's, a sticker set's, and the selection's
 	// forward, delete and snapshot. A snapshot is of the chat's look, as
 	// the chat's own is, the thumbnails' too, which are drawn without it.
@@ -714,7 +732,8 @@ func (p *chatInfo) layoutCards(gtx layout.Context, l localization.Catalog, anima
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				id := p.userIDText()
 				registration, dataCenter := p.detailTexts(l)
-				if id == "" && registration == "" && dataCenter == "" {
+				messages := p.messagesText(l)
+				if id == "" && registration == "" && dataCenter == "" && messages == "" {
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -730,6 +749,9 @@ func (p *chatInfo) layoutCards(gtx layout.Context, l localization.Catalog, anima
 								if registration == "" {
 									return layout.Dimensions{}
 								}
+								if p.channelLike() {
+									return p.registration.Layout(gtx, iconCalendar, registration, l.T("info.created"))
+								}
 								return p.registration.Layout(gtx, iconCalendar, registration, l.T("info.registration"))
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -737,6 +759,12 @@ func (p *chatInfo) layoutCards(gtx layout.Context, l localization.Catalog, anima
 									return layout.Dimensions{}
 								}
 								return p.dataCenter.Layout(gtx, iconDataCenter, dataCenter, l.T("info.dc"))
+							}),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								if messages == "" {
+									return layout.Dimensions{}
+								}
+								return p.msgs.item.Layout(gtx, iconMessages, messages, l.T("info.messages_save"))
 							}),
 						)
 					}, 6)
@@ -1097,10 +1125,40 @@ const registrationMonthSpread = 92 * 24 * time.Hour
 // userIDText is the ID of a user or a bot, the first of the details; empty
 // for another chat.
 func (p *chatInfo) userIDText() string {
-	if p.chat.ID <= 0 || p.chat.Kind != model.KindUser && p.chat.Kind != model.KindBot {
+	switch {
+	case p.chat.ID == 0:
+		return ""
+	case p.channelLike():
+		// As Telegram's tools tell it: -100 and the channel's number.
+		return strconv.FormatInt(p.chat.ID, 10)
+	case p.chat.ID < 0 || p.chat.Kind != model.KindUser && p.chat.Kind != model.KindBot:
 		return ""
 	}
 	return strconv.FormatInt(p.chat.ID, 10)
+}
+
+// channelLike is whether the chat is a channel of Telegram's, a broadcast
+// one or a supergroup (a group with an ID of a channel's, -100 and its
+// number), unlike a group of the old kind.
+func (p *chatInfo) channelLike() bool {
+	return p.chat.Kind == model.KindChannel || p.chat.Kind == model.KindGroup && p.chat.ID <= -1000000000000
+}
+
+// channelCreated is when a channel or a supergroup was created, from its
+// first message, which Telegram makes a service message of the creation;
+// false while it is on its way, and for one whose first message is
+// something else. A supergroup that was a group before has the message of
+// the move (Telegram's channelMigrateFrom, which the history hides) in its
+// place, from the day it became one.
+func (p *chatInfo) channelCreated() (time.Time, bool) {
+	if p.lookup == nil || !p.channelLike() || p.chat.ID == 0 {
+		return time.Time{}, false
+	}
+	m, state := p.lookup.LookupMessage(p.chat.ID, 1)
+	if state != model.LookupFound || m.Service == nil || m.Service.Kind != model.ServiceCreateChannel && m.Service.Kind != model.ServiceHidden || m.Date.IsZero() {
+		return time.Time{}, false
+	}
+	return m.Date, true
 }
 
 // phoneText is a user's phone number as it is read, "+7 900 123 45 67",
@@ -1109,11 +1167,18 @@ func (p *chatInfo) phoneText() string {
 	return countries.Format(countries.Digits(p.profile.Phone))
 }
 
-// detailTexts are the rows of the chat's details: when a user registered,
-// and where the chat's photo is kept; empty when not known.
+// detailTexts are the rows of the chat's details: when a user registered
+// or a channel or supergroup was created, and where the chat's photo is kept; empty when
+// not known.
 func (p *chatInfo) detailTexts(l localization.Catalog) (registration, dataCenter string) {
-	if p.details == nil || p.chat.ID == 0 {
+	if p.chat.ID == 0 {
 		return "", ""
+	}
+	if at, ok := p.channelCreated(); ok {
+		registration = at.Local().Format("02.01.2006")
+	}
+	if p.details == nil {
+		return registration, ""
 	}
 	if p.chat.Kind == model.KindUser || p.chat.Kind == model.KindBot {
 		at, how, spread := model.RegisteredAround(p.chat.ID)

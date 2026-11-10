@@ -86,6 +86,11 @@ type textInteraction struct {
 	anchorLo, anchorHi int
 	origin             f32.Point
 	reveal             spoilerReveal
+	// plates are the quotes laid out as wide as their text while
+	// fitPlates is set, as richText lays a message's out: it draws their
+	// plates under the text as wide as all of it.
+	plates    []image.Rectangle
+	fitPlates bool
 }
 
 func (s *textInteraction) hit(pos f32.Point) int {

@@ -47,14 +47,59 @@ func (t *track) colors(file *File) {
 
 // avcColors reads the matrix and the range the first sequence parameter set of an
 // AVCDecoderConfigurationRecord tells; told is false when it tells nothing or cannot be
-// read. The record is from strangers: a read past its end ends the reading.
+// read.
 func avcColors(config []byte) (matrix int, full, told bool) {
-	if len(config) < 8 || config[5]&0x1f == 0 {
+	set, ok := readSPS(config)
+	if !ok || !set.signal {
 		return 0, false, false
+	}
+	return set.matrix, set.full, true
+}
+
+// AVCFormat is how the pictures of an H.264 stream are sampled, as its sequence
+// parameter set tells (ITU-T H.264, 7.4.2.1.1): what FFmpeg picks the pixel format of
+// its pictures by.
+type AVCFormat struct {
+	// Chroma is chroma_format_idc: 0 for monochrome, 1 for 4:2:0, 2 for 4:2:2, 3 for
+	// 4:4:4.
+	Chroma int
+	// Depth is the bit depth of luma, and of chroma unless they differ.
+	Depth int
+	// RGB is set for 4:4:4 pictures whose planes are G, B and R rather than Y, Cb and
+	// Cr: those whose matrix is the identity (H.273, code 0).
+	RGB bool
+}
+
+// ReadAVCFormat reads how the pictures of the first sequence parameter set of an
+// AVCDecoderConfigurationRecord are sampled; ok is false when it cannot be read.
+func ReadAVCFormat(config []byte) (format AVCFormat, ok bool) {
+	set, ok := readSPS(config)
+	if !ok {
+		return AVCFormat{}, false
+	}
+	return AVCFormat{Chroma: set.chroma, Depth: set.depth, RGB: set.chroma == 3 && set.described && set.matrix == 0}, true
+}
+
+// paramSet is what a sequence parameter set tells of its pictures.
+type paramSet struct {
+	// chroma is chroma_format_idc, depth the bit depth of luma.
+	chroma, depth int
+	// signal is set when the set tells the range, full; described when it tells
+	// the matrix too.
+	signal, described, full bool
+	matrix                  int
+}
+
+// readSPS reads the first sequence parameter set of an AVCDecoderConfigurationRecord,
+// as far as its video signal type; ok is false when it cannot be read. The record is
+// from strangers: a read past its end ends the reading.
+func readSPS(config []byte) (out paramSet, ok bool) {
+	if len(config) < 8 || config[5]&0x1f == 0 {
+		return paramSet{}, false
 	}
 	size := int(binary.BigEndian.Uint16(config[6:]))
 	if size < 4 || len(config) < 8+size {
-		return 0, false, false
+		return paramSet{}, false
 	}
 	nal := config[8 : 8+size]
 	// Without the NAL header, and the bytes that keep a start code from occurring.
@@ -76,14 +121,17 @@ func avcColors(config []byte) (matrix int, full, told bool) {
 	profile := r.bits(8)
 	r.bits(16) // constraints, level
 	r.ue()     // seq_parameter_set_id
+	// Profiles without the fields are 8-bit 4:2:0.
+	out.chroma, out.depth = 1, 8
 	switch profile {
 	case 100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135:
 		chroma := r.ue()
+		out.chroma = chroma
 		if chroma == 3 {
 			r.bits(1)
 		}
-		r.ue() // bit_depth_luma
-		r.ue() // bit_depth_chroma
+		out.depth = 8 + r.ue() // bit_depth_luma
+		r.ue()                 // bit_depth_chroma
 		r.bits(1)
 		if r.bits(1) == 1 { // seq_scaling_matrix_present
 			lists := 8
@@ -110,6 +158,12 @@ func avcColors(config []byte) (matrix int, full, told bool) {
 			}
 		}
 	}
+	if r.over {
+		return paramSet{}, false
+	}
+	// What follows tells nothing more of how pictures are sampled: a set that cannot
+	// be read on still tells that, without its signal type.
+	sampled := paramSet{chroma: out.chroma, depth: out.depth}
 	r.ue() // log2_max_frame_num
 	switch r.ue() {
 	case 0:
@@ -138,7 +192,7 @@ func avcColors(config []byte) (matrix int, full, told bool) {
 		r.ue()
 	}
 	if r.bits(1) == 0 { // vui_parameters_present
-		return 0, false, false
+		return sampled, true
 	}
 	if r.bits(1) == 1 { // aspect_ratio_info_present
 		if r.bits(8) == 255 {
@@ -150,20 +204,22 @@ func avcColors(config []byte) (matrix int, full, told bool) {
 		r.bits(1)
 	}
 	if r.bits(1) == 0 { // video_signal_type_present
-		return 0, false, false
+		return sampled, true
 	}
 	r.bits(3) // video_format
-	full = r.bits(1) == 1
-	matrix = matrixUnknown
+	out.signal = true
+	out.full = r.bits(1) == 1
+	out.matrix = matrixUnknown
 	if r.bits(1) == 1 { // colour_description_present
 		r.bits(8)
 		r.bits(8)
-		matrix = r.bits(8)
+		out.described = true
+		out.matrix = r.bits(8)
 	}
 	if r.over {
-		return 0, false, false
+		return sampled, true
 	}
-	return matrix, full, true
+	return out, true
 }
 
 // bitReader reads bits from the top of each byte; past its end, zeros, and over is set.

@@ -120,9 +120,14 @@ func (p *chatPage) roundLayout(gtx layout.Context, r *messageRow, m model.Messag
 	inside := internalAudio(m) && (p.audioExternal == nil || !p.audioExternal())
 	s := &r.audio.round
 	state, progress := s.update(gtx, p, m, l, inside)
-	d := min(gtx.Dp(roundSize), gtx.Constraints.Max.X)
+	// The circle lies roundPad inside its square, whose corners its plates
+	// take: the time it was sent with seconds was over the circle's edge.
+	pad := gtx.Dp(roundPad)
+	d := max(1, min(gtx.Dp(roundSize), gtx.Constraints.Max.X-2*pad))
 	size := image.Pt(d, d)
 	s.center, s.radius = f32.Pt(float32(d)/2, float32(d)/2), float32(d)/2
+	square := image.Pt(d+2*pad, d+2*pad)
+	circleAt := op.Offset(image.Pt(pad, pad)).Push(gtx.Ops)
 
 	var im image.Image
 	if state.active {
@@ -189,9 +194,10 @@ func (p *chatPage) roundLayout(gtx layout.Context, r *messageRow, m model.Messag
 			return layout.Dimensions{Size: image.Pt(diameter, diameter)}
 		})
 	}
-	// The time, and a dot while nobody saw it, on a plate in the corner
-	// under the circle's left; the account's own has its own time in the
-	// right one.
+	circleAt.Pop()
+	// The time, and a dot while nobody saw it, on a plate in the square's
+	// corner under the circle's left; the time it was sent is in the right
+	// one (unwrappedBody).
 	shown := m.Media.Duration
 	if state.active && !state.loading {
 		shown = state.elapsed
@@ -216,11 +222,14 @@ func (p *chatPage) roundLayout(gtx layout.Context, r *messageRow, m model.Messag
 		)
 	})
 	call := macro.Stop()
-	at := image.Pt(gtx.Dp(4), d-plate.Size.Y-gtx.Dp(4))
+	at := image.Pt(0, square.Y-plate.Size.Y)
 	offset(gtx, at, func(gtx layout.Context) layout.Dimensions {
 		fillRounded(gtx, sc.InverseSurface.Color.SetOpacity(0.55), plate.Size, plate.Size.Y/2)
 		call.Add(gtx.Ops)
 		return plate
 	})
-	return layout.Dimensions{Size: size}
+	return layout.Dimensions{Size: square}
 }
+
+// roundPad is the space around a video message's circle in its square.
+const roundPad unit.Dp = 8

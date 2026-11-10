@@ -103,10 +103,16 @@ func drawOnlineDot(gtx layout.Context, at image.Point, size int, ring token.MatC
 
 // rendererRevision is the RendererRevision of the history's layouts: the
 // checks beside the time of the account's messages change where their text
-// wraps, and 17 is that of the layouts made before there were any.
+// wraps. 17 and 18 were those of the layouts made before bubbles fit what
+// they hold (bubbleBody) and their media came to their edges; 19 and 20,
+// before media that end a bubble took its time on them; 21 and 22, before
+// a video message's circle had room around it (roundPad); 23 and 24,
+// before the time went off the reactions' row where it widened the bubble;
+// 25 and 26, before the layouts of the history were once more not to be
+// trusted by the heights kept.
 func rendererRevision(gtx layout.Context) uint32 {
 	if calmOf(gtx)&calmRead != 0 {
-		return 17
+		return 27
 	}
-	return 18
+	return 28
 }

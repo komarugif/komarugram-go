@@ -822,6 +822,9 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 	p.audioExternal = func() bool { return a.preferences.Global().AudioPlayer == "external" }
 	p.appearance = a.themes
 	p.avatar = a.layoutAvatar
+	if a.avatars != nil {
+		p.quietAvatars = a.avatars.media.SetQuiet
+	}
 	// A chat a link, a mention or the audio bar opens goes back to the one
 	// it was opened from, as the chat of a group member does.
 	p.openChat = func(chat model.Chat, post model.MessageID) {

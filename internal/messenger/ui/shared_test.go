@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -613,5 +614,165 @@ func TestSharedVideosTellTimeOnly(t *testing.T) {
 		if info.renderer.videoTimeOnly != c.want {
 			t.Errorf("%v: time only %v", c.kind, info.renderer.videoTimeOnly)
 		}
+	}
+}
+
+// A channel's info tells its ID, and when it was created, which its first
+// message tells; a click copies the ID. A channel that began as another
+// kind of chat has no such message, and no date.
+func TestChatInfoChannelIDAndCreation(t *testing.T) {
+	store := mockstore.New(time.Now(), 0)
+	var images imageOps
+	p := newChatInfo(store, &images, func() {})
+	defer p.Destroy()
+	l := localization.For("en")
+	var router input.Router
+	frame := func() {
+		ops := new(op.Ops)
+		gtx := sharedContext(ops, image.Pt(900, 2000))
+		gtx.Source = router.Source()
+		p.Layout(gtx, l, false)
+		router.Frame(ops)
+	}
+	p.Open(model.Chat{ID: 4, Kind: model.KindChannel})
+	awaitShared(t, p)
+	frame()
+	created, ok := p.channelCreated()
+	if !ok {
+		t.Fatal("no creation date")
+	}
+	if registration, _ := p.detailTexts(l); registration != created.Local().Format("02.01.2006") {
+		t.Fatalf("creation row %q, want the date of %v", registration, created)
+	}
+	if id := p.userIDText(); id != "4" {
+		t.Fatalf("channel's ID %q", id)
+	}
+	p.userID.click.Click()
+	frame()
+	if _, text, ok := router.WriteClipboard(); !ok || string(text) != "4" {
+		t.Fatalf("copied %q", text)
+	}
+	p.Open(model.Chat{ID: -1000000000007, Kind: model.KindChannel})
+	if id := p.userIDText(); id != "-1000000000007" {
+		t.Fatalf("a real channel's ID %q", id)
+	}
+	if _, ok := p.channelCreated(); ok {
+		t.Fatal("a creation date for a channel whose first message is not the creation")
+	}
+}
+
+// quietLookup is a store that knows each channel's first message.
+type quietLookup struct {
+	*mockstore.Store
+	first map[int64]model.Message
+}
+
+func (q quietLookup) LookupMessage(chat int64, id model.MessageID) (model.Message, model.LookupState) {
+	if m, ok := q.first[chat]; ok && id == 1 {
+		return m, model.LookupFound
+	}
+	return model.Message{}, model.LookupGone
+}
+
+// A supergroup's info tells its ID and creation as a channel's does; a
+// group of the old kind, whose first message is not the creation, tells
+// neither.
+func TestChatInfoSupergroupIDAndCreation(t *testing.T) {
+	const super, plain = int64(-1000000000009), int64(-4)
+	created := time.Date(2021, time.March, 5, 12, 0, 0, 0, time.Local)
+	first := model.Message{Key: model.MessageKey{ChatID: super, MessageID: 1}, Date: created, Service: &model.ServiceAction{Kind: model.ServiceCreateChannel}}
+	store := quietLookup{Store: mockstore.New(time.Now(), 0), first: map[int64]model.Message{super: first, plain: first}}
+	var images imageOps
+	p := newChatInfo(store, &images, func() {})
+	defer p.Destroy()
+	l := localization.For("en")
+	p.Open(model.Chat{ID: super, Kind: model.KindGroup})
+	if id := p.userIDText(); id != "-1000000000009" {
+		t.Fatalf("supergroup's ID %q", id)
+	}
+	if registration, _ := p.detailTexts(l); registration != "05.03.2021" {
+		t.Fatalf("creation row %q", registration)
+	}
+	p.Open(model.Chat{ID: plain, Kind: model.KindGroup})
+	if id := p.userIDText(); id != "" {
+		t.Fatalf("a group's ID %q", id)
+	}
+	if registration, _ := p.detailTexts(l); registration != "" {
+		t.Fatalf("a group's creation row %q", registration)
+	}
+	// One that was a group before has the hidden message of the move first.
+	moved := first
+	moved.Service = &model.ServiceAction{Kind: model.ServiceHidden}
+	store.first[super] = moved
+	p.Open(model.Chat{ID: super, Kind: model.KindGroup})
+	if registration, _ := p.detailTexts(l); registration != "05.03.2021" {
+		t.Fatalf("a moved supergroup's creation row %q", registration)
+	}
+	store.first[super] = model.Message{Key: first.Key, Date: created, Service: &model.ServiceAction{Kind: model.ServicePin}}
+	if registration, _ := p.detailTexts(l); registration != "" {
+		t.Fatalf("a creation row %q for another message", registration)
+	}
+}
+
+// The last row of the details tells how many messages the chat has and how
+// many the cache holds; a click saves the rest in a dialog with a progress
+// bar, which can be stopped, and a click again goes on from what was saved.
+func TestChatInfoSavesMessagesToTheCache(t *testing.T) {
+	store := mockstore.New(time.Now(), 0)
+	var images imageOps
+	p := newChatInfo(store, &images, func() {})
+	defer p.Destroy()
+	l := localization.For("en")
+	var router input.Router
+	frame := func() {
+		ops := new(op.Ops)
+		gtx := sharedContext(ops, image.Pt(900, 2000))
+		gtx.Source = router.Source()
+		p.Layout(gtx, l, false)
+		router.Frame(ops)
+	}
+	until := func(what string, ok func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for !ok() {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out: %s", what)
+			}
+			frame()
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	p.Open(model.Chat{ID: 4, Kind: model.KindChannel})
+	awaitShared(t, p)
+	total, _ := store.MessageTotal(context.Background(), 4)
+	cached, _ := store.CachedMessages(context.Background(), 4)
+	want := l.Count("info.messages", total, map[string]string{"count": groupDigits(total), "cached": groupDigits(cached)})
+	until("the counts", func() bool { return p.messagesText(l) == want })
+	if cached >= total {
+		t.Fatalf("the demo chat has all its %d messages cached", total)
+	}
+	// Stopped by its button, midway.
+	p.msgs.item.click.Click()
+	frame()
+	if p.msgs.dialog.job == nil || !p.msgs.dialog.modal.Shown() {
+		t.Fatal("the click began no saving")
+	}
+	until("some saved", func() bool { return p.msgs.dialog.job.state().Cached > cached })
+	p.msgs.dialog.cancel.click.Click()
+	until("the saving stopped", func() bool { return p.msgs.dialog.job == nil })
+	part, _ := store.CachedMessages(context.Background(), 4)
+	if part <= cached || part >= total {
+		t.Fatalf("%d cached after a stopped saving, want more than %d and less than %d", part, cached, total)
+	}
+	until("the dialog closed and the count came", func() bool { return !p.msgs.dialog.modal.Shown() && p.msgs.cached == part })
+	// Again, to the end.
+	p.msgs.item.click.Click()
+	frame()
+	if p.msgs.dialog.job == nil {
+		t.Fatal("no saving after one was stopped")
+	}
+	until("all saved", func() bool { return p.msgs.dialog.job == nil && p.msgs.cached == total })
+	if text := p.messagesText(l); !strings.Contains(text, "("+groupDigits(total)+" in the local cache)") {
+		t.Fatalf("row %q once all are saved", text)
 	}
 }

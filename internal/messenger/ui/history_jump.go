@@ -4,6 +4,7 @@ package ui
 
 import (
 	"image"
+	"time"
 
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
@@ -11,6 +12,7 @@ import (
 	"gio-mw/wdk"
 
 	"gioui.org/layout"
+	"gioui.org/op"
 )
 
 const (
@@ -22,8 +24,9 @@ const (
 	// still take it to be at that end, as Telegram Desktop's is
 	// (historyToDownShownAfter).
 	jumpReserve = 480
-	// historyPage is how many messages the store asks Telegram for at once.
-	historyPage = 80
+	// historyPage is how many messages the store asks Telegram for at once,
+	// the least of its pages: the open, and one asked alone.
+	historyPage = 50
 )
 
 // atStart reports whether the history is at the very first message of the
@@ -139,7 +142,10 @@ func (p *chatPage) scrollToEnd(history model.History) {
 // the ring of a load on its way, of the size of a button: of a jump's too,
 // while the history it empties is loaded again.
 func (p *chatPage) jumpButtons(gtx layout.Context, size image.Point, end, viewport int, history model.History, l localization.Catalog) {
-	if !p.jumping && (!p.restored || len(p.messages) == 0 && history.Err == nil) {
+	p.retryShown = false
+	if !p.jumping && history.Err == nil && (!p.restored || len(p.messages) == 0) {
+		// A history that failed has its retry, empty or not: without it a
+		// history that came with nothing could not be asked for again.
 		return
 	}
 	if c := p.composer; c != nil && (c.pickerOpen || c.pickerDrawn) {
@@ -158,9 +164,10 @@ func (p *chatPage) jumpButtons(gtx layout.Context, size image.Point, end, viewpo
 	nearEnd := p.atEnd(history, viewport, reserve)
 	buttons := []button{
 		{&p.toEnd, iconToBottom, l.T("history.to_end"), len(p.messages) > 0 && !nearEnd},
-		{&p.toStart, iconToTop, l.T("history.to_top"), len(p.messages) > 0 && !nearEnd && !p.atStart(history, reserve) && !p.oneRequest(history) && !history.LoadingOlder},
+		{&p.toStart, iconToTop, l.T("history.to_top"), len(p.messages) > 0 && !nearEnd && p.showsToStart(history, reserve)},
 		{&p.retry, iconRefresh, l.T("history.retry"), history.Err != nil},
 	}
+	p.retryShown = buttons[2].show
 	// What a button does is told by which it is, not a closure of each: the
 	// closures, over the history, were made in every frame.
 	do := func(s *surface) {
@@ -181,8 +188,9 @@ func (p *chatPage) jumpButtons(gtx layout.Context, size image.Point, end, viewpo
 	btn := gtx.Dp(jumpButtonSize)
 	x := size.X - gtx.Dp(jumpMargin) - btn
 	y := end - gtx.Dp(jumpMargin) - btn
+	busy := p.loadRing(gtx, history.LoadingOlder || history.LoadingNewer)
 	defer func() {
-		if !(history.LoadingOlder || history.LoadingNewer) || len(p.messages) == 0 && !p.jumping {
+		if !busy || len(p.messages) == 0 && !p.jumping {
 			return // the empty history shows its own ring, but on a jump
 		}
 		offset(gtx, image.Pt(x, y), func(gtx layout.Context) layout.Dimensions {
@@ -214,4 +222,45 @@ func (p *chatPage) jumpButtons(gtx layout.Context, size image.Point, end, viewpo
 		})
 		y -= btn + gtx.Dp(jumpGap)
 	}
+}
+
+const (
+	// ringDelay is how long loads go on before the ring shows: pages from
+	// the cache come within it, and a ring for each blinked.
+	ringDelay = 300 * time.Millisecond
+	// ringGap is how long the history may load nothing between loads that
+	// the ring shows as one.
+	ringGap = 250 * time.Millisecond
+)
+
+// loadRing tells whether the ring of a load shows: once loads went on for
+// ringDelay, with no gap of ringGap between them, and until there is one.
+// A jump, which empties the history, shows it at once.
+func (p *chatPage) loadRing(gtx layout.Context, loading bool) bool {
+	now := gtx.Now
+	if loading {
+		if p.loadLast.IsZero() || now.Sub(p.loadLast) > ringGap {
+			p.loadStart = now
+		}
+		p.loadLast = now
+	}
+	if p.loadLast.IsZero() || now.Sub(p.loadLast) > ringGap {
+		return false
+	}
+	shown := p.jumping || now.Sub(p.loadStart) >= ringDelay
+	// The frame the ring shows or goes in.
+	if !shown {
+		gtx.Execute(op.InvalidateCmd{At: p.loadStart.Add(ringDelay)})
+	} else if !loading {
+		gtx.Execute(op.InvalidateCmd{At: p.loadLast.Add(ringGap + time.Millisecond)})
+	}
+	return shown
+}
+
+// showsToStart tells whether the button to the chat's start shows, out of
+// the end's reach: while there is a start to scroll to, and no jump to it
+// is on its way. Pages of older messages that load leave it be: hidden
+// while each came, it took the ring above it up and down with it.
+func (p *chatPage) showsToStart(history model.History, reserve int) bool {
+	return !p.atStart(history, reserve) && !p.oneRequest(history) && !p.jumping && p.jump != jumpStart
 }

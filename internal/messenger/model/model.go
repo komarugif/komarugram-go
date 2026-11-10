@@ -44,7 +44,8 @@ type Preview struct {
 	Media string `json:",omitempty"`
 	Emoji string `json:",omitempty"`
 	// Title is a poll's question or a checklist's title, which a list
-	// shows in place of Media's word, after the mini icon of its kind.
+	// shows in place of Media's word, after the mini icon of its kind; of
+	// music, the track's name, which it shows after Media's word.
 	Title string `json:",omitempty"`
 	// Service is the message when it is a service one.
 	Service *Message `json:",omitempty"`

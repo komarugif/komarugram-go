@@ -23,6 +23,8 @@ type Store struct {
 	registration registrationState
 
 	sent map[int64]bool
+	// archived are the messages the demo's saving of a chat brought.
+	archived map[int64]int
 	// downloads are the files downloaded in the demo.
 	downloads demoDownloads
 	// files are what the voice messages sent in the demo hold, by media ID.

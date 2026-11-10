@@ -78,6 +78,15 @@
 
 "app.title" = "KomaruGram Go";
 
+"archive.about" = "Сообщения, которых нет в локальном кэше, сохраняются из истории Telegram. Медиа не скачиваются, открытый чат остаётся как был.";
+"archive.cancel" = "Отмена";
+"archive.done" = "Сообщения сохранены в кэш.";
+"archive.failed" = "Не удалось сохранить сообщения";
+"archive.status" = "{cached} из {total} сообщений в кэше";
+"archive.status_unknown" = "{cached} сообщений в кэше";
+"archive.title" = "Сохранение сообщений";
+"archive.waiting" = "Telegram просит подождать {time}…";
+
 "audio.close" = "Закрыть";
 "audio.date" = "{date} в {time}";
 "audio.next" = "Следующий трек";
@@ -941,6 +950,8 @@
 "history.reply" = "Ответ на сообщение";
 "history.reply_missing" = "Сообщение";
 "history.retry" = "Повторить";
+"history.flood_wait" = "Слишком много запросов. Повторите через {time}.";
+"history.load_failed" = "Сообщения не загрузились: {error}";
 "history.select_delete" = "Удалить";
 "history.select_forward" = "Переслать";
 "history.select_snapshot" = "Снимок";
@@ -967,9 +978,19 @@
 "info.collectible_title" = "{username} — коллекционное имя, которое принадлежит";
 "info.copied" = "Скопировано.";
 "info.copy_link" = "Копировать ссылку";
+"info.created" = "Дата создания";
 "info.dc" = "Дата-центр фото профиля";
 "info.description" = "Описание";
 "info.link_copied" = "Ссылка скопирована.";
+"info.messages#few" = "{count} сообщения ({cached} в локальном кэше)";
+"info.messages#many" = "{count} сообщений ({cached} в локальном кэше)";
+"info.messages#one" = "{count} сообщение ({cached} в локальном кэше)";
+"info.messages#other" = "{count} сообщения ({cached} в локальном кэше)";
+"info.messages_cached#few" = "{count} сообщения в локальном кэше";
+"info.messages_cached#many" = "{count} сообщений в локальном кэше";
+"info.messages_cached#one" = "{count} сообщение в локальном кэше";
+"info.messages_cached#other" = "{count} сообщения в локальном кэше";
+"info.messages_save" = "Нажмите, чтобы сохранить сообщения в кэше";
 "info.open_chat" = "Перейти в личный чат с пользователем";
 "info.open_chat_new" = "Вы ещё не переписывались";
 "info.phone" = "Телефон · нажмите, чтобы скопировать";
@@ -1429,6 +1450,7 @@
 "preview.media_count#few" = "{count} медиа";
 "preview.media_count#many" = "{count} медиа";
 "preview.media_count#one" = "{count} медиа";
+"preview.message" = "Сообщение";
 "preview.music" = "Музыка";
 "preview.photo" = "Фото";
 "preview.photos" = "{count} фото";
@@ -1456,6 +1478,42 @@
 "privacy.visual_body" = "Скрывает номера телефонов и IP-адреса устройств, а ID, номер и имя пользователя в профиле показывает под спойлером, пока по нему не нажать. Для стримов, записи экрана и скриншотов.";
 "privacy.visual_on" = "визуальная приватность";
 
+"profiler.allocs" = "Аллокации";
+"profiler.capture_failed" = "Не удалось сохранить: {error}";
+"profiler.capturing" = "Запись {kind}…";
+"profiler.clear" = "Сбросить метрики";
+"profiler.cpu" = "CPU · 15 с";
+"profiler.empty" = "Откройте чат в основном окне и прокрутите историю. В демо запросов к Telegram нет.";
+"profiler.errors_off" = "Все RPC";
+"profiler.errors_on" = "Только ошибки RPC";
+"profiler.export" = "Экспорт JSON";
+"profiler.filter" = "Фильтр: окно, аккаунт, метод, событие…";
+"profiler.frames" = "Кадры";
+"profiler.frames_note" = "FPS — кадры за последние 2 с, в покое 0. Время кадра — подготовка, обновление, раскладка и отправка; вложенные интервалы перекрываются, складывать их нельзя. GPU не измеряется.";
+"profiler.freeze" = "Заморозить";
+"profiler.goroutines" = "Горутины";
+"profiler.heading" = "Профилировщик";
+"profiler.heap" = "Heap";
+"profiler.history" = "История";
+"profiler.history_counters" = "Счётчики";
+"profiler.history_events" = "События: последние {kept}, вытеснено {dropped}";
+"profiler.history_note" = "Каждая история, как её оставил последний кадр: что загружено, место незагруженных строк, как раскладывались строки и что хранится.";
+"profiler.journal" = "Журнал";
+"profiler.journal_count" = "{kept} из {written}";
+"profiler.journal_note" = "Как подгружаются истории, как пишет -history-log: страницы и что они изменили, резерв, окно, прыжки. Хранится, пока открыт профилировщик.";
+"profiler.journal_save" = "Сохранить журнал";
+"profiler.memory" = "Память";
+"profiler.memory_caches" = "Кеши";
+"profiler.memory_note" = "Go heap по последней GC; Sys — память runtime, не RSS. Размеры кешей — оценки, картинки могут учитываться в нескольких: не складывайте их.";
+"profiler.memory_runtime" = "Runtime";
+"profiler.resume" = "Продолжить";
+"profiler.rpc" = "Telegram RPC";
+"profiler.rpc_done" = "Завершённые";
+"profiler.rpc_note" = "Байты TL payload, без заголовков MTProto, шифрования и повторов; ответ ? не декодировался.";
+"profiler.rpc_pending" = "Выполняются";
+"profiler.subtitle" = "Окно профилировщика не входит в кадры; память и профили runtime относятся ко всему процессу.";
+"profiler.title" = "komarugram-go · Профилировщик";
+"profiler.trace" = "Trace · 5 с";
 "program.browser" = "Браузер для Mini Apps";
 "program.choose" = "Указать файл…";
 "program.custom" = "Указан вручную";
