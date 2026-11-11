@@ -17,6 +17,7 @@ Russian; code, comments and docs are in English.
 | `cmd/messenger` | Entry point; `account_host.go` runs accounts, windows and their stores |
 | `cmd/render-all` | Renders every screen of the render tests into one directory |
 | `cmd/haiku-build` | Builds the messenger on Haiku itself, patching the modules that need it (`docs/BUILD_HAIKU.md`) |
+| `cmd/msix-build` | Builds the Windows client as an MSIX package and signs it, by default with a self-signed certificate it keeps (`docs/BUILD_MSIX.md`) |
 | `cmd/registration-table` | Smooths user ids with the days their accounts were registered into the table the info estimates a registration by; the points are kept out of the repository |
 | `cmd/emoji-pack` | Makes the catalog of emoji packs built into the client (`official`: Telegram Desktop's emoji sets, pinned to commits), and catalogs of a directory |
 | `internal/messenger/ui` | All messenger UI. Components: `docs/UI_COMPONENTS.md` |
@@ -173,7 +174,7 @@ the tests as they are).
 - **Programs are started with `program.Command`**, not `os/exec`: on
   Windows a console program started otherwise flashes a console window.
 - **The build scripts run with no flags added, and are the maintainer's.**
-  `cmd/appimage-build`, `cmd/haiku-build`, `cmd/windows-build` and
+  `cmd/appimage-build`, `cmd/haiku-build`, `cmd/msix-build`, `cmd/windows-build` and
   `cmd/haiku-setup.sh` are what users are told to run: `go run ./cmd/<name>`
   works as it stands, and a flag, a variable or a step users must now add
   is a break. Do not change what a script does, needs or is called with

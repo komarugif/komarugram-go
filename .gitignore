@@ -12,6 +12,8 @@ profiles/
 /telegram-android/
 # Binaries the README's build commands leave in the root, and the resource
 # file with the icon gogio leaves beside the package it builds.
+/KomaruGram.msix
+/KomaruGram.cer
 /KomaruGram.AppImage
 /komarugram
 /komarugram.exe
@@ -21,3 +23,7 @@ profiles/
 /pkg/prism/generate/bun.lock
 # What Claude Code keeps of its own in the project: worktrees, settings.
 /.claude/
+
+# What cmd/msix-build makes: packages, and the self-signed certificate with
+# its private key.
+/dist/
