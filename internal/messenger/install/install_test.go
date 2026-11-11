@@ -101,3 +101,17 @@ func TestMadeFolder(t *testing.T) {
 		t.Error("another installation's folder counts for this one")
 	}
 }
+
+// A program of a package is installed and removed by the system: it neither
+// offers to install itself nor shows the uninstaller.
+func TestPackageDoesNotInstallItself(t *testing.T) {
+	if !supported {
+		t.Skip("the program does not install itself here")
+	}
+	old := inPackage
+	inPackage = func() bool { return true }
+	t.Cleanup(func() { inPackage = old })
+	if Supported() || Offered() {
+		t.Error("a packaged program offers to install itself")
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -18,6 +19,20 @@ import (
 )
 
 const supported = true
+
+// packaged reports whether the process has a package identity (MSIX):
+// GetCurrentPackageFullName asks for the name with no room for it, and
+// answers ERROR_INSUFFICIENT_BUFFER for a packaged process, and
+// APPMODEL_ERROR_NO_PACKAGE for any other.
+func packaged() bool {
+	proc := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetCurrentPackageFullName")
+	if proc.Find() != nil {
+		return false // Windows before 8
+	}
+	var n uint32
+	r, _, _ := proc.Call(uintptr(unsafe.Pointer(&n)), 0)
+	return syscall.Errno(r) == windows.ERROR_INSUFFICIENT_BUFFER
+}
 
 const exeName = appName + ".exe"
 

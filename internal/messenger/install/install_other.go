@@ -11,6 +11,8 @@ import (
 
 const supported = false
 
+func packaged() bool { return false }
+
 func userDir() string { return "" }
 
 func install(context.Context, string, string, Options) (string, error) {
