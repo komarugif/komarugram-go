@@ -265,6 +265,19 @@ keeps it from coming back:
   it (accounts, sessions, `history.db.*`), crash reports in the cache
   directory's `komarugram-go/crashes`: `~/.config` and `~/.cache` on Linux,
   `%AppData%` and `%LocalAppData%` on Windows.
+- **Claude Desktop on Windows sees `%AppData%` and `%LocalAppData%` through a
+  layer of its own.** It is an MSIX package, and a shell it starts reads the
+  real profile but writes, renames and deletes into
+  `%LocalAppData%\Packages\Claude_*\LocalCache`: what an agent did to
+  `%AppData%\komarugram-go` is there only, and the maintainer's Explorer and
+  programs do not see it (a "moved" account was a fresh profile to the
+  maintainer, and `sign-in returned no user`). Do not move, copy or delete
+  the client's local data from an agent's shell, and do not take your own
+  listing of it for the maintainer's: give the steps, or put the files in a
+  folder outside AppData (the Desktop, the repository) to move. An auth key
+  left in the layer is a copy of the real one: remove it. The same goes for
+  `-tdata` imports and live checks with the maintainer's account run from
+  an agent's shell: they write there too.
 
 On Linux under X11 (XFCE here):
 
