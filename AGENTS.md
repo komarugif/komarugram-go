@@ -30,7 +30,8 @@ Russian; code, comments and docs are in English.
 | `internal/messenger/{security,securedb}` | TPM-sealed key, encrypted SQLite (Adiantum VFS) |
 | `internal/messenger/mockstore` | Demo store for `-demo` |
 | `pkg/*` | Reusable parts: `dcpool` (download connections), `tdata`, media decoders |
-| `third_party/gio`, `third_party/gio-mw` | Forks, wired with `replace`; changes to each go in its `LOCAL_CHANGES.md` (`third_party/gio/…`, `third_party/gio-mw/…`) |
+| `third_party/gio-mw` | Fork, wired with `replace`; changes go in its `LOCAL_CHANGES.md` (`third_party/gio-mw/…`) |
+| Gio fork | Not in the tree: [github.com/komarugif/gio](https://github.com/komarugif/gio), wired with `replace gioui.org => github.com/komarugif/gio <version>` in `go.mod`; changes go in its `LOCAL_CHANGES.md` (paths like `komarugif/gio/app/…` in the docs are in that repository). To change it see "Changing the Gio fork" |
 | `tdesktop`, `ayugram`, `materialgram`, `komarugram`, `telegram-android` | Not in the repository, and ignored by git: local clones of Telegram Desktop, three of its forks and Telegram for Android, made when needed (see "Telegram sources") |
 
 ## Read before
@@ -171,6 +172,30 @@ the tests as they are).
 - **A new test must fail without the fix.** Break the code, run, restore.
 - **Programs are started with `program.Command`**, not `os/exec`: on
   Windows a console program started otherwise flashes a console window.
+- **The build scripts run with no flags added, and are the maintainer's.**
+  `cmd/appimage-build`, `cmd/haiku-build`, `cmd/windows-build` and
+  `cmd/haiku-setup.sh` are what users are told to run: `go run ./cmd/<name>`
+  works as it stands, and a flag, a variable or a step users must now add
+  is a break. Do not change what a script does, needs or is called with
+  without the maintainer's approval.
+
+## Changing the Gio fork
+
+The fork is a repository of its own, so a change to it is two steps. Clone it
+beside this one (`git clone https://github.com/komarugif/gio ../gio`), and
+work with `go.work` at the parent of both, or with a temporary
+`replace gioui.org => ../gio`; do not commit that line. Commit and push the
+change in the fork (with its `LOCAL_CHANGES.md`), then point this repository
+at the commit:
+
+```sh
+V=$(go list -m -f '{{.Version}}' github.com/komarugif/gio@<commit>)
+go mod edit -replace=gioui.org=github.com/komarugif/gio@$V
+go mod tidy
+```
+
+and commit `go.mod` and `go.sum` here with the change that needs it. Its
+sources are read-only in the module cache (`go list -m -f '{{.Dir}}' gioui.org`).
 
 ## Gio in short
 
@@ -240,6 +265,19 @@ keeps it from coming back:
   it (accounts, sessions, `history.db.*`), crash reports in the cache
   directory's `komarugram-go/crashes`: `~/.config` and `~/.cache` on Linux,
   `%AppData%` and `%LocalAppData%` on Windows.
+- **Claude Desktop on Windows sees `%AppData%` and `%LocalAppData%` through a
+  layer of its own.** It is an MSIX package, and a shell it starts reads the
+  real profile but writes, renames and deletes into
+  `%LocalAppData%\Packages\Claude_*\LocalCache`: what an agent did to
+  `%AppData%\komarugram-go` is there only, and the maintainer's Explorer and
+  programs do not see it (a "moved" account was a fresh profile to the
+  maintainer, and `sign-in returned no user`). Do not move, copy or delete
+  the client's local data from an agent's shell, and do not take your own
+  listing of it for the maintainer's: give the steps, or put the files in a
+  folder outside AppData (the Desktop, the repository) to move. An auth key
+  left in the layer is a copy of the real one: remove it. The same goes for
+  `-tdata` imports and live checks with the maintainer's account run from
+  an agent's shell: they write there too.
 
 On Linux under X11 (XFCE here):
 

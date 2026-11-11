@@ -56,6 +56,7 @@ func TestEncodeEditGIFKeepsWithinLimit(t *testing.T) {
 	if ffmpeg == "" || ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
 	}
+	requireEncoder(t, ffmpeg, "libx264")
 	dir := t.TempDir()
 	clip := filepath.Join(dir, "clip.mp4")
 	if out, err := program.Command(ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x240:d=1:r=25", "-c:v", "libx264", "-crf", "5", "-pix_fmt", "yuv420p", clip).CombinedOutput(); err != nil {

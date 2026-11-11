@@ -603,6 +603,8 @@ func editFailureText(err error, l localization.Catalog) string {
 		return l.T("editor.invalid_file")
 	case errors.Is(err, video.ErrGIFTooLarge):
 		return l.T("viewer.gif_too_large")
+	case errors.Is(err, video.ErrNoH264Encoder):
+		return l.T("ffmpeg.no_h264_encoder")
 	}
 	var ban *model.SendRestriction
 	if errors.As(err, &ban) {

@@ -104,8 +104,18 @@ func (r *rpc) read(ctx context.Context) error {
 	}
 }
 
+// commandTimeout is how long call waits for the answer to a command.
+const commandTimeout = 10 * time.Second
+
 // call sends a command and waits for its answer.
 func (r *rpc) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	return r.callWithin(ctx, commandTimeout, method, params)
+}
+
+// callWithin is call that waits for limit, not commandTimeout: for the
+// command a browser answers only once it has started, which a slow machine,
+// as a virtual one running Firefox on Haiku, takes longer over.
+func (r *rpc) callWithin(ctx context.Context, limit time.Duration, method string, params any) (json.RawMessage, error) {
 	r.mu.Lock()
 	if r.err != nil {
 		err := r.err
@@ -142,7 +152,7 @@ func (r *rpc) call(ctx context.Context, method string, params any) (json.RawMess
 	case <-ctx.Done():
 		r.forget(id)
 		return nil, ctx.Err()
-	case <-time.After(10 * time.Second):
+	case <-time.After(limit):
 		r.forget(id)
 		return nil, fmt.Errorf("%s timed out", method)
 	}

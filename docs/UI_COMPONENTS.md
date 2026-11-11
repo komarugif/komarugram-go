@@ -1016,7 +1016,7 @@ settings' Chats section has both off switches (`preferences.Global`'s
 `PickerOnClick`). The field asks only in a frame after one it was
 laid out in, before anything else of the frame, so that what asks later in
 the same frame wins; the Gio fork asks for a frame once the focused handler
-is gone (`third_party/gio/LOCAL_CHANGES.md`). A new overlay needs nothing
+is gone (`komarugif/gio/LOCAL_CHANGES.md`). A new overlay needs nothing
 for this: take the keyboard when it opens, and the field gets it back. A `modal` takes it on its own; a dialog whose
 search or caption should have it names that as the modal's `field`.
 

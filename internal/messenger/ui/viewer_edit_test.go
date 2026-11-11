@@ -33,6 +33,7 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
+	"komarugram/internal/ffmpegtest"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
@@ -879,6 +880,7 @@ func TestEditVideoFlow(t *testing.T) {
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
 	}
+	ffmpegtest.RequireEncoder(t, ffmpeg, "libx264")
 	dir := t.TempDir()
 	straight := filepath.Join(dir, "straight.mp4")
 	turned := filepath.Join(dir, "turned.mp4")
@@ -940,6 +942,7 @@ func TestEditGIFFlow(t *testing.T) {
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
 	}
+	ffmpegtest.RequireEncoder(t, ffmpeg, "libx264")
 	dir := t.TempDir()
 	clipPath := filepath.Join(dir, "clip.mp4")
 	if out, err := program.Command(ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x240:d=1:r=25", "-f", "lavfi", "-t", "1", "-i", "sine", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", clipPath).CombinedOutput(); err != nil {
@@ -1219,6 +1222,8 @@ func TestBoxEditGIF(t *testing.T) {
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
 	}
+	// The GIF edited comes out as an MP4 of H.264.
+	ffmpegtest.RequireEncoder(t, ffmpeg, "libx264")
 	h, _, f, _ := boxEditHarness(t, "clip.gif", func(path string) {
 		if out, err := program.Command(ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=160x120:d=0.5:r=10", path).CombinedOutput(); err != nil {
 			t.Fatalf("%v: %s", err, out)
@@ -1259,6 +1264,7 @@ func TestBoxEditVideoShowsTheResult(t *testing.T) {
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
 	}
+	ffmpegtest.RequireEncoder(t, ffmpeg, "libx264")
 	h, _, f, _ := boxEditHarness(t, "clip.mp4", func(path string) {
 		if out, err := program.Command(ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=160x120:d=0.5:r=10", "-c:v", "libx264", "-pix_fmt", "yuv420p", path).CombinedOutput(); err != nil {
 			t.Fatalf("%v: %s", err, out)

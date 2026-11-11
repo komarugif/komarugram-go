@@ -65,8 +65,8 @@ func (j *convertJob) progress() float64 {
 }
 
 // toConvert are the files of the box to ask about: videos going as videos in what
-// Telegram does not keep as videos, and only when there is an FFmpeg to convert them
-// and an ffprobe to tell what they are.
+// Telegram does not keep as videos, and only when there is an FFmpeg that makes H.264
+// to convert them and an ffprobe to tell what they are.
 func (c *messageComposer) toConvert() []*boxFile {
 	b := &c.files
 	if b.way.Documents {
@@ -78,7 +78,7 @@ func (c *messageComposer) toConvert() []*boxFile {
 			files = append(files, f)
 		}
 	}
-	if len(files) == 0 || video.ResolveFFmpeg(c.ffmpegPath()) == "" || video.ResolveFFprobe(c.ffmpegPath()) == "" {
+	if len(files) == 0 || !video.CanEncodeH264(c.ffmpegPath()) || video.ResolveFFprobe(c.ffmpegPath()) == "" {
 		return nil
 	}
 	return files
@@ -196,7 +196,11 @@ func (c *messageComposer) takeConverted(l localization.Catalog) {
 	case err == nil:
 		c.sendFiles(l)
 	case !errors.Is(err, context.Canceled):
-		b.modal.Toast(l.T("files.convert_failed") + ": " + mediaErrorText(err))
+		text := mediaErrorText(err)
+		if errors.Is(err, video.ErrNoH264Encoder) {
+			text = l.T("ffmpeg.no_h264_encoder")
+		}
+		b.modal.Toast(l.T("files.convert_failed") + ": " + text)
 	}
 }
 

@@ -68,5 +68,5 @@ require (
 
 replace gio-mw => ./third_party/gio-mw
 
-// Local XKB fix: retain non-Latin key events and resolve shortcut keys.
-replace gioui.org => ./third_party/gio
+// KomaruGram's fork of Gio: https://github.com/komarugif/gio
+replace gioui.org => github.com/komarugif/gio v0.0.0-20261110063711-470227cb9de7

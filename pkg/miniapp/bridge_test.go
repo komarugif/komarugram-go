@@ -37,18 +37,18 @@ func TestBridge(t *testing.T) {
 	defer bridge.Close()
 
 	// Page to client: the SDK announces itself as soon as it initialises.
-	events := waitForEvent(t, bridge, "web_app_ready")
+	// What the app sends beside it comes in no fixed order, and later in a
+	// browser that is slow, as Firefox is in a virtual machine: each is waited
+	// for.
+	var events []miniapp.Event
+	for _, expected := range []string{"web_app_ready", "web_app_expand", "web_app_request_theme", "web_app_setup_back_button"} {
+		events = waitForEvent(t, bridge, expected)
+	}
 	var types []string
 	for _, event := range events {
 		types = append(types, event.Type)
 	}
 	t.Logf("the app sent %d events: %s", len(events), strings.Join(unique(types), ", "))
-
-	for _, expected := range []string{"web_app_ready", "web_app_expand", "web_app_request_theme", "web_app_setup_back_button"} {
-		if !contains(types, expected) {
-			t.Errorf("expected the app to send %s", expected)
-		}
-	}
 
 	// Client to page: switching the theme has to reach the SDK, which hands it
 	// to the app as a themeChanged event.

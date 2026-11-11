@@ -41,7 +41,7 @@ func TestMain(m *testing.M) {
 // caller is told.
 func TestStartLimitedStopsAHog(t *testing.T) {
 	switch runtime.GOOS {
-	case "windows", "linux", "darwin":
+	case "windows", "linux", "darwin", "haiku":
 	default:
 		t.Skip("memory is not bounded here")
 	}

@@ -32,6 +32,7 @@ func TestAudioBarOverOtherPages(t *testing.T) {
 	defer w.Motion.Close()
 	store := mockstore.New(time.Now(), 0)
 	a := New(w, store, Services{MiniApps: miniappprefs.New(miniapp.Shared)})
+	t.Cleanup(a.Close)
 	a.history.audio.play = func(src audio.Source) (audioPlayback, error) { return &silentPlayback{src: src, playing: true}, nil }
 	var voice model.Message
 	for _, m := range store.History(2).Messages {

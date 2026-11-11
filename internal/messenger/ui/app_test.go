@@ -51,6 +51,7 @@ func TestSavedMessagesOpensBeforeDialogExists(t *testing.T) {
 	defer w.Motion.Close()
 	store := noSavedDialogStore{mockstore.New(time.Now(), 0)}
 	a := New(w, store, Services{MiniApps: miniappprefs.New(miniapp.Shared)})
+	t.Cleanup(a.Close)
 	a.openSection(layout.Context{Ops: new(op.Ops)}, section{kind: sectionSaved})
 	if a.selected != store.Me().ID {
 		t.Fatalf("selected %d, want own chat %d", a.selected, store.Me().ID)
@@ -65,6 +66,7 @@ func TestSearchToggle(t *testing.T) {
 	w := &appwindow.Window{Motion: motion.New(func() {})}
 	defer w.Motion.Close()
 	a := New(w, mockstore.New(time.Now(), 0), Services{MiniApps: miniappprefs.New(miniapp.Shared)})
+	t.Cleanup(a.Close)
 	gtx := layout.Context{Ops: new(op.Ops)}
 
 	folder := section{kind: sectionFolder, folder: 2}
@@ -120,6 +122,7 @@ func TestSharedVideoPlaysInViewer(t *testing.T) {
 	w := &appwindow.Window{Motion: motion.New(func() {})}
 	defer w.Motion.Close()
 	a := New(w, mockstore.New(time.Now(), 0), Services{MiniApps: miniappprefs.New(miniapp.Shared)})
+	t.Cleanup(a.Close)
 	m := model.Message{Key: model.MessageKey{ChatID: 2, MessageID: 7}, Kind: model.MessageVideo,
 		Media: &model.MessageMedia{ID: "demo/video", MIMEType: "video/mp4", Width: 1280, Height: 720, Duration: 36 * time.Second}}
 	if a.videoEngine(m) == videoExternal {

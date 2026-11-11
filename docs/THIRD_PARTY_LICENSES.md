@@ -11,7 +11,7 @@ The Go modules linked into `messenger` and `kitchen`, as `go version -m` lists t
 | Component | License |
 |---|---|
 | Go (standard library and runtime) | BSD-3-Clause |
-| [Gio](https://gioui.org) (`third_party/gio`, `gioui.org/shader`) | Unlicense OR MIT |
+| [Gio](https://gioui.org) ([fork](https://github.com/komarugif/gio), `gioui.org/shader`) | Unlicense OR MIT |
 | [gio-mw](https://git.sr.ht/~schnwalter/gio-mw) (`third_party/gio-mw`) | Unlicense OR MIT |
 | [gotd/td](https://github.com/gotd/td) | MIT |
 | [gotd/ige](https://github.com/gotd/ige) | MIT |

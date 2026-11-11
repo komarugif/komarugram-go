@@ -225,6 +225,7 @@ func TestOpenCommunityWithoutRow(t *testing.T) {
 	w := &appwindow.Window{Motion: motion.New(func() {})}
 	t.Cleanup(w.Motion.Close)
 	a := New(w, apartStore{mockstore.New(time.Now(), 0)}, Services{MiniApps: miniappprefs.New(miniapp.Shared)})
+	t.Cleanup(a.Close)
 	a.chats.menu.openCommunity(mockstore.DemoPhotoCommunity)
 	c, ok := a.selectedChat()
 	if !ok || c.ID != mockstore.DemoPhotoCommunity || c.Kind != model.KindCommunity || c.Title != "Фотоклуб" {
@@ -290,6 +291,7 @@ func TestCommunityPageStaysOnUngroup(t *testing.T) {
 	t.Cleanup(w.Motion.Close)
 	store := mockstore.New(time.Now(), 0)
 	a := New(w, store, Services{MiniApps: miniappprefs.New(miniapp.Shared)})
+	t.Cleanup(a.Close)
 	a.open(chatPick{ID: mockstore.DemoCommunity})
 	if err := store.SetCommunityCollapsed(context.Background(), mockstore.DemoCommunity, false); err != nil {
 		t.Fatal(err)
@@ -308,6 +310,7 @@ func TestCommunitySwitchWithoutRow(t *testing.T) {
 	t.Cleanup(w.Motion.Close)
 	store := mockstore.New(time.Now(), 0)
 	a := New(w, store, Services{MiniApps: miniappprefs.New(miniapp.Shared)})
+	t.Cleanup(a.Close)
 	a.openCommunity(mockstore.DemoPhotoCommunity)
 	l := localization.For("ru")
 	frame := func() {
@@ -349,6 +352,7 @@ func TestOpenCommunityPeer(t *testing.T) {
 	t.Cleanup(w.Motion.Close)
 	store := mockstore.New(time.Now(), 0)
 	a := New(w, store, Services{MiniApps: miniappprefs.New(miniapp.Shared)})
+	t.Cleanup(a.Close)
 	a.openCommunity(mockstore.DemoCommunity)
 	community, _ := a.selectedChat()
 	peer := func(id int64) model.CommunityPeer {

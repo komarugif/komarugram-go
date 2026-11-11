@@ -403,10 +403,13 @@ func TestCancelledFileStaysCancelledAfterRestart(t *testing.T) {
 // that stops is an attempt out of time.
 func TestUploadOutlastsPatienceWhileItMoves(t *testing.T) {
 	patience := outgoingPatience
-	outgoingPatience = 150 * time.Millisecond
+	// The pause between two parts is well within the patience, with room for a
+	// slow machine to read and send a part in it, as Haiku in a virtual
+	// machine does; the parts take far longer than it in all.
+	outgoingPatience = 400 * time.Millisecond
 	t.Cleanup(func() { outgoingPatience = patience })
 	s, server := heldStore(t)
-	server.pause = 60 * time.Millisecond
+	server.pause = 100 * time.Millisecond
 	close(server.release)
 	// Parts of 512 KB, one by one: far longer than the patience in all.
 	queueFiles(t, s, "", false, bigFile(t, "big.bin", 4<<20))

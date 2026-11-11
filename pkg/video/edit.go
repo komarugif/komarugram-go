@@ -238,6 +238,9 @@ func EncodeEdit(ctx context.Context, ffmpeg, in, out string, plan EditPlan, repo
 	if path == "" {
 		return errors.New("FFmpeg is not installed")
 	}
+	if err := needH264(ffmpeg); err != nil {
+		return err
+	}
 	size := plan.Media.EditSize()
 	memory := DecodeMemory(image.Pt(plan.Media.Width, plan.Media.Height)) + gifEncodeMemory +
 		uint64(size.X)*uint64(size.Y)*editFilterMemory*uint64(len(plan.Steps)+1)

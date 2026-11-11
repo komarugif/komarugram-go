@@ -15,7 +15,7 @@ promise that they work.
 
 ## How Gio draws
 
-Gio's renderer (`third_party/gio/gpu/gpu.go`) is one for every platform;
+Gio's renderer (`komarugif/gio/gpu/gpu.go`) is one for every platform;
 under it are the graphics APIs of each:
 
 | Platform | Windows | Graphics | Chosen by |
@@ -136,14 +136,16 @@ only), and the `deviceinfo` file above stands in the way as on FreeBSD.
 Built and run in October 2026: `messenger -demo` runs on Haiku R1/beta6
 (`hrev59866+79`, x86_64), drawn in software. The development machine ran
 it in a VirtualBox VM with 4 cores and 6 GB, cross-built from Linux. The
-maintainer looked at it live on 2026-10-08: quick, for a VM. Nothing of
-a real account was tried.
+maintainer looked at it live on 2026-10-08: quick, for a VM. A real
+account was tried too: the client built on Haiku ran with one (see
+Building), and on 2026-11-11 the maintainer ran the client live on Haiku
+with his own account (see "Checked on Haiku").
 
 Haiku is not a Unix by descent, but it has a good POSIX layer (libc,
 threads, sockets, `mmap`), which is why Go and ffmpeg run there. What is
 its own is the GUI: the `app_server` and the Be API in C++, with no X11 or
 Wayland server. Gio had no backend for it; the one here is new
-(`third_party/gio/app/os_haiku.go`, `gl_haiku.go`, `app/internal/haiku`).
+(`komarugif/gio/app/os_haiku.go`, `gl_haiku.go`, `app/internal/haiku`).
 
 ### Building
 
@@ -290,7 +292,7 @@ from korli's `go1.26.1-haiku1` release; it took the cause for the VM's I/O.
    `GIO_HAIKU_LIB`):
 
    ```sh
-   go run third_party/gio/app/internal/haiku/build.go \
+   go run "$(go list -m -f '{{.Dir}}' gioui.org)/app/internal/haiku/build.go" \
      -cxx "clang++ --target=x86_64-unknown-haiku --sysroot=$ROOT -fuse-ld=lld" \
      -o libgiohaiku.so
    ```
@@ -410,7 +412,7 @@ ffmpeg is the package `ffmpeg6_tools` (`pkgman install ffmpeg6_tools`);
 
 ### Checked on Haiku
 
-From 2026-10-07 to 2026-10-08, in the VM above:
+From 2026-10-07 to 2026-11-11, in the VM above, each by the date it has:
 
 | What | Result |
 |---|---|
@@ -436,6 +438,7 @@ From 2026-10-07 to 2026-10-08, in the VM above:
 | Players | mpv 0.41.0 and VLC 3.0.23 from HaikuPorts (`pkgman install mpv vlc`): `pkg/player`'s tests pass for both, control, seeking a stream, closing (2026-10-08). VLC for Haiku has no `--one-instance`, built only with D-Bus or for Windows, and refused to start on it; it is no longer passed there (nor on macOS, whose VLC has no D-Bus either: not checked there). Given no item (`""`, which only `TestCloseLeavesNothing` gave it) VLC for Haiku crashes within seconds, and the system's crash dialog came up for each run; the test now gives it `vlc://pause:60`. Saving a report of a VLC crash crashed the Debugger itself. Told to `quit` while it played an HTTP stream, VLC once kept running, a core busy; the client kills it after `quit` anyway. Firefox's `TestChromiumOpensAtSize` failed because the VM's screen, 768 pixels high, was lower than the window it asked for, 450 by 800: Firefox takes no `--headless=new` and opens a window on the screen. It asks for 400 by 400 now, and passes (2026-10-11) |
 | Choosing files | Haiku's own panel, `filepanel` (in the system): opening a file for the attachment menu leads to the box for sending it; saving prints its path the same way (2026-10-08). The Open button was pressed by the maintainer once and then by `~/haiku-tools/tests/sendrefs`, which sends the panel's messages |
 | Editing | typing, Backspace, the arrows and Delete in an editor of a Gio test program |
+| A real account, live | by the maintainer, 2026-11-11: the client built by `go run ./cmd/haiku-build` (with no flag: nothing it imports has cgo any more), run with his account, its session copied from Windows without the cache. It works, and every integration it finds connects and works. Haiku's FFmpeg has no libx264, and the viewer's save as GIF sent the video to the GIF bot, with no error (`video.CanEncodeH264`, `makeGIF`) |
 
 `LP_NUM_THREADS` limits llvmpipe's threads (one a core otherwise): with
 all four busy, Haiku stopped answering over SSH while a first frame was

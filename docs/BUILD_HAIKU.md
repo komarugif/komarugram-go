@@ -89,12 +89,16 @@ go version
 cd ~
 git clone https://github.com/komarugif/komarugram-go
 cd komarugram-go
-go run -ldflags=-linkmode=internal ./cmd/haiku-build -o ~/apps/KomaruGram
+go run ./cmd/haiku-build -o ~/apps/KomaruGram
 ```
 
-`-linkmode=internal` links `haiku-build` itself with Go's own linker, as
-it links the messenger: it uses cgo on Haiku, and Haiku's `ld` refuses what
-Go hands it (`relocation R_X86_64_TPOFF32`).
+`haiku-build` itself is pure Go and needs no flag; it links the messenger,
+which has cgo, with Go's own linker (`-ldflags=-linkmode=internal`) for you:
+Haiku's `ld` refuses what Go hands it for a program with cgo
+(`relocation R_X86_64_TPOFF32`). Nothing `haiku-build` imports has cgo
+(`TestHaikuBuildImportsNoCgo`): the code that watches the memory of a
+program is in `pkg/program/haikumem`, which `pkg/video` and `chatmedia`
+import. A program of your own that imports cgo needs the flag.
 
 `haiku-build` downloads the modules, applies the changes for Haiku to
 copies of them, builds the messenger and the four libraries it loads from
@@ -110,8 +114,8 @@ memory, use `-low-memory`: it defaults to `GOMAXPROCS=1` and
 inlining only in `github.com/gotd/td/tg`. It applies to `-test` too:
 
 ```sh
-go run -ldflags=-linkmode=internal ./cmd/haiku-build -low-memory -o ~/apps/KomaruGram
-go run -ldflags=-linkmode=internal ./cmd/haiku-build -low-memory -test
+go run ./cmd/haiku-build -low-memory -o ~/apps/KomaruGram
+go run ./cmd/haiku-build -low-memory -test
 ```
 
 Leave memory for Haiku and the native build tools. `GOMEMLIMIT` does not
@@ -142,7 +146,7 @@ ln -s ~/apps/KomaruGram/messenger ~/config/settings/deskbar/menu/KomaruGram
 ```sh
 cd ~/komarugram-go
 git pull
-go run -ldflags=-linkmode=internal ./cmd/haiku-build -o ~/apps/KomaruGram
+go run ./cmd/haiku-build -o ~/apps/KomaruGram
 ```
 
 Quit the messenger first, from its icon in the Deskbar.
@@ -161,7 +165,7 @@ rm -rf ~/go-haiku-old
 
 ```sh
 cd ~/komarugram-go
-go run -ldflags=-linkmode=internal ./cmd/haiku-build -test
+go run ./cmd/haiku-build -test
 ```
 
 `-test` runs `go test` instead of building the messenger, with the same
@@ -171,7 +175,7 @@ to load them from there. What follows a `--` goes to `go test` in place of
 the packages:
 
 ```sh
-go run -ldflags=-linkmode=internal ./cmd/haiku-build -test -- -run TestPlayback -v ./pkg/audio
+go run ./cmd/haiku-build -test -- -run TestPlayback -v ./pkg/audio
 ```
 
 The first run builds every package's tests, which takes long and as much

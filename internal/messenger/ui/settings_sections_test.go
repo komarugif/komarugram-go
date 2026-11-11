@@ -85,6 +85,7 @@ func newSettingsWindow(t *testing.T, language string, theme preferences.Theme, s
 	}
 	window := &appwindow.Window{Window: new(app.Window), Motion: motion.New(func() {})}
 	a := New(window, mockstore.New(time.Now(), 0), Services{Preferences: prefs, MiniApps: miniappprefs.New(miniapp.Ephemeral)})
+	t.Cleanup(a.Close)
 	a.section = section{kind: sectionSettings}
 	a.settings.open()
 	return &settingsWindow{t: t, a: a, window: window, size: size}

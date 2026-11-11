@@ -10,7 +10,7 @@ import (
 )
 
 // gogio must not see or overwrite .syso files left by previous builds.
-// Staging must also retain the repository's local Gio replacement.
+// Staging must also retain the repository's Gio fork and its local gio-mw.
 func TestPrepareWorkIsolatesResourcesAndKeepsFork(t *testing.T) {
 	repo := filepath.Join(t.TempDir(), "repository with spaces")
 	src := filepath.Join(repo, "cmd", "messenger")
@@ -18,7 +18,7 @@ func TestPrepareWorkIsolatesResourcesAndKeepsFork(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string]string{
-		"go.mod":                     "module komarugram\n\ngo 1.27.1\n\nreplace gioui.org => ./third_party/gio\n",
+		"go.mod":                     "module komarugram\n\ngo 1.27.1\n\nreplace gioui.org => github.com/komarugif/gio v0.0.0-20261110063711-470227cb9de7\n\nreplace gio-mw => ./third_party/gio-mw\n",
 		"go.sum":                     "",
 		"cmd/messenger/main.go":      "package main\nfunc main() {}\n",
 		"cmd/messenger/main_test.go": "package main\n",
@@ -55,7 +55,9 @@ func TestPrepareWorkIsolatesResourcesAndKeepsFork(t *testing.T) {
 	}
 	var mod struct {
 		Module  struct{ Path string }
-		Replace []struct{ Old, New struct{ Path string } }
+		Replace []struct {
+			Old, New struct{ Path, Version string }
+		}
 	}
 	if err := json.Unmarshal([]byte(text), &mod); err != nil {
 		t.Fatal(err)
@@ -63,13 +65,19 @@ func TestPrepareWorkIsolatesResourcesAndKeepsFork(t *testing.T) {
 	if mod.Module.Path != "komarugram/windowsbuild" {
 		t.Fatalf("staged module = %q", mod.Module.Path)
 	}
-	found := false
+	var gio, mw bool
 	for _, r := range mod.Replace {
-		if r.Old.Path == "gioui.org" {
-			found = filepath.Clean(r.New.Path) == filepath.Join(repo, "third_party", "gio")
+		switch r.Old.Path {
+		case "gioui.org":
+			gio = r.New.Path == "github.com/komarugif/gio" && r.New.Version == "v0.0.0-20261110063711-470227cb9de7"
+		case "gio-mw":
+			mw = filepath.Clean(r.New.Path) == filepath.Join(repo, "third_party", "gio-mw")
 		}
 	}
-	if !found {
-		t.Fatal("staged module lost the local Gio fork")
+	if !gio {
+		t.Fatal("staged module lost the Gio fork")
+	}
+	if !mw {
+		t.Fatal("staged module lost the local gio-mw")
 	}
 }

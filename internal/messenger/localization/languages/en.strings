@@ -734,6 +734,8 @@
 
 "file.open" = "Open file";
 
+"ffmpeg.no_h264_encoder" = "This FFmpeg cannot make H.264 video: it has no libx264 encoder.";
+
 "files.add" = "Add";
 "files.caption" = "Caption";
 "files.caption_limit" = "The caption is too long: make it shorter by {count} characters.";

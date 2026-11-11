@@ -97,7 +97,8 @@ func (v *mediaViewer) updateGIF(gtx layout.Context, m model.Message, l localizat
 func (v *mediaViewer) makeGIF(m model.Message) {
 	g := &v.gif
 	ffmpeg := ""
-	if v.ffmpeg != nil {
+	if v.ffmpeg != nil && video.CanEncodeH264(v.ffmpeg()) {
+		// One that cannot make H.264, as Haiku's, leaves the GIF to the bot.
 		ffmpeg = video.ResolveFFmpeg(v.ffmpeg())
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -207,6 +208,8 @@ func gifResultText(err error, source any, l localization.Catalog) string {
 		return l.T("viewer.gif_saved")
 	case errors.Is(err, model.ErrGIFTooLarge):
 		return l.T("viewer.gif_too_large")
+	case errors.Is(err, video.ErrNoH264Encoder):
+		return l.T("viewer.gif_failed") + ": " + l.T("ffmpeg.no_h264_encoder")
 	case errors.Is(err, model.ErrGIFBotSilent), errors.Is(err, context.DeadlineExceeded):
 		return l.T("viewer.gif_bot_silent")
 	case errors.Is(err, model.ErrGIFBotBusy):

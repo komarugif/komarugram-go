@@ -261,9 +261,11 @@ func komaruPost(m *model.Message) {
 	m.Text, m.Kind = "Komaru GIF / Чат / VPN", model.MessageVideo
 	m.Media = &model.MessageMedia{ID: "document/17", MIMEType: "video/mp4", Width: 478, Height: 854, Duration: 67e9}
 	m.Reactions = nil
-	// Counts of thousands: their chips are wider than the video with the
-	// emoji and the digits of any font.
-	for i, n := range []int{630, 150, 130, 20, 10} {
+	// Counts of thousands, as "6.3K": their chips are wider than the video
+	// with the emoji and the digits of any font. Counts of hundreds made
+	// chips of 60 px in a narrower font, and two rows saved the bubble less
+	// than the 64 px the reactions are worth wrapping for.
+	for i, n := range []int{6300, 1500, 1300, 2000, 1000} {
 		m.Reactions = append(m.Reactions, model.Reaction{Emoji: []string{"😳", "❤", "🥰", "🔥", "🍌"}[i], Count: n})
 	}
 }
