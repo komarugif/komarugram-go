@@ -172,6 +172,12 @@ the tests as they are).
 - **A new test must fail without the fix.** Break the code, run, restore.
 - **Programs are started with `program.Command`**, not `os/exec`: on
   Windows a console program started otherwise flashes a console window.
+- **The build scripts run with no flags added, and are the maintainer's.**
+  `cmd/appimage-build`, `cmd/haiku-build`, `cmd/windows-build` and
+  `cmd/haiku-setup.sh` are what users are told to run: `go run ./cmd/<name>`
+  works as it stands, and a flag, a variable or a step users must now add
+  is a break. Do not change what a script does, needs or is called with
+  without the maintainer's approval.
 
 ## Changing the Gio fork
 
