@@ -69,4 +69,4 @@ require (
 replace gio-mw => ./third_party/gio-mw
 
 // KomaruGram's fork of Gio: https://github.com/komarugif/gio
-replace gioui.org => github.com/komarugif/gio v0.0.0-20261110063711-470227cb9de7
+replace gioui.org => github.com/komarugif/gio v0.0.0-20261111111526-364066aba39c
