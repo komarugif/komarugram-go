@@ -267,7 +267,8 @@ func (v *mediaViewer) canEditNow(m model.Message) bool {
 	switch m.Kind {
 	case model.MessagePhoto:
 	case model.MessageVideo, model.MessageGIF:
-		if v.ffmpeg == nil || video.ResolveFFmpeg(v.ffmpeg()) == "" {
+		// What is made of them is H.264, which not every FFmpeg encodes.
+		if v.ffmpeg == nil || !video.CanEncodeH264(v.ffmpeg()) {
 			return false
 		}
 	default:

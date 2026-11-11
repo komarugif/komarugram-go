@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"komarugram/internal/ffmpegtest"
 	"komarugram/pkg/program"
 	"komarugram/pkg/video"
 )
@@ -21,6 +22,7 @@ import (
 // says in its metadata, with the FFmpeg found; it skips the test without one.
 func testClip(t *testing.T, ffmpeg string, size image.Point, rotation int) string {
 	t.Helper()
+	ffmpegtest.RequireEncoder(t, ffmpeg, "libx264")
 	dir := t.TempDir()
 	pic := image.NewRGBA(image.Rectangle{Max: size})
 	for y := range size.Y {
@@ -189,6 +191,7 @@ func TestVideoKeepsColors(t *testing.T) {
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
 	}
+	ffmpegtest.RequireEncoder(t, ffmpeg, "libx264")
 	clip := filepath.Join(t.TempDir(), "red.mp4")
 	run(t, ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0xe62838:s=1280x720:d=0.3:r=25", "-vf", "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p", "-c:v", "libx264", "-crf", "5", "-colorspace", "bt709", clip)
 	media := probeClip(t, clip, ffmpeg)
@@ -217,6 +220,7 @@ func TestVideoMarkerInGamma(t *testing.T) {
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
 	}
+	ffmpegtest.RequireEncoder(t, ffmpeg, "libx264")
 	dir := t.TempDir()
 	clip := filepath.Join(dir, "gray.mp4")
 	run(t, ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x808080:s=128x128:d=0.5:r=25", "-vf", "scale=out_color_matrix=bt601:out_range=tv,format=yuv420p", "-c:v", "libx264", "-crf", "5", "-colorspace", "smpte170m", clip)

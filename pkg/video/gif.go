@@ -198,6 +198,9 @@ func ConvertGIF(ctx context.Context, ffmpeg, in, out string, report func(GIFProg
 	if path == "" {
 		return GIF{}, errors.New("FFmpeg is not installed")
 	}
+	if err := needH264(ffmpeg); err != nil {
+		return GIF{}, err
+	}
 	media, err := ProbeMedia(ctx, in, ffmpeg)
 	if err != nil {
 		return GIF{}, err
@@ -224,6 +227,10 @@ func ConvertGIF(ctx context.Context, ffmpeg, in, out string, report func(GIFProg
 // encodeGIF runs ffmpeg with args, its memory bounded, reading its
 // progress.
 func encodeGIF(ctx context.Context, ffmpeg string, args []string, memory uint64, progress GIFProgress, report func(GIFProgress)) error {
+	// Told before ffmpeg is started and fails with its own words for it.
+	if lacksEncoder(ffmpeg, h264Encoder) {
+		return ErrNoH264Encoder
+	}
 	cmd := program.CommandContext(ctx, ffmpeg, append(LimitArgs(memory), args...)...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

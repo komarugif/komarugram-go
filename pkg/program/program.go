@@ -65,12 +65,45 @@ var ErrNoBanner = errors.New("the program did not print its version")
 // around the version are not translated, with nothing on its input, in a
 // process group of its own that is killed as a whole when it takes too long.
 func Banner(ctx context.Context, name string, args ...string) (string, error) {
+	text, err := run(ctx, name, bannerLimit, false, args)
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line, nil
+		}
+	}
+	return "", ErrNoBanner
+}
+
+// Capture runs name with args and returns the first limit bytes of what it
+// printed, its standard output and its error output together, in the order it
+// printed them: for a program that tells what it is on one and what it can on
+// the other, as ffmpeg does. It runs as Banner does, and is ErrNoBanner when
+// it printed nothing.
+func Capture(ctx context.Context, name string, limit int, args ...string) (string, error) {
+	text, err := run(ctx, name, limit, true, args)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(text) == "" {
+		return "", ErrNoBanner
+	}
+	return text, nil
+}
+
+// run is the program started as Banner and Capture start it.
+func run(ctx context.Context, name string, limit int, withErrors bool, args []string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, bannerTimeout)
 	defer cancel()
 	cmd := CommandContext(ctx, name, args...)
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANGUAGE=C")
-	out := &limitedBuffer{limit: bannerLimit}
+	out := &limitedBuffer{limit: limit}
 	cmd.Stdout = out
+	if withErrors {
+		cmd.Stderr = out
+	}
 	Group(cmd)
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
@@ -78,12 +111,7 @@ func Banner(ctx context.Context, name string, args ...string) (string, error) {
 		}
 		return "", err
 	}
-	for _, line := range strings.Split(out.String(), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			return line, nil
-		}
-	}
-	return "", ErrNoBanner
+	return out.String(), nil
 }
 
 // limitedBuffer keeps the first limit bytes written to it and drops the rest,

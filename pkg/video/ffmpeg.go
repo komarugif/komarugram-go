@@ -32,14 +32,17 @@ func CheckFFmpeg(ctx context.Context, path string) (string, error) {
 	if !filepath.IsAbs(path) || !program.IsExecutable(path) {
 		return "", ErrNotExecutable
 	}
-	banner, err := program.Banner(ctx, path, "-version")
+	// One run tells the version and the encoders, which are kept for the
+	// questions to come: -version alone would give the first.
+	info, err := probeFFmpeg(ctx, path)
 	if err != nil {
 		return "", err
 	}
-	if !strings.HasPrefix(banner, "ffmpeg version ") {
+	if !strings.HasPrefix(info.version, "ffmpeg version ") {
 		return "", ErrWrongProgram
 	}
-	return banner, nil
+	remember(path, info)
+	return info.version, nil
 }
 
 // ResolveFFprobe is the ffprobe beside the FFmpeg ResolveFFmpeg(custom)

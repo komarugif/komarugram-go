@@ -7,9 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
+	"komarugram/internal/ffmpegtest"
 	"komarugram/pkg/video"
 )
 
@@ -20,6 +22,7 @@ func needConverter(t *testing.T) string {
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
 	}
+	ffmpegtest.RequireEncoder(t, ffmpeg, "libx264")
 	return ffmpeg
 }
 
@@ -49,6 +52,43 @@ func TestBoxOffersNoConversionWithoutFFmpeg(t *testing.T) {
 	}
 	if sent[0].Files.Paths[0] != paths[0] {
 		t.Fatalf("sent %q", sent[0].Files.Paths[0])
+	}
+}
+
+// An FFmpeg that cannot make H.264, as Haiku's cannot, is no converter: nothing is
+// offered that it would fail at, and a WebM goes as it is. One that can is asked.
+func TestBoxOffersNoConversionWithoutH264Encoder(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake programs are shell scripts")
+	}
+	fakes := func(encoders string) string {
+		dir := t.TempDir()
+		ffmpeg := "#!/bin/sh\ncase \" $* \" in *\" -encoders \"*)\nprintf '%s' '" + encoders + "';;\nesac\nexit 0\n"
+		for name, script := range map[string]string{"ffmpeg": ffmpeg, "ffprobe": "#!/bin/sh\nexit 0\n"} {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return dir
+	}
+	const without = "Encoders:\n ------\n V....D mpeg4               MPEG-4 part 2\n A....D aac                 AAC\n"
+	for _, c := range []struct {
+		name, encoders string
+		asks           bool
+	}{
+		{"without libx264", without, false},
+		{"with libx264", without + " V....D libx264             libx264 H.264 / AVC\n", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("PATH", fakes(c.encoders))
+			h := newMenuHarness(t, nil)
+			composer := h.page.composer
+			composer.files.addPaths(composer, boxPaths(t, "webm"), false)
+			settleBox(t, h)
+			if asks := len(composer.toConvert()) > 0; asks != c.asks {
+				t.Errorf("asks %v, want %v", asks, c.asks)
+			}
+		})
 	}
 }
 

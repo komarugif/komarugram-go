@@ -22,6 +22,8 @@ func TestConvertToMP4(t *testing.T) {
 	if ResolveFFprobe("") == "" {
 		t.Skip("ffprobe unavailable")
 	}
+	// Every format comes out H.264.
+	requireEncoder(t, ffmpeg, "libx264")
 	input := []string{"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=2", "-f", "lavfi", "-i", "sine=frequency=440:duration=2"}
 	for _, c := range []struct {
 		name string
@@ -76,6 +78,8 @@ func TestConvertToMP4Stops(t *testing.T) {
 	if err != nil {
 		t.Skip("ffmpeg unavailable")
 	}
+	// What is stopped is an encoding to H.264.
+	requireEncoder(t, ffmpeg, "libx264")
 	dir := t.TempDir()
 	in, out := filepath.Join(dir, "long.webm"), filepath.Join(dir, "out.mp4")
 	if data, err := exec.Command(ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25:duration=20", "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", in).CombinedOutput(); err != nil {

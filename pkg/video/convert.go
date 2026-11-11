@@ -21,6 +21,9 @@ func ProbeChosenFile(ctx context.Context, path, ffmpeg string) (Media, error) {
 // as it comes, which every client shows as a video. It uses ffmpeg (the one found for
 // "") and tells report how far it has come.
 func ConvertToMP4(ctx context.Context, ffmpeg, in, out string, report func(GIFProgress)) error {
+	if err := needH264(ffmpeg); err != nil {
+		return err
+	}
 	media, err := probeMedia(ctx, in, ffmpeg, convertFormats)
 	if err != nil {
 		return err

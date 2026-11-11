@@ -16,6 +16,7 @@ import (
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
 
+	"komarugram/internal/ffmpegtest"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/sendfiles"
 	"komarugram/pkg/program"
@@ -120,6 +121,7 @@ func TestReplaceMediaKeepsAGIF(t *testing.T) {
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
 	}
+	ffmpegtest.RequireEncoder(t, ffmpeg, "libx264")
 	path := filepath.Join(t.TempDir(), "gif.mp4")
 	if out, err := program.Command(ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=160x120:d=0.3:r=25", "-c:v", "libx264", "-pix_fmt", "yuv420p", path).CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
@@ -163,6 +165,7 @@ func TestSendFilesAnimatedByPlace(t *testing.T) {
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
 	}
+	ffmpegtest.RequireEncoder(t, ffmpeg, "libx264")
 	dir := t.TempDir()
 	paths := []string{filepath.Join(dir, "a.mp4"), filepath.Join(dir, "b.mp4")}
 	for _, path := range paths {
@@ -215,6 +218,7 @@ func TestAlbumVideoStaysAVideo(t *testing.T) {
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
 	}
+	ffmpegtest.RequireEncoder(t, ffmpeg, "libx264")
 	dir := t.TempDir()
 	clip := filepath.Join(dir, "silent.mp4")
 	if out, err := program.Command(ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=160x120:d=0.3:r=25", "-c:v", "libx264", "-pix_fmt", "yuv420p", clip).CombinedOutput(); err != nil {
@@ -261,6 +265,7 @@ func TestSilentVideoAsChosen(t *testing.T) {
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
 	}
+	ffmpegtest.RequireEncoder(t, ffmpeg, "libx264")
 	dir := t.TempDir()
 	silent, sounding := filepath.Join(dir, "silent.mp4"), filepath.Join(dir, "sounding.mp4")
 	for _, args := range [][]string{
