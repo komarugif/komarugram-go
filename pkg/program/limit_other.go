@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Unlicense OR MIT
 
-//go:build !windows && !linux && !(darwin && cgo) && !(haiku && cgo)
+//go:build !windows && !linux && !(darwin && cgo) && !haiku
 
 package program
 

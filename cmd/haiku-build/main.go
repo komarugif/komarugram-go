@@ -10,7 +10,7 @@
 // (docs/haiku/*.patch): they are downloaded, copied out of the module
 // cache, patched, and named in a go.work beside them.
 //
-//	go run -ldflags=-linkmode=internal ./cmd/haiku-build -o /boot/home/apps/KomaruGram
+//	go run ./cmd/haiku-build -o /boot/home/apps/KomaruGram
 //
 // With -test it runs the tests instead, with the same modules and flags,
 // and with the four libraries built into the work directory, where the
@@ -18,8 +18,8 @@
 // test as it is: packages and its flags, after a "--"; with nothing, the
 // tests of ./internal/... ./cmd/... ./pkg/...
 //
-//	go run -ldflags=-linkmode=internal ./cmd/haiku-build -test
-//	go run -ldflags=-linkmode=internal ./cmd/haiku-build -test -- -run TestPlayback ./pkg/audio
+//	go run ./cmd/haiku-build -test
+//	go run ./cmd/haiku-build -test -- -run TestPlayback ./pkg/audio
 package main
 
 import (
