@@ -155,13 +155,16 @@ func newViewerHarness(t *testing.T) *viewerHarness {
 }
 
 func (h *viewerHarness) frame() {
+	// Every frame has a time of its own, one that panicked too: a list whose
+	// child panicked starts again only in a frame of another time, as it does
+	// in the window, and a frame of the same time is a nested Layout to it.
+	defer func() { h.now = h.now.Add(16 * time.Millisecond) }()
 	gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(800, 600)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
 	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
 	h.images.BeginFrame()
 	h.viewer.Layout(gtx, localization.For("en"), false)
 	h.images.EndFrame()
 	h.router.Frame(gtx.Ops)
-	h.now = h.now.Add(16 * time.Millisecond)
 }
 
 // until draws frames until cond holds, waiting for background work between them.

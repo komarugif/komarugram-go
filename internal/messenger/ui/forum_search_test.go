@@ -47,6 +47,7 @@ func newAppForum(t *testing.T) *appForum {
 	t.Cleanup(w.Motion.Close)
 	store := mockstore.New(time.Now(), 0)
 	a := New(w, store, Services{MiniApps: miniappprefs.New(miniapp.Shared)})
+	t.Cleanup(a.Close)
 	a.selected = mockstore.DemoForum
 	forum, ok := a.selectedChat()
 	if !ok || !forum.Forum {

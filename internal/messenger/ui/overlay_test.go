@@ -160,6 +160,7 @@ func TestAppOverlayPrefs(t *testing.T) {
 			t.Fatal(err)
 		}
 		a := New(w, mockstore.New(time.Now(), 0), Services{MiniApps: miniappprefs.New(miniapp.Shared), Preferences: store})
+		t.Cleanup(a.Close)
 		got := a.overlayPrefs()
 		if got.menus != tc.blurs || got.toasts || got.opacity != 0.6 {
 			t.Errorf("animations %v: %+v, want menus blur %t, toasts not, opacity 0.6", tc.mode, got, tc.blurs)

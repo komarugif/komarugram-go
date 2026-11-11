@@ -82,6 +82,7 @@ func TestForumOpensTopicAndGoesBack(t *testing.T) {
 	defer w.Motion.Close()
 	store := mockstore.New(time.Now(), 0)
 	a := New(w, store, Services{MiniApps: miniappprefs.New(miniapp.Shared)})
+	t.Cleanup(a.Close)
 	if a.forum == nil || a.comments == nil {
 		t.Fatalf("no forum page (%v) or thread page (%v) for a store with forums", a.forum, a.comments)
 	}
