@@ -65,7 +65,10 @@ go run ./cmd/windows-build -o komarugram.exe
 ```
 go run ./cmd/windows-build -arch arm64 -o komarugram.exe
 ```
-
+### **Windows 10/11** (MSIX пакет)
+```
+go run ./cmd/msix-build -o KomaruGram.msix
+```
 ### **Haiku**
 ```
 go run ./cmd/haiku-build -o ~/apps/KomaruGram
