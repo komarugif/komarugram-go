@@ -259,10 +259,15 @@ func connectBiDi(ctx context.Context, b *Bridge, url string, telegram bool) (pro
 	return p, nil
 }
 
+// sessionTimeout is how long Firefox has to answer session.new, which it does
+// once it has started: a cold start takes about ten seconds in a virtual
+// machine on Haiku.
+const sessionTimeout = 40 * time.Second
+
 func (p *bidi) start(ctx context.Context, url string, telegram bool) error {
 	// A session over BiDi alone dismisses no dialog of the page's: the
 	// Mini App's alert and confirm stay for the user to answer.
-	session, err := p.rpc.call(ctx, "session.new", map[string]any{
+	session, err := p.rpc.callWithin(ctx, sessionTimeout, "session.new", map[string]any{
 		"capabilities": map[string]any{
 			"alwaysMatch": map[string]any{
 				"unhandledPromptBehavior": map[string]any{"default": "ignore"},
