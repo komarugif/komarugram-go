@@ -29,11 +29,15 @@ func profilerWith(t *testing.T) *profiler {
 	r.RecordFrame(diagnostics.Frame{At: time.Now(), Window: "demo", Total: 20 * time.Millisecond, Layout: 18 * time.Millisecond, Phases: []diagnostics.Phase{{Name: "history.rich-text", Duration: 10 * time.Millisecond, Calls: 8}}})
 	r.History(diagnostics.History{Window: "demo", Chat: 1, Messages: 300, Visible: 8, Restore: "linear-id-anchor", RestoreScanned: 290, Above: 120, Below: 4000, Reserve: 4100, ReserveTaken: true, Leaps: 3})
 	r.Event("demo", "history.restore", "anchor:290", time.Millisecond, 290)
+	r.SetGPU(profilerGPU)
 	p := ProfilerSpec(r, t.TempDir(), localization.For("ru")).Build(nil).(*profiler)
 	t.Cleanup(p.Close)
 	historylog.Printf("leap chat=1 to 500: 600 messages, 200..800")
 	return p
 }
+
+// profilerGPU is what the recorder of profilerWith tells of the GPU.
+const profilerGPU = "Mesa Intel(R) Graphics (ADL GT2), OpenGL ES 3.2 Mesa 26.1.6"
 
 // profilerFrame draws a frame of the profiler at 1150 by 860.
 func profilerFrame(p *profiler, gtx layout.Context) {
@@ -45,6 +49,20 @@ func profilerFrame(p *profiler, gtx layout.Context) {
 
 // Every tab of the profiler shows what the recorder has, the journal the
 // lines of the history's journal, which it keeps while it is open.
+// The tab of frames names the GPU windows are drawn with, as the snapshot
+// of the recorder has it.
+func TestProfilerGPU(t *testing.T) {
+	p := profilerWith(t)
+	gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(1150, 860)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
+	profilerFrame(p, gtx)
+	for _, r := range p.rows {
+		if strings.Contains(r.text, profilerGPU) {
+			return
+		}
+	}
+	t.Fatalf("no %q in the tab of frames", profilerGPU)
+}
+
 func TestProfilerTabs(t *testing.T) {
 	p := profilerWith(t)
 	if !historylog.On() {

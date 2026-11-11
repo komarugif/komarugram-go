@@ -516,6 +516,9 @@ func (p *profiler) makeRows() []profilerRow {
 			line("%5.1f FPS   last %6.2f ms   p50 %6.2f   p95 %6.2f   p99 %6.2f ms   slow %d of %d", float64(fps)/2, ms(last.Total), quant(.5), quant(.95), quant(.99), slow, len(frames))
 			line("average     setup %5.2f   update %5.2f   layout %5.2f   submit/wait %5.2f ms", ms(setup/n), ms(update/n), ms(lay/n), ms(submit/n))
 			line("viewport    %dx%d   px/dp %.2f   px/sp %.2f", last.Width, last.Height, last.PxPerDp, last.PxPerSp)
+			if s.GPU != "" {
+				line("gpu         %s", s.GPU)
+			}
 			var ordered []diagnostics.Phase
 			for _, ph := range phases {
 				ordered = append(ordered, ph)

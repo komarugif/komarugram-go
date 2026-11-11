@@ -135,6 +135,7 @@ type Memory struct {
 type Snapshot struct {
 	SchemaVersion              int
 	GoVersion                  string
+	GPU                        string
 	InFlight                   int
 	At, Started                time.Time
 	Frames                     map[string][]Frame
@@ -154,6 +155,7 @@ type Recorder struct {
 	inFlight  int
 	mu        sync.Mutex
 	started   time.Time
+	gpu       string
 	scopes    map[string]string
 	frames    map[string]*ring[Frame]
 	histories map[string]History
@@ -167,6 +169,14 @@ type Recorder struct {
 	seq       uint64
 	done      chan struct{}
 	capture   atomic.Bool
+}
+
+// SetGPU records the device and driver windows are drawn with, as the
+// graphics API names them (app.GPUDevice), for Snapshot.GPU.
+func (r *Recorder) SetGPU(device string) {
+	r.mu.Lock()
+	r.gpu = device
+	r.mu.Unlock()
 }
 
 func (r *Recorder) Scope(id string) string {
@@ -220,7 +230,7 @@ func (r *Recorder) Due(scope, name string, interval time.Duration) bool {
 func (r *Recorder) Snapshot() Snapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	s := Snapshot{SchemaVersion: 1, GoVersion: runtime.Version(), InFlight: r.inFlight, At: time.Now(), Started: r.started, Frames: map[string][]Frame{}, Events: r.events.copy(), RPCs: r.rpcs.copy(), Memory: r.memory.copy(), Counters: map[string]uint64{}, DroppedEvents: r.events.total - uint64(len(r.events.values)), DroppedRPCs: r.rpcs.total - uint64(len(r.rpcs.values))}
+	s := Snapshot{SchemaVersion: 1, GoVersion: runtime.Version(), GPU: r.gpu, InFlight: r.inFlight, At: time.Now(), Started: r.started, Frames: map[string][]Frame{}, Events: r.events.copy(), RPCs: r.rpcs.copy(), Memory: r.memory.copy(), Counters: map[string]uint64{}, DroppedEvents: r.events.total - uint64(len(r.events.values)), DroppedRPCs: r.rpcs.total - uint64(len(r.rpcs.values))}
 	for name, frames := range r.frames {
 		s.Frames[name] = frames.copy()
 	}
