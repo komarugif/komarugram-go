@@ -21,6 +21,8 @@ import (
 
 const supported = true
 
+func packaged() bool { return false }
+
 // On Linux the program is komarugram in its folder, with its icon beside
 // it: the logo is not square, so it has no place among hicolor's sizes,
 // and the desktop file names it by its path.

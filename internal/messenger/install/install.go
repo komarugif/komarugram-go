@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 const (
@@ -81,14 +82,20 @@ type Installation struct {
 
 // Supported reports whether the program can install itself on this
 // system: on Windows and Linux.
-func Supported() bool { return supported }
+// A program of a package (MSIX) is installed and removed by the system,
+// with its own entries in the Start menu: it does not offer to.
+func Supported() bool { return supported && !inPackage() }
+
+// inPackage reports whether the process runs with a package's identity,
+// as the MSIX of cmd/msix-build gives it. Tests replace it.
+var inPackage = sync.OnceValue(packaged)
 
 // Offered reports whether the sign-in should offer to install: on a
 // system where it can, for a program that is not the installed copy and
 // was not put on the system otherwise (a package, a Flatpak, an AppImage,
 // `go run`).
 func Offered() bool {
-	if !supported {
+	if !Supported() {
 		return false
 	}
 	self, err := executable()
@@ -162,7 +169,7 @@ func FolderFor(dir string) string {
 // shortcuts o asks for. It returns the path of the installed program, to
 // start in place of this one.
 func Install(ctx context.Context, o Options) (string, error) {
-	if !supported {
+	if !Supported() {
 		return "", errors.ErrUnsupported
 	}
 	dir, err := cleanDir(o.Dir)
@@ -181,7 +188,7 @@ func Install(ctx context.Context, o Options) (string, error) {
 // data (accounts, sessions, history, settings). The sessions stay on
 // Telegram's servers: removing their keys here does not end them.
 func Uninstall(ctx context.Context, inst Installation, data bool) error {
-	if !supported {
+	if !Supported() {
 		return errors.ErrUnsupported
 	}
 	if err := uninstall(ctx, inst); err != nil {

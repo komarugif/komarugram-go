@@ -83,3 +83,4 @@ its upstream notice is bundled as `APPIMAGE_RUNTIME_LICENSE` too.
 | Component | License |
 |---|---|
 | [gioui.org/cmd/gogio](https://git.sr.ht/~eliasnaur/gio-cmd), supplied by the user or installed into the build cache by `cmd/windows-build` | Unlicense OR MIT; its Go dependencies have their own licenses, including MIT for [akavel/rsrc](https://github.com/akavel/rsrc) |
+| `cmd/msix-build/resources.pri`, the index of the MSIX package's icons, generated once by `makepri` of Microsoft's [Windows SDK Build Tools](https://www.nuget.org/packages/Microsoft.Windows.SDK.BuildTools) from the names of KomaruGram's own icon files; it holds no code or text of Microsoft (the tool was downloaded for that, and is not used by the build) | the generated file is the project's own: Unlicense OR MIT |

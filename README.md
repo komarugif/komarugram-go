@@ -65,7 +65,10 @@ To select a different architecture:
 ```
 go run ./cmd/windows-build -arch arm64 -o komarugram.exe
 ```
-
+### **Windows 10/11** (MSIX package)
+```
+go run ./cmd/msix-build -o KomaruGram.msix
+```
 ### **Haiku**
 ```
 go run ./cmd/haiku-build -o ~/apps/KomaruGram
