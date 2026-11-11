@@ -130,6 +130,16 @@ func prepareWork(repo, work string) (string, map[string]string, error) {
 		dirs[m.path] = dir
 		workFile += fmt.Sprintf("replace %s => %s\n", m.path, dir)
 	}
+	// Gio's fork is not patched, but libgiohaiku.so is built from its sources,
+	// which are in the module cache.
+	if _, err := goOutput("mod", "download", "gioui.org"); err != nil {
+		return "", nil, err
+	}
+	gio, err := goOutput("list", "-m", "-f", "{{.Dir}}", "gioui.org")
+	if err != nil {
+		return "", nil, err
+	}
+	dirs["gioui.org"] = gio
 	goWork := filepath.Join(work, "go.work")
 	if err := os.WriteFile(goWork, []byte(workFile), 0o644); err != nil {
 		return "", nil, err
@@ -216,7 +226,7 @@ type lib struct{ name, build, env string }
 
 func libs(repo string, dirs map[string]string) []lib {
 	return []lib{
-		{"libgiohaiku.so", filepath.Join(repo, "third_party", "gio", "app", "internal", "haiku", "build.go"), "GIO_HAIKU_LIB"},
+		{"libgiohaiku.so", filepath.Join(dirs["gioui.org"], "app", "internal", "haiku", "build.go"), "GIO_HAIKU_LIB"},
 		{"libotohaiku.so", filepath.Join(dirs["github.com/ebitengine/oto/v3"], "internal", "haiku", "build.go"), "OTO_HAIKU_LIB"},
 		{"libtrayhaiku.so", filepath.Join(repo, "internal", "tray", "haiku", "build.go"), "KOMARUGRAM_TRAY_LIB"},
 		{"libvoicehaiku.so", filepath.Join(repo, "pkg", "voice", "haiku", "build.go"), "KOMARUGRAM_VOICE_LIB"},

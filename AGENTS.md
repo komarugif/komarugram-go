@@ -30,7 +30,8 @@ Russian; code, comments and docs are in English.
 | `internal/messenger/{security,securedb}` | TPM-sealed key, encrypted SQLite (Adiantum VFS) |
 | `internal/messenger/mockstore` | Demo store for `-demo` |
 | `pkg/*` | Reusable parts: `dcpool` (download connections), `tdata`, media decoders |
-| `third_party/gio`, `third_party/gio-mw` | Forks, wired with `replace`; changes to each go in its `LOCAL_CHANGES.md` (`third_party/gio/…`, `third_party/gio-mw/…`) |
+| `third_party/gio-mw` | Fork, wired with `replace`; changes go in its `LOCAL_CHANGES.md` (`third_party/gio-mw/…`) |
+| Gio fork | Not in the tree: [github.com/komarugif/gio](https://github.com/komarugif/gio), wired with `replace gioui.org => github.com/komarugif/gio <version>` in `go.mod`; changes go in its `LOCAL_CHANGES.md` (paths like `komarugif/gio/app/…` in the docs are in that repository). To change it see "Changing the Gio fork" |
 | `tdesktop`, `ayugram`, `materialgram`, `komarugram`, `telegram-android` | Not in the repository, and ignored by git: local clones of Telegram Desktop, three of its forks and Telegram for Android, made when needed (see "Telegram sources") |
 
 ## Read before
@@ -171,6 +172,24 @@ the tests as they are).
 - **A new test must fail without the fix.** Break the code, run, restore.
 - **Programs are started with `program.Command`**, not `os/exec`: on
   Windows a console program started otherwise flashes a console window.
+
+## Changing the Gio fork
+
+The fork is a repository of its own, so a change to it is two steps. Clone it
+beside this one (`git clone https://github.com/komarugif/gio ../gio`), and
+work with `go.work` at the parent of both, or with a temporary
+`replace gioui.org => ../gio`; do not commit that line. Commit and push the
+change in the fork (with its `LOCAL_CHANGES.md`), then point this repository
+at the commit:
+
+```sh
+V=$(go list -m -f '{{.Version}}' github.com/komarugif/gio@<commit>)
+go mod edit -replace=gioui.org=github.com/komarugif/gio@$V
+go mod tidy
+```
+
+and commit `go.mod` and `go.sum` here with the change that needs it. Its
+sources are read-only in the module cache (`go list -m -f '{{.Dir}}' gioui.org`).
 
 ## Gio in short
 

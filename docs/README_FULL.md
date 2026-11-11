@@ -54,7 +54,7 @@ Two applications built on the same base:
 | `pkg/miniapp`               | Telegram Mini Apps in the user's browser, bridged over CDP           |
 | `assets/stickers/`, `assets/video.mp4`, `videos/` | Media the kitchen pages and `-demo` read from the working directory, the repository's root |
 | `web/kitchen`               | A web build of the kitchen                                          |
-| `third_party/gio` | Local Gio v0.10.2 with XKB shortcut handling fixes; see `LOCAL_CHANGES.md` |
+| [`komarugif/gio`](https://github.com/komarugif/gio) | Gio v0.10.2 fork, not in the tree (`replace` in `go.mod`); see its `LOCAL_CHANGES.md` |
 | `third_party/gio-mw`        | Our fork of the widget library, wired in with a `replace`; see `LOCAL_CHANGES.md` |
 
 The kitchen uses the fork's `exp/router` and `exp/examples` packages, which
@@ -622,7 +622,7 @@ largest size by default:
   closes with its account window.
   On Wayland that window is translucent, and where the compositor supports
   `ext-background-effect-v1` (KWin 6.7 and later) what shows through is blurred.
-  Elsewhere it is opaque; see `third_party/gio/LOCAL_CHANGES.md`.
+  Elsewhere it is opaque; see `komarugif/gio/LOCAL_CHANGES.md`.
 - Ctrl with the wheel (or a touchpad pinch), Ctrl+= and Ctrl+− zoom smoothly
   around the pointer, up to 8 screen pixels per photo pixel; Ctrl+0 returns
   to the fitted photo. Enlarged, the photo is decoded at its own size and
@@ -948,9 +948,9 @@ bug, a failed test or a wrong first guess at least once.
 - *Typed nil in an interface.* A `*image.RGBA` that is nil stored in an
   `image.Image` is not nil; `im != nil` passes and a later field access
   panics. `chatmedia.nilImage` normalizes decoder results.
-- *The local fork is imported as `gioui.org/...`.* `go vet ./third_party/gio/app`
-  fails with "main module does not contain package"; use
-  `go vet gioui.org/app`. gofmt realigns a whole struct when a comment splits
+- *The Gio fork is imported as `gioui.org/...`.* It is not in the tree, so
+  `go vet gioui.org/app` checks it from here (the module cache copy), and
+  the fork's own checks run in a clone of it. gofmt realigns a whole struct when a comment splits
   its field block, so keep new fields in their own block or with trailing
   comments to keep the fork's diff small.
 
@@ -963,7 +963,7 @@ bug, a failed test or a wrong first guess at least once.
   has already cleared the driver. `Window.Event` delivered the `ViewEvent`,
   and on the next call it saw no driver and created a new window. That ghost
   was never destroyed, and it kept its `Display`, xcb connection, keymap and
-  GPU context. It is fixed in the fork (`third_party/gio/LOCAL_CHANGES.md`).
+  GPU context. It is fixed in the fork (`komarugif/gio/LOCAL_CHANGES.md`).
   When RSS grows while the Go heap does not, look at the native side.
 - *Freed is not returned.* glibc keeps what C code frees in per-thread arenas,
   and a GPU driver frees tens of MB when a window closes. `appwindow` calls

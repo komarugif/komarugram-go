@@ -168,7 +168,8 @@ func resolveGogio(o options, env []string) (string, error) {
 
 // prepareWork isolates gogio's generated .syso from the real sources and
 // stale resources. Keep the komarugram/ import prefix so internal imports
-// remain allowed, and resolve local module replacements against the repo.
+// remain allowed, resolve local module replacements against the repo and
+// keep the ones to other modules (the Gio fork) as they are.
 func prepareWork(repo, work string, env []string) error {
 	for _, name := range []string{"go.mod", "go.sum"} {
 		data, err := os.ReadFile(filepath.Join(repo, name))
@@ -193,11 +194,10 @@ func prepareWork(repo, work string, env []string) error {
 	}
 	args := []string{"mod", "edit", "-module=komarugram/windowsbuild", "-require=komarugram@v0.0.0", "-replace=komarugram=" + repo}
 	for _, r := range mod.Replace {
-		if r.New.Version != "" {
-			continue
-		}
 		path := r.New.Path
-		if !filepath.IsAbs(path) {
+		if r.New.Version != "" {
+			path += "@" + r.New.Version
+		} else if !filepath.IsAbs(path) {
 			path = filepath.Join(repo, path)
 		}
 		old := r.Old.Path

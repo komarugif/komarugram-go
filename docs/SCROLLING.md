@@ -13,7 +13,7 @@ measured; nothing here has been changed in the code yet.
   by `TouchpadScale` (2.5 on Wayland); a trackpoint's
   (`pointer.Event.Continuous`, Wayland only) by `ContinuousScale`, twice
   `TouchpadScale`, a factor chosen, not measured.
-- `third_party/gio/app/os_wayland.go`: `gio_onPointerAxis` passes the axis
+- `komarugif/gio/app/os_wayland.go`: `gio_onPointerAxis` passes the axis
   values of `wl_pointer.axis` on as they are, in surface units.
   `gio_onPointerAxisSource` sets `Continuous` for the `continuous` source,
   which libinput reports for a trackpoint's scrolling and a mouse's with a
@@ -126,7 +126,7 @@ logical pixels, GTK 4's factor.
    there, and a log cannot tell it now.
 3. **Scale the axis values by the buffer scale on Wayland**, in the fork
    (`gio_onPointerAxis`, and the discrete steps' distance in `flushScroll`),
-   as Gio does on macOS; record it in `third_party/gio/LOCAL_CHANGES.md`.
+   as Gio does on macOS; record it in `komarugif/gio/LOCAL_CHANGES.md`.
    This changes the wheel and the touchpad too on scaled displays: check
    live on Wayland at scales 1 and 2, the wheel's notch against
    `scroll.NotchPixels` and the touchpad against GTK 4.

@@ -15,7 +15,7 @@ promise that they work.
 
 ## How Gio draws
 
-Gio's renderer (`third_party/gio/gpu/gpu.go`) is one for every platform;
+Gio's renderer (`komarugif/gio/gpu/gpu.go`) is one for every platform;
 under it are the graphics APIs of each:
 
 | Platform | Windows | Graphics | Chosen by |
@@ -143,7 +143,7 @@ Haiku is not a Unix by descent, but it has a good POSIX layer (libc,
 threads, sockets, `mmap`), which is why Go and ffmpeg run there. What is
 its own is the GUI: the `app_server` and the Be API in C++, with no X11 or
 Wayland server. Gio had no backend for it; the one here is new
-(`third_party/gio/app/os_haiku.go`, `gl_haiku.go`, `app/internal/haiku`).
+(`komarugif/gio/app/os_haiku.go`, `gl_haiku.go`, `app/internal/haiku`).
 
 ### Building
 
@@ -290,7 +290,7 @@ from korli's `go1.26.1-haiku1` release; it took the cause for the VM's I/O.
    `GIO_HAIKU_LIB`):
 
    ```sh
-   go run third_party/gio/app/internal/haiku/build.go \
+   go run "$(go list -m -f '{{.Dir}}' gioui.org)/app/internal/haiku/build.go" \
      -cxx "clang++ --target=x86_64-unknown-haiku --sysroot=$ROOT -fuse-ld=lld" \
      -o libgiohaiku.so
    ```

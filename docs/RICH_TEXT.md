@@ -1953,7 +1953,7 @@ an inline one; each fails with its code removed.
   files; Telegram Desktop embeds up to 4 MB of them), formulas laid out
   are SVG pictures in data URIs. It needed HTML on the clipboard in the
   Gio fork: X11, Wayland, Windows ("HTML Format") and macOS
-  (`third_party/gio/LOCAL_CHANGES.md`).
+  (`komarugif/gio/LOCAL_CHANGES.md`).
 - **Tests**, each failing with its code removed: every block's element,
   escaping, anchors and spoilers in text, the demo's page well formed; the
   SVG of a formula; saving the whole message with its media, a second
