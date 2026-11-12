@@ -61,8 +61,8 @@ github.com/jfreymuth/pulse v0.1.3 h1:bc5TdxiB8E+2INnFjFWWgyfgXtz2IyNNNCX+Wt/ZD14
 github.com/jfreymuth/pulse v0.1.3/go.mod h1:cpYspI6YljhkUf1WLXLLDmeaaPFc3CnGLjDZf9dZ4no=
 github.com/klauspost/compress v1.19.1 h1:VsB4HPswih7mmZ8WleSFQ75c/Ui1M4trX5oAsJnhSlk=
 github.com/klauspost/compress v1.19.1/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
-github.com/komarugif/gio v0.0.0-20261112151634-f9be441abda3 h1:WttiMEnCJtKo1m085eIRkO5hUfV4l5jUFSH2qPN7S4Y=
-github.com/komarugif/gio v0.0.0-20261112151634-f9be441abda3/go.mod h1:iKILKNq6+LHMWhP/HjGDW/wDidUzRnb7B6c7ZD9y1Mg=
+github.com/komarugif/gio v0.0.0-20261112154451-57318c3e2179 h1:p45j/nU9PqCJr+jCjqDCu4GZHtRkU6kXG/+l7sCX258=
+github.com/komarugif/gio v0.0.0-20261112154451-57318c3e2179/go.mod h1:iKILKNq6+LHMWhP/HjGDW/wDidUzRnb7B6c7ZD9y1Mg=
 github.com/kr/pretty v0.2.1 h1:Fmg33tUaq4/8ym9TJN1x7sLJnHVwhP33CNkpYV/7rwI=
 github.com/kr/pretty v0.2.1/go.mod h1:ipq/a2n7PKx3OHsz4KJII5eveXtPO4qwEXGdVfWzfnI=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
