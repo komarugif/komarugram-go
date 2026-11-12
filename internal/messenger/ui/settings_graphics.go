@@ -70,9 +70,11 @@ func toVulkanDevices(devices []app.VulkanDevice) []preferences.VulkanDevice {
 // rememberedVulkan is g with Auto the device that info tells windows are
 // drawn with, where the automatic choice drew with another than the one
 // remembered: on the first start, or where the one remembered could not
-// draw. ok is false where there is nothing to remember; known false where
-// the device is not among g.Known, which must be listed anew first.
-func rememberedVulkan(g preferences.Graphics, info gpu.DeviceInfo) (remembered preferences.Graphics, ok, known bool) {
+// draw. Its driver is that of g.Known, else driver: the one Gio loaded
+// alone (app.VulkanDriver), the compositor's. ok is false where there is
+// nothing to remember; known false where the device is not among g.Known
+// and Gio loaded every driver: the devices must be listed anew first.
+func rememberedVulkan(g preferences.Graphics, info gpu.DeviceInfo, driver string) (remembered preferences.Graphics, ok, known bool) {
 	if !strings.HasPrefix(info.API, "Vulkan") || info.VendorID == 0 || !g.Vulkan.IsZero() {
 		return g, false, true
 	}
@@ -84,6 +86,14 @@ func rememberedVulkan(g preferences.Graphics, info gpu.DeviceInfo) (remembered p
 			g.Auto = d
 			return g, true, true
 		}
+	}
+	if driver != "" {
+		g.Auto = preferences.VulkanDevice{
+			Driver: driver, VendorID: info.VendorID, DeviceID: info.DeviceID,
+			Name: strings.TrimSuffix(info.Device, fmt.Sprintf(" (%04x:%04x)", info.VendorID, info.DeviceID)),
+			API:  info.API, Version: info.Driver,
+		}
+		return g, true, true
 	}
 	return g, false, false
 }
@@ -103,18 +113,20 @@ var vulkanMemory struct {
 
 // rememberVulkan remembers the device the automatic choice drew with, if
 // it is another than the one remembered (rememberedVulkan), listing the
-// devices first in the background if it is not among those known: the
-// GPUs are awake then, every driver loaded. The windows then make their
-// GPU anew with that device's driver alone, and the instance of every
-// driver goes, letting the others sleep. reset is app.ResetGPUs.
-func rememberVulkan(store graphicsStore, info gpu.DeviceInfo, devices func() ([]app.VulkanDevice, error), reset func()) {
+// devices first in the background if it is not among those known and Gio
+// loaded every driver (driver, app.VulkanDriver, is empty): the GPUs are
+// awake then. The windows drawn with every driver then make their GPU anew
+// with that device's driver alone, and the instance of every driver goes,
+// letting the others sleep; those drawn with the driver alone keep it.
+// reset is app.ResetGPUs.
+func rememberVulkan(store graphicsStore, info gpu.DeviceInfo, driver string, devices func() ([]app.VulkanDevice, error), reset func()) {
 	vulkanMemory.Lock()
 	defer vulkanMemory.Unlock()
 	if vulkanMemory.listing {
 		return
 	}
 	g := store.Global().Graphics
-	remembered, ok, known := rememberedVulkan(g, info)
+	remembered, ok, known := rememberedVulkan(g, info, driver)
 	save := func(g preferences.Graphics) {
 		if err := store.SetGraphics(g); err != nil {
 			log.Printf("save settings: %v", err)
@@ -124,7 +136,9 @@ func rememberVulkan(store graphicsStore, info gpu.DeviceInfo, devices func() ([]
 	switch {
 	case ok:
 		save(remembered)
-		reset()
+		if driver == "" {
+			reset()
+		}
 	case !known:
 		vulkanMemory.listing = true
 		go func() {
@@ -143,7 +157,7 @@ func rememberVulkan(store graphicsStore, info gpu.DeviceInfo, devices func() ([]
 			}
 			g := store.Global().Graphics
 			g.Known = toVulkanDevices(listed)
-			remembered, ok, _ := rememberedVulkan(g, info)
+			remembered, ok, _ := rememberedVulkan(g, info, "")
 			save(remembered)
 			if ok {
 				reset()

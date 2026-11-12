@@ -196,21 +196,21 @@ func TestRememberVulkan(t *testing.T) {
 	noListing := func() ([]app.VulkanDevice, error) { t.Fatal("listed the devices"); return nil, nil }
 
 	store := &memoryStore{g: preferences.Graphics{API: preferences.GraphicsVulkan, Known: []preferences.VulkanDevice{toVulkanDevice(testNVIDIA), toVulkanDevice(testIntel)}}}
-	rememberVulkan(store, intelInfo, noListing, reset)
+	rememberVulkan(store, intelInfo, "", noListing, reset)
 	if g := store.Global().Graphics; g.Auto.Driver != testIntel.Driver || resets.Load() != 1 {
 		t.Fatalf("remembered %+v, %d resets", g.Auto, resets.Load())
 	}
 	if got := app.CurrentGraphics().Vulkan; got.Driver != testIntel.Driver {
 		t.Fatalf("Gio draws with %+v", got)
 	}
-	rememberVulkan(store, intelInfo, noListing, reset)
+	rememberVulkan(store, intelInfo, "", noListing, reset)
 	if resets.Load() != 1 {
 		t.Fatal("the device remembered was remembered again")
 	}
 
 	store = &memoryStore{g: preferences.Graphics{API: preferences.GraphicsVulkan}}
 	listed := make(chan struct{})
-	rememberVulkan(store, intelInfo, func() ([]app.VulkanDevice, error) {
+	rememberVulkan(store, intelInfo, "", func() ([]app.VulkanDevice, error) {
 		defer close(listed)
 		return []app.VulkanDevice{testNVIDIA, testIntel}, nil
 	}, reset)
@@ -227,9 +227,27 @@ func TestRememberVulkan(t *testing.T) {
 
 	chosen := toVulkanDevice(testNVIDIA)
 	store = &memoryStore{g: preferences.Graphics{API: preferences.GraphicsVulkan, Vulkan: chosen, Known: []preferences.VulkanDevice{toVulkanDevice(testIntel)}}}
-	rememberVulkan(store, intelInfo, noListing, reset)
+	rememberVulkan(store, intelInfo, "", noListing, reset)
 	if g := store.Global().Graphics; !g.Auto.IsZero() || resets.Load() != 2 {
 		t.Fatalf("with a device chosen, remembered %+v", g.Auto)
+	}
+}
+
+// On the first start Gio draws with the compositor's driver alone: its
+// device is remembered without listing the devices, which would wake every
+// GPU, and the windows keep their GPU.
+func TestRememberVulkanCompositorDriver(t *testing.T) {
+	defer app.SetGraphics(app.Graphics{})
+	intelInfo := gpu.DeviceInfo{API: "Vulkan 1.4.354", Device: "Intel(R) Graphics (ADL GT2) (8086:4626)", Driver: "26.1.6", VendorID: 0x8086, DeviceID: 0x4626}
+	noListing := func() ([]app.VulkanDevice, error) { t.Fatal("listed the devices"); return nil, nil }
+	store := &memoryStore{g: preferences.Graphics{}}
+	rememberVulkan(store, intelInfo, testIntel.Driver, noListing, func() { t.Fatal("the windows made their GPU anew") })
+	auto := store.Global().Graphics.Auto
+	if auto.Driver != testIntel.Driver || auto.DeviceID != 0x4626 || auto.Name != "Intel(R) Graphics (ADL GT2)" {
+		t.Fatalf("remembered %+v", auto)
+	}
+	if got := app.CurrentGraphics().Vulkan; got.Driver != testIntel.Driver {
+		t.Fatalf("Gio draws with %+v", got)
 	}
 }
 

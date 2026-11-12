@@ -1302,7 +1302,7 @@ func (a *App) Layout(gtx layout.Context) {
 func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	if info := app.GPUInfo(); info != a.gpuInfo {
 		a.gpuInfo = info
-		rememberVulkan(a.preferences, info, app.VulkanDevices, app.ResetGPUs)
+		rememberVulkan(a.preferences, info, app.VulkanDriver(), app.VulkanDevices, app.ResetGPUs)
 	}
 	// A window that tried Vulkan again, chosen in the settings, may fail
 	// with the GPU drawing with OpenGL as before.
