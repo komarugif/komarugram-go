@@ -296,10 +296,10 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		p.about.open()
 	}
 	if os.Getenv("SETTINGS_SECTION") == "graphics" {
-		// Wayland on a laptop with two GPUs, Vulkan chosen on the Intel
-		// one, the devices listed.
+		// Wayland on a laptop with two GPUs, Vulkan with the automatic
+		// choice, which remembered the Intel one, the devices listed.
 		p.section = settingsGraphics
-		g := preferences.Graphics{API: preferences.GraphicsVulkan, Vulkan: preferences.VulkanDevice{Driver: testIntel.Driver, VendorID: testIntel.VendorID, DeviceID: testIntel.DeviceID, Name: testIntel.Name}}
+		g := preferences.Graphics{API: preferences.GraphicsVulkan, Auto: toVulkanDevice(testIntel)}
 		var listings atomic.Int32
 		p.graphics = newTestGraphicsView(&g, &listings)
 		p.graphics.info = func() gpu.DeviceInfo {

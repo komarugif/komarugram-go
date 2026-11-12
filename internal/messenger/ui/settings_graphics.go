@@ -4,7 +4,9 @@ package ui
 
 import (
 	"fmt"
+	"log"
 	"slices"
+	"strings"
 	"sync"
 
 	"gioui.org/app"
@@ -20,7 +22,8 @@ import (
 
 // ApplyGraphics hands the setting of how windows are drawn to Gio, for the
 // GPU each window makes from now on: at start, and before app.ResetGPUs
-// when it changes.
+// when it changes. The Vulkan device is the one chosen, or the one the
+// automatic choice drew with before, so that its driver is loaded alone.
 func ApplyGraphics(g preferences.Graphics) {
 	api := app.GraphicsAuto
 	switch g.API {
@@ -29,11 +32,12 @@ func ApplyGraphics(g preferences.Graphics) {
 	case preferences.GraphicsVulkan:
 		api = app.GraphicsVulkan
 	}
+	d := g.Effective()
 	app.SetGraphics(app.Graphics{API: api, Vulkan: app.VulkanDevice{
-		Driver:   g.Vulkan.Driver,
-		VendorID: g.Vulkan.VendorID,
-		DeviceID: g.Vulkan.DeviceID,
-		Name:     g.Vulkan.Name,
+		Driver:   d.Driver,
+		VendorID: d.VendorID,
+		DeviceID: d.DeviceID,
+		Name:     d.Name,
 	}})
 }
 
@@ -44,8 +48,108 @@ func graphicsChanged(before, after preferences.Graphics) bool {
 	if before.API != after.API {
 		return true
 	}
-	return after.API == preferences.GraphicsVulkan &&
-		(before.Vulkan.Driver != after.Vulkan.Driver || before.Vulkan.VendorID != after.Vulkan.VendorID || before.Vulkan.DeviceID != after.Vulkan.DeviceID)
+	return after.API == preferences.GraphicsVulkan && !before.Effective().Same(after.Effective())
+}
+
+// toVulkanDevice keeps a device Gio listed.
+func toVulkanDevice(d app.VulkanDevice) preferences.VulkanDevice {
+	return preferences.VulkanDevice{
+		Driver: d.Driver, VendorID: d.VendorID, DeviceID: d.DeviceID, Name: d.Name,
+		Kind: uint8(d.Kind), API: d.API, Version: d.Version,
+	}
+}
+
+func toVulkanDevices(devices []app.VulkanDevice) []preferences.VulkanDevice {
+	kept := make([]preferences.VulkanDevice, len(devices))
+	for i, d := range devices {
+		kept[i] = toVulkanDevice(d)
+	}
+	return kept
+}
+
+// rememberedVulkan is g with Auto the device that info tells windows are
+// drawn with, where the automatic choice drew with another than the one
+// remembered: on the first start, or where the one remembered could not
+// draw. ok is false where there is nothing to remember; known false where
+// the device is not among g.Known, which must be listed anew first.
+func rememberedVulkan(g preferences.Graphics, info gpu.DeviceInfo) (remembered preferences.Graphics, ok, known bool) {
+	if !strings.HasPrefix(info.API, "Vulkan") || info.VendorID == 0 || !g.Vulkan.IsZero() {
+		return g, false, true
+	}
+	if g.Auto.VendorID == info.VendorID && g.Auto.DeviceID == info.DeviceID {
+		return g, false, true
+	}
+	for _, d := range g.Known {
+		if d.Driver != "" && d.VendorID == info.VendorID && d.DeviceID == info.DeviceID {
+			g.Auto = d
+			return g, true, true
+		}
+	}
+	return g, false, false
+}
+
+// graphicsStore is where the setting is kept: preferences.Store.
+type graphicsStore interface {
+	Global() preferences.Global
+	SetGraphics(preferences.Graphics) error
+}
+
+// vulkanMemory keeps one listing of devices going for rememberVulkan, of
+// the process: every window remembers the same device.
+var vulkanMemory struct {
+	sync.Mutex
+	listing bool
+}
+
+// rememberVulkan remembers the device the automatic choice drew with, if
+// it is another than the one remembered (rememberedVulkan), listing the
+// devices first in the background if it is not among those known: the
+// GPUs are awake then, every driver loaded. The windows then make their
+// GPU anew with that device's driver alone, and the instance of every
+// driver goes, letting the others sleep. reset is app.ResetGPUs.
+func rememberVulkan(store graphicsStore, info gpu.DeviceInfo, devices func() ([]app.VulkanDevice, error), reset func()) {
+	vulkanMemory.Lock()
+	defer vulkanMemory.Unlock()
+	if vulkanMemory.listing {
+		return
+	}
+	g := store.Global().Graphics
+	remembered, ok, known := rememberedVulkan(g, info)
+	save := func(g preferences.Graphics) {
+		if err := store.SetGraphics(g); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+		ApplyGraphics(g)
+	}
+	switch {
+	case ok:
+		save(remembered)
+		reset()
+	case !known:
+		vulkanMemory.listing = true
+		go func() {
+			defer crash.Recover("remember vulkan device", func(*crash.Panic) {
+				vulkanMemory.Lock()
+				vulkanMemory.listing = false
+				vulkanMemory.Unlock()
+			})
+			listed, err := devices()
+			vulkanMemory.Lock()
+			defer vulkanMemory.Unlock()
+			vulkanMemory.listing = false
+			if err != nil {
+				log.Printf("vulkan devices: %v", err)
+				return
+			}
+			g := store.Global().Graphics
+			g.Known = toVulkanDevices(listed)
+			remembered, ok, _ := rememberedVulkan(g, info)
+			save(remembered)
+			if ok {
+				reset()
+			}
+		}()
+	}
 }
 
 // graphicsView is the settings' section of hardware acceleration: what the
@@ -73,6 +177,8 @@ type graphicsView struct {
 	listed  []app.VulkanDevice
 	listErr error
 	done    bool
+	// kept is whether the devices listed are kept as the known ones.
+	kept bool
 }
 
 func newGraphicsView(invalidate func()) *graphicsView {
@@ -193,19 +299,33 @@ func (v *graphicsView) layoutInfo(gtx layout.Context, l localization.Catalog, he
 	})
 }
 
-// layoutDevices draws the card of the Vulkan device, listing the devices
-// the first time it is shown.
+// layoutDevices draws the card of the Vulkan device: the devices known
+// from the last listing at once, those of a listing anew, made the first
+// time the card is shown, once it is done, and kept.
 func (v *graphicsView) layoutDevices(gtx layout.Context, l localization.Catalog, height *heightTransition) layout.Dimensions {
 	v.list()
 	v.mu.Lock()
-	listed, listErr, done := v.listed, v.listErr, v.done
+	listed, listErr, done, kept := v.listed, v.listErr, v.done, v.kept
+	v.kept = v.kept || done && listErr == nil
 	v.mu.Unlock()
 	g := v.get()
+	shown := g.Known
+	if done && listErr == nil {
+		shown = toVulkanDevices(listed)
+		if !kept {
+			g.Known = shown
+			v.set(g)
+		}
+	}
 	chosen := vulkanDeviceKey(g.Vulkan.Driver, g.Vulkan.VendorID, g.Vulkan.DeviceID)
 	keys := []string{""}
-	labels := map[string]string{"": l.T("graphics.device_auto")}
-	devices := map[string]app.VulkanDevice{}
-	for _, d := range listed {
+	auto := l.T("graphics.device_auto")
+	if !g.Auto.IsZero() {
+		auto = l.Format("graphics.device_auto_remembered", map[string]string{"name": g.Auto.Name})
+	}
+	labels := map[string]string{"": auto}
+	devices := map[string]preferences.VulkanDevice{}
+	for _, d := range shown {
 		key := vulkanDeviceKey(d.Driver, d.VendorID, d.DeviceID)
 		if _, ok := labels[key]; ok {
 			continue
@@ -236,6 +356,8 @@ func (v *graphicsView) layoutDevices(gtx layout.Context, l localization.Catalog,
 	v.device.Update(gtx)
 	hint := l.T("graphics.device_hint")
 	switch {
+	case !done && len(shown) > 0:
+		hint = l.T("graphics.device_refreshing") + "\n" + hint
 	case !done:
 		hint = l.T("graphics.device_listing") + "\n" + hint
 	case listErr != nil:
@@ -254,20 +376,20 @@ func (v *graphicsView) chooseAPI(api string) {
 }
 
 // chooseDevice keeps the Vulkan device chosen; the zero device is the
-// first that can draw.
-func (v *graphicsView) chooseDevice(d app.VulkanDevice) {
+// automatic choice.
+func (v *graphicsView) chooseDevice(d preferences.VulkanDevice) {
 	g := v.get()
 	g.Vulkan = preferences.VulkanDevice{Driver: d.Driver, VendorID: d.VendorID, DeviceID: d.DeviceID, Name: d.Name}
 	v.set(g)
 }
 
 // vulkanDeviceLabel names a device with its kind and its driver's version.
-func vulkanDeviceLabel(d app.VulkanDevice, l localization.Catalog) string {
+func vulkanDeviceLabel(d preferences.VulkanDevice, l localization.Catalog) string {
 	kind := map[app.VulkanDeviceKind]string{
 		app.VulkanDeviceIntegrated: l.T("graphics.kind_integrated"),
 		app.VulkanDeviceDiscrete:   l.T("graphics.kind_discrete"),
 		app.VulkanDeviceVirtual:    l.T("graphics.kind_virtual"),
-	}[d.Kind]
+	}[app.VulkanDeviceKind(d.Kind)]
 	label := d.Name
 	if kind != "" {
 		label += " · " + kind

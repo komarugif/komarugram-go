@@ -23,6 +23,7 @@ import (
 	"gio-mw/widget/overlay"
 
 	"gioui.org/app"
+	"gioui.org/gpu"
 	"gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -63,6 +64,9 @@ type App struct {
 	// softwareChecked is set once the window was found drawn by a software
 	// rasterizer, and animations were turned off if their mode was not set.
 	softwareChecked bool
+	// gpuInfo is what the windows were last seen drawn with, for the
+	// Vulkan device the automatic choice drew with to be remembered.
+	gpuInfo gpu.DeviceInfo
 	// ownUsers are the users of the accounts signed in here, which Local
 	// Premium marks.
 	ownUsers atomic.Pointer[map[int64]string]
@@ -1293,6 +1297,10 @@ func (a *App) Layout(gtx layout.Context) {
 
 // layoutWindow paints the main window using the transparency granted by the backend.
 func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
+	if info := app.GPUInfo(); info != a.gpuInfo {
+		a.gpuInfo = info
+		rememberVulkan(a.preferences, info, app.VulkanDevices, app.ResetGPUs)
+	}
 	if !a.softwareChecked && app.SoftwareRendered() {
 		a.softwareChecked = true
 		if err := a.preferences.DefaultMotionOff(); err != nil {

@@ -5,6 +5,7 @@ package ui
 import (
 	"image"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -88,7 +89,7 @@ func TestGraphicsListsDevicesForVulkanOnly(t *testing.T) {
 	if want := []string{"", vulkanDeviceKey(testIntel.Driver, testIntel.VendorID, testIntel.DeviceID), vulkanDeviceKey(testNVIDIA.Driver, testNVIDIA.VendorID, testNVIDIA.DeviceID)}; strings.Join(v.deviceKeys, ",") != strings.Join(want, ",") {
 		t.Fatalf("devices offered %q, want %q", v.deviceKeys, want)
 	}
-	v.chooseDevice(testIntel)
+	v.chooseDevice(toVulkanDevice(testIntel))
 	want := preferences.VulkanDevice{Driver: "intel_icd.x86_64.json", VendorID: 0x8086, DeviceID: 0x4626, Name: "Intel(R) Graphics (ADL GT2)"}
 	if g.Vulkan != want {
 		t.Fatalf("device kept %+v, want %+v", g.Vulkan, want)
@@ -132,5 +133,115 @@ func TestGraphicsChanged(t *testing.T) {
 		if got := graphicsChanged(c.before, c.after); got != c.want {
 			t.Errorf("graphicsChanged(%+v, %+v) = %v", c.before, c.after, got)
 		}
+	}
+}
+
+// The devices known from the last listing are offered at once; a listing
+// anew replaces them once it is done, and is kept.
+func TestGraphicsShowsKnownDevicesAtOnce(t *testing.T) {
+	l := localization.For("en")
+	g := preferences.Graphics{API: preferences.GraphicsVulkan, Known: []preferences.VulkanDevice{toVulkanDevice(testIntel), toVulkanDevice(testNVIDIA)}}
+	var listings atomic.Int32
+	v := newTestGraphicsView(&g, &listings)
+	release := make(chan struct{})
+	amd := app.VulkanDevice{Driver: "radeon_icd.x86_64.json", VendorID: 0x1002, DeviceID: 0x73df, Name: "AMD Radeon RX 6700 XT", Kind: app.VulkanDeviceDiscrete}
+	v.devices = func() ([]app.VulkanDevice, error) {
+		<-release
+		return []app.VulkanDevice{testIntel, testNVIDIA, amd}, nil
+	}
+	layoutGraphics(v, l)
+	if len(v.deviceKeys) != 3 {
+		t.Fatalf("offered %q before the listing", v.deviceKeys)
+	}
+	close(release)
+	for range 100 {
+		layoutGraphics(v, l)
+		if len(v.deviceKeys) == 4 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(v.deviceKeys) != 4 || len(g.Known) != 3 || g.Known[2].Driver != amd.Driver {
+		t.Fatalf("after the listing: offered %q, known %+v", v.deviceKeys, g.Known)
+	}
+}
+
+// memoryStore keeps the setting for rememberVulkan.
+type memoryStore struct {
+	mu sync.Mutex
+	g  preferences.Graphics
+}
+
+func (s *memoryStore) Global() preferences.Global {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return preferences.Global{Graphics: s.g}
+}
+
+func (s *memoryStore) SetGraphics(g preferences.Graphics) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.g = g
+	return nil
+}
+
+// The device the automatic choice drew with is remembered, and the windows
+// make their GPU anew with its driver alone: from the devices known, or
+// listed first where it is not among them. A device chosen is not replaced.
+func TestRememberVulkan(t *testing.T) {
+	defer app.SetGraphics(app.Graphics{})
+	intelInfo := gpu.DeviceInfo{API: "Vulkan 1.4.354", Device: "Intel(R) Graphics (ADL GT2) (8086:4626)", Driver: "26.1.6", VendorID: 0x8086, DeviceID: 0x4626}
+	var resets atomic.Int32
+	reset := func() { resets.Add(1) }
+	noListing := func() ([]app.VulkanDevice, error) { t.Fatal("listed the devices"); return nil, nil }
+
+	store := &memoryStore{g: preferences.Graphics{API: preferences.GraphicsVulkan, Known: []preferences.VulkanDevice{toVulkanDevice(testNVIDIA), toVulkanDevice(testIntel)}}}
+	rememberVulkan(store, intelInfo, noListing, reset)
+	if g := store.Global().Graphics; g.Auto.Driver != testIntel.Driver || resets.Load() != 1 {
+		t.Fatalf("remembered %+v, %d resets", g.Auto, resets.Load())
+	}
+	if got := app.CurrentGraphics().Vulkan; got.Driver != testIntel.Driver {
+		t.Fatalf("Gio draws with %+v", got)
+	}
+	rememberVulkan(store, intelInfo, noListing, reset)
+	if resets.Load() != 1 {
+		t.Fatal("the device remembered was remembered again")
+	}
+
+	store = &memoryStore{g: preferences.Graphics{API: preferences.GraphicsVulkan}}
+	listed := make(chan struct{})
+	rememberVulkan(store, intelInfo, func() ([]app.VulkanDevice, error) {
+		defer close(listed)
+		return []app.VulkanDevice{testNVIDIA, testIntel}, nil
+	}, reset)
+	<-listed
+	for range 100 {
+		if store.Global().Graphics.Auto.Driver != "" {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if g := store.Global().Graphics; g.Auto.Driver != testIntel.Driver || len(g.Known) != 2 || resets.Load() != 2 {
+		t.Fatalf("after listing: auto %+v, known %d, %d resets", g.Auto, len(g.Known), resets.Load())
+	}
+
+	chosen := toVulkanDevice(testNVIDIA)
+	store = &memoryStore{g: preferences.Graphics{API: preferences.GraphicsVulkan, Vulkan: chosen, Known: []preferences.VulkanDevice{toVulkanDevice(testIntel)}}}
+	rememberVulkan(store, intelInfo, noListing, reset)
+	if g := store.Global().Graphics; !g.Auto.IsZero() || resets.Load() != 2 {
+		t.Fatalf("with a device chosen, remembered %+v", g.Auto)
+	}
+}
+
+// The automatic choice draws with the device remembered: choosing it
+// explicitly changes nothing, and remembering another changes the device.
+func TestGraphicsChangedWithAuto(t *testing.T) {
+	intel, nvidia := toVulkanDevice(testIntel), toVulkanDevice(testNVIDIA)
+	auto := preferences.Graphics{API: preferences.GraphicsVulkan, Auto: intel}
+	if graphicsChanged(auto, preferences.Graphics{API: preferences.GraphicsVulkan, Vulkan: intel, Auto: intel}) {
+		t.Error("choosing the device remembered changed the device")
+	}
+	if !graphicsChanged(auto, preferences.Graphics{API: preferences.GraphicsVulkan, Vulkan: nvidia, Auto: intel}) {
+		t.Error("choosing another device changed nothing")
 	}
 }

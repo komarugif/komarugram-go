@@ -1025,18 +1025,47 @@ const (
 type Graphics struct {
 	// API is GraphicsAuto, GraphicsOpenGL or GraphicsVulkan.
 	API string `json:"api,omitempty"`
-	// Vulkan is the device drawn with by Vulkan; the zero value is the
-	// first that can draw, of any driver.
+	// Vulkan is the device chosen to draw with by Vulkan; the zero value
+	// is the automatic choice, Auto.
 	Vulkan VulkanDevice `json:"vulkan,omitzero"`
+	// Auto is the device the automatic choice drew with, kept so that the
+	// next start loads its driver alone instead of every driver, which
+	// wakes every GPU up. Another is taken only where it cannot draw.
+	Auto VulkanDevice `json:"auto_vulkan,omitzero"`
+	// Known is the devices last listed, shown before they are listed anew.
+	Known []VulkanDevice `json:"known_vulkan,omitempty"`
 }
 
 // VulkanDevice is a Vulkan device, by the manifest of its driver and its
-// ids. Name is kept to show it before the devices are listed.
+// ids. The others are kept to show it before the devices are listed.
 type VulkanDevice struct {
 	Driver   string `json:"driver,omitempty"`
 	VendorID uint32 `json:"vendor_id,omitempty"`
 	DeviceID uint32 `json:"device_id,omitempty"`
 	Name     string `json:"name,omitempty"`
+	// Kind is Gio's app.VulkanDeviceKind: integrated, discrete, virtual.
+	Kind    uint8  `json:"kind,omitempty"`
+	API     string `json:"api,omitempty"`
+	Version string `json:"version,omitempty"`
+}
+
+// IsZero reports whether d is no device: the automatic choice.
+func (d VulkanDevice) IsZero() bool {
+	return d.Driver == "" && d.VendorID == 0 && d.DeviceID == 0
+}
+
+// Same reports whether d and e are the same device of the same driver.
+func (d VulkanDevice) Same(e VulkanDevice) bool {
+	return d.Driver == e.Driver && d.VendorID == e.VendorID && d.DeviceID == e.DeviceID
+}
+
+// Effective is the device windows are drawn with by Vulkan: the one chosen,
+// or the one the automatic choice drew with.
+func (g Graphics) Effective() VulkanDevice {
+	if !g.Vulkan.IsZero() {
+		return g.Vulkan
+	}
+	return g.Auto
 }
 
 // SetGraphics sets how windows are drawn.
