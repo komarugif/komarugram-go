@@ -878,11 +878,11 @@
 
 "graphics.api" = "Graphics API";
 "graphics.api_auto" = "Automatic";
-"graphics.api_hint" = "Windows opened from now on are drawn with the chosen API, the main window after KomaruGram restarts. If the API does not start, the other one draws the window.";
+"graphics.api_hint" = "Windows are drawn anew with the chosen API at once. If the API does not start, the other one draws the window.";
 "graphics.device" = "Vulkan device";
 "graphics.device_auto" = "Automatic: the first that can draw";
 "graphics.device_error" = "Could not list the devices: {error}";
-"graphics.device_hint" = "Takes effect after KomaruGram restarts. With a device chosen, only its driver is loaded and other graphics cards stay asleep; the automatic choice loads every driver, and a discrete card asleep may take seconds to wake up.";
+"graphics.device_hint" = "Windows are drawn anew on the chosen device at once. With a device chosen, only its driver is loaded and other graphics cards stay asleep; the automatic choice loads every driver, and a discrete card asleep may take seconds to wake up.";
 "graphics.device_listing" = "Looking for devices; every graphics card wakes up meanwhile…";
 "graphics.device_missing" = "{name} (not found)";
 "graphics.driver_version" = "driver {version}";

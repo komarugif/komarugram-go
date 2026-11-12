@@ -19,8 +19,8 @@ import (
 )
 
 // ApplyGraphics hands the setting of how windows are drawn to Gio, for the
-// windows made from now on; the Vulkan device is taken by the first drawn
-// with Vulkan.
+// GPU each window makes from now on: at start, and before app.ResetGPUs
+// when it changes.
 func ApplyGraphics(g preferences.Graphics) {
 	api := app.GraphicsAuto
 	switch g.API {
@@ -35,6 +35,17 @@ func ApplyGraphics(g preferences.Graphics) {
 		DeviceID: g.Vulkan.DeviceID,
 		Name:     g.Vulkan.Name,
 	}})
+}
+
+// graphicsChanged reports whether what windows are drawn with changes from
+// before to after: the API, or the Vulkan device while Vulkan is chosen.
+// The windows then make their GPU anew (app.ResetGPUs).
+func graphicsChanged(before, after preferences.Graphics) bool {
+	if before.API != after.API {
+		return true
+	}
+	return after.API == preferences.GraphicsVulkan &&
+		(before.Vulkan.Driver != after.Vulkan.Driver || before.Vulkan.VendorID != after.Vulkan.VendorID || before.Vulkan.DeviceID != after.Vulkan.DeviceID)
 }
 
 // graphicsView is the settings' section of hardware acceleration: what the

@@ -526,10 +526,14 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	}
 	a.settings.graphics.get = func() preferences.Graphics { return a.preferences.Global().Graphics }
 	a.settings.graphics.set = func(g preferences.Graphics) {
+		before := a.preferences.Global().Graphics
 		if err := services.Preferences.SetGraphics(g); err != nil {
 			log.Printf("save settings: %v", err)
 		}
 		ApplyGraphics(g)
+		if graphicsChanged(before, g) {
+			app.ResetGPUs()
+		}
 	}
 	a.settings.windowBlur = func() bool { return a.preferences.Global().WindowBlur }
 	a.settings.setWindowBlur = func(on bool) {

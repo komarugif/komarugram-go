@@ -109,3 +109,28 @@ func TestApplyGraphics(t *testing.T) {
 		t.Fatalf("Gio has %+v, want %+v", got, want)
 	}
 }
+
+// The windows make their GPU anew when the API changes, or the Vulkan
+// device while Vulkan draws them; not for a device chosen under OpenGL.
+func TestGraphicsChanged(t *testing.T) {
+	intel := preferences.VulkanDevice{Driver: "intel_icd.x86_64.json", VendorID: 0x8086, DeviceID: 0x4626, Name: "Intel"}
+	nvidia := preferences.VulkanDevice{Driver: "nvidia_icd.json", VendorID: 0x10de, DeviceID: 0x25a2, Name: "NVIDIA"}
+	renamed := intel
+	renamed.Name = "Intel(R) Graphics"
+	for _, c := range []struct {
+		before, after preferences.Graphics
+		want          bool
+	}{
+		{preferences.Graphics{}, preferences.Graphics{API: preferences.GraphicsVulkan}, true},
+		{preferences.Graphics{API: preferences.GraphicsVulkan}, preferences.Graphics{API: preferences.GraphicsOpenGL}, true},
+		{preferences.Graphics{API: preferences.GraphicsVulkan, Vulkan: intel}, preferences.Graphics{API: preferences.GraphicsVulkan, Vulkan: nvidia}, true},
+		{preferences.Graphics{API: preferences.GraphicsVulkan, Vulkan: intel}, preferences.Graphics{API: preferences.GraphicsVulkan}, true},
+		{preferences.Graphics{API: preferences.GraphicsVulkan, Vulkan: intel}, preferences.Graphics{API: preferences.GraphicsVulkan, Vulkan: renamed}, false},
+		{preferences.Graphics{API: preferences.GraphicsOpenGL, Vulkan: intel}, preferences.Graphics{API: preferences.GraphicsOpenGL, Vulkan: nvidia}, false},
+		{preferences.Graphics{API: preferences.GraphicsVulkan}, preferences.Graphics{API: preferences.GraphicsVulkan}, false},
+	} {
+		if got := graphicsChanged(c.before, c.after); got != c.want {
+			t.Errorf("graphicsChanged(%+v, %+v) = %v", c.before, c.after, got)
+		}
+	}
+}
