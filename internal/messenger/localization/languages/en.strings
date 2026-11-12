@@ -878,15 +878,13 @@
 
 "graphics.api" = "Graphics API";
 "graphics.api_auto" = "Automatic";
-"graphics.api_hint" = "Windows are drawn anew with the chosen API at once. If the API does not start, the other one draws the window.";
 "graphics.device" = "Vulkan device";
 "graphics.device_auto" = "Automatic: the first that can draw";
 "graphics.device_auto_remembered" = "Automatic: {name}";
 "graphics.device_error" = "Could not list the devices: {error}";
-"graphics.device_hint" = "Windows are drawn anew on the chosen device at once. With a device chosen, only its driver is loaded and other graphics cards stay asleep. The automatic choice loads every driver the first time, and a discrete card asleep may take seconds to wake up; then it remembers the device and loads only its driver, taking another only if the one remembered cannot draw.";
 "graphics.device_listing" = "Looking for devices; every graphics card wakes up meanwhile…";
 "graphics.device_missing" = "{name} (not found)";
-"graphics.device_refreshing" = "Updating the list of devices; every graphics card wakes up meanwhile…";
+"graphics.discrete_note" = "When the discrete graphics card is asleep, KomaruGram takes longer than usual to start.";
 "graphics.driver_version" = "driver {version}";
 "graphics.info" = "What draws the windows";
 "graphics.info_api" = "Graphics API";

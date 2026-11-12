@@ -295,11 +295,15 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		p.about.openCommunity = func() {}
 		p.about.open()
 	}
-	if os.Getenv("SETTINGS_SECTION") == "graphics" {
+	if section := os.Getenv("SETTINGS_SECTION"); section == "graphics" || section == "graphics-discrete" {
 		// Wayland on a laptop with two GPUs, Vulkan with the automatic
-		// choice, which remembered the Intel one, the devices listed.
+		// choice, which remembered the Intel one, the devices listed;
+		// graphics-discrete, the NVIDIA one chosen.
 		p.section = settingsGraphics
 		g := preferences.Graphics{API: preferences.GraphicsVulkan, Auto: toVulkanDevice(testIntel)}
+		if section == "graphics-discrete" {
+			g.Vulkan = toVulkanDevice(testNVIDIA)
+		}
 		var listings atomic.Int32
 		p.graphics = newTestGraphicsView(&g, &listings)
 		p.graphics.info = func() gpu.DeviceInfo {

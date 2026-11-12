@@ -90,7 +90,7 @@ func TestGraphicsListsDevicesForVulkanOnly(t *testing.T) {
 		t.Fatalf("devices offered %q, want %q", v.deviceKeys, want)
 	}
 	v.chooseDevice(toVulkanDevice(testIntel))
-	want := preferences.VulkanDevice{Driver: "intel_icd.x86_64.json", VendorID: 0x8086, DeviceID: 0x4626, Name: "Intel(R) Graphics (ADL GT2)"}
+	want := preferences.VulkanDevice{Driver: "intel_icd.x86_64.json", VendorID: 0x8086, DeviceID: 0x4626, Name: "Intel(R) Graphics (ADL GT2)", Kind: uint8(app.VulkanDeviceIntegrated)}
 	if g.Vulkan != want {
 		t.Fatalf("device kept %+v, want %+v", g.Vulkan, want)
 	}
@@ -243,5 +243,38 @@ func TestGraphicsChangedWithAuto(t *testing.T) {
 	}
 	if !graphicsChanged(auto, preferences.Graphics{API: preferences.GraphicsVulkan, Vulkan: nvidia, Auto: intel}) {
 		t.Error("choosing another device changed nothing")
+	}
+}
+
+// The card of the device tells that a start takes longer while a discrete
+// GPU sleeps, when it draws: chosen, or remembered by the automatic choice.
+func TestDrawsOnDiscrete(t *testing.T) {
+	intel, nvidia := toVulkanDevice(testIntel), toVulkanDevice(testNVIDIA)
+	bare := nvidia
+	bare.Kind = 0
+	known := []preferences.VulkanDevice{intel, nvidia}
+	for _, c := range []struct {
+		name string
+		g    preferences.Graphics
+		want bool
+	}{
+		{"nvidia chosen", preferences.Graphics{Vulkan: nvidia}, true},
+		{"nvidia remembered", preferences.Graphics{Auto: nvidia}, true},
+		{"nvidia kept without its kind", preferences.Graphics{Vulkan: bare}, true},
+		{"intel chosen", preferences.Graphics{Vulkan: intel, Auto: nvidia}, false},
+		{"nothing remembered", preferences.Graphics{}, false},
+	} {
+		if got := drawsOnDiscrete(c.g, known); got != c.want {
+			t.Errorf("%s: %v", c.name, got)
+		}
+	}
+	l := localization.For("ru")
+	g := preferences.Graphics{API: preferences.GraphicsVulkan, Vulkan: nvidia, Known: known}
+	var listings atomic.Int32
+	v := newTestGraphicsView(&g, &listings)
+	v.devices = func() ([]app.VulkanDevice, error) { select {} }
+	layoutGraphics(v, l)
+	if !strings.Contains(l.T("graphics.discrete_note"), "дискретная") {
+		t.Fatal("the note is not in the language file")
 	}
 }

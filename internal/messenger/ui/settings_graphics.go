@@ -248,7 +248,7 @@ func (v *graphicsView) Layout(gtx layout.Context, l localization.Catalog, height
 		}
 		v.api.Update(gtx)
 		cards = append(cards, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return settingsChoiceCard(gtx, height("graphics-api"), l.T("graphics.api"), l.T("graphics.api_hint"), func(gtx layout.Context) layout.Dimensions {
+			return settingsChoiceCard(gtx, height("graphics-api"), l.T("graphics.api"), "", func(gtx layout.Context) layout.Dimensions {
 				return v.api.Layout(gtx, radio.LeadingKind, map[string]string{
 					preferences.GraphicsAuto:   l.T("graphics.api_auto"),
 					preferences.GraphicsOpenGL: "OpenGL",
@@ -354,18 +354,35 @@ func (v *graphicsView) layoutDevices(gtx layout.Context, l localization.Catalog,
 		v.device.SetValue(chosen)
 	}
 	v.device.Update(gtx)
-	hint := l.T("graphics.device_hint")
+	var notes []string
 	switch {
-	case !done && len(shown) > 0:
-		hint = l.T("graphics.device_refreshing") + "\n" + hint
-	case !done:
-		hint = l.T("graphics.device_listing") + "\n" + hint
-	case listErr != nil:
-		hint = l.Format("graphics.device_error", map[string]string{"error": listErr.Error()}) + "\n" + hint
+	case !done && len(shown) == 0:
+		notes = append(notes, l.T("graphics.device_listing"))
+	case done && listErr != nil:
+		notes = append(notes, l.Format("graphics.device_error", map[string]string{"error": listErr.Error()}))
 	}
-	return settingsChoiceCard(gtx, height, l.T("graphics.device"), hint, func(gtx layout.Context) layout.Dimensions {
+	if drawsOnDiscrete(g, shown) {
+		notes = append(notes, l.T("graphics.discrete_note"))
+	}
+	return settingsChoiceCard(gtx, height, l.T("graphics.device"), strings.Join(notes, "\n"), func(gtx layout.Context) layout.Dimensions {
 		return v.device.Layout(gtx, radio.LeadingKind, labels)
 	})
+}
+
+// drawsOnDiscrete reports whether Vulkan draws on a discrete GPU, chosen
+// or remembered by the automatic choice: its kind as the devices shown
+// tell it, else as it was kept.
+func drawsOnDiscrete(g preferences.Graphics, shown []preferences.VulkanDevice) bool {
+	d := g.Effective()
+	if d.IsZero() {
+		return false
+	}
+	for _, s := range shown {
+		if s.Same(d) {
+			return app.VulkanDeviceKind(s.Kind) == app.VulkanDeviceDiscrete
+		}
+	}
+	return app.VulkanDeviceKind(d.Kind) == app.VulkanDeviceDiscrete
 }
 
 // chooseAPI keeps the graphics API chosen.
@@ -379,7 +396,7 @@ func (v *graphicsView) chooseAPI(api string) {
 // automatic choice.
 func (v *graphicsView) chooseDevice(d preferences.VulkanDevice) {
 	g := v.get()
-	g.Vulkan = preferences.VulkanDevice{Driver: d.Driver, VendorID: d.VendorID, DeviceID: d.DeviceID, Name: d.Name}
+	g.Vulkan = preferences.VulkanDevice{Driver: d.Driver, VendorID: d.VendorID, DeviceID: d.DeviceID, Name: d.Name, Kind: d.Kind}
 	v.set(g)
 }
 
