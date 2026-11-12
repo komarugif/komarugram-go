@@ -278,3 +278,34 @@ func TestDrawsOnDiscrete(t *testing.T) {
 		t.Fatal("the note is not in the language file")
 	}
 }
+
+// That Vulkan could not draw a window is kept and handed to Gio at the
+// next start, which then draws with OpenGL at once; a choice made in the
+// settings tries Vulkan again.
+func TestRememberVulkanFailed(t *testing.T) {
+	defer app.SetGraphics(app.Graphics{})
+	store := &memoryStore{g: preferences.Graphics{API: preferences.GraphicsVulkan}}
+	rememberVulkanFailed(store, false)
+	if store.Global().Graphics.VulkanFailed {
+		t.Fatal("kept a failure Gio did not tell")
+	}
+	rememberVulkanFailed(store, true)
+	g := store.Global().Graphics
+	if !g.VulkanFailed {
+		t.Fatal("the failure was not kept")
+	}
+	ApplyGraphics(g)
+	if !app.CurrentGraphics().VulkanFailed {
+		t.Fatal("the failure kept was not handed to Gio")
+	}
+	v := newTestGraphicsView(&g, new(atomic.Int32))
+	v.chooseAPI(preferences.GraphicsAuto)
+	if g.VulkanFailed {
+		t.Fatal("choosing the API did not try Vulkan again")
+	}
+	g.VulkanFailed = true
+	v.chooseDevice(toVulkanDevice(testIntel))
+	if g.VulkanFailed {
+		t.Fatal("choosing a device did not try Vulkan again")
+	}
+}

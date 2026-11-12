@@ -1034,6 +1034,11 @@ type Graphics struct {
 	Auto VulkanDevice `json:"auto_vulkan,omitzero"`
 	// Known is the devices last listed, shown before they are listed anew.
 	Known []VulkanDevice `json:"known_vulkan,omitempty"`
+	// VulkanFailed is that Vulkan could not draw a window with any device
+	// (Gio's app.Graphics.VulkanFailed), kept so that the next starts draw
+	// with OpenGL at once instead of loading every driver to fail again.
+	// A choice made in the settings tries Vulkan again.
+	VulkanFailed bool `json:"vulkan_failed,omitempty"`
 }
 
 // VulkanDevice is a Vulkan device, by the manifest of its driver and its

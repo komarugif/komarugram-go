@@ -38,7 +38,7 @@ func ApplyGraphics(g preferences.Graphics) {
 		VendorID: d.VendorID,
 		DeviceID: d.DeviceID,
 		Name:     d.Name,
-	}})
+	}, VulkanFailed: g.VulkanFailed})
 }
 
 // graphicsChanged reports whether what windows are drawn with changes from
@@ -149,6 +149,22 @@ func rememberVulkan(store graphicsStore, info gpu.DeviceInfo, devices func() ([]
 				reset()
 			}
 		}()
+	}
+}
+
+// rememberVulkanFailed keeps that Vulkan could not draw a window, as Gio
+// told (app.CurrentGraphics().VulkanFailed), so that the next starts do
+// not try it.
+func rememberVulkanFailed(store graphicsStore, failed bool) {
+	vulkanMemory.Lock()
+	defer vulkanMemory.Unlock()
+	g := store.Global().Graphics
+	if !failed || g.VulkanFailed {
+		return
+	}
+	g.VulkanFailed = true
+	if err := store.SetGraphics(g); err != nil {
+		log.Printf("save settings: %v", err)
 	}
 }
 
@@ -385,18 +401,21 @@ func drawsOnDiscrete(g preferences.Graphics, shown []preferences.VulkanDevice) b
 	return app.VulkanDeviceKind(d.Kind) == app.VulkanDeviceDiscrete
 }
 
-// chooseAPI keeps the graphics API chosen.
+// chooseAPI keeps the graphics API chosen. A choice tries Vulkan again
+// where it failed.
 func (v *graphicsView) chooseAPI(api string) {
 	g := v.get()
 	g.API = api
+	g.VulkanFailed = false
 	v.set(g)
 }
 
 // chooseDevice keeps the Vulkan device chosen; the zero device is the
-// automatic choice.
+// automatic choice. A choice tries Vulkan again where it failed.
 func (v *graphicsView) chooseDevice(d preferences.VulkanDevice) {
 	g := v.get()
 	g.Vulkan = preferences.VulkanDevice{Driver: d.Driver, VendorID: d.VendorID, DeviceID: d.DeviceID, Name: d.Name, Kind: d.Kind}
+	g.VulkanFailed = false
 	v.set(g)
 }
 

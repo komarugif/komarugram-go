@@ -67,6 +67,9 @@ type App struct {
 	// gpuInfo is what the windows were last seen drawn with, for the
 	// Vulkan device the automatic choice drew with to be remembered.
 	gpuInfo gpu.DeviceInfo
+	// vulkanFailed is whether Gio was last seen to tell that Vulkan could
+	// not draw a window (app.Graphics.VulkanFailed).
+	vulkanFailed bool
 	// ownUsers are the users of the accounts signed in here, which Local
 	// Premium marks.
 	ownUsers atomic.Pointer[map[int64]string]
@@ -1300,6 +1303,12 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	if info := app.GPUInfo(); info != a.gpuInfo {
 		a.gpuInfo = info
 		rememberVulkan(a.preferences, info, app.VulkanDevices, app.ResetGPUs)
+	}
+	// A window that tried Vulkan again, chosen in the settings, may fail
+	// with the GPU drawing with OpenGL as before.
+	if failed := app.CurrentGraphics().VulkanFailed; failed != a.vulkanFailed {
+		a.vulkanFailed = failed
+		rememberVulkanFailed(a.preferences, failed)
 	}
 	if !a.softwareChecked && app.SoftwareRendered() {
 		a.softwareChecked = true
