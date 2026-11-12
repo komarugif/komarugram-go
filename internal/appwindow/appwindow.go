@@ -699,7 +699,7 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 			if trace != nil {
 				frame.Submit = time.Since(phase)
 				frame.Total = time.Since(frame.At)
-				trace.Recorder.SetGPU(app.GPUDevice())
+				trace.Recorder.SetGPU(app.GPUInfo().String())
 				trace.Finish(frame)
 			}
 		}

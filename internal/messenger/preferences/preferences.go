@@ -61,6 +61,9 @@ type Global struct {
 	// PauseInactive stops stickers, GIFs, animated emoji and video avatars
 	// while the window is not active, as Telegram Desktop does.
 	PauseInactive bool `json:"pause_inactive"`
+	// Graphics is how windows are drawn where there is a choice, on
+	// Wayland: the graphics API and the Vulkan device.
+	Graphics Graphics `json:"graphics,omitzero"`
 	// VisualPrivacy hides phone numbers from the interface and covers the
 	// account's identifiers in its profile with spoilers, for showing the
 	// screen to others: streams, recordings, screenshots.
@@ -802,6 +805,9 @@ func validate(g Global) error {
 	if g.MotionMode < powersave.ModeAuto || g.MotionMode > powersave.ModeOff {
 		return errors.New("invalid animation mode")
 	}
+	if g.Graphics.API != GraphicsAuto && g.Graphics.API != GraphicsOpenGL && g.Graphics.API != GraphicsVulkan {
+		return errors.New("invalid graphics API")
+	}
 	if g.LowBattery < 0 || g.LowBattery > 100 {
 		return errors.New("invalid low-battery threshold")
 	}
@@ -1005,6 +1011,37 @@ func (s *Store) DefaultVideoExternal() error {
 // is not active.
 func (s *Store) SetPauseInactive(on bool) error {
 	return s.change(func(g *Global) { g.PauseInactive = on })
+}
+
+// The graphics APIs of Graphics.API.
+const (
+	GraphicsAuto   = ""
+	GraphicsOpenGL = "opengl"
+	GraphicsVulkan = "vulkan"
+)
+
+// Graphics is how windows are drawn where there is a choice (Gio's
+// app.Graphics).
+type Graphics struct {
+	// API is GraphicsAuto, GraphicsOpenGL or GraphicsVulkan.
+	API string `json:"api,omitempty"`
+	// Vulkan is the device drawn with by Vulkan; the zero value is the
+	// first that can draw, of any driver.
+	Vulkan VulkanDevice `json:"vulkan,omitzero"`
+}
+
+// VulkanDevice is a Vulkan device, by the manifest of its driver and its
+// ids. Name is kept to show it before the devices are listed.
+type VulkanDevice struct {
+	Driver   string `json:"driver,omitempty"`
+	VendorID uint32 `json:"vendor_id,omitempty"`
+	DeviceID uint32 `json:"device_id,omitempty"`
+	Name     string `json:"name,omitempty"`
+}
+
+// SetGraphics sets how windows are drawn.
+func (s *Store) SetGraphics(g Graphics) error {
+	return s.change(func(global *Global) { global.Graphics = g })
 }
 
 // SetVisualPrivacy switches visual privacy mode for every window.

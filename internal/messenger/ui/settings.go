@@ -79,6 +79,10 @@ const (
 	// client shows of them: ghost mode, the message filters, what the cache
 	// keeps, and the hiding of what distracts.
 	settingsVisibility
+	// settingsGraphics is hardware acceleration: what the windows are
+	// drawn with, and the graphics API and Vulkan device where there is a
+	// choice.
+	settingsGraphics
 )
 
 func settingsTitles(l localization.Catalog) map[settingsSection]string {
@@ -92,6 +96,7 @@ func settingsTitles(l localization.Catalog) map[settingsSection]string {
 		settingsMenuOrder:  l.T("menus.title"),
 		settingsShortcuts:  l.T("keys.title"),
 		settingsVisibility: l.T("settings.visibility"),
+		settingsGraphics:   l.T("settings.graphics"),
 	}
 }
 
@@ -110,6 +115,7 @@ var settingsIcons = map[settingsSection]wdk.IconWidget{
 	settingsMenuOrder:    iconReorder,
 	settingsShortcuts:    iconKeyboard,
 	settingsVisibility:   iconVisibility,
+	settingsGraphics:     iconGraphics,
 }
 
 func storageShort(l localization.Catalog) map[miniapp.Storage]string {
@@ -167,6 +173,7 @@ type settingsPage struct {
 	uninstallItem settingsItem
 	uninstall     func()
 	about         *aboutView
+	graphics      *graphicsView
 	confirmLogOut *button.Button
 	cancelLogOut  *button.Button
 	loggingOut    bool
@@ -317,7 +324,8 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 	privacy := miniappprefs.NewView(miniapps, viewtexts.MiniApps(l))
 	privacy.TitleStyle = token.TypestyleTitleMedium
 	p := &settingsPage{
-		about: newAboutView(invalidate),
+		about:    newAboutView(invalidate),
+		graphics: newGraphicsView(invalidate),
 		items: map[settingsSection]*settingsItem{
 			settingsAppearance:   new(settingsItem),
 			settingsPrivacy:      new(settingsItem),
@@ -332,6 +340,7 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			settingsMenuOrder:    new(settingsItem),
 			settingsShortcuts:    new(settingsItem),
 			settingsVisibility:   new(settingsItem),
+			settingsGraphics:     new(settingsItem),
 		},
 		back:          button.Text(),
 		motion:        m,
@@ -872,6 +881,8 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 					}),
 				)
 			}
+		case settingsGraphics:
+			content = func(gtx layout.Context) layout.Dimensions { return p.graphics.Layout(gtx, l, p.cardHeight) }
 		case settingsPremium:
 			content = func(gtx layout.Context) layout.Dimensions { return p.layoutPremium(gtx, l) }
 		case settingsIntegrations:
@@ -991,6 +1002,7 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 		settingsMenuOrder:    l.T("menus.subtitle"),
 		settingsShortcuts:    l.T("keys.subtitle"),
 		settingsVisibility:   l.T("settings.visibility_hint"),
+		settingsGraphics:     p.graphics.subtitle(l),
 	}
 	if p.proxy != nil {
 		subtitles[settingsProxy] = p.proxy.Summary(l)
@@ -1078,7 +1090,7 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 				if p.notifyView.get != nil {
 					sections = append(sections, settingsNotify)
 				}
-				sections = append(sections, settingsPrivacy, settingsPower)
+				sections = append(sections, settingsPrivacy, settingsPower, settingsGraphics)
 				if p.proxy != nil {
 					sections = append(sections, settingsProxy)
 				}

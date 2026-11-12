@@ -524,6 +524,13 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			log.Printf("save settings: %v", err)
 		}
 	}
+	a.settings.graphics.get = func() preferences.Graphics { return a.preferences.Global().Graphics }
+	a.settings.graphics.set = func(g preferences.Graphics) {
+		if err := services.Preferences.SetGraphics(g); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+		ApplyGraphics(g)
+	}
 	a.settings.windowBlur = func() bool { return a.preferences.Global().WindowBlur }
 	a.settings.setWindowBlur = func(on bool) {
 		if err := services.Preferences.SetWindowBlur(on); err != nil {

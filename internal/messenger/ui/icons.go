@@ -80,6 +80,7 @@ var (
 	iconPalette       = wdk.RequireIconWidget(icons.ImagePalette)
 	iconPrivacy       = wdk.RequireIconWidget(icons.ActionLock)
 	iconPower         = wdk.RequireIconWidget(icons.DeviceBatteryStd)
+	iconGraphics      = wdk.RequireIconWidget(icons.HardwareMemory)
 	iconNotifications = wdk.RequireIconWidget(icons.SocialNotifications)
 	iconIntegrations  = wdk.RequireIconWidget(icons.ActionSettingsInputComponent)
 	iconAddAccount    = wdk.RequireIconWidget(icons.SocialPersonAdd)

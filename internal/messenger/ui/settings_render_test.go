@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,12 +22,12 @@ import (
 	"gio-mw/exp/appearance"
 	"gio-mw/wdk"
 
+	"gioui.org/gpu"
 	"gioui.org/gpu/headless"
+	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
-
-	"gioui.org/io/key"
 	"komarugram/internal/messenger/emojipacks"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
@@ -293,6 +294,28 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		p.about.fetch = func(context.Context, string) ([]byte, error) { return nil, errors.New("offline") }
 		p.about.openCommunity = func() {}
 		p.about.open()
+	}
+	if os.Getenv("SETTINGS_SECTION") == "graphics" {
+		// Wayland on a laptop with two GPUs, Vulkan chosen on the Intel
+		// one, the devices listed.
+		p.section = settingsGraphics
+		g := preferences.Graphics{API: preferences.GraphicsVulkan, Vulkan: preferences.VulkanDevice{Driver: testIntel.Driver, VendorID: testIntel.VendorID, DeviceID: testIntel.DeviceID, Name: testIntel.Name}}
+		var listings atomic.Int32
+		p.graphics = newTestGraphicsView(&g, &listings)
+		p.graphics.info = func() gpu.DeviceInfo {
+			return gpu.DeviceInfo{API: "Vulkan 1.4.354", Device: "Intel(R) Graphics (ADL GT2) (8086:4626)", Driver: "26.1.6"}
+		}
+		p.graphics.list()
+		for {
+			p.graphics.mu.Lock()
+			done := p.graphics.done
+			p.graphics.mu.Unlock()
+			if done {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
+		size.Y = 1100
 	}
 	if os.Getenv("SETTINGS_SECTION") == "power" {
 		p.section = settingsPower

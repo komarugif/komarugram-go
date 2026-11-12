@@ -925,6 +925,25 @@
 "gift.title" = "Подарок";
 "gift.value" = "Стоимость";
 
+"graphics.api" = "Графический API";
+"graphics.api_auto" = "Автоматически";
+"graphics.api_hint" = "Окна, открытые после этого, рисуются выбранным API, главное окно — после перезапуска KomaruGram. Если API не запустится, окно нарисует другой.";
+"graphics.device" = "Устройство Vulkan";
+"graphics.device_auto" = "Автоматически: первое, которое может рисовать";
+"graphics.device_error" = "Не удалось перечислить устройства: {error}";
+"graphics.device_hint" = "Применится после перезапуска KomaruGram. С выбранным устройством загружается только его драйвер, и другие видеокарты не просыпаются; при автоматическом выборе загружаются все драйверы, и спящая дискретная видеокарта может просыпаться по нескольку секунд.";
+"graphics.device_listing" = "Ищем устройства: на это время просыпаются все видеокарты…";
+"graphics.device_missing" = "{name} (не найдено)";
+"graphics.driver_version" = "драйвер {version}";
+"graphics.info" = "Чем рисуются окна";
+"graphics.info_api" = "Графический API";
+"graphics.info_device" = "Видеокарта";
+"graphics.info_driver" = "Драйвер";
+"graphics.kind_discrete" = "дискретная";
+"graphics.kind_integrated" = "встроенная";
+"graphics.kind_virtual" = "виртуальная";
+"graphics.unknown" = "неизвестно";
+
 "history.actions_disabled" = "Действия бота недоступны в режиме чтения";
 "history.cancel" = "Отмена";
 "history.deleted_mark" = "🧹";
@@ -1910,6 +1929,7 @@
 "settings.confirm" = "Подтверждать отправку";
 "settings.confirm_gif" = "GIF";
 "settings.confirm_sticker" = "Стикеров";
+"settings.graphics" = "Аппаратное ускорение";
 "settings.input" = "Ввод";
 "settings.input_manual_focus" = "Фокус поля ввода только по клику";
 "settings.input_picker_click" = "Открывать панель эмодзи только по клику";

@@ -83,6 +83,7 @@ put it next to these, and add it to this page.
 | `shortcutSettings` (`settings_shortcuts.go`) | Context-grouped command cards, physical-key recording and manual-entry dialog, local collision validation and asynchronous desktop collision checks. |
 | `menuSettings` (`settings_menus.go`) | One card per menu, stable action IDs, drag handles and hide/show controls. Applies user order only after host availability checks; unknown contributions keep their saved position. |
 | `settingsItem`, `settingsChoiceCard` (`settings.go`) | A settings row with an icon, title and subtitle; a card with a title, choices and a hint. |
+| `graphicsView` (`settings_graphics.go`) | The section of hardware acceleration, beside Power Saving: the graphics API, the device and the driver the windows are drawn with (`app.GPUInfo`), and where there is a choice (Wayland, `app.GraphicsChoice`) the API and the Vulkan device (`app.SetGraphics` through `ApplyGraphics`, at start and on a change). The devices are listed (`app.VulkanDevices`, in the background, once) only when Vulkan is chosen: listing loads every driver and wakes a discrete GPU asleep. A device chosen is drawn with its driver alone loaded, after a restart. |
 | `buttonRow` (`security.go`) | A secondary action at the start of a row and the main one at its end. |
 | `navButton`, `sidebar` | The sidebar's sections and folders. |
 | `splitter` | The draggable edge between the chat list and the page. |
@@ -983,6 +984,8 @@ new piece sits next to its neighbours.
   page of a chat's theme (`-themes`) and the chat in the theme (`-chat`).
   `SETTINGS_SECTION=power` with `SETTINGS_PNG` shows Power Saving: the
   animations, and the switch that pauses them in an inactive window.
+  `SETTINGS_SECTION=graphics` with `SETTINGS_PNG` shows Hardware
+  Acceleration on Wayland with two GPUs, Vulkan chosen on the Intel one.
   `SETTINGS_SECTION=integrations` with `SETTINGS_PNG` shows the choice of the
   external player; `PLAYER_PNG`, the dialog that asks for it. `MENU_PNG` also
   saves the menu with reactions (`-reactions*.png`), and the menu of a

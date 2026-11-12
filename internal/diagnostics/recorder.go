@@ -172,7 +172,7 @@ type Recorder struct {
 }
 
 // SetGPU records the device and driver windows are drawn with, as the
-// graphics API names them (app.GPUDevice), for Snapshot.GPU.
+// graphics API names them (app.GPUInfo), for Snapshot.GPU.
 func (r *Recorder) SetGPU(device string) {
 	r.mu.Lock()
 	r.gpu = device

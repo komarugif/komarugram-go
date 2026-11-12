@@ -876,6 +876,25 @@
 "gift.title" = "Gift";
 "gift.value" = "Value";
 
+"graphics.api" = "Graphics API";
+"graphics.api_auto" = "Automatic";
+"graphics.api_hint" = "Windows opened from now on are drawn with the chosen API, the main window after KomaruGram restarts. If the API does not start, the other one draws the window.";
+"graphics.device" = "Vulkan device";
+"graphics.device_auto" = "Automatic: the first that can draw";
+"graphics.device_error" = "Could not list the devices: {error}";
+"graphics.device_hint" = "Takes effect after KomaruGram restarts. With a device chosen, only its driver is loaded and other graphics cards stay asleep; the automatic choice loads every driver, and a discrete card asleep may take seconds to wake up.";
+"graphics.device_listing" = "Looking for devices; every graphics card wakes up meanwhile…";
+"graphics.device_missing" = "{name} (not found)";
+"graphics.driver_version" = "driver {version}";
+"graphics.info" = "What draws the windows";
+"graphics.info_api" = "Graphics API";
+"graphics.info_device" = "Graphics card";
+"graphics.info_driver" = "Driver";
+"graphics.kind_discrete" = "discrete";
+"graphics.kind_integrated" = "integrated";
+"graphics.kind_virtual" = "virtual";
+"graphics.unknown" = "unknown";
+
 "history.actions_disabled" = "Bot actions are unavailable in read-only mode";
 "history.cancel" = "Cancel";
 "history.deleted_mark" = "🧹";
@@ -1820,6 +1839,7 @@
 "settings.confirm" = "Confirm sending";
 "settings.confirm_gif" = "GIFs";
 "settings.confirm_sticker" = "Stickers";
+"settings.graphics" = "Hardware acceleration";
 "settings.input" = "Input";
 "settings.input_manual_focus" = "Focus the message field only on click";
 "settings.input_picker_click" = "Open the emoji panel only on click";

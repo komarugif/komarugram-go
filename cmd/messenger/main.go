@@ -225,6 +225,7 @@ func main() {
 			fail("settings: ", err)
 		}
 		followLanguage(sharedPreferences)
+		ui.ApplyGraphics(sharedPreferences.Global().Graphics)
 		catalog = localization.For(sharedPreferences.Global().Language)
 		reportLastCrash(catalog)
 	}
@@ -375,6 +376,7 @@ func reportLastCrash(catalog localization.Catalog) {
 func runDemo(chats int, profile bool, profileDir string, panicDemo bool, receive time.Duration, signIn bool, open string, quiet bool) {
 	prefs := preferences.Memory()
 	followLanguage(prefs)
+	ui.ApplyGraphics(prefs.Global().Graphics)
 	process := newProcess(profile, profileDir, localization.For(prefs.Global().Language), nil)
 	var protection *security.Manager
 	if signIn {
