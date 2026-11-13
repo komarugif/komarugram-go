@@ -106,7 +106,9 @@ type scaler struct {
 	ch     int
 	xs, ys []taps
 	read   func(y int, line []float32)
-	line   []float32
+	// rows, when set, gives a source row as it is kept, in place of read.
+	rows func(y int) []float32
+	line []float32
 	// Source row r, filtered horizontally, lives in ring[r%len(ring)].
 	// Windows only move down, so a slot is reused after its row is needed.
 	ring [][]float32
@@ -115,7 +117,14 @@ type scaler struct {
 }
 
 func newScaler(ch, sw, sh, w, h int, read func(y int, line []float32)) *scaler {
-	s := &scaler{ch: ch, xs: weights(sw, w), ys: weights(sh, h), read: read, line: make([]float32, sw*ch), acc: make([]float32, w*ch)}
+	return newScalerOf(ch, sw, sh, float64(sw), float64(sh), w, h, read)
+}
+
+// newScalerOf is newScaler for a source whose sw×sh pixels cover ex×ey of
+// them: the last column and row may be a part of a pixel, as the last block
+// of an averaged picture is.
+func newScalerOf(ch, sw, sh int, ex, ey float64, w, h int, read func(y int, line []float32)) *scaler {
+	s := &scaler{ch: ch, xs: weights(sw, ex, w), ys: weights(sh, ey, h), read: read, line: make([]float32, sw*ch), acc: make([]float32, w*ch)}
 	taps := 0
 	for _, t := range s.ys {
 		taps = max(taps, len(t.w))
@@ -130,12 +139,17 @@ func newScaler(ch, sw, sh, w, h int, read func(y int, line []float32)) *scaler {
 func (s *scaler) row(y int) []float32 {
 	ty := s.ys[y]
 	for ; s.next < ty.start+len(ty.w); s.next++ {
-		s.read(s.next, s.line)
+		line := s.line
+		if s.rows != nil {
+			line = s.rows(s.next)
+		} else {
+			s.read(s.next, line)
+		}
 		out := s.ring[s.next%len(s.ring)]
 		if s.ch == 1 {
 			for x, tx := range s.xs {
 				var v float32
-				px := s.line[tx.start : tx.start+len(tx.w)]
+				px := line[tx.start : tx.start+len(tx.w)]
 				for i, k := range tx.w {
 					v += k * px[i]
 				}
@@ -145,7 +159,7 @@ func (s *scaler) row(y int) []float32 {
 		}
 		for x, tx := range s.xs {
 			var r, g, b, a float32
-			px := s.line[tx.start*4 : (tx.start+len(tx.w))*4]
+			px := line[tx.start*4 : (tx.start+len(tx.w))*4]
 			for i, k := range tx.w {
 				p := px[i*4 : i*4+4]
 				r += k * p[0]
@@ -206,8 +220,10 @@ type taps struct {
 	w     []float32
 }
 
-func weights(src, dst int) []taps {
-	scale := float64(src) / float64(dst)
+// weights are the taps of dst pixels over src pixels, which cover extent of
+// them.
+func weights(src int, extent float64, dst int) []taps {
+	scale := extent / float64(dst)
 	// Downscaling stretches the kernel over the source; upscaling keeps it.
 	stretch := max(scale, 1)
 	support := 2 * stretch
@@ -294,12 +310,15 @@ type VideoScaler struct {
 	small  []float32
 	sums   []uint32
 	opaque *image.YCbCr
+	// filter is the filter of the frame before, for sizes filterSize.
+	filter     *scaler
+	filterSize [6]float64
 }
 
 // Resize returns im scaled to w×h, with the luma of alpha as its alpha, or
 // opaque when alpha is nil. It never converts the frame at its own size: it
-// first averages blocks of 2ⁿ×2ⁿ pixels while that leaves at least twice
-// the destination, then filters with Catmull-Rom as Resize does, and
+// first averages blocks of 2ⁿ×2ⁿ pixels while that leaves at least the
+// destination, then filters what is left with Catmull-Rom as Resize does, and
 // converts to RGB only the destination pixels. Premultiplied colour is
 // linear in the planes it averages (alpha, alpha×luma, alpha×chroma), so
 // only colours out of the RGB gamut come out other than when converting
@@ -316,12 +335,15 @@ func (s *VideoScaler) ResizeInto(dst *image.RGBA, im, alpha *image.YCbCr) *image
 	if w <= 0 || h <= 0 || sw <= 0 || sh <= 0 {
 		return dst
 	}
-	// Blocks stay within 16×16, so that their sums fit in 32 bits.
+	// Blocks stay within 16×16, so that their sums fit in 32 bits. They are
+	// averaged down to the destination itself, rather than to twice it:
+	// moving pictures hide the softer filter, and video is where the work
+	// is.
 	fx, fy := 1, 1
-	for fx < 16 && sw/(fx*2) >= 2*w {
+	for fx < 16 && sw/(fx*2) >= w {
 		fx *= 2
 	}
-	for fy < 16 && sh/(fy*2) >= 2*h {
+	for fy < 16 && sh/(fy*2) >= h {
 		fy *= 2
 	}
 	if alpha == nil && im.SubsampleRatio == image.YCbCrSubsampleRatio420 {
@@ -333,16 +355,8 @@ func (s *VideoScaler) ResizeInto(dst *image.RGBA, im, alpha *image.YCbCr) *image
 			Convert(dst, im, s.Colors)
 			return dst
 		}
-		// Video without alpha averages blocks down to the destination
-		// itself, rather than to twice it: moving pictures hide the softer
-		// filter, and video is where the work is. Each plane is scaled at
-		// its own resolution, chroma at a quarter of the work.
-		for fx < 16 && sw/(fx*2) >= w {
-			fx *= 2
-		}
-		for fy < 16 && sh/(fy*2) >= h {
-			fy *= 2
-		}
+		// Each plane is scaled at its own resolution, chroma at a quarter
+		// of the work.
 		if fx > 1 || fy > 1 {
 			im = s.shrink(im, fx, fy, (sw+fx-1)/fx, (sh+fy-1)/fy)
 		}
@@ -352,23 +366,52 @@ func (s *VideoScaler) ResizeInto(dst *image.RGBA, im, alpha *image.YCbCr) *image
 	c := s.Colors.conversion()
 	bw, bh := (sw+fx-1)/fx, (sh+fy-1)/fy
 	s.average(im, alpha, fx, fy, bw, bh)
-	small := s.small
-	sc := newScaler(4, bw, bh, w, h, func(y int, line []float32) { copy(line, small[y*bw*4:(y+1)*bw*4]) })
-	for y := range h {
-		acc := sc.row(y)
-		pix := dst.Pix[y*dst.Stride : y*dst.Stride+w*4]
-		for x := 0; x < w*4; x += 4 {
-			// On premultiplied planes, black being premultiplied too; colour
-			// stays within its alpha, as Catmull-Rom may overshoot.
-			a := clamp(acc[x+3], 255)
-			l, u, v := (acc[x]-c.black*acc[x+3]/255)*c.gain, acc[x+1], acc[x+2]
-			pix[x] = uint8(clamp(l+c.rv*v, a) + .5)
-			pix[x+1] = uint8(clamp(l-c.gu*u-c.gv*v, a) + .5)
-			pix[x+2] = uint8(clamp(l+c.bu*u, a) + .5)
-			pix[x+3] = uint8(a + .5)
+	if bw == w && bh == h {
+		// The blocks are the destination's pixels: nothing is left to filter.
+		for y := range h {
+			premultipliedRow(dst.Pix[y*dst.Stride:y*dst.Stride+w*4], s.small[y*w*4:(y+1)*w*4], c)
 		}
+		return dst
+	}
+	sc := s.filterFor(bw, bh, float64(sw)/float64(fx), float64(sh)/float64(fy), w, h)
+	for y := range h {
+		premultipliedRow(dst.Pix[y*dst.Stride:y*dst.Stride+w*4], sc.row(y), c)
 	}
 	return dst
+}
+
+// premultipliedRow converts a row of premultiplied planes (alpha×luma,
+// alpha×chroma and alpha, in 0…255) to premultiplied RGBA. Black is
+// premultiplied too, and colour stays within its alpha, as Catmull-Rom may
+// overshoot.
+func premultipliedRow(pix []uint8, acc []float32, c conversion) {
+	acc = acc[:len(pix)]
+	black := c.black / 255
+	for x := 0; x+3 < len(pix); x += 4 {
+		p, q := pix[x:x+4:x+4], acc[x:x+4:x+4]
+		a := clamp(q[3], 255)
+		l, u, v := (q[0]-black*q[3])*c.gain, q[1], q[2]
+		p[0] = uint8(clamp(l+c.rv*v, a) + .5)
+		p[1] = uint8(clamp(l-c.gu*u-c.gv*v, a) + .5)
+		p[2] = uint8(clamp(l+c.bu*u, a) + .5)
+		p[3] = uint8(a + .5)
+	}
+}
+
+// filterFor is the filter of the averaged blocks, bw×bh of them over ex×ey
+// (the last ones may be cut by the frame's edge), to w×h. It is kept from
+// one frame to the next: its weights are those of the sizes alone.
+func (s *VideoScaler) filterFor(bw, bh int, ex, ey float64, w, h int) *scaler {
+	size := [6]float64{float64(bw), float64(bh), ex, ey, float64(w), float64(h)}
+	if s.filter == nil || s.filterSize != size {
+		s.filter = newScalerOf(4, bw, bh, ex, ey, w, h, nil)
+		s.filterSize = size
+	}
+	sc := s.filter
+	sc.next = 0
+	small := s.small
+	sc.rows = func(y int) []float32 { return small[y*bw*4 : (y+1)*bw*4] }
+	return sc
 }
 
 // shrink averages blocks of fx×fy pixels of every plane of a 4:2:0 frame
@@ -443,6 +486,10 @@ func (s *VideoScaler) average(im, alpha *image.YCbCr, fx, fy, bw, bh int) {
 			if y < ah {
 				mask = alpha.Y[y*alpha.YStride : y*alpha.YStride+aw]
 			}
+			if fx == 1 && fy == 1 && cx == 1 && len(mask) == sw {
+				premultiplyRow(s.small[by*bw*4:(by+1)*bw*4], luma, mask, cb, cr)
+				continue
+			}
 			if cx == 1 && fx >= 2 && sw%2 == 0 && len(mask) == sw {
 				averagePairs(sums, luma, mask, cb[:sw/2], cr[:sw/2], fx)
 				continue
@@ -467,6 +514,9 @@ func (s *VideoScaler) average(im, alpha *image.YCbCr, fx, fy, bw, bh int) {
 				sums[o+3] += sa
 			}
 		}
+		if fx == 1 && fy == 1 && cx == 1 && aw == sw && by < ah {
+			continue // premultiplyRow wrote the row.
+		}
 		rows := y1 - y0
 		out := s.small[by*bw*4 : (by+1)*bw*4]
 		for bx := range bw {
@@ -478,6 +528,22 @@ func (s *VideoScaler) average(im, alpha *image.YCbCr, fx, fy, bw, bh int) {
 			out[o+2] = (float32(sums[o+2]) - 128*sa) / (255 * n)
 			out[o+3] = sa / n
 		}
+	}
+}
+
+// premultiplyRow writes a row of video with its alpha, the chroma of which
+// is half as wide, as blocks of one pixel: alpha×luma, alpha×(chroma-128)
+// and alpha, in 0…255.
+func premultiplyRow(out []float32, luma, mask, cb, cr []uint8) {
+	mask = mask[:len(luma)]
+	out = out[:len(luma)*4]
+	for x, l := range luma {
+		a := float32(mask[x]) * (1.0 / 255)
+		o := out[x*4 : x*4+4 : x*4+4]
+		o[0] = a * float32(l)
+		o[1] = a * float32(int(cb[x>>1])-128)
+		o[2] = a * float32(int(cr[x>>1])-128)
+		o[3] = float32(mask[x])
 	}
 }
 

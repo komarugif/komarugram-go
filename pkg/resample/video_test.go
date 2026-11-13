@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/draw"
 	"math"
+	"strconv"
 	"testing"
 )
 
@@ -60,12 +61,19 @@ func TestVideoScalerMatchesConvertingFirst(t *testing.T) {
 		name         string
 		sw, sh, w, h int
 		opaque       bool
+		// floor is the PSNR to reach.
+		floor float64
 	}{
-		{"cell", 512, 512, 64, 64, false},
-		{"larger cell", 512, 512, 128, 128, false},
-		{"odd width", 511, 300, 60, 36, false},
-		{"opaque", 256, 256, 40, 40, true},
-		{"small step", 200, 200, 150, 150, false},
+		{"cell", 512, 512, 64, 64, false, 40},
+		{"larger cell", 512, 512, 128, 128, false, 40},
+		{"message", 512, 512, 192, 192, false, 40},
+		{"message, scaled", 512, 512, 288, 288, false, 40},
+		// Blocks a little larger than the destination's pixels are filtered
+		// softer than the frame itself would be, which shows on detail as
+		// fine as this, at the edge of what the destination can hold.
+		{"odd width", 511, 300, 60, 36, false, 35},
+		{"opaque", 256, 256, 40, 40, true, 40},
+		{"small step", 200, 200, 150, 150, false, 40},
 	} {
 		im, alpha := videoFrame(c.sw, c.sh)
 		if c.opaque {
@@ -82,7 +90,7 @@ func TestVideoScalerMatchesConvertingFirst(t *testing.T) {
 			se += d * d
 		}
 		psnr := 10 * math.Log10(255*255/(se/float64(len(want.Pix))+1e-9))
-		if psnr < 40 {
+		if psnr < c.floor {
 			t.Errorf("%s: PSNR %.1f dB against converting first", c.name, psnr)
 		}
 		for i := 0; i < len(got.Pix); i += 4 {
@@ -90,5 +98,21 @@ func TestVideoScalerMatchesConvertingFirst(t *testing.T) {
 				t.Fatalf("%s: colour over its alpha at %d", c.name, i/4)
 			}
 		}
+	}
+}
+
+// BenchmarkStickerFrame is one frame of a video sticker scaled to the sizes
+// a message shows it in, at scales of 1, 1.25, 1.5 and 2, and to cells of a
+// panel.
+func BenchmarkStickerFrame(b *testing.B) {
+	im, alpha := videoFrame(512, 512)
+	for _, side := range []int{64, 128, 192, 240, 288, 384} {
+		b.Run(strconv.Itoa(side), func(b *testing.B) {
+			var s VideoScaler
+			dst := image.NewRGBA(image.Rect(0, 0, side, side))
+			for b.Loop() {
+				s.ResizeInto(dst, im, alpha)
+			}
+		})
 	}
 }
