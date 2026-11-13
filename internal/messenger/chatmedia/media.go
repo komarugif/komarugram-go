@@ -207,6 +207,7 @@ type Manager struct {
 	// one by one; UI thread only.
 	rows       map[string]*gifRow
 	rowsFailed map[string]bool
+	rowFiles   rowFiles
 }
 
 func New(source Source, changed func()) *Manager {
@@ -858,6 +859,7 @@ func (m *Manager) Release() {
 func (m *Manager) Close() {
 	m.cancel()
 	m.wg.Wait()
+	m.closeRowFiles()
 	m.lottie.retire()
 	m.vp9.retire()
 	m.avc.retire()

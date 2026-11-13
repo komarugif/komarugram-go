@@ -97,3 +97,61 @@ func TestGIFRowFailsToOneByOne(t *testing.T) {
 	}
 	t.Fatal("a row of files FFmpeg cannot read still plays as one")
 }
+
+// A row shown again, after its FFmpeg stopped, reads none of its GIFs
+// again: their files are kept a while, and dropped after.
+func TestGIFRowKeepsItsFiles(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("no ffmpeg")
+	}
+	defer func(keep time.Duration) { rowFilesKeep = keep }(rowFilesKeep)
+	source := &fakeSource{data: gifData(t, 24)}
+	m := NewShared(source, func() {})
+	defer m.Close()
+	m.ConfigureDecoders(false, false, "")
+	msgs := rowGIFs(3)
+	widths := []int{60, 90, 45}
+	show := func() {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			m.BeginFrameAt(time.Now())
+			im, ok := m.GIFRow(msgs, widths, 50)
+			m.EndFrame()
+			if !ok {
+				t.Fatal("the row is not played as one")
+			}
+			if im != nil {
+				return
+			}
+			time.Sleep(15 * time.Millisecond)
+		}
+		t.Fatal("the row did not play")
+	}
+	hide := func() {
+		t.Helper()
+		deadline := time.Now().Add(gifIdle + 3*time.Second)
+		for len(m.rows) > 0 && time.Now().Before(deadline) {
+			m.BeginFrameAt(time.Now())
+			m.EndFrame()
+			time.Sleep(50 * time.Millisecond)
+		}
+		m.wg.Wait()
+	}
+	show()
+	read := source.calls.Load()
+	hide()
+	show()
+	if again := source.calls.Load() - read; again != 0 {
+		t.Fatalf("the row shown again read %d GIFs again", again)
+	}
+	rowFilesKeep = 0
+	hide()
+	m.trimRowFiles()
+	m.rowFiles.Lock()
+	kept, bytes := len(m.rowFiles.files), m.rowFiles.bytes
+	m.rowFiles.Unlock()
+	if kept != 0 || bytes != 0 {
+		t.Fatalf("%d files of %d bytes kept past their time", kept, bytes)
+	}
+}

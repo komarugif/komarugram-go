@@ -133,7 +133,7 @@ func (m *Manager) playRow(ctx context.Context, r *gifRow, msgs []model.Message, 
 	}
 	defer crash.Recover("GIF row", func(p *crash.Panic) { fail(p) })
 	inputs := make([]video.RowInput, len(msgs))
-	var files []*os.File
+	var held []*rowFile
 	var streams []*player.Stream
 	defer func() {
 		<-ctx.Done()
@@ -143,38 +143,32 @@ func (m *Manager) playRow(ctx context.Context, r *gifRow, msgs []model.Message, 
 		if p != nil {
 			p.Stop()
 		}
-		for _, f := range files {
-			f.Close()
-		}
 		for _, s := range streams {
 			s.Close()
 		}
+		m.releaseRowFiles(held)
 	}()
 	for i, msg := range msgs {
-		// A saved GIF is small: it is read whole, not streamed.
-		data, err := m.source.Media(ctx, msg)
+		f, err := m.rowFile(ctx, msg)
 		if err != nil {
 			if ctx.Err() == nil {
 				fail(err)
 			}
 			return
 		}
+		held = append(held, f)
 		in := video.RowInput{Width: widths[i], Source: rowSource(msg)}
-		if f, err := video.MemoryFile("gif", data); err == nil {
-			in.File = f
-			files = append(files, f)
-		} else if errors.Is(err, errors.ErrUnsupported) {
+		if f.file != nil {
+			in.File = f.file
+		} else {
 			// No file in memory here: FFmpeg reads it from this process.
-			s, err := player.Serve("animation", bytes.NewReader(data), int64(len(data)))
+			s, err := player.Serve("animation", bytes.NewReader(f.data), int64(len(f.data)))
 			if err != nil {
 				fail(err)
 				return
 			}
 			streams = append(streams, s)
 			in.Path = s.URL()
-		} else {
-			fail(err)
-			return
 		}
 		inputs[i] = in
 	}
@@ -184,6 +178,136 @@ func (m *Manager) playRow(ctx context.Context, r *gifRow, msgs []model.Message, 
 	r.mu.Unlock()
 	p.Start()
 	m.changed()
+}
+
+// rowFile is the file of a GIF a row plays: a file in memory to hand to
+// FFmpeg (video.MemoryFile), or the data where there is none.
+type rowFile struct {
+	file *os.File
+	data []byte
+	size int
+	// refs counts the rows that play it; last is when the last let go.
+	refs int
+	last time.Time
+}
+
+// rowFiles are the files of the GIFs rows played, kept for rowFilesKeep
+// after their last row stopped, rowFilesBytes of them at most: a row
+// scrolled back to, or the list opened again, reads and decrypts none of
+// its GIFs again, and starts at once.
+type rowFiles struct {
+	sync.Mutex
+	files map[string]*rowFile
+	bytes int
+}
+
+var (
+	rowFilesKeep  = 30 * time.Second
+	rowFilesBytes = 64 << 20
+)
+
+// rowFile is the file of the GIF of msg for a row, held until
+// releaseRowFiles: the one kept, or read whole, a saved GIF being small.
+func (m *Manager) rowFile(ctx context.Context, msg model.Message) (*rowFile, error) {
+	id := msg.Media.ID
+	m.rowFiles.Lock()
+	if f := m.rowFiles.files[id]; f != nil {
+		f.refs++
+		m.rowFiles.Unlock()
+		return f, nil
+	}
+	m.rowFiles.Unlock()
+	data, err := m.source.Media(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+	f := &rowFile{size: len(data)}
+	if file, err := video.MemoryFile("gif", data); err == nil {
+		f.file = file
+	} else if errors.Is(err, errors.ErrUnsupported) {
+		f.data = data
+	} else {
+		return nil, err
+	}
+	m.rowFiles.Lock()
+	defer m.rowFiles.Unlock()
+	if kept := m.rowFiles.files[id]; kept != nil {
+		// Another row read it meanwhile.
+		f.close()
+		kept.refs++
+		return kept, nil
+	}
+	if m.rowFiles.files == nil {
+		m.rowFiles.files = map[string]*rowFile{}
+	}
+	f.refs = 1
+	m.rowFiles.files[id] = f
+	m.rowFiles.bytes += f.size
+	return f, nil
+}
+
+// releaseRowFiles lets files go, kept a while, and drops those kept past
+// rowFilesKeep or rowFilesBytes, the oldest first.
+func (m *Manager) releaseRowFiles(files []*rowFile) {
+	m.rowFiles.Lock()
+	defer m.rowFiles.Unlock()
+	now := time.Now()
+	for _, f := range files {
+		f.refs--
+		f.last = now
+	}
+	m.trimRowFilesLocked(now)
+}
+
+// trimRowFiles drops the files kept past rowFilesKeep.
+func (m *Manager) trimRowFiles() {
+	m.rowFiles.Lock()
+	defer m.rowFiles.Unlock()
+	m.trimRowFilesLocked(time.Now())
+}
+
+func (m *Manager) trimRowFilesLocked(now time.Time) {
+	for {
+		var oldest string
+		for id, f := range m.rowFiles.files {
+			if f.refs > 0 {
+				continue
+			}
+			if now.Sub(f.last) > rowFilesKeep {
+				m.dropRowFileLocked(id)
+				continue
+			}
+			if oldest == "" || f.last.Before(m.rowFiles.files[oldest].last) {
+				oldest = id
+			}
+		}
+		if oldest == "" || m.rowFiles.bytes <= rowFilesBytes {
+			return
+		}
+		m.dropRowFileLocked(oldest)
+	}
+}
+
+func (m *Manager) dropRowFileLocked(id string) {
+	f := m.rowFiles.files[id]
+	f.close()
+	m.rowFiles.bytes -= f.size
+	delete(m.rowFiles.files, id)
+}
+
+// closeRowFiles drops every file kept, once no row plays.
+func (m *Manager) closeRowFiles() {
+	m.rowFiles.Lock()
+	defer m.rowFiles.Unlock()
+	for id := range m.rowFiles.files {
+		m.dropRowFileLocked(id)
+	}
+}
+
+func (f *rowFile) close() {
+	if f.file != nil {
+		f.file.Close()
+	}
 }
 
 // rowSource is the size of a GIF's pictures as Telegram tells it, for the
@@ -210,4 +334,5 @@ func (m *Manager) trimRows() {
 			m.stopRow(key, r)
 		}
 	}
+	m.trimRowFiles()
 }
