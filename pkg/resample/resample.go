@@ -14,7 +14,6 @@ import (
 	"image/color"
 	"image/draw"
 	"math"
-	"math/bits"
 )
 
 // Resize returns src scaled to w×h. Downscaling widens the filter by the
@@ -628,17 +627,57 @@ func premultiplyRow(out []float32, luma, mask, cb, cr []uint8) {
 // blocks fx pixels wide, fx a power of two: each pair of pixels shares a
 // chroma sample, which is weighed by their alpha together.
 func averagePairs(sums []uint32, luma, mask, cb, cr []uint8, fx int) {
-	shift := bits.TrailingZeros(uint(fx)) - 1
-	for c := range cb {
-		x := c * 2
-		a0, a1 := uint32(mask[x]), uint32(mask[x+1])
-		la := a0 + a1
-		o := (c >> shift) * 4
+	// pairs is how many pairs of pixels a block is wide.
+	pairs := fx / 2
+	luma, mask, cr = luma[:len(cb)*2], mask[:len(cb)*2], cr[:len(cb)]
+	for c, o := 0, 0; c < len(cb); o += 4 {
+		end := min(c+pairs, len(cb))
+		// The sums of a block are kept out of memory until it is whole.
+		var sy, su, sv, sa uint32
+		for c < end {
+			x := c * 2
+			// Much of a sticker is clear, and most of the rest opaque:
+			// eight pixels of either, or four, are told and added at once.
+			if c+4 <= end {
+				switch binary.LittleEndian.Uint64(mask[x:]) {
+				case 0:
+					c += 4
+					continue
+				case 1<<64 - 1:
+					sy += 255 * sum8(binary.LittleEndian.Uint64(luma[x:]))
+					su += 510 * sum4(binary.LittleEndian.Uint32(cb[c:]))
+					sv += 510 * sum4(binary.LittleEndian.Uint32(cr[c:]))
+					sa += 8 * 255
+					c += 4
+					continue
+				}
+			} else if c+2 <= end {
+				switch binary.LittleEndian.Uint32(mask[x:]) {
+				case 0:
+					c += 2
+					continue
+				case 1<<32 - 1:
+					sy += 255 * sum4(binary.LittleEndian.Uint32(luma[x:]))
+					su += 510 * (uint32(cb[c]) + uint32(cb[c+1]))
+					sv += 510 * (uint32(cr[c]) + uint32(cr[c+1]))
+					sa += 4 * 255
+					c += 2
+					continue
+				}
+			}
+			a0, a1 := uint32(mask[x]), uint32(mask[x+1])
+			la := a0 + a1
+			sy += a0*uint32(luma[x]) + a1*uint32(luma[x+1])
+			su += la * uint32(cb[c])
+			sv += la * uint32(cr[c])
+			sa += la
+			c++
+		}
 		s := sums[o : o+4 : o+4]
-		s[0] += a0*uint32(luma[x]) + a1*uint32(luma[x+1])
-		s[1] += la * uint32(cb[c])
-		s[2] += la * uint32(cr[c])
-		s[3] += la
+		s[0] += sy
+		s[1] += su
+		s[2] += sv
+		s[3] += sa
 	}
 }
 
