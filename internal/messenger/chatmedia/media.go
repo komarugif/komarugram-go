@@ -888,9 +888,7 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 		return // The view plays the loop.
 	}
 	if e.clip != nil {
-		m.playAnimation(ctx, e, func(t time.Duration) (image.Image, error) {
-			return e.clip.FrameAt(t), nil
-		}, e.clip.frameDuration, publish)
+		m.playAnimation(ctx, e, m.clipPictures(e, e.clip), e.clip.frameDuration, publish)
 		return
 	}
 	if im := previewImage(msg.Media.Preview); im != nil {
@@ -1056,12 +1054,15 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 				e.mu.Lock()
 				animate := e.animate
 				e.mu.Unlock()
-				if animate && stickerClipFits(a, e.box) {
+				// A loop the view plays itself is of pictures: it shows them
+				// as they are.
+				planes := !stickerClipFits(a, e.box) && !m.uiClips && stickerPlanesFit(a, e.box)
+				if animate && (planes || stickerClipFits(a, e.box)) {
 					e.mu.Lock()
 					e.animated, e.caching = true, true
 					e.mu.Unlock()
 					var clip *stickerClip
-					clip, err = decodeStickerClip(ctx, a, e.box, func(im *image.RGBA) { publish(im, nil) })
+					clip, err = decodeStickerClip(ctx, a, e.box, planes, func(im *image.RGBA) { publish(im, nil) })
 					a.Close(context.Background())
 					done()
 					e.mu.Lock()
@@ -1071,7 +1072,7 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 					}
 					e.mu.Unlock()
 					if err == nil && clip != nil {
-						frame = func(t time.Duration) (image.Image, error) { return clip.FrameAt(t), nil }
+						frame = m.clipPictures(e, clip)
 						period = clip.frameDuration
 					}
 				} else {
@@ -1929,7 +1930,7 @@ func (e *entry) bytes() (bytes int64) {
 	if e.pending != nil && e.pending != e.frame && e.clip == nil {
 		bytes += imageBytes(e.pending)
 	}
-	if e.still != nil && e.still != e.frame && (e.clip == nil || e.still != e.clip.frames[0]) {
+	if e.still != nil && e.still != e.frame && (e.clip == nil || len(e.clip.frames) == 0 || e.still != e.clip.frames[0]) {
 		frames = append(frames, e.still)
 	}
 	if e.clip != nil {

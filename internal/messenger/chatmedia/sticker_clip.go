@@ -21,10 +21,22 @@ const (
 	maxStickerClipBytes    = 16 << 20
 	maxStickerClipFrames   = 120
 	maxStickerClipDuration = 4 * time.Second
+	// maxVideoStickerFrames is three seconds, as long as a video sticker
+	// is, at 60 frames a second.
+	maxVideoStickerFrames = 180
 )
 
+// stickerClip is a loop decoded once. A video sticker's loop too large as
+// pictures is kept in planes, 2.5 bytes a pixel in place of 4, and a
+// picture is made of the frame to show: a message's sticker of 60 frames a
+// second fits so, which otherwise is decoded and scaled for every frame it
+// shows.
 type stickerClip struct {
-	frames        []*image.RGBA
+	frames []*image.RGBA
+	// planes are the frames of a loop kept in planes, colors how each
+	// becomes a picture; frames is empty then.
+	planes        []*image.NYCbCrA
+	colors        []resample.Colors
 	frameDuration time.Duration
 	bytes         int64
 }
@@ -34,23 +46,87 @@ func (c *stickerClip) FrameAt(elapsed time.Duration) *image.RGBA {
 	return c.frames[index]
 }
 
+// clipPictures gives the picture of clip, a loop of e, at a time. The
+// pictures of a loop kept in planes are made over the pixels of a ring, as
+// those of a sticker decoded for every frame are.
+func (m *Manager) clipPictures(e *entry, clip *stickerClip) func(time.Duration) (image.Image, error) {
+	if len(clip.planes) == 0 {
+		return func(t time.Duration) (image.Image, error) { return clip.FrameAt(t), nil }
+	}
+	shown := -1
+	var last *image.RGBA
+	var ring pictureRing
+	return func(t time.Duration) (image.Image, error) {
+		index := int(t/clip.frameDuration) % len(clip.planes)
+		if index == shown {
+			return last, nil
+		}
+		planes := clip.planes[index]
+		dst := ring.next(m, e, planes.Rect.Size())
+		if dst == nil {
+			dst = image.NewRGBA(planes.Rect)
+		}
+		resample.ConvertAlpha(dst, planes, clip.colors[index])
+		shown, last = index, dst
+		return dst, nil
+	}
+}
+
+// stickerClipFits reports whether the loop of sticker, shown in box, is
+// within the limits of a decoded loop as pictures.
 func stickerClipFits(sticker *vp9.Sticker, box image.Point) bool {
+	size := resample.Fit(sticker.Size.X, sticker.Size.Y, box, false)
+	return stickerLoopFits(sticker, int64(size.X)*int64(size.Y)*4)
+}
+
+// stickerPlanesFit is stickerClipFits for a loop kept in planes.
+func stickerPlanesFit(sticker *vp9.Sticker, box image.Point) bool {
+	size := resample.Fit(sticker.Size.X, sticker.Size.Y, box, false)
+	return stickerLoopFits(sticker, planesBytes(size))
+}
+
+// planesBytes is what a frame of size takes in planes.
+func planesBytes(size image.Point) int64 {
+	return 2 * (int64(size.X)*int64(size.Y) + int64((size.X+1)/2)*int64((size.Y+1)/2))
+}
+
+// stickerLoopFits reports whether the loop of sticker, a frame of which
+// takes frameBytes, is within the limits of a decoded loop.
+func stickerLoopFits(sticker *vp9.Sticker, frameBytes int64) bool {
 	count := sticker.FrameCount()
-	if count == 0 || count > maxStickerClipFrames || sticker.File.FrameDuration <= 0 ||
+	if count == 0 || count > maxVideoStickerFrames || sticker.File.FrameDuration <= 0 ||
 		sticker.File.FrameDuration > maxStickerClipDuration/time.Duration(count) {
 		return false
 	}
-	size := resample.Fit(sticker.Size.X, sticker.Size.Y, box, false)
-	return size.X > 0 && size.Y > 0 && int64(count)*int64(size.X)*int64(size.Y)*4 <= maxStickerClipBytes
+	return frameBytes > 0 && int64(count)*frameBytes <= maxStickerClipBytes
 }
 
-func decodeStickerClip(ctx context.Context, sticker *vp9.Sticker, box image.Point, first func(*image.RGBA)) (*stickerClip, error) {
-	clip := &stickerClip{frames: make([]*image.RGBA, 0, sticker.FrameCount()), frameDuration: sticker.File.FrameDuration}
+// decodeStickerClip decodes the loop of sticker at the size it has in box,
+// in planes if so asked, and gives first its first picture as soon as it
+// is there.
+func decodeStickerClip(ctx context.Context, sticker *vp9.Sticker, box image.Point, planes bool, first func(*image.RGBA)) (*stickerClip, error) {
+	clip := &stickerClip{frameDuration: sticker.File.FrameDuration}
+	size := resample.Fit(sticker.Size.X, sticker.Size.Y, box, false)
 	for i := range sticker.FrameCount() {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		frame, err := stickerFrame(ctx, sticker, time.Duration(i)*clip.frameDuration, box)
+		at := time.Duration(i) * clip.frameDuration
+		if planes {
+			frame, colors, err := sticker.FramePlanes(ctx, at, size)
+			if err != nil {
+				return nil, err
+			}
+			clip.planes, clip.colors = append(clip.planes, frame), append(clip.colors, colors)
+			clip.bytes += planesBytes(size)
+			if i == 0 {
+				picture := image.NewRGBA(frame.Rect)
+				resample.ConvertAlpha(picture, frame, colors)
+				first(picture)
+			}
+			continue
+		}
+		frame, err := sticker.FrameSized(ctx, at, size)
 		if err != nil {
 			return nil, err
 		}

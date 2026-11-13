@@ -30,7 +30,7 @@ func (m *Manager) ffmpegSticker(ctx context.Context, e *entry, data []byte) (fun
 	}
 	size := resample.Fit(file.Width, file.Height, e.box, false)
 	count := len(file.Frames)
-	if count == 0 || count > maxStickerClipFrames || file.FrameDuration <= 0 || file.FrameDuration > maxStickerClipDuration/time.Duration(count) || int64(size.X)*int64(size.Y)*4*int64(count) > maxStickerClipBytes {
+	if count == 0 || count > maxVideoStickerFrames || file.FrameDuration <= 0 || file.FrameDuration > maxStickerClipDuration/time.Duration(count) || int64(size.X)*int64(size.Y)*4*int64(count) > maxStickerClipBytes {
 		return nil, 0, false
 	}
 	e.mu.Lock()

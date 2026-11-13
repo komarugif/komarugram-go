@@ -112,6 +112,17 @@ func (s *Sticker) FrameSized(ctx context.Context, elapsed time.Duration, size im
 	return s.scaler.Resize(s.planes, s.mask, size.X, size.Y), nil
 }
 
+// FramePlanes is FrameSized kept in planes, luma and alpha at size and
+// chroma at half of it, for a loop held in memory: 2.5 bytes a pixel, not
+// 4. resample.ConvertAlpha makes the picture of it, with the colors
+// returned.
+func (s *Sticker) FramePlanes(ctx context.Context, elapsed time.Duration, size image.Point) (*image.NYCbCrA, resample.Colors, error) {
+	if err := s.seek(ctx, elapsed); err != nil {
+		return nil, resample.Colors{}, err
+	}
+	return s.scaler.ResizePlanes(s.planes, s.mask, size.X, size.Y), s.scaler.Colors, nil
+}
+
 // FrameSizedInto is FrameSized into dst, an image at the origin of the size
 // to scale to, instead of a new image; it returns dst.
 func (s *Sticker) FrameSizedInto(ctx context.Context, elapsed time.Duration, dst *image.RGBA) (*image.RGBA, error) {

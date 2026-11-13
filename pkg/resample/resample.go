@@ -335,17 +335,7 @@ func (s *VideoScaler) ResizeInto(dst *image.RGBA, im, alpha *image.YCbCr) *image
 	if w <= 0 || h <= 0 || sw <= 0 || sh <= 0 {
 		return dst
 	}
-	// Blocks stay within 16×16, so that their sums fit in 32 bits. They are
-	// averaged down to the destination itself, rather than to twice it:
-	// moving pictures hide the softer filter, and video is where the work
-	// is.
-	fx, fy := 1, 1
-	for fx < 16 && sw/(fx*2) >= w {
-		fx *= 2
-	}
-	for fy < 16 && sh/(fy*2) >= h {
-		fy *= 2
-	}
+	fx, fy := blocks(sw, w), blocks(sh, h)
 	if alpha == nil && im.SubsampleRatio == image.YCbCrSubsampleRatio420 {
 		if w == sw && h == sh {
 			if s.Colors == (Colors{}) {
@@ -364,20 +354,39 @@ func (s *VideoScaler) ResizeInto(dst *image.RGBA, im, alpha *image.YCbCr) *image
 		return dst
 	}
 	c := s.Colors.conversion()
+	row := s.premultiplied(im, alpha, fx, fy, w, h)
+	for y := range h {
+		premultipliedRow(dst.Pix[y*dst.Stride:y*dst.Stride+w*4], row(y), c)
+	}
+	return dst
+}
+
+// blocks is how many pixels of src a block takes, a power of two up to 16,
+// so that the sums of blocks fit in 32 bits: blocks are averaged down to
+// the destination itself, rather than to twice it, as moving pictures hide
+// the softer filter, and video is where the work is.
+func blocks(src, dst int) int {
+	f := 1
+	for f < 16 && src/(f*2) >= dst {
+		f *= 2
+	}
+	return f
+}
+
+// premultiplied averages im, with alpha, in blocks of fx×fy and returns
+// what gives row y of it scaled to w×h, the rows asked for in order, as
+// premultiplied planes: alpha×luma, alpha×chroma from 128, and alpha, in
+// 0…255. A row is good until the next one is asked for.
+func (s *VideoScaler) premultiplied(im, alpha *image.YCbCr, fx, fy, w, h int) func(y int) []float32 {
+	sw, sh := im.Rect.Dx(), im.Rect.Dy()
 	bw, bh := (sw+fx-1)/fx, (sh+fy-1)/fy
 	s.average(im, alpha, fx, fy, bw, bh)
 	if bw == w && bh == h {
 		// The blocks are the destination's pixels: nothing is left to filter.
-		for y := range h {
-			premultipliedRow(dst.Pix[y*dst.Stride:y*dst.Stride+w*4], s.small[y*w*4:(y+1)*w*4], c)
-		}
-		return dst
+		small := s.small
+		return func(y int) []float32 { return small[y*w*4 : (y+1)*w*4] }
 	}
-	sc := s.filterFor(bw, bh, float64(sw)/float64(fx), float64(sh)/float64(fy), w, h)
-	for y := range h {
-		premultipliedRow(dst.Pix[y*dst.Stride:y*dst.Stride+w*4], sc.row(y), c)
-	}
-	return dst
+	return s.filterFor(bw, bh, float64(sw)/float64(fx), float64(sh)/float64(fy), w, h).row
 }
 
 // premultipliedRow converts a row of premultiplied planes (alpha×luma,
