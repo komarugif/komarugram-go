@@ -14,6 +14,7 @@ import (
 	"image/color"
 	"image/draw"
 	"math"
+	"math/bits"
 )
 
 // Resize returns src scaled to w×h. Downscaling widens the filter by the
@@ -55,24 +56,28 @@ func Resize(src image.Image, w, h int) *image.RGBA {
 // is also filtered rather than repeated, as image.YCbCr.At would. Colors says
 // how the planes are read: the zero value is JPEG's.
 func resizeYCbCr(dst *image.RGBA, im *image.YCbCr, colors Colors) {
-	resizePlanes(dst, im, colors, nil)
+	resizePlanes(dst, im, colors, nil, false)
 }
 
 // planeScalers are the filters of the three planes of frames of one size
 // scaled to one size, kept from one frame to the next.
 type planeScalers struct {
-	size    [6]int
+	size    [7]int
 	filters [3]*scaler
 }
 
 // resizePlanes is resizeYCbCr with the filters of kept, when it is not nil,
-// for the next frame of the same sizes.
-func resizePlanes(dst *image.RGBA, im *image.YCbCr, colors Colors, kept *planeScalers) {
+// for the next frame of the same sizes; linear, the filters take the two
+// samples a pixel lies between, not all that Catmull-Rom spans.
+func resizePlanes(dst *image.RGBA, im *image.YCbCr, colors Colors, kept *planeScalers, linear bool) {
 	c := colors.conversion()
 	w, h := dst.Rect.Dx(), dst.Rect.Dy()
 	sw, sh := im.Rect.Dx(), im.Rect.Dy()
 	cw, ch := chromaSize(im.SubsampleRatio, sw, sh)
-	size := [6]int{sw, sh, cw, ch, w, h}
+	size := [7]int{sw, sh, cw, ch, w, h, 0}
+	if linear {
+		size[6] = 1
+	}
 	fresh := kept == nil || kept.size != size
 	n := 0
 	plane := func(pix []uint8, stride, pw, ph int) *scaler {
@@ -85,6 +90,9 @@ func resizePlanes(dst *image.RGBA, im *image.YCbCr, colors Colors, kept *planeSc
 		n++
 		if fresh {
 			sc := newScaler(1, pw, ph, w, h, read)
+			if linear {
+				sc.xs, sc.ys = linearWeights(pw, w), linearWeights(ph, h)
+			}
 			if kept != nil {
 				kept.filters[n-1] = sc
 			}
@@ -277,6 +285,26 @@ func weights(src int, extent float64, dst int) []taps {
 	return out
 }
 
+// linearWeights are the taps of dst pixels over src, each between the two
+// samples it lies between: for what blocks have averaged already, down to
+// less than twice dst, where every sample still counts.
+func linearWeights(src, dst int) []taps {
+	scale := float64(src) / float64(dst)
+	out := make([]taps, dst)
+	for i := range out {
+		center := (float64(i)+.5)*scale - .5
+		lo := min(max(int(math.Floor(center)), 0), src-1)
+		hi := min(lo+1, src-1)
+		k := float32(min(max(center-float64(lo), 0), 1))
+		if hi == lo {
+			out[i] = taps{start: lo, w: []float32{1}}
+			continue
+		}
+		out[i] = taps{start: lo, w: []float32{1 - k, k}}
+	}
+	return out
+}
+
 func catmullRom(x float64) float64 {
 	x = math.Abs(x)
 	switch {
@@ -337,8 +365,14 @@ type VideoScaler struct {
 	// Colors says how the frames are read, as their stream tells: the zero value is
 	// JPEG's, not a video's.
 	Colors Colors
+	// Rough scales video without alpha cheaper: what is left after the
+	// blocks are averaged is filtered between two samples, not with
+	// Catmull-Rom. For pictures shown several times smaller than they
+	// are, where it is not seen, and the filter was half of the work.
+	Rough  bool
 	small  []float32
 	sums   []uint32
+	lanes  []uint64
 	opaque *image.YCbCr
 	// filter is the filter of the frame before, for sizes filterSize.
 	filter     *scaler
@@ -382,7 +416,7 @@ func (s *VideoScaler) ResizeInto(dst *image.RGBA, im, alpha *image.YCbCr) *image
 		if fx > 1 || fy > 1 {
 			im = s.shrink(im, fx, fy, (sw+fx-1)/fx, (sh+fy-1)/fy)
 		}
-		resizePlanes(dst, im, s.Colors, &s.planes)
+		resizePlanes(dst, im, s.Colors, &s.planes, s.Rough && (fx > 1 || fy > 1))
 		return dst
 	}
 	c := s.Colors.conversion()
@@ -481,42 +515,53 @@ func (s *VideoScaler) shrinkPlane(dst []uint8, dstride, dw, dh int, src []uint8,
 	for by := range dh {
 		clear(sums)
 		y0, y1 := by*fy, min(by*fy+fy, sh)
-		// whole blocks are those the row has all the samples of.
-		whole := sw / fx
+		// Eight samples of a row are added at once, in pairs, to four sums
+		// of 16 bits in a word: the 16 rows of a block at most do not fill
+		// them. The words are taken apart into the blocks' sums after.
+		words := 0
+		if fx > 1 {
+			words = sw / 8
+		}
+		if cap(s.lanes) < words {
+			s.lanes = make([]uint64, words)
+		}
+		lanes := s.lanes[:words]
+		clear(lanes)
 		for y := y0; y < y1; y++ {
 			row := src[y*sstride : y*sstride+sw]
-			switch fx {
-			case 2:
-				for bx, o := 0, 0; bx < whole; bx, o = bx+1, o+2 {
-					sums[bx] += uint32(row[o]) + uint32(row[o+1])
-				}
-			case 4:
-				for bx, o := 0, 0; bx < whole; bx, o = bx+1, o+4 {
-					sums[bx] += sum4(binary.LittleEndian.Uint32(row[o:]))
-				}
-			case 8:
-				for bx, o := 0, 0; bx < whole; bx, o = bx+1, o+8 {
-					sums[bx] += sum8(binary.LittleEndian.Uint64(row[o:]))
-				}
-			case 16:
-				for bx, o := 0, 0; bx < whole; bx, o = bx+1, o+16 {
-					sums[bx] += sum8(binary.LittleEndian.Uint64(row[o:])) + sum8(binary.LittleEndian.Uint64(row[o+8:]))
-				}
-			default:
-				whole = 0
+			for i := range lanes {
+				v := binary.LittleEndian.Uint64(row[i*8 : i*8+8])
+				lanes[i] += v&0x00ff00ff00ff00ff + v>>8&0x00ff00ff00ff00ff
 			}
-			for bx := whole; bx < dw; bx++ {
-				var sum uint32
-				for _, v := range row[bx*fx : min(bx*fx+fx, sw)] {
-					sum += uint32(v)
-				}
-				sums[bx] += sum
+			for x := words * 8; x < sw; x++ {
+				sums[x/fx] += uint32(row[x])
 			}
 		}
+		// A sum of a word is of two samples: shift is from its number to
+		// its block's.
+		shift := bits.TrailingZeros(uint(fx)) - 1
+		for i, v := range lanes {
+			p := i * 4
+			sums[p>>shift] += uint32(v & 0xffff)
+			sums[(p+1)>>shift] += uint32(v >> 16 & 0xffff)
+			sums[(p+2)>>shift] += uint32(v >> 32 & 0xffff)
+			sums[(p+3)>>shift] += uint32(v >> 48)
+		}
 		out := dst[by*dstride : by*dstride+dw]
-		for bx, sum := range sums {
+		// whole blocks, of a size that is a power of two, are divided by a
+		// shift; the last one, cut by the plane's edge, as it comes.
+		whole := 0
+		if rows := y1 - y0; rows&(rows-1) == 0 {
+			whole = sw / fx
+			n := uint32(rows * fx)
+			by := bits.TrailingZeros32(n)
+			for bx, sum := range sums[:whole] {
+				out[bx] = uint8((sum + n/2) >> by)
+			}
+		}
+		for bx := whole; bx < dw; bx++ {
 			n := uint32((y1 - y0) * (min(bx*fx+fx, sw) - bx*fx))
-			out[bx] = uint8((sum + n/2) / n)
+			out[bx] = uint8((sums[bx] + n/2) / n)
 		}
 	}
 }

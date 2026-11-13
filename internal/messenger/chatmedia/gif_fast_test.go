@@ -86,3 +86,24 @@ func TestFastGIFPlaysAtItsSpeedInSandbox(t *testing.T) {
 		t.Fatalf("%.0f pictures a second shown, on 30 ticks", perSecond)
 	}
 }
+
+// A GIF is decoded without the deblocking filter where it is shown four
+// times smaller or more, in the tiles of the panel, and not in a message.
+func TestGIFDecodedRoughlyInTilesOnly(t *testing.T) {
+	for _, c := range []struct {
+		source, size image.Point
+		want         bool
+	}{
+		{image.Pt(1280, 720), image.Pt(178, 100), true},
+		{image.Pt(720, 1280), image.Pt(100, 178), true},
+		{image.Pt(1280, 720), image.Pt(320, 180), true},
+		{image.Pt(1280, 720), image.Pt(420, 236), false},
+		{image.Pt(480, 270), image.Pt(178, 100), false},
+		{image.Pt(320, 240), image.Pt(320, 240), false},
+		{image.Pt(1280, 720), image.Point{}, false},
+	} {
+		if got := roughlyDecoded(c.source, c.size); got != c.want {
+			t.Errorf("a GIF of %v shown in %v: decoded roughly %v, want %v", c.source, c.size, got, c.want)
+		}
+	}
+}

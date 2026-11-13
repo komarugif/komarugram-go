@@ -1379,6 +1379,10 @@ func showStill(e *entry, im image.Image, publish func(image.Image, error)) {
 // there.
 func (m *Manager) playVideoFrames(ctx context.Context, e *entry, v *h264.Video, from time.Duration, publish func(image.Image, error)) error {
 	size := resample.Fit(v.Size().X, v.Size().Y, e.box, e.cover)
+	if roughlyDecoded(v.Size(), size) {
+		// A module without the setting decodes as it did.
+		_ = v.SetFast(ctx, true)
+	}
 	defer m.byWorker(e)()
 	var ring pictureRing
 	var idle, start time.Time
@@ -1460,6 +1464,15 @@ func (m *Manager) playVideoFrames(ctx context.Context, e *entry, v *h264.Video, 
 			return nil
 		}
 	}
+}
+
+// roughlyDecoded reports whether a video of source, shown in size, is
+// decoded without the deblocking filter: shown four times smaller or more,
+// as in a tile of the panel of GIFs, where every pixel is the average of the
+// blocks the filter smooths the edges of. A list of such tiles decodes
+// video of high definition for each, and that is most of what it costs.
+func roughlyDecoded(source, size image.Point) bool {
+	return size.X > 0 && size.Y > 0 && source.X >= 4*size.X && source.Y >= 4*size.Y
 }
 
 // seekPicture decodes the picture of v that shows at at, or the last one,

@@ -129,13 +129,19 @@ func BenchmarkGIFFrame(b *testing.B) {
 		{"small to a tile", 480, 270, 178, 100},
 	} {
 		im, _ := videoFrame(c.sw, c.sh)
-		b.Run(c.name, func(b *testing.B) {
-			s := VideoScaler{Colors: Colors{Limited: true}}
-			dst := image.NewRGBA(image.Rect(0, 0, c.w, c.h))
-			for b.Loop() {
-				s.ResizeInto(dst, im, nil)
+		for _, rough := range []bool{false, true} {
+			name := c.name
+			if rough {
+				name += ", rough"
 			}
-		})
+			b.Run(name, func(b *testing.B) {
+				s := VideoScaler{Colors: Colors{Limited: true}, Rough: rough}
+				dst := image.NewRGBA(image.Rect(0, 0, c.w, c.h))
+				for b.Loop() {
+					s.ResizeInto(dst, im, nil)
+				}
+			})
+		}
 	}
 }
 
@@ -167,6 +173,39 @@ func TestShrinkPlaneAverages(t *testing.T) {
 					}
 				}
 			}
+		}
+	}
+}
+
+// TestRoughVideoIsThePicture checks that video scaled roughly to a tile is
+// the picture scaled with the whole filter, a little softer, and that it
+// is another: that the cheaper filter was taken.
+func TestRoughVideoIsThePicture(t *testing.T) {
+	for _, c := range [][4]int{{1280, 720, 178, 100}, {720, 1280, 100, 178}, {1281, 719, 150, 85}} {
+		// A smooth picture, as video is at the size of a tile.
+		im := image.NewYCbCr(image.Rect(0, 0, c[0], c[1]), image.YCbCrSubsampleRatio420)
+		for y := range c[1] {
+			for x := range c[0] {
+				im.Y[y*im.YStride+x] = uint8(120 + 80*math.Sin(float64(x)/40)*math.Cos(float64(y)/55))
+			}
+		}
+		for i := range im.Cb {
+			im.Cb[i], im.Cr[i] = uint8(128+i%im.CStride/8%40), uint8(150-i/im.CStride/8%40)
+		}
+		exact, rough := VideoScaler{}, VideoScaler{Rough: true}
+		want, got := exact.Resize(im, nil, c[2], c[3]), rough.Resize(im, nil, c[2], c[3])
+		var se float64
+		same := true
+		for i := range want.Pix {
+			d := float64(want.Pix[i]) - float64(got.Pix[i])
+			se += d * d
+			same = same && d == 0
+		}
+		if psnr := 10 * math.Log10(255*255/(se/float64(len(want.Pix))+1e-9)); psnr < 38 {
+			t.Errorf("%v: PSNR %.1f dB against the whole filter", c, psnr)
+		}
+		if same {
+			t.Errorf("%v: scaled roughly it is the same to a byte", c)
 		}
 	}
 }

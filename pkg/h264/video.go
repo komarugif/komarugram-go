@@ -187,6 +187,16 @@ func (v *Video) PictureInto(dst *image.RGBA) *image.RGBA {
 	return v.scaler.ResizeInto(dst, v.picture, nil)
 }
 
+// SetFast decodes the pictures to come without the deblocking filter, a
+// fifth to a quarter faster, and scales them with a cheaper filter
+// (resample.VideoScaler.Rough), or as before again. The pictures are
+// blockier, which one shown several times smaller does not show: its
+// blocks are averaged away.
+func (v *Video) SetFast(ctx context.Context, fast bool) error {
+	v.scaler.Rough = fast
+	return v.decoder.SetFast(ctx, fast)
+}
+
 // Close releases the decoder's sandbox.
 func (v *Video) Close(ctx context.Context) {
 	v.picture = nil
