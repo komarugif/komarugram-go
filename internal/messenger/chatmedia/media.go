@@ -1431,18 +1431,25 @@ func (m *Manager) playVideoFrames(ctx context.Context, e *entry, v *h264.Video, 
 			return err
 		}
 		e.setPosition(v.Time(i))
-		var im *image.RGBA
-		if dst := ring.next(m, e, size); dst != nil {
-			im = v.PictureInto(dst)
-		} else {
-			im = v.Picture(size)
-		}
 		soonest := tickCeil(time.Now().Add(time.Nanosecond), 2)
 		if i == 0 || start.IsZero() {
 			// A loop, or a pause, starts the clock again.
 			start = soonest.Add(-v.Time(i))
 		}
 		at := tickCeil(start.Add(v.Time(i)-frameTick/2), 2)
+		if i+1 < v.Pictures() && !tickCeil(start.Add(v.Time(i+1)-frameTick/2), 2).After(at) {
+			// The next picture is due on the same tick, as every other one
+			// of a GIF of 60 a second is: this one is never seen, and is
+			// neither scaled nor waited for. Shown for a tick each, the
+			// GIF played at half its speed.
+			continue
+		}
+		var im *image.RGBA
+		if dst := ring.next(m, e, size); dst != nil {
+			im = v.PictureInto(dst)
+		} else {
+			im = v.Picture(size)
+		}
 		if at.Before(soonest) {
 			// Behind time, the next picture follows at once: a slow machine
 			// plays slower rather than skipping, which H.264 cannot.
