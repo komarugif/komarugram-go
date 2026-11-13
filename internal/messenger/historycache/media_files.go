@@ -69,6 +69,10 @@ type mediaFiles struct {
 	// written since the index was saved.
 	bytes   int64
 	written int
+	// removed is set when entries were removed since the index was
+	// saved, for it to drop them; saves counts the times it was saved.
+	removed bool
+	saves   int
 }
 
 // mediaEntry is a medium kept in files, a segment each: which of its chunks
@@ -273,6 +277,9 @@ func (f *mediaFiles) load() error {
 		}
 		return nil
 	})
+	// The index may name entries skipped or gone: the first save drops
+	// them.
+	f.removed = true
 	for id, e := range f.entries {
 		if !found[e.name] {
 			delete(f.entries, id)
@@ -512,9 +519,13 @@ func (f *mediaFiles) removeLocked(e *mediaEntry) {
 	}
 	f.bytes -= e.present
 	delete(f.entries, e.id)
+	f.removed = true
 }
 
-// flush saves the entries changed, and drops those removed.
+// flush saves the entries changed, and drops those removed; with neither,
+// it saves nothing: the last reader of a medium flushes, and a transaction
+// of the encrypted database for each read of a list of GIFs took as long as
+// reading them.
 func (f *mediaFiles) flush() {
 	type record struct {
 		name, id   string
@@ -533,8 +544,18 @@ func (f *mediaFiles) flush() {
 			e.dirty = false
 		}
 	}
-	names := jsonNames(f.entries)
+	removed := f.removed
+	if len(records) == 0 && !removed {
+		f.mu.Unlock()
+		return
+	}
+	var names string
+	if removed {
+		names = jsonNames(f.entries)
+	}
+	f.removed = false
 	f.written = 0
+	f.saves++
 	f.mu.Unlock()
 	c := f.c
 	c.mu.Lock()
@@ -552,8 +573,10 @@ func (f *mediaFiles) flush() {
 			return
 		}
 	}
-	if _, err = tx.Exec(`DELETE FROM media_files WHERE name NOT IN (SELECT value FROM json_each(?))`, names); err != nil {
-		return
+	if removed {
+		if _, err = tx.Exec(`DELETE FROM media_files WHERE name NOT IN (SELECT value FROM json_each(?))`, names); err != nil {
+			return
+		}
 	}
 	_ = tx.Commit()
 }

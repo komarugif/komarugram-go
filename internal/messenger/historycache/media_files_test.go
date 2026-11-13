@@ -371,3 +371,48 @@ func TestMediaSegments(t *testing.T) {
 		t.Fatal("a segment of another medium read", err)
 	}
 }
+
+// Reading a medium saves nothing: the last reader flushed the index, a
+// transaction of the encrypted database for each read of a list of GIFs.
+// A medium removed is dropped from it still.
+func TestReadingMediaSavesNothing(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	c := openProtected(t, dir, protection(t, dir, true))
+	defer c.Close()
+	data := randomMedia(2*MediaChunk+5, 3)
+	if err := c.SaveMedia(ctx, "gif", data); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := c.Media(ctx, "gif"); err != nil || !bytes.Equal(got, data) {
+		t.Fatal(err)
+	}
+	files, err := c.files()
+	if err != nil {
+		t.Fatal(err)
+	}
+	files.mu.Lock()
+	saves := files.saves
+	files.mu.Unlock()
+	for range 20 {
+		if got, err := c.Media(ctx, "gif"); err != nil || !bytes.Equal(got, data) {
+			t.Fatal(err)
+		}
+	}
+	files.mu.Lock()
+	after := files.saves
+	files.mu.Unlock()
+	if after != saves {
+		t.Fatalf("20 reads saved the index %d times", after-saves)
+	}
+	// A medium evicted is dropped from the index.
+	files.budget = 3 * MediaChunk
+	if err := c.SaveMedia(ctx, "next", randomMedia(2*MediaChunk, 4)); err != nil {
+		t.Fatal(err)
+	}
+	var rows int
+	c.db.QueryRow(`SELECT count(*) FROM media_files WHERE id='gif'`).Scan(&rows)
+	if b, _ := c.Media(ctx, "gif"); b != nil || rows != 0 {
+		t.Fatalf("the medium evicted kept, %d entries in the index", rows)
+	}
+}
