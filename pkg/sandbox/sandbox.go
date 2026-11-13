@@ -244,6 +244,9 @@ func (r *Runtime) Check(ctx context.Context, module api.Module, started time.Tim
 type Budget struct {
 	mu          sync.Mutex
 	limit, used uint64
+	// grew is how large the memory freed last grew, of the memories of
+	// each module, which are told apart by the most they may hold.
+	grew map[uint64]uint64
 }
 
 // NewBudget returns a budget of the given size in bytes.
@@ -283,6 +286,22 @@ func (b *Budget) release(n uint64) {
 	b.used -= min(n, b.used)
 }
 
+// remember keeps how large a memory of a module grew, for the next one.
+func (b *Budget) remember(max, size uint64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.grew == nil {
+		b.grew = map[uint64]uint64{}
+	}
+	b.grew[max] = size
+}
+
+func (b *Budget) remembered(max uint64) uint64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.grew[max]
+}
+
 // Allocate implements experimental.MemoryAllocator.
 func (b *Budget) Allocate(_, max uint64) experimental.LinearMemory {
 	return &memory{budget: b, max: max}
@@ -312,7 +331,13 @@ func (m *memory) Reallocate(size uint64) []byte {
 	// memory each time; fall back to the exact size when the budget is tight.
 	old := uint64(cap(m.buf))
 	grown := min(max(size, old+old/2), m.max)
-	if !m.budget.take(grown-old, force) {
+	// A memory past a quarter of what the last one of its module grew to
+	// is likely on its way there: it takes that at once. A decoder of
+	// video grows to some 15 MB, and by halves it was allocated three
+	// times over and copied twice, at each of its starts.
+	if last := min(m.budget.remembered(m.max), m.max); !force && last > grown && size > last/4 && m.budget.take(last-old, false) {
+		grown = last
+	} else if !m.budget.take(grown-old, force) {
 		if grown == size || !m.budget.take(size-old, false) {
 			return nil
 		}
@@ -326,5 +351,8 @@ func (m *memory) Reallocate(size uint64) []byte {
 
 func (m *memory) Free() {
 	m.budget.release(uint64(cap(m.buf)))
+	if m.started {
+		m.budget.remember(m.max, uint64(len(m.buf)))
+	}
 	m.buf = nil
 }
