@@ -12,6 +12,7 @@ import (
 	"image"
 	"io"
 	"komarugram/pkg/program"
+	"komarugram/pkg/resample"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,6 +37,18 @@ type Info struct {
 // String describes the decoded stream, e.g. "404x720 · 29.97 fps".
 func (i Info) String() string {
 	return fmt.Sprintf("%dx%d · %.2f fps", i.Width, i.Height, i.FPS)
+}
+
+// Fit is info with its pictures scaled down to fit box, or to cover it
+// (resample.Fit), never up: a player decodes no more pixels than its view
+// shows. The sizes stay even, for ffmpeg's scaler.
+func (i Info) Fit(box image.Point, cover bool) Info {
+	size := resample.Fit(i.Width, i.Height, box, cover)
+	if i.source == (image.Point{}) {
+		i.source = image.Pt(i.Width, i.Height)
+	}
+	i.Width, i.Height = max(2, size.X&^1), max(2, size.Y&^1)
+	return i
 }
 
 // Probe reads the dimensions and frame rate of the first video stream.

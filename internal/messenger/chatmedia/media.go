@@ -1249,7 +1249,11 @@ func (m *Manager) playGIF(ctx context.Context, e *entry, url string, long time.D
 				publish(nil, err)
 				return
 			}
-			info = p.Info()
+			// Decoded to the size of its view, as the H.264 sandbox
+			// decodes it: a list of GIFs read and uploaded frames
+			// several times the size of its tiles.
+			info = p.Info().Fit(e.box, e.cover)
+			p = video.NewPlayerAs(url, info, e.ffmpeg)
 		} else {
 			p = video.NewPlayerAs(url, info, e.ffmpeg)
 		}
