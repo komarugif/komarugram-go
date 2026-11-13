@@ -438,17 +438,37 @@ func TestPausedWebMPreviewDoesNotPredecodeLoop(t *testing.T) {
 	}
 }
 
-func TestGIFResizeKeepsItsPlayer(t *testing.T) {
+// A GIF is decoded to the size of its view: a larger view decodes it again,
+// for both, and it plays on from where it was; a smaller one leaves it.
+func TestGIFResizePlaysOn(t *testing.T) {
 	m := New(&fakeSource{}, func() {})
 	defer m.Close()
 	msg := model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "gif", MIMEType: "image/gif"}}
-	e := &entry{frame: image.NewRGBA(image.Rect(0, 0, 128, 128)), animated: true, box: image.Pt(128, 128), cancel: func() {}}
+	e := &entry{frame: image.NewRGBA(image.Rect(0, 0, 128, 128)), animated: true, box: image.Pt(128, 256), position: 3 * time.Second, cancel: func() {}}
 	m.entries[msg.Media.ID] = e
 	m.BeginFrame()
-	m.StatusFit(msg, true, image.Pt(256, 256), false)
+	m.StatusFit(msg, true, image.Pt(100, 100), false)
 	m.EndFrame()
 	if m.entries[msg.Media.ID] != e {
-		t.Fatal("resizing a GIF restarted its independent player")
+		t.Fatal("a smaller view started the GIF over")
+	}
+	m.BeginFrame()
+	m.StatusFit(msg, true, image.Pt(256, 200), false)
+	m.EndFrame()
+	grown := m.entries[msg.Media.ID]
+	if grown == e {
+		t.Fatal("a larger view left the GIF at the size of the smaller")
+	}
+	grown.mu.Lock()
+	defer grown.mu.Unlock()
+	if grown.box != image.Pt(256, 256) {
+		t.Fatalf("decoded for %v, want both views, 256x256", grown.box)
+	}
+	if grown.frame != e.frame {
+		t.Fatal("the picture shown was dropped before the larger one came")
+	}
+	if at, set := grown.seekTo, grown.seekSet || grown.position == 3*time.Second; at != 3*time.Second || !set {
+		t.Fatalf("it plays on from %v, want 3s", at)
 	}
 }
 

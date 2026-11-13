@@ -77,3 +77,59 @@ func TestGIFWithFFmpegFitsItsView(t *testing.T) {
 		t.Fatal("the GIF did not play")
 	}
 }
+
+// A GIF asked for by a small view first, as the panel of GIFs asks for the
+// one sent from it, is decoded again for a larger view, the message's; and
+// the two views, drawn together, do not start it over in turn.
+func TestGIFGrowsWithItsView(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("no ffmpeg")
+	}
+	data, err := os.ReadFile("../../../assets/video.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := &fakeSource{data: data}
+	m := New(source, func() {})
+	defer m.Close()
+	m.ConfigureDecoders(false, false, "")
+	msg := model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "gif", MIMEType: "video/mp4"}}
+	tile, message := image.Pt(64, 96), image.Pt(200, 356)
+	// play draws frames until done says so, and returns the last picture.
+	play := func(both bool, done func(image.Image) bool) image.Image {
+		t.Helper()
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			m.BeginFrameAt(time.Now())
+			status := m.StatusFit(msg, true, tile, true)
+			if both {
+				status = m.StatusFit(msg, true, message, false)
+			}
+			m.EndFrame()
+			if status.Err != nil {
+				t.Fatal(status.Err)
+			}
+			if status.Frame != nil && done(status.Frame) {
+				return status.Frame
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatal("the GIF did not show the picture waited for")
+		return nil
+	}
+	small := play(false, func(im image.Image) bool { return true })
+	if size := small.Bounds().Size(); size.X > 128 || size.Y > 256 {
+		t.Fatalf("a picture of %v for a tile of %v", size, tile)
+	}
+	large := play(true, func(im image.Image) bool { return im.Bounds().Dx() > small.Bounds().Dx() })
+	if size := large.Bounds().Size(); size.X < message.X {
+		t.Fatalf("a picture of %v for a message of %v", size, message)
+	}
+	// Both views drawn for a while: the GIF is read no more.
+	loads := source.calls.Load()
+	frames := 0
+	play(true, func(image.Image) bool { frames++; return frames > 20 })
+	if got := source.calls.Load(); got != loads {
+		t.Fatalf("the GIF was loaded %d more times with both views drawn", got-loads)
+	}
+}

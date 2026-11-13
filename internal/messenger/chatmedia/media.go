@@ -333,20 +333,34 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 	if e != nil {
 		e.mu.Lock()
 		// A smaller decoded image is replaced when the view grows; the old
-		// frame stays on screen meanwhile.
-		grown = (!e.animated || animatedSticker) && (box.X > e.box.X || box.Y > e.box.Y || cover && !e.cover)
+		// frame stays on screen meanwhile. A GIF too: it is decoded to the
+		// size of its view, and the tile of the panel of GIFs, which shares
+		// the manager, asked for it first when it was sent from there.
+		grown = (!e.animated || animatedSticker || msg.Kind == model.MessageGIF) && (box.X > e.box.X || box.Y > e.box.Y || cover && !e.cover)
 		restart = e.expired || grown && (e.frame != nil || e.err != nil)
+		if grown {
+			// Decoded for both views, the smaller and the larger, the one
+			// that covers and the one that fits: decoded for the last to
+			// ask, two views of it would start it over in turn, for ever.
+			box = image.Pt(max(box.X, e.box.X), max(box.Y, e.box.Y))
+			cover = cover || e.cover
+		}
 		e.mu.Unlock()
 	}
 	if e == nil || restart {
 		var previous, preview, still image.Image
 		var clip *stickerClip
 		var textColor bool
+		// position is where a GIF decoded again for a larger view was.
+		var position time.Duration
 		wasm := m.wasm
 		if restart {
 			e.cancel()
 			e.mu.Lock()
 			previous, preview, still = e.frame, e.preview, e.still
+			if grown {
+				position = e.position
+			}
 			// A clip kept is played without the emoji asked for again,
 			// which alone tells its color.
 			textColor = e.textColor
@@ -376,6 +390,9 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 		if at, ok := m.seeks[key]; ok {
 			delete(m.seeks, key)
 			e.seekTo, e.seekSet = at, true
+		} else if position > 0 {
+			// It plays on from there, not from its start.
+			e.seekTo, e.seekSet, e.position = position, true, position
 		}
 		// The loader takes a copy of its own: captured, msg itself would be
 		// moved to the heap on every call, every frame, for each picture.
