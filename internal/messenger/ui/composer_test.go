@@ -297,8 +297,10 @@ func TestRenderComposer(t *testing.T) {
 		h.p.composer.page.Featured = []model.PickerPack{{ID: 42, Title: "Коты и собаки",
 			Ref:   model.StickerSetRef{Type: "id", ID: 42, AccessHash: 4},
 			Items: []model.PickerItem{{ID: "preview/1", Emoji: "🐈"}, {ID: "preview/2", Emoji: "🐕"}, {ID: "preview/3", Emoji: "🐱"}}}}
-	case "gif":
+	case "gif", "gif-playing":
+		// gif-playing, the GIFs playing, a row of them with one FFmpeg.
 		h.p.composer.tab = model.PickerGIF
+		h.animate = os.Getenv("COMPOSER_VIEW") == "gif-playing"
 	case "emoji-search":
 		// The emoji of the picker found for a word, before Telegram answers.
 		h.p.composer.search.SetText("кот")
@@ -485,6 +487,13 @@ func TestRenderComposer(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		h.frame()
 		time.Sleep(15 * time.Millisecond)
+	}
+	if os.Getenv("COMPOSER_VIEW") == "gif-playing" {
+		// The rows' FFmpeg start, and play a while.
+		for range 120 {
+			h.frame()
+			time.Sleep(15 * time.Millisecond)
+		}
 	}
 	if os.Getenv("COMPOSER_VIEW") == "files-spoiler" {
 		// The tooltip of the first picture's spoiler button, once the box has

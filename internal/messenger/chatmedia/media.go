@@ -202,11 +202,16 @@ type Manager struct {
 	// for NextFrame: workers then leave their pictures for the frames due,
 	// instead of waking the window for each.
 	clocked atomic.Bool
+	// rows are the rows of GIFs played by one FFmpeg each (GIFRow), by
+	// rowKey, and rowsFailed those that failed, by rowIDs, whose GIFs play
+	// one by one; UI thread only.
+	rows       map[string]*gifRow
+	rowsFailed map[string]bool
 }
 
 func New(source Source, changed func()) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Manager{ctx: ctx, cancel: cancel, source: source, changed: changed, limit: 24, imageSize: 1024, videoHeight: 384, byteLimit: 96 << 20, entries: map[string]*entry{}, cancelled: map[string]bool{}, sem: make(chan struct{}, 4)}
+	m := &Manager{ctx: ctx, cancel: cancel, source: source, changed: changed, limit: 24, imageSize: 1024, videoHeight: 384, byteLimit: 96 << 20, entries: map[string]*entry{}, cancelled: map[string]bool{}, sem: make(chan struct{}, 4), rowsFailed: map[string]bool{}}
 	m.lottie.open = lottie.NewRuntime
 	m.vp9.open = vp9.NewRuntime
 	m.avc.open = newAVCRuntime
@@ -642,6 +647,7 @@ func (m *Manager) SandboxGIFs() bool {
 	return m.sandboxGIFs
 }
 func (m *Manager) EndFrame() {
+	defer m.trimRows()
 	defer m.trimBytes()
 	defer m.trimAnimations()
 	// stopping counts decoders off screen that the next frames stop.

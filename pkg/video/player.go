@@ -13,6 +13,7 @@ import (
 	"io"
 	"komarugram/pkg/program"
 	"komarugram/pkg/resample"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -109,6 +110,9 @@ type Player struct {
 	path         string
 	ffmpeg       string
 	info         Info
+
+	// row are the videos of a row played as one (NewRowPlayer).
+	row []RowInput
 
 	mu    sync.Mutex
 	frame *image.RGBA
@@ -235,32 +239,9 @@ func (p *Player) decode() error {
 	start := p.start
 	p.start, p.base, p.decoded = 0, start, 0
 	p.mu.Unlock()
-	source := p.info.source
-	if source == (image.Point{}) {
-		source = image.Pt(p.info.Width, p.info.Height)
-	}
-	memory := DecodeMemory(source)
-	args := append(LimitArgs(memory),
-		"-hide_banner", "-loglevel", "error",
-		"-re",
-		"-threads", "2", "-format_whitelist", "mov,matroska,webm,gif",
-	)
-	if start > 0 {
-		// The first pass, from start to the end: the passes after it,
-		// looped, start over from the start.
-		args = append(args, "-ss", strconv.FormatFloat(start.Seconds(), 'f', 3, 64))
-	} else {
-		// One process loops the input: a short GIF would start an ffmpeg
-		// for every pass, several a second.
-		args = append(args, "-stream_loop", "-1")
-	}
-	args = append(args,
-		"-i", p.path,
-		"-an",
-		"-vf", fmt.Sprintf("scale=%d:%d", p.info.Width, p.info.Height),
-	)
-	args = append(args, rawOutputArgs("rgba")...)
+	args, files, memory := p.args(start)
 	cmd := program.CommandContext(ctx, p.ffmpeg, args...)
+	cmd.ExtraFiles = files
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -289,6 +270,14 @@ func (p *Player) decode() error {
 			if limit.exceeded.Load() {
 				return limit.explain(err)
 			}
+			if p.row != nil {
+				// A row loops for ever: its FFmpeg ended on an error, a
+				// file it could not read.
+				if msg := strings.TrimSpace(stderr.String()); msg != "" {
+					return fmt.Errorf("ffmpeg: %s", msg)
+				}
+				return fmt.Errorf("ffmpeg ended a row: %w", err)
+			}
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
 				return nil // the stream ended: the caller starts it again
 			}
@@ -313,6 +302,39 @@ func (p *Player) decode() error {
 			return nil
 		}
 	}
+}
+
+// args are the arguments of the FFmpeg that decodes from start, the files
+// it is handed, and the memory it may take.
+func (p *Player) args(start time.Duration) ([]string, []*os.File, uint64) {
+	if p.row != nil {
+		return p.rowArgs()
+	}
+	source := p.info.source
+	if source == (image.Point{}) {
+		source = image.Pt(p.info.Width, p.info.Height)
+	}
+	memory := DecodeMemory(source)
+	args := append(LimitArgs(memory),
+		"-hide_banner", "-loglevel", "error",
+		"-re",
+		"-threads", "2", "-format_whitelist", "mov,matroska,webm,gif",
+	)
+	if start > 0 {
+		// The first pass, from start to the end: the passes after it,
+		// looped, start over from the start.
+		args = append(args, "-ss", strconv.FormatFloat(start.Seconds(), 'f', 3, 64))
+	} else {
+		// One process loops the input: a short GIF would start an ffmpeg
+		// for every pass, several a second.
+		args = append(args, "-stream_loop", "-1")
+	}
+	args = append(args,
+		"-i", p.path,
+		"-an",
+		"-vf", fmt.Sprintf("scale=%d:%d", p.info.Width, p.info.Height),
+	)
+	return append(args, rawOutputArgs("rgba")...), nil, memory
 }
 
 // waitWhilePaused blocks until playback resumes, reporting whether the player

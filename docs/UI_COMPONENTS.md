@@ -710,7 +710,12 @@ size-stability fixes remain in place.
   with pages. With the animations off, by the setting or the window, or
   when the history is not at its end, the message is in its place at once.
 - **Composer picker** (`composer_picker.go`): installed sticker/emoji packs and
-  a Trending section for server-featured packs. A featured sticker is sent
+  a Trending section for server-featured packs. The saved GIFs play a row
+  with one FFmpeg (`chatmedia.GIFRow`): each tile draws its still, and over
+  it its part of the row's picture (`drawRowTile`); where a row cannot play
+  so (GIFs in the sandbox, animations off, a row that failed) its GIFs play
+  one by one as before. `COMPOSER_VIEW=gif-playing` renders the rows
+  playing. A featured sticker is sent
   like an installed one; the pack's title row opens the sticker set dialog.
   The emoji tab has Telegram Desktop's seven static sections (people, nature,
   food, activity, travel, objects, symbols and flags), each with a title, and a

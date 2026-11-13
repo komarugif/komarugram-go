@@ -24,6 +24,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
+	"gioui.org/op/paint"
 	"gioui.org/widget"
 )
 
@@ -529,7 +530,18 @@ func (c *messageComposer) pickerRow(gtx layout.Context, n int, rows []pickerRow,
 	if c.tab == model.PickerGIF {
 		widths, height = gifWidths(row.items, width, gap)
 	}
-	x := 0
+	// A row of GIFs plays with one FFmpeg, as one picture of its tiles,
+	// each tile its part of it over its still; one by one where it cannot.
+	var rowPicture *image.RGBA
+	rowPlays := false
+	if c.tab == model.PickerGIF && animate && p.media != nil {
+		msgs := make([]model.Message, len(row.items))
+		for i, item := range row.items {
+			msgs[i] = item.Media
+		}
+		rowPicture, rowPlays = p.media.GIFRow(msgs, widths, height)
+	}
+	x, rowX := 0, 0
 	for i, item := range row.items {
 		key := fmt.Sprintf("%d/%d/%s", c.tab, n, item.ID)
 		click := c.itemClicks[key]
@@ -551,11 +563,19 @@ func (c *messageComposer) pickerRow(gtx layout.Context, n int, rows []pickerRow,
 		inRect(gtx, image.Rect(x, 0, x+max(0, tileWidth), height), func(gtx layout.Context) layout.Dimensions {
 			style := surfaceStyle{radius: gtx.Dp(8), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor}
 			return click.Layout(gtx, gtx.Constraints.Max, style, func(gtx layout.Context) layout.Dimensions {
+				if rowPlays {
+					dims := c.drawItem(gtx, item, p, false)
+					if rowPicture != nil {
+						drawRowTile(gtx, p, rowPicture, rowX)
+					}
+					return dims
+				}
 				hovered := click.click.Hovered()
 				cheap := hovered && p.media.CheapToPlay(item.Media, gtx.Constraints.Max, c.tab == model.PickerGIF)
 				return c.drawItem(gtx, item, p, animate || c.hover.Play(gtx, key, hovered, cheap))
 			})
 		})
+		rowX += widths[i]
 		x += widths[i]
 		if c.tab == model.PickerGIF {
 			x += gap
@@ -724,6 +744,18 @@ func (c *messageComposer) pickerShows(id string) bool {
 
 // pickerStripKey is the hover key of a pack in the picker's strip.
 type pickerStripKey int64
+
+// drawRowTile draws a GIF's tile from the picture of its row (GIFRow), in
+// which the tile is at x, rounded as drawItem draws a GIF.
+func drawRowTile(gtx layout.Context, p *chatPage, row *image.RGBA, x int) {
+	if p.images == nil {
+		return
+	}
+	defer clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Max}, gtx.Dp(6)).Push(gtx.Ops).Pop()
+	defer op.Offset(image.Pt(-x, 0)).Push(gtx.Ops).Pop()
+	p.images.Op(row).Add(gtx.Ops)
+	paint.PaintOp{}.Add(gtx.Ops)
+}
 
 func (c *messageComposer) drawItem(gtx layout.Context, item model.PickerItem, p *chatPage, animate bool) layout.Dimensions {
 	size := gtx.Constraints.Max
