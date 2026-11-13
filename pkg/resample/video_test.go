@@ -116,3 +116,57 @@ func BenchmarkStickerFrame(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkGIFFrame is one picture of a GIF, a video without alpha, scaled
+// to a tile of the panel of GIFs and to a message.
+func BenchmarkGIFFrame(b *testing.B) {
+	for _, c := range []struct {
+		name         string
+		sw, sh, w, h int
+	}{
+		{"HD to a tile", 1280, 720, 178, 100},
+		{"HD to a message", 1280, 720, 420, 236},
+		{"small to a tile", 480, 270, 178, 100},
+	} {
+		im, _ := videoFrame(c.sw, c.sh)
+		b.Run(c.name, func(b *testing.B) {
+			s := VideoScaler{Colors: Colors{Limited: true}}
+			dst := image.NewRGBA(image.Rect(0, 0, c.w, c.h))
+			for b.Loop() {
+				s.ResizeInto(dst, im, nil)
+			}
+		})
+	}
+}
+
+// TestShrinkPlaneAverages checks the blocks of every width against sums
+// made a sample at a time, with a last block cut by the plane's edge.
+func TestShrinkPlaneAverages(t *testing.T) {
+	const sw, sh = 77, 9
+	src := make([]uint8, sw*sh)
+	for i := range src {
+		src[i] = uint8(i*37 + i/5)
+	}
+	for _, fx := range []int{1, 2, 4, 8, 16} {
+		for _, fy := range []int{1, 2} {
+			dw, dh := (sw+fx-1)/fx, (sh+fy-1)/fy
+			got := make([]uint8, dw*dh)
+			var s VideoScaler
+			s.shrinkPlane(got, dw, dw, dh, src, sw, sw, sh, fx, fy)
+			for by := range dh {
+				for bx := range dw {
+					var sum, n uint32
+					for y := by * fy; y < min(by*fy+fy, sh); y++ {
+						for x := bx * fx; x < min(bx*fx+fx, sw); x++ {
+							sum += uint32(src[y*sw+x])
+							n++
+						}
+					}
+					if want := uint8((sum + n/2) / n); got[by*dw+bx] != want {
+						t.Fatalf("blocks of %dx%d: block %d,%d is %d, want %d", fx, fy, bx, by, got[by*dw+bx], want)
+					}
+				}
+			}
+		}
+	}
+}

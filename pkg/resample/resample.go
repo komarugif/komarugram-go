@@ -9,6 +9,7 @@
 package resample
 
 import (
+	"encoding/binary"
 	"image"
 	"image/color"
 	"image/draw"
@@ -55,21 +56,51 @@ func Resize(src image.Image, w, h int) *image.RGBA {
 // is also filtered rather than repeated, as image.YCbCr.At would. Colors says
 // how the planes are read: the zero value is JPEG's.
 func resizeYCbCr(dst *image.RGBA, im *image.YCbCr, colors Colors) {
+	resizePlanes(dst, im, colors, nil)
+}
+
+// planeScalers are the filters of the three planes of frames of one size
+// scaled to one size, kept from one frame to the next.
+type planeScalers struct {
+	size    [6]int
+	filters [3]*scaler
+}
+
+// resizePlanes is resizeYCbCr with the filters of kept, when it is not nil,
+// for the next frame of the same sizes.
+func resizePlanes(dst *image.RGBA, im *image.YCbCr, colors Colors, kept *planeScalers) {
 	c := colors.conversion()
 	w, h := dst.Rect.Dx(), dst.Rect.Dy()
 	sw, sh := im.Rect.Dx(), im.Rect.Dy()
 	cw, ch := chromaSize(im.SubsampleRatio, sw, sh)
+	size := [6]int{sw, sh, cw, ch, w, h}
+	fresh := kept == nil || kept.size != size
+	n := 0
 	plane := func(pix []uint8, stride, pw, ph int) *scaler {
-		return newScaler(1, pw, ph, w, h, func(y int, line []float32) {
+		read := func(y int, line []float32) {
 			row := pix[y*stride : y*stride+pw]
 			for i, v := range row {
 				line[i] = float32(v)
 			}
-		})
+		}
+		n++
+		if fresh {
+			sc := newScaler(1, pw, ph, w, h, read)
+			if kept != nil {
+				kept.filters[n-1] = sc
+			}
+			return sc
+		}
+		sc := kept.filters[n-1]
+		sc.next, sc.read = 0, read
+		return sc
 	}
 	ys := plane(im.Y, im.YStride, sw, sh)
 	cbs := plane(im.Cb, im.CStride, cw, ch)
 	crs := plane(im.Cr, im.CStride, cw, ch)
+	if kept != nil {
+		kept.size = size
+	}
 	for y := range h {
 		yr, cb, cr := ys.row(y), cbs.row(y), crs.row(y)
 		pix := dst.Pix[y*dst.Stride : y*dst.Stride+w*4]
@@ -313,6 +344,8 @@ type VideoScaler struct {
 	// filter is the filter of the frame before, for sizes filterSize.
 	filter     *scaler
 	filterSize [6]float64
+	// planes are the filters of video without alpha.
+	planes planeScalers
 }
 
 // Resize returns im scaled to w×h, with the luma of alpha as its alpha, or
@@ -350,7 +383,7 @@ func (s *VideoScaler) ResizeInto(dst *image.RGBA, im, alpha *image.YCbCr) *image
 		if fx > 1 || fy > 1 {
 			im = s.shrink(im, fx, fy, (sw+fx-1)/fx, (sh+fy-1)/fy)
 		}
-		resizeYCbCr(dst, im, s.Colors)
+		resizePlanes(dst, im, s.Colors, &s.planes)
 		return dst
 	}
 	c := s.Colors.conversion()
@@ -449,9 +482,31 @@ func (s *VideoScaler) shrinkPlane(dst []uint8, dstride, dw, dh int, src []uint8,
 	for by := range dh {
 		clear(sums)
 		y0, y1 := by*fy, min(by*fy+fy, sh)
+		// whole blocks are those the row has all the samples of.
+		whole := sw / fx
 		for y := y0; y < y1; y++ {
 			row := src[y*sstride : y*sstride+sw]
-			for bx := range dw {
+			switch fx {
+			case 2:
+				for bx, o := 0, 0; bx < whole; bx, o = bx+1, o+2 {
+					sums[bx] += uint32(row[o]) + uint32(row[o+1])
+				}
+			case 4:
+				for bx, o := 0, 0; bx < whole; bx, o = bx+1, o+4 {
+					sums[bx] += sum4(binary.LittleEndian.Uint32(row[o:]))
+				}
+			case 8:
+				for bx, o := 0, 0; bx < whole; bx, o = bx+1, o+8 {
+					sums[bx] += sum8(binary.LittleEndian.Uint64(row[o:]))
+				}
+			case 16:
+				for bx, o := 0, 0; bx < whole; bx, o = bx+1, o+16 {
+					sums[bx] += sum8(binary.LittleEndian.Uint64(row[o:])) + sum8(binary.LittleEndian.Uint64(row[o+8:]))
+				}
+			default:
+				whole = 0
+			}
+			for bx := whole; bx < dw; bx++ {
 				var sum uint32
 				for _, v := range row[bx*fx : min(bx*fx+fx, sw)] {
 					sum += uint32(v)
@@ -465,6 +520,19 @@ func (s *VideoScaler) shrinkPlane(dst []uint8, dstride, dw, dh int, src []uint8,
 			out[bx] = uint8((sum + n/2) / n)
 		}
 	}
+}
+
+// sum8 is the sum of the eight bytes of v, and sum4 of the four: added in
+// pairs, then the pairs, within the word.
+func sum8(v uint64) uint32 {
+	v = v&0x00ff00ff00ff00ff + v>>8&0x00ff00ff00ff00ff
+	v = v&0x0000ffff0000ffff + v>>16&0x0000ffff0000ffff
+	return uint32(v) + uint32(v>>32)
+}
+
+func sum4(v uint32) uint32 {
+	v = v&0x00ff00ff + v>>8&0x00ff00ff
+	return v&0xffff + v>>16
 }
 
 // average fills small with bw×bh blocks of fx×fy source pixels, each the
