@@ -878,6 +878,7 @@
 
 "graphics.api" = "Graphics API";
 "graphics.api_auto" = "Automatic";
+"graphics.api_auto_chosen" = "Automatic ({api})";
 "graphics.device" = "Vulkan device";
 "graphics.device_auto" = "Automatic: the first that can draw";
 "graphics.device_auto_remembered" = "Automatic: {name}";

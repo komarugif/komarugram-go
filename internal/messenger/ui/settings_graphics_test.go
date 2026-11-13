@@ -128,6 +128,8 @@ func TestGraphicsChanged(t *testing.T) {
 		{preferences.Graphics{API: preferences.GraphicsVulkan, Vulkan: intel}, preferences.Graphics{API: preferences.GraphicsVulkan}, true},
 		{preferences.Graphics{API: preferences.GraphicsVulkan, Vulkan: intel}, preferences.Graphics{API: preferences.GraphicsVulkan, Vulkan: renamed}, false},
 		{preferences.Graphics{API: preferences.GraphicsOpenGL, Vulkan: intel}, preferences.Graphics{API: preferences.GraphicsOpenGL, Vulkan: nvidia}, false},
+		// The automatic choice draws with Vulkan.
+		{preferences.Graphics{Auto: intel}, preferences.Graphics{Auto: nvidia}, true},
 		{preferences.Graphics{API: preferences.GraphicsVulkan}, preferences.Graphics{API: preferences.GraphicsVulkan}, false},
 	} {
 		if got := graphicsChanged(c.before, c.after); got != c.want {
@@ -325,5 +327,27 @@ func TestRememberVulkanFailed(t *testing.T) {
 	v.chooseDevice(toVulkanDevice(testIntel))
 	if g.VulkanFailed {
 		t.Fatal("choosing a device did not try Vulkan again")
+	}
+}
+
+// The automatic choice of the API tells what it chose, as the GPU made
+// last for a window tells it, while it is the choice.
+func TestAutoAPILabel(t *testing.T) {
+	l := localization.For("en")
+	vulkan := gpu.DeviceInfo{API: "Vulkan 1.4.354"}
+	gl := gpu.DeviceInfo{API: "OpenGL ES 3.2"}
+	for _, c := range []struct {
+		api  string
+		info gpu.DeviceInfo
+		want string
+	}{
+		{preferences.GraphicsAuto, vulkan, "Automatic (Vulkan)"},
+		{preferences.GraphicsAuto, gl, "Automatic (OpenGL)"},
+		{preferences.GraphicsAuto, gpu.DeviceInfo{}, "Automatic"},
+		{preferences.GraphicsOpenGL, vulkan, "Automatic"},
+	} {
+		if got := autoAPILabel(l, preferences.Graphics{API: c.api}, c.info); got != c.want {
+			t.Errorf("chosen %q, drawn with %q: %q, want %q", c.api, c.info.API, got, c.want)
+		}
 	}
 }

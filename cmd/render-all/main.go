@@ -40,7 +40,7 @@ func renders() []render {
 	all = append(all, render{"composer-motion", "TestRenderComposerMotion", []string{"COMPOSER_MOTION_PNG={out}/composer-motion"}})
 	all = append(all, render{"composer-custom-emoji", "TestRenderComposer", []string{"COMPOSER_VIEW=custom-emoji", "COMPOSER_PNG={out}/composer-custom-emoji.png"}})
 	all = append(all, render{"outgoing-delivery", "TestRenderOutgoingDelivery", []string{"OUTBOX_PNG={out}/outgoing-delivery.png"}})
-	for _, section := range []string{"main", "appearance", "menus", "shortcuts", "shortcut-record", "chats", "wallpapers", "notify", "privacy", "premium", "integrations", "power"} {
+	for _, section := range []string{"main", "appearance", "menus", "shortcuts", "shortcut-record", "chats", "wallpapers", "notify", "privacy", "premium", "integrations", "power", "graphics", "graphics-discrete", "graphics-auto"} {
 		all = append(all, render{"settings-" + section, "TestRenderSettingsAccounts", []string{"SETTINGS_SECTION=" + section, "SETTINGS_PNG={out}/settings-" + section + ".png"}})
 	}
 	return append(all,

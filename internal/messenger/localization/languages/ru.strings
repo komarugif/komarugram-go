@@ -927,6 +927,7 @@
 
 "graphics.api" = "Графический API";
 "graphics.api_auto" = "Автоматически";
+"graphics.api_auto_chosen" = "Автоматически ({api})";
 "graphics.device" = "Устройство Vulkan";
 "graphics.device_auto" = "Автоматически: первое, которое может рисовать";
 "graphics.device_auto_remembered" = "Автоматически: {name}";

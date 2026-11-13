@@ -42,13 +42,32 @@ func ApplyGraphics(g preferences.Graphics) {
 }
 
 // graphicsChanged reports whether what windows are drawn with changes from
-// before to after: the API, or the Vulkan device while Vulkan is chosen.
-// The windows then make their GPU anew (app.ResetGPUs).
+// before to after: the API, or the Vulkan device while Vulkan may draw
+// them, chosen or automatically. The windows then make their GPU anew
+// (app.ResetGPUs).
 func graphicsChanged(before, after preferences.Graphics) bool {
 	if before.API != after.API {
 		return true
 	}
-	return after.API == preferences.GraphicsVulkan && !before.Effective().Same(after.Effective())
+	return after.API != preferences.GraphicsOpenGL && !before.Effective().Same(after.Effective())
+}
+
+// autoAPILabel is the automatic choice of the API, with the API it chose
+// while it is the choice: Vulkan, OpenGL where Vulkan fails, as info, the
+// GPU made last for a window, tells.
+func autoAPILabel(l localization.Catalog, g preferences.Graphics, info gpu.DeviceInfo) string {
+	api := ""
+	switch {
+	case g.API != preferences.GraphicsAuto:
+	case strings.HasPrefix(info.API, "Vulkan"):
+		api = "Vulkan"
+	case strings.HasPrefix(info.API, "OpenGL"):
+		api = "OpenGL"
+	}
+	if api == "" {
+		return l.T("graphics.api_auto")
+	}
+	return l.Format("graphics.api_auto_chosen", map[string]string{"api": api})
 }
 
 // toVulkanDevice keeps a device Gio listed.
@@ -280,7 +299,7 @@ func (v *graphicsView) Layout(gtx layout.Context, l localization.Catalog, height
 		cards = append(cards, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return settingsChoiceCard(gtx, height("graphics-api"), l.T("graphics.api"), "", func(gtx layout.Context) layout.Dimensions {
 				return v.api.Layout(gtx, radio.LeadingKind, map[string]string{
-					preferences.GraphicsAuto:   l.T("graphics.api_auto"),
+					preferences.GraphicsAuto:   autoAPILabel(l, g, v.info()),
 					preferences.GraphicsOpenGL: "OpenGL",
 					preferences.GraphicsVulkan: "Vulkan",
 				})
