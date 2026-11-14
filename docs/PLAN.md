@@ -974,8 +974,10 @@ Mini Apps, режим призрака и сохранение удалённы�
     RX 580 кадры побайтно совпадают с FFmpeg; 12 потоков 720×1280
     разом — 1,9 мс на кадр против 10,5 мс в WASM. Что проверено и что
     нет — в `docs/HW_VIDEO.md`.
-  - [ ] То же на Linux, Vulkan Video: остался `device` рядом с
-    `d3d11_windows.go`; нужна машина с Vulkan Video.
+  - [ ] То же на Linux, Vulkan Video (`vulkan_linux.go`,
+    `hwvk_linux.c`): написано 14 ноября 2026 на Windows, не собрано и
+    не запущено. Проверить сборку, затем `TestDecodesAsFFmpeg` на
+    машине с Vulkan Video (Intel ADL, NVIDIA).
   - Профили сняты 13 ноября 2026 (NVIDIA, Vulkan, `snapshots`):
     - FFmpeg: кадр окна 20–28 мс при загрузке процесса всего 1,35 ядра.
       FFmpeg отдаёт кадры высотой 384 (`videoHeight`), а не размером

@@ -19,6 +19,7 @@
 package hwvideo
 
 import (
+	"errors"
 	"image"
 	"slices"
 )
@@ -43,9 +44,16 @@ type picture struct {
 	// top and bottom are the picture order counts of its fields.
 	top, bottom int32
 	refs        []ref
+	idrPicID    uint32
 	// slices are its NAL units, header byte included, as the stream holds
 	// them.
 	slices [][]byte
+	// sets are every parameter set the stream sent, of which the
+	// picture's are two; gen changes whenever one of them does, for a
+	// device that hands the driver all of them (Vulkan).
+	spsSets map[uint8]*SPS
+	ppsSets map[uint8]*PPS
+	gen     int
 }
 
 // device is the video decoder of a GPU.
@@ -79,6 +87,10 @@ type frame struct {
 
 func (f *frame) order() int32 { return min(f.top, f.bottom) }
 
+// errDeviceLost is the error of a GPU that was lost or hangs: the helper
+// ends on it, and its client decodes nothing more in hardware.
+var errDeviceLost = errors.New("hwvideo: the GPU was lost")
+
 // MaxSlices bounds the slices of one picture.
 const MaxSlices = 256
 
@@ -92,7 +104,9 @@ type Decoder struct {
 	// active is the sequence parameter set of the session.
 	active  *SPS
 	session session
-	used    []bool
+	// gen counts the changes of the parameter sets.
+	gen  int
+	used []bool
 	// dpb holds the references and the pictures waiting to be put out;
 	// ready those put out, in order; current the one taken last.
 	dpb     []*frame
@@ -157,13 +171,17 @@ func (d *Decoder) parameterSet(nal []byte) error {
 		}
 		if old := d.sps[s.ID]; old == nil || !slices.Equal(old.raw, s.raw) {
 			d.sps[s.ID] = s
+			d.gen++
 		}
 	case nalPPS:
 		p, err := parsePPS(nal, func(id uint8) *SPS { return d.sps[id] })
 		if err != nil {
 			return err
 		}
-		d.pps[p.ID] = p
+		if old := d.pps[p.ID]; old == nil || !slices.Equal(old.raw, p.raw) || old.SPS != p.SPS {
+			d.pps[p.ID] = p
+			d.gen++
+		}
 	default:
 		return malformed("NAL unit of type %d among the parameter sets", nal[0]&0x1f)
 	}
@@ -368,7 +386,7 @@ func (d *Decoder) Send(sample []byte) error {
 	if surface < 0 {
 		return unsupported("no surface left of %d", len(d.used))
 	}
-	p := &picture{sps: sps, pps: pps, surface: surface, frameNum: first.frameNum, reference: first.reference, intra: intra, idr: first.idr, top: top, bottom: bottom, slices: coded}
+	p := &picture{sps: sps, pps: pps, surface: surface, frameNum: first.frameNum, reference: first.reference, intra: intra, idr: first.idr, top: top, bottom: bottom, idrPicID: first.idrPicID, slices: coded, spsSets: d.sps, ppsSets: d.pps, gen: d.gen}
 	for _, f := range d.dpb {
 		if !f.ref {
 			continue

@@ -1,8 +1,9 @@
 # Hardware-decoded video for the saved GIFs (design, 2026-11-13)
 
 The requirements were set by the maintainer on 2026-11-13. Windows is
-built (2026-11-14, see "What is built"); Linux, on Vulkan, is not: the
-rest of this document is still its proposal.
+built and checked (2026-11-14, see "What is built"); Linux, on Vulkan
+Video, is written and not yet built nor run. The sections after "What
+is built" are the proposal it started from.
 
 ## What is built (2026-11-14)
 
@@ -67,11 +68,36 @@ a window with an account (the tests play it through `chatmedia`,
 `TestSavedGIFPlaysOnGPU`), and the processor time of the whole against
 FFmpeg's row.
 
-**Linux is one type to write**: a `device` and its `session` on Vulkan
-Video (`VK_KHR_video_decode_h264`) beside `d3d11_windows.go`; `picture`
-holds what `StdVideoDecodeH264PictureInfo` and the reference slots need.
-Nothing else changes. It needs a machine whose GPU has Vulkan Video to be
-written against: the one this was built on has none.
+**Linux, Vulkan Video** (`vulkan_linux.go`, `hwvk_linux.c`, written
+2026-11-14 on Windows, where it could not be compiled):
+
+- `VK_KHR_video_decode_h264`, the session's profile High (it decodes
+  Main and Constrained Baseline too), progressive, 4:2:0 of 8 bits. The
+  pictures are the layers of one NV12 image that are both the output and
+  the references (`DPB_AND_OUTPUT_COINCIDE`; a device that decodes only
+  into pictures apart from its references is refused). Each picture is
+  read back with a copy into a host buffer, on the decode queue if it
+  copies, else on a graphics or compute one, the image shared by both.
+- The StdVideo structures are filled in C from plain ones: cgo does not
+  reach bit fields. Every parameter set of the stream is handed to the
+  session again whenever one changes.
+- `libvulkan.so.1` is loaded with `dlopen`, as Gio does: a machine
+  without it runs, and decodes in software. Headers older than 1.3.238
+  build a decoder that refuses everything.
+- The device is the first integrated GPU that decodes H.264, then a
+  discrete one; the helper loads only the driver the windows draw with
+  (`NewClientFor`, `VK_DRIVER_FILES`) where it is known.
+- A device lost, or a submission not done in 5 s, ends the helper
+  (exit 4): its client gives every GIF back to software.
+- Every call waits for the GPU (one fence); a session needs Vulkan 1.3
+  (synchronization2).
+
+To check on Linux: `go vet ./pkg/hwvideo`, `go test ./pkg/hwvideo` (the
+comparison with FFmpeg, `TestDecodesAsFFmpeg`, runs where a GPU decodes
+H.264, with `KOMARUGRAM_HW_VIDEOS` for more clips) and
+`go test ./internal/messenger/chatmedia -run SavedGIF`. lavapipe has no
+video decoding: in a container without a GPU those tests skip, and only
+the build and the refusal are checked.
 
 ## Why
 

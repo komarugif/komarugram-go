@@ -154,8 +154,11 @@ func readScalingLists(r *bitReader, fallback *scalingLists, with8 bool) scalingL
 
 // SPS is a sequence parameter set, as far as decoding in hardware needs it.
 type SPS struct {
-	ID                  uint8
-	Profile, Level      uint8
+	ID             uint8
+	Profile, Level uint8
+	// Constraints are constraint_set0_flag to constraint_set5_flag, the
+	// first the highest bit.
+	Constraints         uint8
 	ChromaFormat        uint8
 	BitDepthLuma        uint8 // minus 8
 	BitDepthChroma      uint8 // minus 8
@@ -207,7 +210,7 @@ func parseSPS(nal []byte) (*SPS, error) {
 	r := &bitReader{data: unescape(nal[1:], 1<<16)}
 	s := &SPS{raw: append([]byte(nil), nal...), ChromaFormat: 1, scaling: flatLists()}
 	s.Profile = uint8(r.u(8))
-	r.u(8) // The constraint flags.
+	s.Constraints = uint8(r.u(8))
 	s.Level = uint8(r.u(8))
 	s.ID = uint8(r.ueMax(31))
 	if highProfile(s.Profile) {

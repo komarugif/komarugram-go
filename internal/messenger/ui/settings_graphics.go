@@ -378,7 +378,7 @@ func hardwareVideoFor(g preferences.Graphics) *hwvideo.Client {
 	if c := hardwareVideo.Load(); c != nil {
 		return c
 	}
-	hardwareVideo.CompareAndSwap(nil, hwvideo.NewClient(nil))
+	hardwareVideo.CompareAndSwap(nil, hwvideo.NewClientFor(g.Effective().Driver))
 	return hardwareVideo.Load()
 }
 

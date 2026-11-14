@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"os"
 	"runtime/debug"
 	"sync"
 
@@ -96,6 +97,11 @@ func (s *server) handle(m message) (status uint8, body []byte) {
 		}
 	}()
 	body, err := s.do(m)
+	if errors.Is(err, errDeviceLost) {
+		// The GPU is gone for every stream: the client sees the helper end.
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(4)
+	}
 	switch {
 	case err == nil:
 		return statusOK, body

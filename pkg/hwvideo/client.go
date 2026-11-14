@@ -13,7 +13,10 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,13 +55,7 @@ type Client struct {
 // client's own binary with Flag.
 func NewClient(command func() *exec.Cmd) *Client {
 	if command == nil {
-		command = func() *exec.Cmd {
-			self, err := os.Executable()
-			if err != nil {
-				self = os.Args[0]
-			}
-			return program.Command(self, "-"+Flag)
-		}
+		command = selfCommand
 	}
 	return &Client{command: command}
 }
@@ -68,6 +65,65 @@ func (c *Client) Opened() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.opened
+}
+
+// NewClientFor is NewClient whose helper, on Linux, loads the Vulkan
+// driver of the manifest named driver alone (the one the windows draw
+// with, app.VulkanDevice.Driver), so that it wakes no other GPU; with
+// every driver where it is empty or not found.
+func NewClientFor(driver string) *Client {
+	manifest := driverManifest(driver)
+	if manifest == "" {
+		return NewClient(nil)
+	}
+	return NewClient(func() *exec.Cmd {
+		cmd := selfCommand()
+		// VK_DRIVER_FILES is the loader's since 1.3.207, VK_ICD_FILENAMES before.
+		cmd.Env = append(os.Environ(), "VK_DRIVER_FILES="+manifest, "VK_ICD_FILENAMES="+manifest)
+		return cmd
+	})
+}
+
+// selfCommand starts the client's own binary as the helper.
+func selfCommand() *exec.Cmd {
+	self, err := os.Executable()
+	if err != nil {
+		self = os.Args[0]
+	}
+	return program.Command(self, "-"+Flag)
+}
+
+// driverManifest is the path of the Vulkan driver manifest named name, in
+// the directories the loader looks in, or "".
+func driverManifest(name string) string {
+	if runtime.GOOS != "linux" || name == "" || strings.ContainsAny(name, `/\`) && !filepath.IsAbs(name) {
+		return ""
+	}
+	if filepath.IsAbs(name) {
+		if _, err := os.Stat(name); err == nil {
+			return name
+		}
+		return ""
+	}
+	var dirs []string
+	if home := os.Getenv("XDG_DATA_HOME"); home != "" {
+		dirs = append(dirs, home)
+	} else if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(home, ".local", "share"))
+	}
+	dirs = append(dirs, "/etc")
+	data := os.Getenv("XDG_DATA_DIRS")
+	if data == "" {
+		data = "/usr/local/share:/usr/share"
+	}
+	dirs = append(dirs, filepath.SplitList(data)...)
+	for _, dir := range dirs {
+		path := filepath.Join(dir, "vulkan", "icd.d", name)
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
 }
 
 // Failed is why the client decodes nothing any more, nil while it does.
