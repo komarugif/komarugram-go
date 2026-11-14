@@ -80,8 +80,33 @@ func (c *Client) Opened() int {
 
 // DeviceEnv is the variable that tells the helper which GPU to decode on:
 // "VENDOR:DEVICE" (the ids, in hexadecimal) for that one alone,
-// "!VENDOR:DEVICE" for any but it.
+// "!VENDOR:DEVICE" for any but it. On Windows, "default" and "!default"
+// name the system's default adapter, DXGI's first.
 const DeviceEnv = "KOMARUGRAM_HWVIDEO_DEVICE"
+
+// The choices of DeviceEnv.
+const (
+	pickAny = iota
+	pickOnly
+	pickOthers
+)
+
+// parsePick reads DeviceEnv: any GPU, the one of the ids alone, or any but
+// it; the ids are zero for the system's default.
+func parsePick() (pick int, vendor, device uint32) {
+	v := os.Getenv(DeviceEnv)
+	pick = pickOnly
+	if strings.HasPrefix(v, "!") {
+		pick, v = pickOthers, v[1:]
+	}
+	if v == "default" {
+		return pick, 0, 0
+	}
+	if _, err := fmt.Sscanf(v, "%x:%x", &vendor, &device); err != nil || vendor == 0 && device == 0 {
+		return pickAny, 0, 0
+	}
+	return pick, vendor, device
+}
 
 // NewClientFor is NewClient whose helpers, on Linux, try the GPU the
 // windows draw with first, and the others after: driver is the manifest of
@@ -90,11 +115,29 @@ const DeviceEnv = "KOMARUGRAM_HWVIDEO_DEVICE"
 // the second, started only when the first decodes nothing or refuses a
 // stream, every driver, and leaves that GPU out. Where the ids are not
 // known, one helper tries every GPU, an integrated one first.
+//
+// On Windows the GPU is a Direct3D 11 adapter, the system's default where
+// the ids are zero, and both helpers list the adapters without loading a
+// driver, then make a device on the one they take alone.
 func NewClientFor(driver string, vendor, device uint32) *Client {
-	if runtime.GOOS != "linux" || vendor == 0 && device == 0 {
+	return clientFor(runtime.GOOS, driver, vendor, device)
+}
+
+// clientFor is NewClientFor on the system goos.
+func clientFor(goos, driver string, vendor, device uint32) *Client {
+	ids := fmt.Sprintf("%04x:%04x", vendor, device)
+	switch {
+	case goos == "windows":
+		if vendor == 0 && device == 0 {
+			ids = "default"
+		}
+		return &Client{tiers: []*tier{
+			{name: "video-decoder-window-gpu", command: envCommand(DeviceEnv + "=" + ids)},
+			{name: "video-decoder-other-gpus", command: envCommand(DeviceEnv + "=!" + ids)},
+		}}
+	case goos != "linux" || vendor == 0 && device == 0:
 		return NewClient(nil)
 	}
-	ids := fmt.Sprintf("%04x:%04x", vendor, device)
 	manifest := driverManifest(driver)
 	own := func() *exec.Cmd {
 		cmd := selfCommand()
@@ -114,6 +157,15 @@ func NewClientFor(driver string, vendor, device uint32) *Client {
 		{name: "video-decoder-window-gpu", command: own},
 		{name: "video-decoder-other-gpus", command: others},
 	}}
+}
+
+// envCommand starts the client's own binary as the helper with env set.
+func envCommand(env ...string) func() *exec.Cmd {
+	return func() *exec.Cmd {
+		cmd := selfCommand()
+		cmd.Env = append(os.Environ(), env...)
+		return cmd
+	}
 }
 
 // ParseDeviceEnv reads DeviceEnv: the ids of a GPU, and whether it is the

@@ -4,6 +4,7 @@ package ui
 
 import (
 	"image"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ import (
 
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/preferences"
+	"komarugram/pkg/hwvideo"
 )
 
 var (
@@ -483,4 +485,39 @@ func TestAutoAPILabel(t *testing.T) {
 			t.Errorf("chosen %q, drawn with %q: %q, want %q", c.api, c.info.API, got, c.want)
 		}
 	}
+}
+
+// TestHardwareVideoFollowsWindowGPU checks the decoder's client is made
+// anew, for the windows' GPU first, when the windows move to another GPU,
+// and kept while they do not.
+func TestHardwareVideoFollowsWindowGPU(t *testing.T) {
+	if !hwvideo.Available() || runtime.GOOS != "linux" {
+		t.Skip("the GPU is a Vulkan device on Linux")
+	}
+	defer func() {
+		if c := hardwareVideo.Swap(nil); c != nil {
+			c.Close()
+		}
+		hardwareVideoGPU = decoderGPU{}
+	}()
+	intel := preferences.VulkanDevice{Driver: "intel_icd.x86_64.json", VendorID: 0x8086, DeviceID: 0x4626}
+	nvidia := preferences.VulkanDevice{Driver: "nvidia_icd.json", VendorID: 0x10de, DeviceID: 0x25a5}
+	g := preferences.Graphics{HardwareGIFs: true, Vulkan: intel}
+	first := hardwareVideoFor(g)
+	if first == nil || hardwareVideoFor(g) != first {
+		t.Fatal("the client not kept for the same GPU")
+	}
+	g.Vulkan = nvidia
+	second := hardwareVideoFor(g)
+	if second == first {
+		t.Fatal("the client kept when the windows moved to another GPU")
+	}
+	if hardwareVideoGPU.vendorID != 0x10de {
+		t.Fatalf("made for %+v", hardwareVideoGPU)
+	}
+	g.HardwareGIFs = false
+	if hardwareVideoFor(g) != nil {
+		t.Fatal("a client with the setting off")
+	}
+	first.Close()
 }

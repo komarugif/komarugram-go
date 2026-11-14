@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -425,20 +426,60 @@ func init() {
 // hardwareVideoFor is the client that decodes the saved GIFs on the
 // graphics card, nil where the setting is off or the system has no
 // decoder.
+// It is called on every frame.
 func hardwareVideoFor(g preferences.Graphics) *hwvideo.Client {
 	if !g.HardwareGIFs || !hwvideo.Available() {
 		return nil
 	}
-	if c := hardwareVideo.Load(); c != nil {
+	gpu := windowGPU(g)
+	hardwareVideoMu.Lock()
+	defer hardwareVideoMu.Unlock()
+	if c := hardwareVideo.Load(); c != nil && hardwareVideoGPU == gpu {
 		return c
 	}
-	hardwareVideo.CompareAndSwap(nil, hwvideo.NewClientFor(g.Effective().Driver, g.Effective().VendorID, g.Effective().DeviceID))
-	return hardwareVideo.Load()
+	// A client of the GPU the windows drew with before is not closed: its
+	// streams end as the GIFs go to the new one (chatmedia's SetHardware),
+	// and its helpers stop on their own once they have none.
+	c := hwvideo.NewClientFor(gpu.driver, gpu.vendorID, gpu.deviceID)
+	hardwareVideo.Store(c)
+	hardwareVideoGPU = gpu
+	return c
+}
+
+var (
+	// hardwareVideoMu guards making the client and hardwareVideoGPU, the
+	// GPU of the windows hardwareVideo was made for.
+	hardwareVideoMu  sync.Mutex
+	hardwareVideoGPU decoderGPU
+)
+
+// decoderGPU is the GPU the windows draw with, which the helpers decode on
+// first: the manifest of its Vulkan driver and its ids on Linux, the ids of
+// the Direct3D 11 adapter on Windows, zero for the system's default.
+type decoderGPU struct {
+	driver             string
+	vendorID, deviceID uint32
+}
+
+// windowGPU is the GPU the windows draw with as the preferences tell it.
+func windowGPU(g preferences.Graphics) decoderGPU {
+	if runtime.GOOS == "windows" {
+		// The adapter chosen, unless it could not draw and the system's
+		// default draws instead.
+		if g.D3D11.IsZero() || app.D3D11AdapterFailed() {
+			return decoderGPU{}
+		}
+		return decoderGPU{vendorID: g.D3D11.VendorID, deviceID: g.D3D11.DeviceID}
+	}
+	e := g.Effective()
+	return decoderGPU{driver: e.Driver, vendorID: e.VendorID, deviceID: e.DeviceID}
 }
 
 // resetHardwareVideo forgets a client that failed, a helper that ended or
 // a machine that had no decoder, for the next one to try again.
 func resetHardwareVideo() {
+	hardwareVideoMu.Lock()
+	defer hardwareVideoMu.Unlock()
 	if c := hardwareVideo.Load(); c != nil && c.Failed() != nil {
 		c.Close()
 		hardwareVideo.CompareAndSwap(c, nil)

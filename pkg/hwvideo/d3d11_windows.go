@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"image"
 	"log"
+	"os"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -213,18 +215,128 @@ type d3dDevice struct {
 	mu                        sync.Mutex
 	device, context           *comObject
 	videoDevice, videoContext *comObject
+	// name is its adapter's, as DXGI describes it; empty for the system's
+	// default.
+	name string
 }
 
 var d3d11CreateDevice = windows.NewLazySystemDLL("d3d11.dll").NewProc("D3D11CreateDevice")
 
-// newDevice makes a device on the GPU the system gives by default.
+var createDXGIFactory1 = windows.NewLazySystemDLL("dxgi.dll").NewProc("CreateDXGIFactory1")
+
+var iidDXGIFactory1 = windows.GUID{Data1: 0x770aae78, Data2: 0xf26f, Data3: 0x4dba, Data4: [8]byte{0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87}}
+
+const (
+	factoryEnumAdapters = 7
+	adapterGetDesc      = 8
+	errNotFound         = 0x887A0002 // DXGI_ERROR_NOT_FOUND
+	driverUnknown       = 0          // D3D_DRIVER_TYPE_UNKNOWN, with an adapter
+)
+
+// adapterDesc is DXGI_ADAPTER_DESC.
+type adapterDesc struct {
+	Description                                                     [128]uint16
+	VendorID, DeviceID, SubSysID, Revision                          uint32
+	DedicatedVideoMemory, DedicatedSystemMemory, SharedSystemMemory uintptr
+	LUID                                                            [2]uint32
+}
+
+// adapter is one of DXGI's adapters, a GPU.
+type adapter struct {
+	a                  *comObject
+	name               string
+	vendorID, deviceID uint32
+	// first is set for the first DXGI lists: the system's default.
+	first bool
+}
+
+// adapters lists DXGI's adapters in its order, the system's default first,
+// without WARP. Listing them loads no driver. The caller releases them.
+func adapters() ([]adapter, error) {
+	if err := createDXGIFactory1.Find(); err != nil {
+		return nil, err
+	}
+	var factory *comObject
+	r, _, _ := createDXGIFactory1.Call(uintptr(unsafe.Pointer(&iidDXGIFactory1)), uintptr(unsafe.Pointer(&factory)))
+	if err := check("CreateDXGIFactory1", r); err != nil {
+		return nil, err
+	}
+	defer factory.release()
+	var list []adapter
+	for i := uintptr(0); ; i++ {
+		var a *comObject
+		r := factory.call(factoryEnumAdapters, i, uintptr(unsafe.Pointer(&a)))
+		if uint32(r) == errNotFound {
+			return list, nil
+		}
+		if err := check("EnumAdapters", r); err != nil {
+			for _, l := range list {
+				l.a.release()
+			}
+			return nil, err
+		}
+		var desc adapterDesc
+		if check("GetDesc", a.call(adapterGetDesc, uintptr(unsafe.Pointer(&desc)))) != nil || desc.VendorID == 0x1414 && desc.DeviceID == 0x8c {
+			// WARP, Microsoft Basic Render Driver, decodes nothing.
+			a.release()
+			continue
+		}
+		list = append(list, adapter{a: a, name: windows.UTF16ToString(desc.Description[:]), vendorID: desc.VendorID, deviceID: desc.DeviceID, first: i == 0})
+	}
+}
+
+// newDevice makes a device on a GPU that decodes H.264: the adapter
+// DeviceEnv names, or any but it, the system's default first; with
+// DeviceEnv not set, the system's default. The adapter "default" is DXGI's
+// first.
 func newDevice() (device, error) {
 	if err := d3d11CreateDevice.Find(); err != nil {
 		return nil, unsupported("no Direct3D 11: %v", err)
 	}
-	d := new(d3dDevice)
+	pick, vendor, device := parsePick()
+	if pick == pickAny {
+		return openDevice(nil, "")
+	}
+	list, err := adapters()
+	if err != nil {
+		return nil, unsupported("no adapters: %v", err)
+	}
+	defer func() {
+		for _, a := range list {
+			a.a.release()
+		}
+	}()
+	var why []string
+	for _, a := range list {
+		same := a.first
+		if vendor != 0 || device != 0 {
+			same = a.vendorID == vendor && a.deviceID == device
+		}
+		if same != (pick == pickOnly) {
+			continue
+		}
+		d, err := openDevice(a.a, a.name)
+		if err == nil {
+			return d, nil
+		}
+		why = append(why, a.name+": "+strings.TrimPrefix(err.Error(), ErrUnsupported.Error()+": "))
+	}
+	if len(why) == 0 {
+		return nil, unsupported("no adapter %s", os.Getenv(DeviceEnv))
+	}
+	return nil, unsupported("%s", strings.Join(why, "; "))
+}
+
+// openDevice makes a device on adapter, the system's default where nil,
+// and checks it decodes H.264 into NV12.
+func openDevice(adapter *comObject, name string) (device, error) {
+	d := &d3dDevice{name: name}
 	levels := [...]uint32{0xb000, 0xa100, 0xa000}
-	r, _, _ := d3d11CreateDevice.Call(0, driverHardware, 0, createVideo,
+	driver := uintptr(driverHardware)
+	if adapter != nil {
+		driver = driverUnknown
+	}
+	r, _, _ := d3d11CreateDevice.Call(uintptr(unsafe.Pointer(adapter)), driver, 0, createVideo,
 		uintptr(unsafe.Pointer(&levels[0])), uintptr(len(levels)), sdkVersion,
 		uintptr(unsafe.Pointer(&d.device)), 0, uintptr(unsafe.Pointer(&d.context)))
 	if err := check("D3D11CreateDevice", r); err != nil {
@@ -365,7 +477,11 @@ func (d *d3dDevice) open(sps *SPS, surfaces int) (session, error) {
 		return fail(err)
 	}
 	d.told.Do(func() {
-		log.Printf("hwvideo: decoding on Direct3D 11; pictures are scaled on the GPU by its video processor, only the tile's pixels read back (a stream it cannot scale is told when met, and scaled on the CPU)")
+		name := s.d.name
+		if name == "" {
+			name = "the system's default adapter"
+		}
+		log.Printf("hwvideo: decoding on %s with Direct3D 11; pictures are scaled on the GPU by its video processor, only the tile's pixels read back (a stream it cannot scale is told when met, and scaled on the CPU)", name)
 	})
 	return s, nil
 }

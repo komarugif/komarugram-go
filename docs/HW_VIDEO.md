@@ -116,7 +116,13 @@ FFmpeg's row.
   to the next; a stream the parser refuses wakes no other. Where the
   windows' device is not known, one helper tries every GPU, an
   integrated one first. The windows keep their device: only the GIFs
-  move. On Windows the default Direct3D 11 adapter decodes alone.
+  move. On Windows the tiers are Direct3D 11 adapters, as DXGI lists them
+  without loading a driver: first the one the windows draw with
+  (`Graphics.D3D11`, the system's default where none is chosen or the one
+  chosen could not draw, named `default`), then every other but WARP, the
+  default first. The client follows the windows' GPU: when they move to
+  another, a new client is made for it, and the old one's helpers stop
+  once its streams have ended.
 - A device lost, or a submission not done in 5 s, ends the helper
   (exit 4): its client gives every GIF back to software.
 - Every call waits for the GPU (one fence); a session needs Vulkan 1.3
