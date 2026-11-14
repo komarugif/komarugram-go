@@ -284,6 +284,10 @@ func (s *d3dSession) release() {
 	s.decoder, s.views, s.staging, s.textures = nil, nil, nil, nil
 }
 
+// reset needs nothing: Direct3D 11 keeps nothing of a picture but its
+// surface, and the decoder tells the references of each.
+func (s *d3dSession) reset() {}
+
 func (s *d3dSession) close() {
 	s.d.mu.Lock()
 	defer s.d.mu.Unlock()
@@ -535,11 +539,7 @@ func (s *d3dSession) read(surface int, sps *SPS, dst *image.YCbCr) error {
 	chroma := src[pitch*s.height:]
 	for y := range ch {
 		row := chroma[(y+sps.CropTop/2)*pitch+sps.CropLeft/2*2:]
-		cb := dst.Cb[y*dst.CStride : y*dst.CStride+cw]
-		cr := dst.Cr[y*dst.CStride : y*dst.CStride+cw]
-		for x := range cw {
-			cb[x], cr[x] = row[2*x], row[2*x+1]
-		}
+		splitUV(dst.Cb[y*dst.CStride:y*dst.CStride+cw], dst.Cr[y*dst.CStride:y*dst.CStride+cw], row)
 	}
 	return nil
 }

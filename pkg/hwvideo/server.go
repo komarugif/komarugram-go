@@ -38,6 +38,9 @@ type stream struct {
 	picture image.YCbCr
 	taken   bool
 	read    bool
+	// rgba is the picture rendered last, its pixels the answer: the next
+	// render request of the stream comes after that answer is sent.
+	rgba image.RGBA
 }
 
 // server is the helper: the device and the streams decoded on it.
@@ -46,9 +49,11 @@ type server struct {
 	out       *bufio.Writer
 	outMu     sync.Mutex
 	mu        sync.Mutex
-	device    device
+	device    *pooledDevice
 	deviceErr error
 	streams   map[uint32]*stream
+	// pictures are the planes of streams that ended, for those to come.
+	pictures []image.YCbCr
 	// quit is closed once the requests end: a profile recording stops.
 	quit chan struct{}
 }
@@ -175,7 +180,13 @@ func (s *server) do(m message) ([]byte, error) {
 			st.read = true
 		}
 		st.scaler.Rough = m.body[8] == 1
-		dst := image.NewRGBA(image.Rect(0, 0, w, h))
+		dst := &st.rgba
+		if n := w * h * 4; cap(dst.Pix) < n {
+			dst.Pix = make([]uint8, n)
+		} else {
+			dst.Pix = dst.Pix[:n]
+		}
+		dst.Stride, dst.Rect = w*4, image.Rect(0, 0, w, h)
 		st.scaler.ResizeInto(dst, &st.picture, nil)
 		return dst.Pix, nil
 	case opFlush:
@@ -184,6 +195,12 @@ func (s *server) do(m message) ([]byte, error) {
 		return nil, nil
 	case opClose:
 		st.decoder.Close()
+		s.mu.Lock()
+		if len(s.pictures) < poolSize {
+			s.pictures = append(s.pictures, st.picture)
+		}
+		s.mu.Unlock()
+		st.picture = image.YCbCr{}
 		return nil, nil
 	}
 	return nil, malformed("operation %d", m.kind)
@@ -195,7 +212,11 @@ func (s *server) open(m message) ([]byte, error) {
 	}
 	s.mu.Lock()
 	if s.device == nil && s.deviceErr == nil {
-		s.device, s.deviceErr = s.newDevice()
+		var dev device
+		dev, s.deviceErr = s.newDevice()
+		if s.deviceErr == nil {
+			s.device = newPooledDevice(dev)
+		}
 	}
 	dev, err := s.device, s.deviceErr
 	_, taken := s.streams[m.stream]
@@ -214,6 +235,12 @@ func (s *server) open(m message) ([]byte, error) {
 		return nil, err
 	}
 	st := &stream{decoder: decoder}
+	s.mu.Lock()
+	if n := len(s.pictures); n > 0 {
+		st.picture = s.pictures[n-1]
+		s.pictures = s.pictures[:n-1]
+	}
+	s.mu.Unlock()
 	st.scaler.Colors = resample.Colors{Matrix: resample.Matrix(m.body[0]), Limited: m.body[1] == 1}
 	s.mu.Lock()
 	s.streams[m.stream] = st

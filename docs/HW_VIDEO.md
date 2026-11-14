@@ -89,6 +89,20 @@ FFmpeg's row.
   `max_num_ref_frames + 1` slots however many pictures wait to be shown
   or read (NVIDIA gives 17; a slot for every picture refused streams
   that reorder much).
+- A session of a stream that ended is kept a while (`pool.go`: six at
+  most, 5 s) and given to the next stream of the same size that needs no
+  more surfaces, references or a higher level: the list opens and ends
+  streams all the while it scrolls, and making and letting go of a
+  session took 7% of the helper's CPU. It is reset for the new stream
+  (`hwvk_session_reset`: the DPB at the next picture, no slot held, the
+  parameter sets handed again).
+- Pictures are read back from memory that is cached and not the GPU's
+  own across the bus where the driver has such: reading the other kinds
+  is many times slower. The helper tells in the log, once, the device and
+  which memory it got.
+- A picture rendered is scaled into a buffer of its stream, reused, and
+  read by the window's process straight into the image it goes to
+  (`readAnswer`, `callInto`): no copy, nothing allocated for it.
 - The GPUs are tried in order, a helper each (`NewClientFor`, tiers of
   `Client`): first the one the windows draw with, its driver alone
   loaded (`VK_DRIVER_FILES`) and the device named by its ids

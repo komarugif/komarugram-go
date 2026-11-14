@@ -14,8 +14,10 @@ import "C"
 import (
 	"fmt"
 	"image"
+	"log"
 	"maps"
 	"slices"
+	"sync"
 	"unsafe"
 )
 
@@ -42,6 +44,8 @@ func vkError(what string, status C.int, msg []C.char) error {
 
 type vkDevice struct {
 	d *C.hwvk_device
+	// told is set once the device was told in the log.
+	told sync.Once
 }
 
 func newDevice() (device, error) {
@@ -86,7 +90,19 @@ func (d *vkDevice) open(sps *SPS, surfaces int) (session, error) {
 	if err := vkError("video session", status, msg[:]); err != nil {
 		return nil, err
 	}
+	d.told.Do(func() {
+		var name [256]C.char
+		var cached, local C.int
+		C.hwvk_describe(d.d, &name[0], C.size_t(len(name)), &cached, &local)
+		log.Printf("hwvideo: decoding on %s; pictures are read back from memory cached %v, on the GPU %v", C.GoString(&name[0]), cached != 0, local != 0)
+	})
 	return &vkSession{s: s}, nil
+}
+
+func (s *vkSession) reset() {
+	C.hwvk_session_reset(s.s)
+	// The parameter sets are the new stream's: they are handed again.
+	s.given = false
 }
 
 func (s *vkSession) close() {
@@ -256,11 +272,7 @@ func (s *vkSession) read(surface int, sps *SPS, dst *image.YCbCr) error {
 	chroma := src[p*h:]
 	for y := range ch {
 		row := chroma[(y+sps.CropTop/2)*p+sps.CropLeft/2*2:]
-		cb := dst.Cb[y*dst.CStride : y*dst.CStride+cw]
-		cr := dst.Cr[y*dst.CStride : y*dst.CStride+cw]
-		for x := range cw {
-			cb[x], cr[x] = row[2*x], row[2*x+1]
-		}
+		splitUV(dst.Cb[y*dst.CStride:y*dst.CStride+cw], dst.Cr[y*dst.CStride:y*dst.CStride+cw], row)
 	}
 	return nil
 }

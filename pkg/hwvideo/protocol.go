@@ -112,3 +112,33 @@ func readMessage(r io.Reader, request bool, limit int) (message, error) {
 	m.body = data[head:]
 	return m, nil
 }
+
+// readAnswer reads an answer of at most limit bytes, its body into what
+// into gives for its number, status and length where that is large
+// enough, so that a picture is read where it goes; into a new slice
+// otherwise.
+func readAnswer(r io.Reader, limit int, into func(id uint32, status uint8, n int) []byte) (message, error) {
+	var m message
+	var head [9]byte
+	if _, err := io.ReadFull(r, head[:4]); err != nil {
+		return m, err
+	}
+	n := int(binary.LittleEndian.Uint32(head[:4]))
+	if n < 5 || n > limit {
+		return m, fmt.Errorf("hwvideo: message of %d bytes", n)
+	}
+	if _, err := io.ReadFull(r, head[4:9]); err != nil {
+		return m, err
+	}
+	m.id, m.kind = binary.LittleEndian.Uint32(head[4:]), head[8]
+	n -= 5
+	body := into(m.id, m.kind, n)
+	if cap(body) < n {
+		body = make([]byte, n)
+	}
+	m.body = body[:n]
+	if _, err := io.ReadFull(r, m.body); err != nil {
+		return m, err
+	}
+	return m, nil
+}

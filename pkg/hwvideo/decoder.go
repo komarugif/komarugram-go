@@ -70,6 +70,9 @@ type session interface {
 	// read copies the picture of surface, without what sps crops off it,
 	// into dst, whose planes are reused when large enough.
 	read(surface int, sps *SPS, dst *image.YCbCr) error
+	// reset makes a session of a stream that ended ready for a new one:
+	// nothing of the pictures before is referred to again.
+	reset()
 	close()
 }
 

@@ -30,6 +30,8 @@ int hwvk_session_open(hwvk_device *d, uint32_t width_mbs, uint32_t height_mbs, u
 	return HWVK_UNSUPPORTED;
 }
 void hwvk_session_close(hwvk_session *s) {}
+void hwvk_session_reset(hwvk_session *s) {}
+void hwvk_describe(hwvk_device *d, char *name, size_t namelen, int *cached, int *device_local) {}
 int hwvk_session_parameters(hwvk_session *s, const hwvk_sps *sps, uint32_t nsps, const hwvk_pps *pps, uint32_t npps, char *err, size_t errlen) { return HWVK_ERROR; }
 int hwvk_decode(hwvk_session *s, const hwvk_pic *p, const uint8_t *data, size_t size, const uint32_t *offsets, uint32_t nslices, char *err, size_t errlen) { return HWVK_ERROR; }
 int hwvk_read(hwvk_session *s, uint32_t surface, const uint8_t **nv12, uint32_t *pitch, uint32_t *rows, char *err, size_t errlen) { return HWVK_ERROR; }
@@ -116,6 +118,9 @@ struct hwvk_device {
 	VkVideoFormatPropertiesKHR format;
 	pthread_mutex_t mu;
 	int lost;
+	char name[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE];
+	// The memory pictures were last read back from.
+	VkMemoryPropertyFlags readback_flags;
 #define X(f) PFN_##f f;
 	INSTANCE_FUNCS(X)
 	DEVICE_FUNCS(X)
@@ -448,6 +453,7 @@ int hwvk_device_open(hwvk_device **out, uint32_t vendor, uint32_t device, int pi
 			}
 			if (props.deviceType == order[o] && suitable(d, phys[i], err, errlen)) {
 				d->phys = phys[i];
+				snprintf(d->name, sizeof d->name, "%s", props.deviceName);
 			}
 		}
 	}
@@ -514,25 +520,25 @@ int hwvk_device_open(hwvk_device **out, uint32_t vendor, uint32_t device, int pi
 	return HWVK_OK;
 }
 
-static int memory_type(hwvk_device *d, uint32_t bits, VkMemoryPropertyFlags want, VkMemoryPropertyFlags prefer) {
-	int found = -1;
+// The memory type of bits that has want, best with prefer and without avoid, or -1.
+static int memory_type(hwvk_device *d, uint32_t bits, VkMemoryPropertyFlags want, VkMemoryPropertyFlags prefer, VkMemoryPropertyFlags avoid) {
+	int found = -1, best = -1;
 	for (uint32_t i = 0; i < d->memory.memoryTypeCount; i++) {
 		VkMemoryPropertyFlags flags = d->memory.memoryTypes[i].propertyFlags;
 		if (!(bits & (1u << i)) || (flags & want) != want) {
 			continue;
 		}
-		if ((flags & prefer) == prefer) {
-			return (int)i;
-		}
-		if (found < 0) {
+		int score = ((flags & prefer) == prefer ? 2 : 0) + (avoid && !(flags & avoid) ? 1 : 0);
+		if (score > best) {
 			found = (int)i;
+			best = score;
 		}
 	}
 	return found;
 }
 
-static VkResult allocate(hwvk_device *d, VkMemoryRequirements req, VkMemoryPropertyFlags want, VkMemoryPropertyFlags prefer, VkDeviceMemory *mem) {
-	int t = memory_type(d, req.memoryTypeBits, want, prefer);
+static VkResult allocate(hwvk_device *d, VkMemoryRequirements req, VkMemoryPropertyFlags want, VkMemoryPropertyFlags prefer, VkMemoryPropertyFlags avoid, VkDeviceMemory *mem) {
+	int t = memory_type(d, req.memoryTypeBits, want, prefer, avoid);
 	if (t < 0) {
 		return VK_ERROR_OUT_OF_DEVICE_MEMORY;
 	}
@@ -545,7 +551,9 @@ static VkResult allocate(hwvk_device *d, VkMemoryRequirements req, VkMemoryPrope
 }
 
 // Makes a host-visible buffer of size bytes, mapped.
-static VkResult host_buffer(hwvk_device *d, VkDeviceSize size, VkBufferUsageFlags usage, const void *next, VkBuffer *buf, VkDeviceMemory *mem, uint8_t **map) {
+// A buffer mapped for the host; host_reads for one the CPU reads, which
+// must be cached and not across the bus in the GPU's memory to be read fast.
+static VkResult host_buffer(hwvk_device *d, VkDeviceSize size, VkBufferUsageFlags usage, const void *next, int host_reads, VkBuffer *buf, VkDeviceMemory *mem, uint8_t **map) {
 	uint32_t families[2] = {d->decode_family, d->transfer_family};
 	VkBufferCreateInfo bi = {
 		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -563,7 +571,13 @@ static VkResult host_buffer(hwvk_device *d, VkDeviceSize size, VkBufferUsageFlag
 	}
 	VkMemoryRequirements req;
 	d->vkGetBufferMemoryRequirements(d->device, *buf, &req);
-	r = allocate(d, req, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_MEMORY_PROPERTY_HOST_CACHED_BIT, mem);
+	VkMemoryPropertyFlags want = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+	VkMemoryPropertyFlags avoid = host_reads ? VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT : 0;
+	if (host_reads) {
+		int t = memory_type(d, req.memoryTypeBits, want, VK_MEMORY_PROPERTY_HOST_CACHED_BIT, avoid);
+		d->readback_flags = t < 0 ? 0 : d->memory.memoryTypes[t].propertyFlags;
+	}
+	r = allocate(d, req, want, VK_MEMORY_PROPERTY_HOST_CACHED_BIT, avoid, mem);
 	if (r != VK_SUCCESS) {
 		*mem = VK_NULL_HANDLE;
 		return r;
@@ -633,6 +647,26 @@ void hwvk_session_close(hwvk_session *s) {
 	pthread_mutex_unlock(&d->mu);
 }
 
+void hwvk_describe(hwvk_device *d, char *name, size_t namelen, int *cached, int *device_local) {
+	pthread_mutex_lock(&d->mu);
+	snprintf(name, namelen, "%s", d->name);
+	*cached = (d->readback_flags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) != 0;
+	*device_local = (d->readback_flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0;
+	pthread_mutex_unlock(&d->mu);
+}
+
+void hwvk_session_reset(hwvk_session *s) {
+	if (!s) {
+		return;
+	}
+	pthread_mutex_lock(&s->d->mu);
+	s->needs_reset = 1;
+	for (uint32_t i = 0; i < s->surfaces; i++) {
+		s->slot_of[i] = -1;
+	}
+	pthread_mutex_unlock(&s->d->mu);
+}
+
 // Maps a level_idc of the stream to Vulkan's StdVideoH264LevelIdc.
 static int level_idc(uint32_t level, StdVideoH264LevelIdc *out) {
 	static const uint32_t levels[] = {10, 11, 12, 13, 20, 21, 22, 30, 31, 32, 40, 41, 42, 50, 51, 52, 60, 61, 62};
@@ -697,7 +731,7 @@ static int session_create(hwvk_session *s, uint32_t level, char *err, size_t err
 	}
 	VkMemoryRequirements req;
 	d->vkGetImageMemoryRequirements(d->device, s->image, &req);
-	r = allocate(d, req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, &s->image_memory);
+	r = allocate(d, req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, 0, &s->image_memory);
 	if (r == VK_SUCCESS) {
 		r = d->vkBindImageMemory(d->device, s->image, s->image_memory, 0);
 	} else {
@@ -762,7 +796,7 @@ static int session_create(hwvk_session *s, uint32_t level, char *err, size_t err
 	d->vkGetVideoSessionMemoryRequirementsKHR(d->device, s->session, &n, mr);
 	r = VK_SUCCESS;
 	for (uint32_t i = 0; i < n && r == VK_SUCCESS; i++) {
-		r = allocate(d, mr[i].memoryRequirements, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &s->session_memory[i]);
+		r = allocate(d, mr[i].memoryRequirements, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, &s->session_memory[i]);
 		bind[i] = (VkBindVideoSessionMemoryInfoKHR){
 			.sType = VK_STRUCTURE_TYPE_BIND_VIDEO_SESSION_MEMORY_INFO_KHR,
 			.memoryBindIndex = mr[i].memoryBindIndex,
@@ -779,7 +813,7 @@ static int session_create(hwvk_session *s, uint32_t level, char *err, size_t err
 	if (r != VK_SUCCESS) {
 		return vk_fail(err, errlen, "video session memory", r);
 	}
-	r = host_buffer(d, (VkDeviceSize)s->coded_w * s->coded_h * 3 / 2, VK_BUFFER_USAGE_TRANSFER_DST_BIT, NULL, &s->readback, &s->readback_memory, &s->readback_map);
+	r = host_buffer(d, (VkDeviceSize)s->coded_w * s->coded_h * 3 / 2, VK_BUFFER_USAGE_TRANSFER_DST_BIT, NULL, 1, &s->readback, &s->readback_memory, &s->readback_map);
 	if (r != VK_SUCCESS) {
 		return vk_fail(err, errlen, "readback buffer", r);
 	}
@@ -1019,7 +1053,7 @@ static int bitstream_room(hwvk_session *s, VkDeviceSize size, char *err, size_t 
 	hwvk_device *d = s->d;
 	free_buffer(d, &s->bitstream, &s->bitstream_memory, &s->bitstream_map);
 	VkDeviceSize grown = align_up(size < (1 << 20) ? (1 << 20) : size * 2, d->caps.minBitstreamBufferSizeAlignment);
-	VkResult r = host_buffer(d, grown, VK_BUFFER_USAGE_VIDEO_DECODE_SRC_BIT_KHR, &d->profile_list, &s->bitstream, &s->bitstream_memory, &s->bitstream_map);
+	VkResult r = host_buffer(d, grown, VK_BUFFER_USAGE_VIDEO_DECODE_SRC_BIT_KHR, &d->profile_list, 0, &s->bitstream, &s->bitstream_memory, &s->bitstream_map);
 	if (r != VK_SUCCESS) {
 		free_buffer(d, &s->bitstream, &s->bitstream_memory, &s->bitstream_map);
 		s->bitstream_size = 0;

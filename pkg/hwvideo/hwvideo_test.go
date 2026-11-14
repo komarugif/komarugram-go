@@ -44,7 +44,7 @@ func TestMain(m *testing.M) {
 
 // testClient is a client whose helpers are the test binary in modes, a
 // tier each.
-func testClient(t *testing.T, modes ...string) *Client {
+func testClient(t testing.TB, modes ...string) *Client {
 	t.Helper()
 	self, err := os.Executable()
 	if err != nil {
@@ -85,6 +85,8 @@ func (d *fakeDevice) open(sps *SPS, surfaces int) (session, error) {
 }
 
 func (d *fakeDevice) close() {}
+
+func (d *fakeDevice) reset() {}
 
 func (d *fakeDevice) decode(p *picture) error {
 	if d.die {
@@ -421,6 +423,41 @@ func TestProfileOfHelpers(t *testing.T) {
 	got := c.Profile(ctx, "cpu", 10*time.Second)
 	if len(got) != 1 || !errors.Is(got[0].Err, context.DeadlineExceeded) || time.Since(start) > 5*time.Second {
 		t.Fatalf("a profile not stopped: %+v after %v", got, time.Since(start))
+	}
+}
+
+// TestPictureIntoAnyImage checks a picture read straight into the image
+// it goes to is the one copied into an image whose rows do not follow one
+// another, picture after picture, the helper's buffer reused between them.
+func TestPictureIntoAnyImage(t *testing.T) {
+	file := testFile(t)
+	c := testClient(t, "fake")
+	v, err := c.Open(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Close(context.Background())
+	size := image.Pt(36, 64)
+	for range 3 {
+		if _, err := v.Next(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		flat := image.NewRGBA(image.Rectangle{Max: size})
+		into := &flat.Pix[0]
+		if got := v.PictureInto(flat); got != flat || &flat.Pix[0] != into {
+			t.Fatal("not read into the image")
+		}
+		wide := image.NewRGBA(image.Rect(0, 0, size.X+5, size.Y))
+		sub := wide.SubImage(image.Rectangle{Max: size}).(*image.RGBA)
+		sub.Rect = sub.Rect.Sub(sub.Rect.Min)
+		if v.PictureInto(sub) == nil {
+			t.Fatal(v.Err())
+		}
+		for y := range size.Y {
+			if string(flat.Pix[y*flat.Stride:y*flat.Stride+size.X*4]) != string(sub.Pix[y*sub.Stride:y*sub.Stride+size.X*4]) {
+				t.Fatalf("row %d differs", y)
+			}
+		}
 	}
 }
 

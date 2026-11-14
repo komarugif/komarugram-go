@@ -200,7 +200,7 @@ type helper struct {
 	inMu  sync.Mutex
 	mu    sync.Mutex
 	next  uint32
-	calls map[uint32]chan message
+	calls map[uint32]*pending
 	// err is why the helper answers no more, once it does not.
 	err error
 	// stopped is set when the client stopped it itself.
@@ -222,21 +222,28 @@ func (c *Client) start(t *tier) (*helper, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	h := &helper{cmd: cmd, in: in, calls: map[uint32]chan message{}}
+	h := &helper{cmd: cmd, in: in, calls: map[uint32]*pending{}}
 	go func() {
 		r := bufio.NewReaderSize(out, 1<<16)
 		var err error
 		for {
+			var call *pending
 			var m message
-			if m, err = readMessage(r, false, maxResponse); err != nil {
+			m, err = readAnswer(r, maxResponse, func(id uint32, status uint8, n int) []byte {
+				h.mu.Lock()
+				call = h.calls[id]
+				delete(h.calls, id)
+				h.mu.Unlock()
+				if call != nil && status == statusOK {
+					return call.into
+				}
+				return nil
+			})
+			if err != nil {
 				break
 			}
-			h.mu.Lock()
-			call := h.calls[m.id]
-			delete(h.calls, m.id)
-			h.mu.Unlock()
 			if call != nil {
-				call <- m
+				call.answer <- m
 			}
 		}
 		_ = cmd.Process.Kill()
@@ -259,7 +266,7 @@ func (c *Client) start(t *tier) (*helper, error) {
 		// Those waiting are told last: the client has failed by then.
 		h.mu.Lock()
 		for id, call := range h.calls {
-			close(call)
+			close(call.answer)
 			delete(h.calls, id)
 		}
 		h.mu.Unlock()
@@ -277,14 +284,28 @@ func (h *helper) stop() {
 	h.inMu.Unlock()
 }
 
+// pending is a call waiting for its answer.
+type pending struct {
+	answer chan message
+	// into is where the body of an answer OK is read, if large enough.
+	into []byte
+}
+
 // call asks the helper for kind of stream and waits for its answer.
 func (h *helper) call(kind uint8, stream uint32, body []byte) ([]byte, error) {
-	return h.callContext(context.Background(), kind, stream, body)
+	return h.callInto(context.Background(), kind, stream, body, nil)
 }
 
 // callContext is call that stops waiting when ctx is done: the answer,
 // when it comes, is dropped.
 func (h *helper) callContext(ctx context.Context, kind uint8, stream uint32, body []byte) ([]byte, error) {
+	return h.callInto(ctx, kind, stream, body, nil)
+}
+
+// callInto is callContext whose answer is read into into where it fits.
+// With into, ctx must be one that is never done: the answer may be read
+// into it after the call stopped waiting.
+func (h *helper) callInto(ctx context.Context, kind uint8, stream uint32, body, into []byte) ([]byte, error) {
 	answer := make(chan message, 1)
 	h.mu.Lock()
 	if h.err != nil {
@@ -293,7 +314,7 @@ func (h *helper) callContext(ctx context.Context, kind uint8, stream uint32, bod
 	}
 	h.next++
 	id := h.next
-	h.calls[id] = answer
+	h.calls[id] = &pending{answer: answer, into: into}
 	h.mu.Unlock()
 	h.inMu.Lock()
 	err := writeMessage(h.in, message{id: id, kind: kind, stream: stream, body: body}, true)
@@ -644,13 +665,21 @@ func (v *Video) PictureInto(dst *image.RGBA) *image.RGBA {
 	} else {
 		body = append(body, 0)
 	}
-	pix, err := v.helper.call(opRender, v.id, body)
+	// A picture whose rows follow one another is read where it goes.
+	var into []byte
+	if dst.Stride == w*4 && len(dst.Pix) >= w*h*4 {
+		into = dst.Pix[:w*h*4]
+	}
+	pix, err := v.helper.callInto(context.Background(), opRender, v.id, body, into)
 	if err == nil && len(pix) != w*h*4 {
 		err = fmt.Errorf("hwvideo: a picture of %d bytes for %dx%d", len(pix), w, h)
 	}
 	if err != nil {
 		v.err = err
 		return nil
+	}
+	if into != nil && &pix[0] == &into[0] {
+		return dst
 	}
 	for y := range h {
 		copy(dst.Pix[y*dst.Stride:y*dst.Stride+w*4], pix[y*w*4:])

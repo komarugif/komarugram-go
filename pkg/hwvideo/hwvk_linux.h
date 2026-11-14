@@ -75,6 +75,12 @@ void hwvk_device_close(hwvk_device *d);
 int hwvk_session_open(hwvk_device *d, uint32_t width_mbs, uint32_t height_mbs, uint32_t level, uint32_t refs, uint32_t surfaces, hwvk_session **out, char *err, size_t errlen);
 void hwvk_session_close(hwvk_session *s);
 
+// The device's name, and whether the memory pictures are read back from is cached and on the GPU.
+void hwvk_describe(hwvk_device *d, char *name, size_t namelen, int *cached, int *device_local);
+
+// Makes the session ready for a new stream: its DPB is reset at the next picture, no slot held.
+void hwvk_session_reset(hwvk_session *s);
+
 // Replaces the session's parameter sets with every one the stream sent.
 int hwvk_session_parameters(hwvk_session *s, const hwvk_sps *sps, uint32_t nsps, const hwvk_pps *pps, uint32_t npps, char *err, size_t errlen);
 
