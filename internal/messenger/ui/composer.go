@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	"os"
 	"reflect"
 	"strings"
@@ -808,13 +809,19 @@ const (
 // layoutBackdrop fills the current clip, of size, with backdrop blurred:
 // the recording of what is behind it, whose origin is at -origin.
 func layoutBackdrop(gtx layout.Context, size, origin image.Point, backdrop op.CallOp) {
+	layoutBackdropOver(gtx, size, origin, backdrop, scheme(gtx).SurfaceContainerLow.AsNRGBA())
+}
+
+// layoutBackdropOver is layoutBackdrop over the color base, which shows
+// where the recording draws nothing.
+func layoutBackdropOver(gtx layout.Context, size, origin image.Point, backdrop op.CallOp, base color.NRGBA) {
 	radius := gtx.Dp(composerBlurRadius)
 	defer paint.PushBlur(gtx.Ops, float32(radius)).Pop()
 	// The blur reaches past the clip by about radius: cover that much, the
 	// window's edge included, so that no transparency is blurred in.
 	margin := image.Pt(2*radius, 2*radius)
 	defer clip.Rect{Min: margin.Mul(-1), Max: size.Add(margin)}.Push(gtx.Ops).Pop()
-	paint.ColorOp{Color: scheme(gtx).SurfaceContainerLow.AsNRGBA()}.Add(gtx.Ops)
+	paint.ColorOp{Color: base}.Add(gtx.Ops)
 	paint.PaintOp{}.Add(gtx.Ops)
 	defer op.Offset(origin.Mul(-1)).Push(gtx.Ops).Pop()
 	backdrop.Add(gtx.Ops)

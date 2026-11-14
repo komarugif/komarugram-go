@@ -207,8 +207,8 @@ func TestWindowBlurRequestIndependent(t *testing.T) {
 			t.Fatal(err)
 		}
 		a.updateWindowEffects()
-		if a.windowBlurWanted != tc.want {
-			t.Errorf("transparency %d, blur %t: requested %t", tc.transparency, tc.blur, a.windowBlurWanted)
+		if a.windowFx.blur != tc.want {
+			t.Errorf("transparency %d, blur %t: requested %t", tc.transparency, tc.blur, a.windowFx.blur)
 		}
 	}
 }

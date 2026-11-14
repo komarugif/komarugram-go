@@ -237,9 +237,28 @@ type settingsPage struct {
 	setPauseInactive      func(bool)
 	pauseInactiveCheckbox *checkbox.Checkboxes[string]
 	// Compositor blur is independent of in-app animation and overlay blur.
-	windowBlur                  func() bool
-	setWindowBlur               func(bool)
-	windowBlurCheckbox          *checkbox.Checkboxes[string]
+	windowBlur         func() bool
+	setWindowBlur      func(bool)
+	windowBlurCheckbox *checkbox.Checkboxes[string]
+	// viewerBlur is the blur behind the media viewer's window, a box of its
+	// own.
+	viewerBlur         func() bool
+	setViewerBlur      func(bool)
+	viewerBlurCheckbox *checkbox.Checkboxes[string]
+	// windowBlurOwn is whether the windows blur the desktop by themselves,
+	// not the compositor, and windowBlurChoice whether both can, which
+	// offers the choice, for the main window and the viewer's alike.
+	windowBlurOwn    func() bool
+	setWindowBlurOwn func(bool)
+	// windowOwnFrame is whether the window draws its own frame, and
+	// whether it must, for the compositor's blur; the choice is offered
+	// where windowOwnFrameSupported.
+	windowOwnFrame              func() (own, forced bool)
+	setWindowOwnFrame           func(bool)
+	windowOwnFrameSupported     func() bool
+	windowOwnFrameCheckbox      *checkbox.Checkboxes[string]
+	windowBlurChoice            func() bool
+	windowBlurBy                *radio.Radios[bool]
 	windowTransparency          func() int
 	setWindowTransparency       func(int)
 	windowTransparencyAvailable func() bool
@@ -481,6 +500,21 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			p.setWindowBlur(slices.Contains(values, "window"))
 		}
 	})
+	p.viewerBlurCheckbox = checkbox.NewCheckboxes([]string{"viewer"}, nil, func(values []string) {
+		if p.setViewerBlur != nil {
+			p.setViewerBlur(slices.Contains(values, "viewer"))
+		}
+	})
+	p.windowOwnFrameCheckbox = checkbox.NewCheckboxes([]string{"frame"}, nil, func(values []string) {
+		if p.setWindowOwnFrame != nil {
+			p.setWindowOwnFrame(slices.Contains(values, "frame"))
+		}
+	})
+	p.windowBlurBy = radio.NewRadios([]bool{false, true}, false, func(own bool) {
+		if p.setWindowBlurOwn != nil {
+			p.setWindowBlurOwn(own)
+		}
+	})
 	p.windowTransparencySlider = slider.StandardSlider(steps, 0, func(v int) {
 		if p.setWindowTransparency != nil {
 			p.setWindowTransparency(v)
@@ -633,6 +667,45 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 			p.windowBlurCheckbox.Enable()
 		}
 		p.windowBlurCheckbox.Update(gtx)
+	}
+	if p.viewerBlur != nil {
+		var want []string
+		if p.viewerBlur() {
+			want = []string{"viewer"}
+		}
+		if !slices.Equal(p.viewerBlurCheckbox.GetValues(), want) {
+			p.viewerBlurCheckbox.SetValues(want)
+		}
+		if p.windowTransparencyAvailable != nil && !p.windowTransparencyAvailable() {
+			p.viewerBlurCheckbox.Disable()
+		} else {
+			p.viewerBlurCheckbox.Enable()
+		}
+		p.viewerBlurCheckbox.Update(gtx)
+	}
+	if p.windowOwnFrame != nil {
+		// A window the compositor blurs behind has its own frame, and the
+		// box shows it, checked and not to be changed; what the user chose
+		// stays in the settings, and shows again without that blur.
+		own, forced := p.windowOwnFrame()
+		var want []string
+		if own {
+			want = []string{"frame"}
+		}
+		if !slices.Equal(p.windowOwnFrameCheckbox.GetValues(), want) {
+			p.windowOwnFrameCheckbox.SetValues(want)
+		}
+		if forced {
+			p.windowOwnFrameCheckbox.Disable()
+		} else {
+			p.windowOwnFrameCheckbox.Enable()
+		}
+		p.windowOwnFrameCheckbox.Update(gtx)
+	}
+	if p.windowBlurOwn != nil {
+		p.windowBlurBy.SetValue(p.windowBlurOwn())
+		p.windowBlurBy.Enable()
+		p.windowBlurBy.Update(gtx)
 	}
 	if p.windowTransparency != nil {
 		// Imported preferences may be between the slider stops.
@@ -1406,6 +1479,26 @@ func (p *settingsPage) layoutOverlays(gtx layout.Context, l localization.Catalog
 		if p.windowBlur != nil {
 			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return p.windowBlurCheckbox.Layout(gtx, map[string]string{"window": l.T("settings.window_blur")})
+			}))
+		}
+		if p.viewerBlur != nil {
+			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return p.viewerBlurCheckbox.Layout(gtx, map[string]string{"viewer": l.T("settings.viewer_blur")})
+			}))
+		}
+		if p.windowOwnFrame != nil && (p.windowOwnFrameSupported == nil || p.windowOwnFrameSupported()) {
+			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return p.windowOwnFrameCheckbox.Layout(gtx, map[string]string{"frame": l.T("settings.window_own_frame")})
+			}))
+		}
+		if p.windowBlurOwn != nil && p.windowBlurChoice != nil && p.windowBlurChoice() {
+			// Who blurs, for the main window and the viewer's alike: at
+			// the end of the card, under neither box.
+			children = append(children, vspace(8), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return p.windowBlurBy.Layout(gtx, radio.LeadingKind, map[bool]string{
+					false: l.T("settings.window_blur_compositor"),
+					true:  l.T("settings.window_blur_own"),
+				})
 			}))
 		}
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)

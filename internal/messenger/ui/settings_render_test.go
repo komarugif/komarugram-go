@@ -81,10 +81,20 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	windowBlur := true
 	p.windowBlur = func() bool { return windowBlur }
 	p.setWindowBlur = func(on bool) { windowBlur = on }
+	viewerBlur := true
+	p.viewerBlur = func() bool { return viewerBlur }
+	p.setViewerBlur = func(on bool) { viewerBlur = on }
 	windowTransparency := 40
 	p.windowTransparency = func() int { return windowTransparency }
 	p.setWindowTransparency = func(value int) { windowTransparency = value }
 	p.windowTransparencyAvailable = func() bool { return true }
+	windowBlurOwn := true
+	p.windowBlurOwn = func() bool { return windowBlurOwn }
+	p.setWindowBlurOwn = func(own bool) { windowBlurOwn = own }
+	p.windowBlurChoice = func() bool { return true }
+	windowOwnFrame := false
+	p.windowOwnFrame = func() (bool, bool) { return windowOwnFrame, false }
+	p.setWindowOwnFrame = func(own bool) { windowOwnFrame = own }
 	p.overlays = func() preferences.Overlays { return overlays }
 	p.setOverlays = func(o preferences.Overlays) { overlays = o }
 	p.uninstall = func() {}

@@ -103,9 +103,24 @@ type Global struct {
 	// WindowTransparency lets the desktop show through the main window
 	// surfaces on Wayland and Windows, in percent. Text and media stay opaque.
 	WindowTransparency int `json:"window_transparency,omitempty"`
-	// WindowBlur asks the compositor, of Wayland or Windows, to blur behind translucent
-	// main window surfaces; transparency can also be used on its own.
+	// WindowBlur blurs what is behind the translucent main window surfaces:
+	// the compositor does, of Wayland or Windows, or the window itself (see
+	// WindowBlurOwn); transparency can also be used on its own.
 	WindowBlur bool `json:"window_blur"`
+	// ViewerBlur blurs what is behind the media viewer's window, on its own
+	// and not with WindowBlur or the transparency of the main window; it is
+	// on until the user takes it off.
+	ViewerBlur bool `json:"viewer_blur"`
+	// WindowBlurOwn has the windows, the main one and the viewer's, blur the
+	// desktop by themselves, drawing the blurred wallpaper behind their
+	// surfaces, where the compositor could blur too. Where it cannot (X11),
+	// the window does so whatever this is.
+	WindowBlurOwn bool `json:"window_blur_own,omitempty"`
+	// WindowOwnFrame has the windows draw their own frame, a caption with
+	// the title and the window's buttons, in place of the system's, where
+	// they can (Windows, Haiku). A window the compositor of Windows 10 or
+	// 11 blurs behind has it whatever this is.
+	WindowOwnFrame bool `json:"window_own_frame,omitempty"`
 	// Player is the external player videos open in; empty until the user
 	// chooses one, which is asked only when more than one is installed.
 	Player player.Kind `json:"player,omitempty"`
@@ -734,6 +749,7 @@ func defaults() Global {
 		ComposerBlur:   true,
 		AudioVolume:    100,
 		WindowBlur:     true,
+		ViewerBlur:     true,
 		Overlays:       Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true, Shadow: ShadowDefault},
 		Ghost:          Ghost{ReadOnInteract: true},
 		Keep:           Keep{Deleted: true, Edits: true},
@@ -1288,6 +1304,22 @@ func (s *Store) SetOverlays(o Overlays) error {
 // SetWindowBlur changes the compositor blur independently of transparency.
 func (s *Store) SetWindowBlur(on bool) error {
 	return s.change(func(g *Global) { g.WindowBlur = on })
+}
+
+// SetViewerBlur switches the blur behind the media viewer's window.
+func (s *Store) SetViewerBlur(on bool) error {
+	return s.change(func(g *Global) { g.ViewerBlur = on })
+}
+
+// SetWindowBlurOwn chooses who blurs behind the windows where both can:
+// the window itself, or the compositor.
+func (s *Store) SetWindowBlurOwn(own bool) error {
+	return s.change(func(g *Global) { g.WindowBlurOwn = own })
+}
+
+// SetWindowOwnFrame chooses the window's own frame over the system's.
+func (s *Store) SetWindowOwnFrame(own bool) error {
+	return s.change(func(g *Global) { g.WindowOwnFrame = own })
 }
 
 // SetWindowTransparency changes the window surfaces independently

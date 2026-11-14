@@ -57,7 +57,7 @@ type App struct {
 	currentAccount func() string
 	store          model.Store
 
-	windowEffectsSet, windowBlurWanted, windowTransparentWanted bool
+	windowFx windowEffects
 
 	preferences *preferences.Store
 	// softwareChecked is set once the window was found drawn by a software
@@ -530,6 +530,12 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			log.Printf("save settings: %v", err)
 		}
 	}
+	a.settings.viewerBlur = func() bool { return a.preferences.Global().ViewerBlur }
+	a.settings.setViewerBlur = func(on bool) {
+		if err := services.Preferences.SetViewerBlur(on); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
 	a.settings.windowTransparency = func() int { return a.preferences.Global().WindowTransparency }
 	a.settings.setWindowTransparency = func(value int) {
 		if err := services.Preferences.SetWindowTransparency(value); err != nil {
@@ -537,7 +543,26 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		}
 	}
 	a.settings.windowTransparencyAvailable = func() bool {
-		return w.CanBeTransparent()
+		return w.CanBeTransparent() || w.OwnBlurSupported()
+	}
+	a.settings.windowBlurOwn = func() bool { return a.preferences.Global().WindowBlurOwn }
+	a.settings.setWindowBlurOwn = func(own bool) {
+		if err := services.Preferences.SetWindowBlurOwn(own); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.windowOwnFrame = func() (own, forced bool) {
+		forced = w.OwnFrameForced()
+		return forced || a.preferences.Global().WindowOwnFrame, forced
+	}
+	a.settings.setWindowOwnFrame = func(own bool) {
+		if err := services.Preferences.SetWindowOwnFrame(own); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.windowOwnFrameSupported = appwindow.OwnFrameSupported
+	a.settings.windowBlurChoice = func() bool {
+		return w.OwnBlurSupported() && w.CompositorBlurs()
 	}
 	a.settings.overlays = func() preferences.Overlays { return a.preferences.Global().Overlays }
 	a.settings.setOverlays = func(o preferences.Overlays) {
@@ -1290,6 +1315,11 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 		if err := a.preferences.DefaultVideoExternal(); err != nil {
 			log.Printf("save settings: %v", err)
 		}
+	}
+	if a.window.OwnBlur() && a.preferences.Global().WindowTransparency > 0 {
+		// The window blurs by itself: the blurred wallpaper is under the
+		// surfaces, as the desktop is under those of a transparent window.
+		transparent = a.window.LayoutDesktop(gtx, scheme(gtx).Surface.Color.AsNRGBA(), float32(a.preferences.Global().WindowTransparency)/100)
 	}
 	withWindowSurfaceOpacity(gtx, a.preferences.Global().WindowTransparency, transparent)
 	withLook(gtx, a.preferences.Global().Look)
