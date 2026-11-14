@@ -87,6 +87,18 @@ type frame struct {
 
 func (f *frame) order() int32 { return min(f.top, f.bottom) }
 
+// errRefused is matched by the error of a stream the device does not
+// decode, its session refused: another device may.
+var errRefused = errors.New("hwvideo: refused by the device")
+
+// refusal is the error of a stream the device refused: err, which is
+// also errRefused.
+type refusal struct{ err error }
+
+func (r refusal) Error() string        { return r.err.Error() }
+func (r refusal) Unwrap() error        { return r.err }
+func (r refusal) Is(target error) bool { return target == errRefused }
+
 // errDeviceLost is the error of a GPU that was lost or hangs: the helper
 // ends on it, and its client decodes nothing more in hardware.
 var errDeviceLost = errors.New("hwvideo: the GPU was lost")
@@ -247,6 +259,9 @@ func (d *Decoder) activate(s *SPS) error {
 		}
 	} else {
 		session, err := d.device.open(s, surfaces)
+		if errors.Is(err, ErrUnsupported) {
+			return refusal{err}
+		}
 		if err != nil {
 			return err
 		}

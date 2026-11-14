@@ -84,9 +84,23 @@ FFmpeg's row.
 - `libvulkan.so.1` is loaded with `dlopen`, as Gio does: a machine
   without it runs, and decodes in software. Headers older than 1.3.238
   build a decoder that refuses everything.
-- The device is the first integrated GPU that decodes H.264, then a
-  discrete one; the helper loads only the driver the windows draw with
-  (`NewClientFor`, `VK_DRIVER_FILES`) where it is known.
+- The pictures' layers are not the DPB slots: a slot is held only by a
+  reference and by the picture being decoded, so a session asks for
+  `max_num_ref_frames + 1` slots however many pictures wait to be shown
+  or read (NVIDIA gives 17; a slot for every picture refused streams
+  that reorder much).
+- The GPUs are tried in order, a helper each (`NewClientFor`, tiers of
+  `Client`): first the one the windows draw with, its driver alone
+  loaded (`VK_DRIVER_FILES`) and the device named by its ids
+  (`KOMARUGRAM_HWVIDEO_DEVICE`), awake already; then, started only when
+  that one has no decoder or refuses a stream (a session it cannot make:
+  too many references, a level, a size), one with every driver that
+  leaves that GPU out, an integrated GPU first. A GPU without a decoder,
+  or whose helper ended, is tried no more; a stream refused by one goes
+  to the next; a stream the parser refuses wakes no other. Where the
+  windows' device is not known, one helper tries every GPU, an
+  integrated one first. The windows keep their device: only the GIFs
+  move. On Windows the default Direct3D 11 adapter decodes alone.
 - A device lost, or a submission not done in 5 s, ends the helper
   (exit 4): its client gives every GIF back to software.
 - Every call waits for the GPU (one fence); a session needs Vulkan 1.3

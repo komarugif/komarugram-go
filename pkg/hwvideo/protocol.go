@@ -44,6 +44,9 @@ const (
 	statusNoDevice
 	// statusError: the stream failed.
 	statusError
+	// statusRefused: the device does not decode the stream, which another
+	// may; the body tells why.
+	statusRefused
 )
 
 // The longest messages: a sample of a GIF, and a picture of the largest

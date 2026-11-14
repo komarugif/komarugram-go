@@ -35,19 +35,28 @@ const idleStop = 10 * time.Second
 
 // Client decodes videos in a helper, a process of its own it starts when
 // a video is opened and stops once none has been open for a while.
+//
+// It may have several helpers, each of its own devices (a tier), tried in
+// order: the GPU the windows draw with first, awake already, then the
+// others. A tier whose helper finds no decoder, or ends on its own, is
+// tried no more; a stream its device refuses goes on to the next one.
 type Client struct {
-	// command makes the command that starts the helper.
-	command func() *exec.Cmd
-
-	mu      sync.Mutex
-	helper  *helper
-	streams int
-	stream  uint32
-	idle    *time.Timer
+	mu     sync.Mutex
+	tiers  []*tier
+	stream uint32
 	// opened counts the videos opened.
 	opened int
-	// failed is why nothing is decoded in hardware any more: the helper
-	// ended on its own, or the machine has no decoder.
+}
+
+// tier is a helper the client starts, and the streams open in it.
+type tier struct {
+	// command makes the command that starts the helper.
+	command func() *exec.Cmd
+	helper  *helper
+	streams int
+	idle    *time.Timer
+	// failed is why nothing is decoded in it any more: the helper ended
+	// on its own, or found no decoder.
 	failed error
 }
 
@@ -57,7 +66,7 @@ func NewClient(command func() *exec.Cmd) *Client {
 	if command == nil {
 		command = selfCommand
 	}
-	return &Client{command: command}
+	return &Client{tiers: []*tier{{command: command}}}
 }
 
 // Opened is how many videos the helper has opened so far.
@@ -67,21 +76,51 @@ func (c *Client) Opened() int {
 	return c.opened
 }
 
-// NewClientFor is NewClient whose helper, on Linux, loads the Vulkan
-// driver of the manifest named driver alone (the one the windows draw
-// with, app.VulkanDevice.Driver), so that it wakes no other GPU; with
-// every driver where it is empty or not found.
-func NewClientFor(driver string) *Client {
-	manifest := driverManifest(driver)
-	if manifest == "" {
+// DeviceEnv is the variable that tells the helper which GPU to decode on:
+// "VENDOR:DEVICE" (the ids, in hexadecimal) for that one alone,
+// "!VENDOR:DEVICE" for any but it.
+const DeviceEnv = "KOMARUGRAM_HWVIDEO_DEVICE"
+
+// NewClientFor is NewClient whose helpers, on Linux, try the GPU the
+// windows draw with first, and the others after: driver is the manifest of
+// its Vulkan driver (app.VulkanDevice.Driver), vendor and device its ids.
+// The first helper loads that driver alone, so that it wakes no other GPU;
+// the second, started only when the first decodes nothing or refuses a
+// stream, every driver, and leaves that GPU out. Where the ids are not
+// known, one helper tries every GPU, an integrated one first.
+func NewClientFor(driver string, vendor, device uint32) *Client {
+	if runtime.GOOS != "linux" || vendor == 0 && device == 0 {
 		return NewClient(nil)
 	}
-	return NewClient(func() *exec.Cmd {
+	ids := fmt.Sprintf("%04x:%04x", vendor, device)
+	manifest := driverManifest(driver)
+	own := func() *exec.Cmd {
 		cmd := selfCommand()
-		// VK_DRIVER_FILES is the loader's since 1.3.207, VK_ICD_FILENAMES before.
-		cmd.Env = append(os.Environ(), "VK_DRIVER_FILES="+manifest, "VK_ICD_FILENAMES="+manifest)
+		cmd.Env = append(os.Environ(), DeviceEnv+"="+ids)
+		if manifest != "" {
+			// VK_DRIVER_FILES is the loader's since 1.3.207, VK_ICD_FILENAMES before.
+			cmd.Env = append(cmd.Env, "VK_DRIVER_FILES="+manifest, "VK_ICD_FILENAMES="+manifest)
+		}
 		return cmd
-	})
+	}
+	others := func() *exec.Cmd {
+		cmd := selfCommand()
+		cmd.Env = append(os.Environ(), DeviceEnv+"=!"+ids)
+		return cmd
+	}
+	return &Client{tiers: []*tier{{command: own}, {command: others}}}
+}
+
+// ParseDeviceEnv reads DeviceEnv: the ids of a GPU, and whether it is the
+// one to decode on (only) or one to leave out. ok is false where it is not
+// set or not read.
+func ParseDeviceEnv() (vendor, device uint32, only, ok bool) {
+	v := os.Getenv(DeviceEnv)
+	only = !strings.HasPrefix(v, "!")
+	if _, err := fmt.Sscanf(strings.TrimPrefix(v, "!"), "%x:%x", &vendor, &device); err != nil {
+		return 0, 0, false, false
+	}
+	return vendor, device, only, true
 }
 
 // selfCommand starts the client's own binary as the helper.
@@ -126,11 +165,27 @@ func driverManifest(name string) string {
 	return ""
 }
 
-// Failed is why the client decodes nothing any more, nil while it does.
+// Failed is why the client decodes nothing any more, nil while it does:
+// while one of its tiers has not failed.
 func (c *Client) Failed() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.failed
+	return c.failed()
+}
+
+// failed is Failed with c.mu held: the failures of every tier.
+func (c *Client) failed() error {
+	var errs []error
+	for _, t := range c.tiers {
+		if t.failed == nil {
+			return nil
+		}
+		errs = append(errs, t.failed)
+	}
+	if len(errs) == 1 {
+		return errs[0]
+	}
+	return errors.Join(errs...)
 }
 
 // helper is a running helper.
@@ -147,9 +202,9 @@ type helper struct {
 	stopped bool
 }
 
-// start starts the helper; c.mu is held.
-func (c *Client) start() (*helper, error) {
-	cmd := c.command()
+// start starts the helper of t; c.mu is held.
+func (c *Client) start(t *tier) (*helper, error) {
+	cmd := t.command()
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -186,13 +241,13 @@ func (c *Client) start() (*helper, error) {
 		stopped := h.stopped
 		h.mu.Unlock()
 		if !stopped {
-			log.Printf("hwvideo: the decoding process ended on its own (%v): videos are decoded in software from now on", cmd.ProcessState)
+			log.Printf("hwvideo: a decoding process ended on its own (%v): its GPU decodes nothing from now on", cmd.ProcessState)
 			c.mu.Lock()
-			if c.helper == h {
-				c.helper = nil
+			if t.helper == h {
+				t.helper = nil
 			}
-			if c.failed == nil {
-				c.failed = h.err
+			if t.failed == nil {
+				t.failed = h.err
 			}
 			c.mu.Unlock()
 		}
@@ -248,11 +303,26 @@ func (h *helper) call(kind uint8, stream uint32, body []byte) ([]byte, error) {
 	case statusOK:
 		return m.body, nil
 	case statusUnsupported:
-		return nil, fmt.Errorf("%w: %s", ErrUnsupported, m.body)
+		return nil, remoteError{ErrUnsupported, nil, string(m.body)}
+	case statusRefused:
+		return nil, remoteError{ErrUnsupported, errRefused, string(m.body)}
 	case statusNoDevice:
-		return nil, fmt.Errorf("%w: %s", errNoDevice, m.body)
+		return nil, remoteError{errNoDevice, nil, string(m.body)}
 	}
 	return nil, fmt.Errorf("hwvideo: %s", m.body)
+}
+
+// remoteError is an error the helper answered with: its text, as the
+// helper's error gave it, is what errors.Is matches.
+type remoteError struct {
+	kind, also error
+	text       string
+}
+
+func (e remoteError) Error() string { return e.text }
+
+func (e remoteError) Is(target error) bool {
+	return target == e.kind || e.also != nil && target == e.also
 }
 
 // Video plays the H.264 track of an MP4 file in a loop, one picture at a
@@ -260,6 +330,7 @@ func (h *helper) call(kind uint8, stream uint32, body []byte) ([]byte, error) {
 type Video struct {
 	File   *mp4.File
 	client *Client
+	tier   *tier
 	helper *helper
 	id     uint32
 	// next is the next sample to send; shown counts the pictures put out
@@ -273,9 +344,11 @@ type Video struct {
 	err error
 }
 
-// Open starts decoding file in the helper, started if it is not running.
-// It fails with ErrUnsupported for a file not decoded in hardware, and
-// with the client's failure once it decodes nothing any more.
+// Open starts decoding file in a helper, started if it is not running:
+// in the first tier that has not failed and whose device does not refuse
+// the stream. It fails with ErrUnsupported for a file not decoded in
+// hardware, and with the client's failure once it decodes nothing any
+// more.
 func (c *Client) Open(file *mp4.File) (*Video, error) {
 	if file.Codec != mp4.H264 {
 		return nil, unsupported("not H.264")
@@ -283,30 +356,6 @@ func (c *Client) Open(file *mp4.File) (*Video, error) {
 	if file.Width > MaxSide || file.Height > MaxSide {
 		return nil, unsupported("%dx%d", file.Width, file.Height)
 	}
-	c.mu.Lock()
-	if c.failed != nil {
-		defer c.mu.Unlock()
-		return nil, c.failed
-	}
-	if c.helper == nil {
-		h, err := c.start()
-		if err != nil {
-			c.failed = fmt.Errorf("%w: %v", ErrHelper, err)
-			c.mu.Unlock()
-			return nil, c.failed
-		}
-		c.helper = h
-	}
-	if c.idle != nil {
-		c.idle.Stop()
-		c.idle = nil
-	}
-	h := c.helper
-	c.stream++
-	id := c.stream
-	c.streams++
-	c.mu.Unlock()
-
 	colors := resample.Colors{Limited: !file.FullRange}
 	switch file.Matrix {
 	case 1, 7:
@@ -322,60 +371,110 @@ func (c *Client) Open(file *mp4.File) (*Video, error) {
 	if colors.Limited {
 		body[1] = 1
 	}
-	if _, err := h.call(opOpen, id, append(body, file.Config...)); err != nil {
-		if errors.Is(err, errNoDevice) {
+	body = append(body, file.Config...)
+
+	// refused is why the devices tried so far did not decode the stream.
+	var refused []error
+	for i := 0; ; i++ {
+		c.mu.Lock()
+		if i >= len(c.tiers) {
+			err := c.failed()
+			c.mu.Unlock()
+			if len(refused) > 0 {
+				return nil, errors.Join(refused...)
+			}
+			return nil, err
+		}
+		t := c.tiers[i]
+		if t.failed != nil {
+			c.mu.Unlock()
+			continue
+		}
+		if t.helper == nil {
+			h, err := c.start(t)
+			if err != nil {
+				t.failed = fmt.Errorf("%w: %v", ErrHelper, err)
+				c.mu.Unlock()
+				continue
+			}
+			t.helper = h
+		}
+		if t.idle != nil {
+			t.idle.Stop()
+			t.idle = nil
+		}
+		h := t.helper
+		c.stream++
+		id := c.stream
+		t.streams++
+		c.mu.Unlock()
+
+		_, err := h.call(opOpen, id, body)
+		if err == nil {
 			c.mu.Lock()
-			if c.failed == nil {
-				c.failed = err
+			c.opened++
+			c.mu.Unlock()
+			return &Video{File: file, client: c, tier: t, helper: h, id: id}, nil
+		}
+		next := false
+		switch {
+		case errors.Is(err, errNoDevice), errors.Is(err, ErrHelper):
+			c.mu.Lock()
+			if t.failed == nil {
+				t.failed = err
 			}
 			c.mu.Unlock()
+			next = true
+		case errors.Is(err, errRefused):
+			refused = append(refused, err)
+			next = true
 		}
-		c.closed()
-		return nil, err
+		c.closed(t)
+		if !next {
+			return nil, err
+		}
 	}
-	c.mu.Lock()
-	c.opened++
-	c.mu.Unlock()
-	return &Video{File: file, client: c, helper: h, id: id}, nil
 }
 
-// closed counts a stream that ended, and stops the helper once none has
-// been open for idleStop.
-func (c *Client) closed() {
+// closed counts a stream of t that ended, and stops its helper once none
+// has been open for idleStop.
+func (c *Client) closed(t *tier) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.streams--
-	if c.streams > 0 || c.helper == nil {
+	t.streams--
+	if t.streams > 0 || t.helper == nil {
 		return
 	}
-	if c.failed != nil {
-		// A machine without a decoder needs no helper.
-		c.helper.stop()
-		c.helper = nil
+	if t.failed != nil {
+		// A helper without a decoder is needed no more.
+		t.helper.stop()
+		t.helper = nil
 		return
 	}
-	h := c.helper
-	c.idle = time.AfterFunc(idleStop, func() {
+	h := t.helper
+	t.idle = time.AfterFunc(idleStop, func() {
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		if c.streams == 0 && c.helper == h {
+		if t.streams == 0 && t.helper == h {
 			h.stop()
-			c.helper = nil
+			t.helper = nil
 		}
 	})
 }
 
-// Close stops the helper at once.
+// Close stops the helpers at once.
 func (c *Client) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.idle != nil {
-		c.idle.Stop()
-		c.idle = nil
-	}
-	if c.helper != nil {
-		c.helper.stop()
-		c.helper = nil
+	for _, t := range c.tiers {
+		if t.idle != nil {
+			t.idle.Stop()
+			t.idle = nil
+		}
+		if t.helper != nil {
+			t.helper.stop()
+			t.helper = nil
+		}
 	}
 }
 
@@ -510,5 +609,5 @@ func (v *Video) Close(ctx context.Context) {
 	}
 	v.closed = true
 	_, _ = v.helper.call(opClose, v.id, nil)
-	v.client.closed()
+	v.client.closed(v.tier)
 }

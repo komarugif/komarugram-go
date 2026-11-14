@@ -9,6 +9,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
 	"testing"
 
 	"komarugram/pkg/mp4"
@@ -32,22 +35,28 @@ func TestMain(m *testing.M) {
 		_ = serve(os.Stdin, os.Stdout, func() (device, error) { return &fakeDevice{die: true}, nil })
 	case "none":
 		_ = serve(os.Stdin, os.Stdout, func() (device, error) { return nil, unsupported("no GPU") })
+	case "refuse":
+		_ = serve(os.Stdin, os.Stdout, func() (device, error) { return &fakeDevice{refuse: true}, nil })
 	}
 	os.Exit(0)
 }
 
-// testClient is a client whose helper is the test binary in mode.
-func testClient(t *testing.T, mode string) *Client {
+// testClient is a client whose helpers are the test binary in modes, a
+// tier each.
+func testClient(t *testing.T, modes ...string) *Client {
 	t.Helper()
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := NewClient(func() *exec.Cmd {
-		cmd := program.Command(self)
-		cmd.Env = append(os.Environ(), helperEnv+"="+mode)
-		return cmd
-	})
+	c := &Client{}
+	for _, mode := range modes {
+		c.tiers = append(c.tiers, &tier{command: func() *exec.Cmd {
+			cmd := program.Command(self)
+			cmd.Env = append(os.Environ(), helperEnv+"="+mode)
+			return cmd
+		}})
+	}
 	t.Cleanup(c.Close)
 	return c
 }
@@ -56,12 +65,18 @@ func testClient(t *testing.T, mode string) *Client {
 // reads each surface as a picture whose first sample is the number, in
 // decoding order, of the picture decoded into it.
 type fakeDevice struct {
-	die      bool
+	die bool
+	// refuse refuses every stream, as a device that decodes fewer
+	// references than the stream keeps.
+	refuse   bool
 	pictures []*picture
 	surfaces map[int]int
 }
 
 func (d *fakeDevice) open(sps *SPS, surfaces int) (session, error) {
+	if d.refuse {
+		return nil, unsupported("%d surfaces", surfaces)
+	}
 	if d.surfaces == nil {
 		d.surfaces = map[int]int{}
 	}
@@ -303,10 +318,97 @@ func TestNoDeviceFailsTheClient(t *testing.T) {
 		t.Fatal("the client did not fail")
 	}
 	c.mu.Lock()
-	running := c.helper != nil
+	running := c.tiers[0].helper != nil
 	c.mu.Unlock()
 	if running {
 		t.Fatal("the helper still runs")
+	}
+}
+
+// TestTiersFallBack checks a video goes to the next GPU where the first
+// has no decoder or refuses the stream, that a GPU without a decoder is
+// tried no more, and that one that refused a stream still decodes others.
+func TestTiersFallBack(t *testing.T) {
+	file := testFile(t)
+	for _, first := range []string{"none", "refuse"} {
+		t.Run(first, func(t *testing.T) {
+			c := testClient(t, first, "fake")
+			for range 2 {
+				v, err := c.Open(file)
+				if err != nil {
+					t.Fatalf("not opened on the second GPU: %v", err)
+				}
+				if v.tier != c.tiers[1] {
+					t.Fatal("opened on the first GPU")
+				}
+				if _, err := v.Next(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				v.Close(context.Background())
+			}
+			if c.Failed() != nil {
+				t.Fatalf("the client failed: %v", c.Failed())
+			}
+			c.mu.Lock()
+			failed, running := c.tiers[0].failed != nil, c.tiers[0].helper != nil
+			c.mu.Unlock()
+			if want := first == "none"; failed != want || running == want {
+				t.Fatalf("first GPU failed %v, its helper running %v", failed, running)
+			}
+		})
+	}
+	t.Run("all refuse", func(t *testing.T) {
+		c := testClient(t, "refuse", "refuse")
+		_, err := c.Open(file)
+		if !errors.Is(err, ErrUnsupported) {
+			t.Fatalf("opened on GPUs that refuse it: %v", err)
+		}
+		if c.Failed() != nil {
+			t.Fatal("refusals failed the client")
+		}
+		if strings.Count(err.Error(), ErrUnsupported.Error()) != 2 {
+			t.Fatalf("not one reason of each GPU: %v", err)
+		}
+	})
+	t.Run("stream not decoded in hardware", func(t *testing.T) {
+		c := testClient(t, "fake", "fake")
+		// Extended profile, which the parser refuses before any device.
+		bad := *file
+		bad.Config = slices.Clone(file.Config)
+		bad.Config[9] = 88
+		if _, err := c.Open(&bad); err == nil {
+			t.Fatal("opened")
+		}
+		c.mu.Lock()
+		started := c.tiers[1].helper != nil
+		c.mu.Unlock()
+		if started {
+			t.Fatal("the second GPU was woken for a stream no GPU decodes")
+		}
+	})
+}
+
+// TestDeviceEnv reads what the client tells the helpers.
+func TestDeviceEnv(t *testing.T) {
+	for _, tc := range []struct {
+		value          string
+		vendor, device uint32
+		only, ok       bool
+	}{
+		{"8086:46a3", 0x8086, 0x46a3, true, true},
+		{"!10de:25a2", 0x10de, 0x25a2, false, true},
+		{"", 0, 0, false, false},
+		{"nvidia", 0, 0, false, false},
+	} {
+		t.Setenv(DeviceEnv, tc.value)
+		vendor, device, only, ok := ParseDeviceEnv()
+		if vendor != tc.vendor || device != tc.device || only != tc.only || ok != tc.ok {
+			t.Errorf("%q: %04x:%04x only %v ok %v", tc.value, vendor, device, only, ok)
+		}
+	}
+	c := NewClientFor("intel_icd.x86_64.json", 0x8086, 0x46a3)
+	if runtime.GOOS == "linux" && len(c.tiers) != 2 {
+		t.Fatalf("%d tiers", len(c.tiers))
 	}
 }
 

@@ -19,7 +19,7 @@
 
 #ifndef HWVK_VIDEO
 
-int hwvk_device_open(hwvk_device **out, char *err, size_t errlen) {
+int hwvk_device_open(hwvk_device **out, uint32_t vendor, uint32_t device, int pick, char *err, size_t errlen) {
 	*out = NULL;
 	snprintf(err, errlen, "built with Vulkan headers older than 1.3.238, without video decoding");
 	return HWVK_UNSUPPORTED;
@@ -125,6 +125,11 @@ struct hwvk_device {
 struct hwvk_session {
 	hwvk_device *d;
 	uint32_t coded_w, coded_h, surfaces, max_refs;
+	// The DPB slots: the references and the picture being decoded need
+	// one each, the pictures waiting to be put out or read none. slot_of
+	// is the slot of each surface, -1 for none.
+	uint32_t slots;
+	int32_t *slot_of;
 	VkVideoSessionKHR session;
 	VkDeviceMemory *session_memory;
 	uint32_t session_memory_count;
@@ -357,7 +362,7 @@ static int command_pool(hwvk_device *d, uint32_t family, VkCommandPool *pool, Vk
 	return HWVK_OK;
 }
 
-int hwvk_device_open(hwvk_device **out, char *err, size_t errlen) {
+int hwvk_device_open(hwvk_device **out, uint32_t vendor, uint32_t device, int pick, char *err, size_t errlen) {
 	*out = NULL;
 	hwvk_device *d = calloc(1, sizeof *d);
 	if (!d) {
@@ -419,7 +424,13 @@ int hwvk_device_open(hwvk_device **out, char *err, size_t errlen) {
 		return HWVK_UNSUPPORTED;
 	}
 	// An integrated GPU first: it is awake already, a discrete one may sleep.
-	snprintf(err, errlen, "no Vulkan device");
+	if (pick == HWVK_PICK_ONLY) {
+		snprintf(err, errlen, "no Vulkan device %04x:%04x", vendor, device);
+	} else if (pick == HWVK_PICK_OTHERS) {
+		snprintf(err, errlen, "no Vulkan device but %04x:%04x", vendor, device);
+	} else {
+		snprintf(err, errlen, "no Vulkan device");
+	}
 	static const VkPhysicalDeviceType order[] = {
 		VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU,
 		VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU,
@@ -431,6 +442,10 @@ int hwvk_device_open(hwvk_device **out, char *err, size_t errlen) {
 		for (uint32_t i = 0; i < count && !d->phys; i++) {
 			VkPhysicalDeviceProperties props;
 			d->vkGetPhysicalDeviceProperties(phys[i], &props);
+			int same = props.vendorID == vendor && props.deviceID == device;
+			if ((pick == HWVK_PICK_ONLY && !same) || (pick == HWVK_PICK_OTHERS && same)) {
+				continue;
+			}
 			if (props.deviceType == order[o] && suitable(d, phys[i], err, errlen)) {
 				d->phys = phys[i];
 			}
@@ -604,6 +619,7 @@ static void session_free(hwvk_session *s) {
 	free(s->session_memory);
 	free(s->views);
 	free(s->layouts);
+	free(s->slot_of);
 	free(s);
 }
 
@@ -644,8 +660,8 @@ static int session_create(hwvk_session *s, uint32_t level, char *err, size_t err
 		snprintf(err, errlen, "%ux%u, out of %ux%u to %ux%u", s->coded_w, s->coded_h, caps->minCodedExtent.width, caps->minCodedExtent.height, caps->maxCodedExtent.width, caps->maxCodedExtent.height);
 		return HWVK_UNSUPPORTED;
 	}
-	if (s->surfaces > caps->maxDpbSlots || s->max_refs > caps->maxActiveReferencePictures) {
-		snprintf(err, errlen, "%u pictures and %u references, of %u and %u", s->surfaces, s->max_refs, caps->maxDpbSlots, caps->maxActiveReferencePictures);
+	if (s->slots > caps->maxDpbSlots || s->max_refs > caps->maxActiveReferencePictures) {
+		snprintf(err, errlen, "%u references, of %u slots and %u references", s->max_refs, caps->maxDpbSlots, caps->maxActiveReferencePictures);
 		return HWVK_UNSUPPORTED;
 	}
 	VkExtent2D extent = {
@@ -718,7 +734,7 @@ static int session_create(hwvk_session *s, uint32_t level, char *err, size_t err
 		.pictureFormat = d->format.format,
 		.maxCodedExtent = extent,
 		.referencePictureFormat = d->format.format,
-		.maxDpbSlots = s->surfaces,
+		.maxDpbSlots = s->slots,
 		.maxActiveReferencePictures = caps->maxActiveReferencePictures < 16 ? caps->maxActiveReferencePictures : 16,
 		.pStdHeaderVersion = &caps->stdHeaderVersion,
 	};
@@ -772,8 +788,8 @@ static int session_create(hwvk_session *s, uint32_t level, char *err, size_t err
 
 int hwvk_session_open(hwvk_device *d, uint32_t width_mbs, uint32_t height_mbs, uint32_t level, uint32_t refs, uint32_t surfaces, hwvk_session **out, char *err, size_t errlen) {
 	*out = NULL;
-	if (surfaces == 0 || surfaces > 64) {
-		snprintf(err, errlen, "%u surfaces", surfaces);
+	if (surfaces == 0 || surfaces > 64 || refs == 0 || refs > 16) {
+		snprintf(err, errlen, "%u surfaces and %u references", surfaces, refs);
 		return HWVK_UNSUPPORTED;
 	}
 	hwvk_session *s = calloc(1, sizeof *s);
@@ -786,15 +802,20 @@ int hwvk_session_open(hwvk_device *d, uint32_t width_mbs, uint32_t height_mbs, u
 	s->coded_h = height_mbs * 16;
 	s->surfaces = surfaces;
 	s->max_refs = refs;
+	s->slots = refs + 1;
 	s->needs_reset = 1;
 	s->views = calloc(surfaces, sizeof *s->views);
 	s->layouts = calloc(surfaces, sizeof *s->layouts);
+	s->slot_of = malloc(surfaces * sizeof *s->slot_of);
+	for (uint32_t i = 0; s->slot_of && i < surfaces; i++) {
+		s->slot_of[i] = -1;
+	}
 	pthread_mutex_lock(&d->mu);
 	int status;
 	if (d->lost) {
 		snprintf(err, errlen, "the device is lost");
 		status = HWVK_LOST;
-	} else if (!s->views || !s->layouts) {
+	} else if (!s->views || !s->layouts || !s->slot_of) {
 		snprintf(err, errlen, "out of memory");
 		status = HWVK_ERROR;
 	} else {
@@ -1024,10 +1045,26 @@ static int decode_locked(hwvk_session *s, const hwvk_pic *p, const uint8_t *data
 	}
 	for (uint32_t i = 0; i < p->nrefs; i++) {
 		int32_t ref = p->refs[i].surface;
-		if (ref < 0 || (uint32_t)ref >= s->surfaces || ref == p->surface || s->layouts[ref] != VK_IMAGE_LAYOUT_VIDEO_DECODE_DPB_KHR) {
+		if (ref < 0 || (uint32_t)ref >= s->surfaces || ref == p->surface || s->layouts[ref] != VK_IMAGE_LAYOUT_VIDEO_DECODE_DPB_KHR || s->slot_of[ref] < 0) {
 			snprintf(err, errlen, "reference in surface %d", ref);
 			return HWVK_ERROR;
 		}
+	}
+	// Every reference of the stream is among the picture's: the slots of
+	// the other surfaces are free, and the picture takes one of them.
+	uint8_t taken[17] = {0};
+	for (uint32_t i = 0; i < p->nrefs; i++) {
+		taken[s->slot_of[p->refs[i].surface]] = 1;
+	}
+	int32_t setup = -1;
+	for (uint32_t i = 0; i < s->slots && setup < 0; i++) {
+		if (!taken[i]) {
+			setup = (int32_t)i;
+		}
+	}
+	if (setup < 0) {
+		snprintf(err, errlen, "no DPB slot left of %u", s->slots);
+		return HWVK_ERROR;
 	}
 	VkDeviceSize range = align_up(size, d->caps.minBitstreamBufferSizeAlignment);
 	int status = bitstream_room(s, range, err, errlen);
@@ -1088,7 +1125,7 @@ static int decode_locked(hwvk_session *s, const hwvk_pic *p, const uint8_t *data
 		refs[i] = (VkVideoReferenceSlotInfoKHR){
 			.sType = VK_STRUCTURE_TYPE_VIDEO_REFERENCE_SLOT_INFO_KHR,
 			.pNext = &ref_slot[i],
-			.slotIndex = surface,
+			.slotIndex = i < n ? s->slot_of[surface] : setup,
 			.pPictureResource = &ref_res[i],
 		};
 		bound[i] = refs[i];
@@ -1153,6 +1190,16 @@ static int decode_locked(hwvk_session *s, const hwvk_pic *p, const uint8_t *data
 	if (status == HWVK_OK) {
 		s->needs_reset = 0;
 		s->layouts[p->surface] = VK_IMAGE_LAYOUT_VIDEO_DECODE_DPB_KHR;
+		for (uint32_t i = 0; i < s->surfaces; i++) {
+			int keep = 0;
+			for (uint32_t j = 0; j < p->nrefs && !keep; j++) {
+				keep = p->refs[j].surface == (int32_t)i;
+			}
+			if (!keep) {
+				s->slot_of[i] = -1;
+			}
+		}
+		s->slot_of[p->surface] = setup;
 	}
 	return status;
 }

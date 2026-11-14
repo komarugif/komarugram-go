@@ -107,6 +107,8 @@ func (s *server) handle(m message) (status uint8, body []byte) {
 		return statusOK, body
 	case errors.Is(err, errNoDevice):
 		return statusNoDevice, []byte(err.Error())
+	case errors.Is(err, errRefused):
+		return statusRefused, []byte(err.Error())
 	case errors.Is(err, ErrUnsupported):
 		return statusUnsupported, []byte(err.Error())
 	}

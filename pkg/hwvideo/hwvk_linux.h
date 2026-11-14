@@ -61,7 +61,15 @@ typedef struct {
 	hwvk_ref refs[16];
 } hwvk_pic;
 
-int hwvk_device_open(hwvk_device **out, char *err, size_t errlen);
+// Which devices hwvk_device_open looks at: any, the one of the ids, or
+// every one but it.
+enum {
+	HWVK_PICK_ANY = 0,
+	HWVK_PICK_ONLY = 1,
+	HWVK_PICK_OTHERS = 2,
+};
+
+int hwvk_device_open(hwvk_device **out, uint32_t vendor, uint32_t device, int pick, char *err, size_t errlen);
 void hwvk_device_close(hwvk_device *d);
 
 int hwvk_session_open(hwvk_device *d, uint32_t width_mbs, uint32_t height_mbs, uint32_t level, uint32_t refs, uint32_t surfaces, hwvk_session **out, char *err, size_t errlen);

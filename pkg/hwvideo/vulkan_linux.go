@@ -47,7 +47,15 @@ type vkDevice struct {
 func newDevice() (device, error) {
 	var d *C.hwvk_device
 	var msg [512]C.char
-	if err := vkError("Vulkan", C.hwvk_device_open(&d, &msg[0], C.size_t(len(msg))), msg[:]); err != nil {
+	pick := C.int(C.HWVK_PICK_ANY)
+	vendor, device, only, ok := ParseDeviceEnv()
+	switch {
+	case ok && only:
+		pick = C.HWVK_PICK_ONLY
+	case ok:
+		pick = C.HWVK_PICK_OTHERS
+	}
+	if err := vkError("Vulkan", C.hwvk_device_open(&d, C.uint32_t(vendor), C.uint32_t(device), pick, &msg[0], C.size_t(len(msg))), msg[:]); err != nil {
 		return nil, err
 	}
 	return &vkDevice{d: d}, nil
