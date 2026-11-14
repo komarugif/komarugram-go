@@ -605,7 +605,9 @@ size-stability fixes remain in place.
   sidebar, chat list (including the compact folder bar) and chat header let
   the desktop show through at `preferences.Global.WindowTransparency`. The
   compositor supplies blur through the same effects as the media viewer's
-  window: `appwindow.Options.Transparent` / `BlurBehind`, and
+  window, which follows the same settings (blur, the window's own blur and
+  frame; `windowEffects`, `WindowEffectOptions`) and not a blur of its own:
+  `appwindow.Options.Transparent` / `BlurBehind`, and
   `Window.SetEffects` to change them; do not pass `app.Transparent` or
   `app.BlurBehind` to a window yourself. `fillWindowSurface` changes only the fill alpha; text, avatars and
   history stay opaque. Other backends retain opaque surfaces. Never paint an
@@ -614,7 +616,14 @@ size-stability fixes remain in place.
   slider is in Appearance → Transparency and blur; zero disables compositor
   blur and keeps the window opaque. `WindowBlur`, a separate checkbox in the
   same card, can turn compositor blur off without changing transparency; it
-  does not depend on animation settings. `TestWindowSurfacePixels` checks actual
+  does not depend on animation settings. The media viewer's window has a
+  checkbox of its own, `ViewerBlur`, on by default and not tied to the main
+  window's blur or transparency (`viewerWindowBlur`; its backdrop has its
+  own alphas). The viewer's window draws a frame only for an event or an
+  animation, so it subscribes to the settings and asks for a redraw
+  (`Window.Invalidate`, safe from any goroutine) when they change anywhere;
+  its state is still changed by its own goroutine, in `Update`.
+  `TestWindowSurfacePixels` checks actual
   frame alpha, with `WINDOW_SURFACES_PNG_DIR` saving the frames.
 - **The window's own blur** (`internal/wallpaper`, `internal/appwindow/backdrop.go`):
   the window can blur the desktop by itself, without the compositor. It
@@ -640,11 +649,14 @@ size-stability fixes remain in place.
   `CompositorBlurs` whether the compositor could; `App.updateWindowEffects`
   picks: the window's own where the compositor has none (X11), the
   compositor's otherwise unless `preferences.Global.WindowBlurOwn`, which
-  the two radio buttons under the checkbox set, shown where both can. Where
+  the two radio buttons at the end of the card set for the main window and
+  the viewer's alike, shown where both can, and never locked. Where
   the wallpaper comes from and how its change and the window's moves are
   noticed is the system's (`wallpaper_*.go`): on Windows the file
   `SystemParametersInfo` names, placed on each monitor as
-  `Control Panel\Desktop` tells, a change of that key, and the window's
+  `Control Panel\Desktop` tells, a change of that key and of the file's
+  folder (Windows 7's themes write the file in place, with the key left
+  as it is; `TestWatcherSeesTheFileWrittenInPlace`), and the window's
   place asked at every frame (Gio draws one at every move); on X11 the
   pixmap of the root window (`_XROOTPMAP_ID`), its `PropertyNotify`, and
   the window's `ConfigureNotify`, on a connection of the watcher's own; on

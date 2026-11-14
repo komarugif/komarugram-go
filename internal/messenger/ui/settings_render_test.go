@@ -81,6 +81,9 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	windowBlur := true
 	p.windowBlur = func() bool { return windowBlur }
 	p.setWindowBlur = func(on bool) { windowBlur = on }
+	viewerBlur := true
+	p.viewerBlur = func() bool { return viewerBlur }
+	p.setViewerBlur = func(on bool) { viewerBlur = on }
 	windowTransparency := 40
 	p.windowTransparency = func() int { return windowTransparency }
 	p.setWindowTransparency = func(value int) { windowTransparency = value }

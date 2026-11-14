@@ -240,9 +240,14 @@ type settingsPage struct {
 	windowBlur         func() bool
 	setWindowBlur      func(bool)
 	windowBlurCheckbox *checkbox.Checkboxes[string]
-	// windowBlurOwn is whether the window blurs the desktop by itself, not
-	// the compositor, and windowBlurChoice whether both can, which offers
-	// the choice.
+	// viewerBlur is the blur behind the media viewer's window, a box of its
+	// own.
+	viewerBlur         func() bool
+	setViewerBlur      func(bool)
+	viewerBlurCheckbox *checkbox.Checkboxes[string]
+	// windowBlurOwn is whether the windows blur the desktop by themselves,
+	// not the compositor, and windowBlurChoice whether both can, which
+	// offers the choice, for the main window and the viewer's alike.
 	windowBlurOwn    func() bool
 	setWindowBlurOwn func(bool)
 	// windowOwnFrame is whether the window draws its own frame, and
@@ -495,6 +500,11 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			p.setWindowBlur(slices.Contains(values, "window"))
 		}
 	})
+	p.viewerBlurCheckbox = checkbox.NewCheckboxes([]string{"viewer"}, nil, func(values []string) {
+		if p.setViewerBlur != nil {
+			p.setViewerBlur(slices.Contains(values, "viewer"))
+		}
+	})
 	p.windowOwnFrameCheckbox = checkbox.NewCheckboxes([]string{"frame"}, nil, func(values []string) {
 		if p.setWindowOwnFrame != nil {
 			p.setWindowOwnFrame(slices.Contains(values, "frame"))
@@ -658,6 +668,21 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		}
 		p.windowBlurCheckbox.Update(gtx)
 	}
+	if p.viewerBlur != nil {
+		var want []string
+		if p.viewerBlur() {
+			want = []string{"viewer"}
+		}
+		if !slices.Equal(p.viewerBlurCheckbox.GetValues(), want) {
+			p.viewerBlurCheckbox.SetValues(want)
+		}
+		if p.windowTransparencyAvailable != nil && !p.windowTransparencyAvailable() {
+			p.viewerBlurCheckbox.Disable()
+		} else {
+			p.viewerBlurCheckbox.Enable()
+		}
+		p.viewerBlurCheckbox.Update(gtx)
+	}
 	if p.windowOwnFrame != nil {
 		// A window the compositor blurs behind has its own frame, and the
 		// box shows it, checked and not to be changed; what the user chose
@@ -679,11 +704,7 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 	}
 	if p.windowBlurOwn != nil {
 		p.windowBlurBy.SetValue(p.windowBlurOwn())
-		if p.windowBlur != nil && !p.windowBlur() {
-			p.windowBlurBy.Disable()
-		} else {
-			p.windowBlurBy.Enable()
-		}
+		p.windowBlurBy.Enable()
 		p.windowBlurBy.Update(gtx)
 	}
 	if p.windowTransparency != nil {
@@ -1459,21 +1480,25 @@ func (p *settingsPage) layoutOverlays(gtx layout.Context, l localization.Catalog
 			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return p.windowBlurCheckbox.Layout(gtx, map[string]string{"window": l.T("settings.window_blur")})
 			}))
-			if p.windowBlurOwn != nil && p.windowBlurChoice != nil && p.windowBlurChoice() {
-				// Who blurs, under the checkbox it belongs to.
-				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return layout.Inset{Left: 32}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return p.windowBlurBy.Layout(gtx, radio.LeadingKind, map[bool]string{
-							false: l.T("settings.window_blur_compositor"),
-							true:  l.T("settings.window_blur_own"),
-						})
-					})
-				}))
-			}
+		}
+		if p.viewerBlur != nil {
+			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return p.viewerBlurCheckbox.Layout(gtx, map[string]string{"viewer": l.T("settings.viewer_blur")})
+			}))
 		}
 		if p.windowOwnFrame != nil && (p.windowOwnFrameSupported == nil || p.windowOwnFrameSupported()) {
 			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return p.windowOwnFrameCheckbox.Layout(gtx, map[string]string{"frame": l.T("settings.window_own_frame")})
+			}))
+		}
+		if p.windowBlurOwn != nil && p.windowBlurChoice != nil && p.windowBlurChoice() {
+			// Who blurs, for the main window and the viewer's alike: at
+			// the end of the card, under neither box.
+			children = append(children, vspace(8), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return p.windowBlurBy.Layout(gtx, radio.LeadingKind, map[bool]string{
+					false: l.T("settings.window_blur_compositor"),
+					true:  l.T("settings.window_blur_own"),
+				})
 			}))
 		}
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)

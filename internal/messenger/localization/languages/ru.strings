@@ -1961,6 +1961,7 @@
 "settings.visibility" = "Видимость";
 "settings.visibility_hint" = "Призрак, фильтры и удалённые сообщения";
 "settings.window_blur" = "Размытие под основным окном";
+"settings.viewer_blur" = "Размытие под окном просмотрщика";
 "settings.window_blur_compositor" = "Размытие через композитор";
 "settings.window_blur_own" = "Размытие собственными силами";
 "settings.window_own_frame" = "Собственный заголовок окна";

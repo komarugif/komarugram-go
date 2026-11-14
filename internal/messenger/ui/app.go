@@ -57,7 +57,7 @@ type App struct {
 	currentAccount func() string
 	store          model.Store
 
-	windowEffectsSet, windowBlurWanted, windowTransparentWanted bool
+	windowFx windowEffects
 
 	preferences *preferences.Store
 	// softwareChecked is set once the window was found drawn by a software
@@ -527,6 +527,12 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	a.settings.windowBlur = func() bool { return a.preferences.Global().WindowBlur }
 	a.settings.setWindowBlur = func(on bool) {
 		if err := services.Preferences.SetWindowBlur(on); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.viewerBlur = func() bool { return a.preferences.Global().ViewerBlur }
+	a.settings.setViewerBlur = func(on bool) {
+		if err := services.Preferences.SetViewerBlur(on); err != nil {
 			log.Printf("save settings: %v", err)
 		}
 	}

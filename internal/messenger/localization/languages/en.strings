@@ -1871,6 +1871,7 @@
 "settings.visibility" = "Visibility";
 "settings.visibility_hint" = "Ghost mode, filters and deleted messages";
 "settings.window_blur" = "Blur behind the main window";
+"settings.viewer_blur" = "Blur behind the media viewer window";
 "settings.window_blur_compositor" = "Blur by the compositor";
 "settings.window_blur_own" = "Blur by the app itself";
 "settings.window_own_frame" = "Window title bar drawn by the app";
