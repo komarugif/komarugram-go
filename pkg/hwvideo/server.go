@@ -4,6 +4,7 @@ package hwvideo
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -11,7 +12,11 @@ import (
 	"io"
 	"os"
 	"runtime/debug"
+	"runtime/pprof"
+	"runtime/trace"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"komarugram/pkg/resample"
 )
@@ -44,6 +49,8 @@ type server struct {
 	device    device
 	deviceErr error
 	streams   map[uint32]*stream
+	// quit is closed once the requests end: a profile recording stops.
+	quit chan struct{}
 }
 
 // Serve is the helper: it decodes the streams asked for on r and answers
@@ -53,10 +60,11 @@ func Serve(r io.Reader, w io.Writer) error {
 }
 
 func serve(r io.Reader, w io.Writer, newDevice func() (device, error)) error {
-	s := &server{newDevice: newDevice, out: bufio.NewWriterSize(w, 1<<16), streams: map[uint32]*stream{}}
+	s := &server{newDevice: newDevice, out: bufio.NewWriterSize(w, 1<<16), streams: map[uint32]*stream{}, quit: make(chan struct{})}
 	in := bufio.NewReaderSize(r, 1<<16)
 	var wg sync.WaitGroup
 	defer func() {
+		close(s.quit)
 		wg.Wait()
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -119,8 +127,11 @@ func (s *server) handle(m message) (status uint8, body []byte) {
 var errNoDevice = errors.New("hwvideo: no hardware decoder")
 
 func (s *server) do(m message) ([]byte, error) {
-	if m.kind == opOpen {
+	switch m.kind {
+	case opOpen:
 		return s.open(m)
+	case opProfile:
+		return profile(m.body, s.quit)
 	}
 	s.mu.Lock()
 	st := s.streams[m.stream]
@@ -210,4 +221,61 @@ func (s *server) open(m message) ([]byte, error) {
 	size := decoder.Size()
 	out := binary.LittleEndian.AppendUint32(nil, uint32(size.X))
 	return binary.LittleEndian.AppendUint32(out, uint32(size.Y)), nil
+}
+
+// maxProfile bounds how long a profile of the helper records.
+const maxProfile = time.Minute
+
+// profiling is set while a CPU profile or a trace records: one at a time.
+var profiling atomic.Bool
+
+// profile records the profile a request of opProfile asks for, stopped
+// early once quit is closed.
+func profile(body []byte, quit <-chan struct{}) ([]byte, error) {
+	if len(body) < 4 {
+		return nil, malformed("profile request of %d bytes", len(body))
+	}
+	d := min(time.Duration(binary.LittleEndian.Uint32(body))*time.Millisecond, maxProfile)
+	kind := string(body[4:])
+	var buf bytes.Buffer
+	switch kind {
+	case "cpu", "trace":
+		if !profiling.CompareAndSwap(false, true) {
+			return nil, fmt.Errorf("hwvideo: a profile is recording")
+		}
+		defer profiling.Store(false)
+		if kind == "cpu" {
+			if err := pprof.StartCPUProfile(&buf); err != nil {
+				return nil, err
+			}
+			wait(d, quit)
+			pprof.StopCPUProfile()
+		} else {
+			if err := trace.Start(&buf); err != nil {
+				return nil, err
+			}
+			wait(d, quit)
+			trace.Stop()
+		}
+	case "heap", "allocs", "goroutine":
+		if err := pprof.Lookup(kind).WriteTo(&buf, 0); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, malformed("profile %q", kind)
+	}
+	if buf.Len() > maxResponse {
+		return nil, fmt.Errorf("hwvideo: a profile of %d bytes", buf.Len())
+	}
+	return buf.Bytes(), nil
+}
+
+// wait waits for d, or until quit is closed.
+func wait(d time.Duration, quit <-chan struct{}) {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+	case <-quit:
+	}
 }

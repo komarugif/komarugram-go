@@ -176,12 +176,11 @@ func (p *profiler) capture(kind string) {
 		defer crash.Recover("profile capture", func(e *crash.Panic) {
 			p.tell(p.l.Format("profiler.capture_failed", map[string]string{"error": e.Error()}))
 		})
-		path, err := p.recorder.Capture(p.directory, kind)
+		paths, err := p.recorder.Capture(p.directory, kind)
 		if err != nil {
-			p.tell(p.l.Format("profiler.capture_failed", map[string]string{"error": err.Error()}))
-			return
+			paths = append(paths, p.l.Format("profiler.capture_failed", map[string]string{"error": err.Error()}))
 		}
-		p.tell(path)
+		p.tell(strings.Join(paths, "\n"))
 	}()
 }
 

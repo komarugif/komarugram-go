@@ -3,12 +3,14 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"gioui.org/app"
 	"gioui.org/gpu"
@@ -17,6 +19,7 @@ import (
 	"gio-mw/token"
 	"gio-mw/widget/radio"
 	"komarugram/internal/crash"
+	"komarugram/internal/diagnostics"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/preferences"
 	"komarugram/pkg/hwvideo"
@@ -367,6 +370,22 @@ func (v *graphicsView) Layout(gtx layout.Context, l localization.Catalog, height
 // hardwareVideo is the client of the helper that decodes on the graphics
 // card, of the process: made when the setting first asks for it.
 var hardwareVideo atomic.Pointer[hwvideo.Client]
+
+func init() {
+	// The profiler records the helpers that decode on the graphics card
+	// with the process: their CPU goes there, not here.
+	diagnostics.SetChildProfiler("hwvideo", func(ctx context.Context, kind string, d time.Duration) []diagnostics.ChildProfile {
+		c := hardwareVideo.Load()
+		if c == nil {
+			return nil
+		}
+		var out []diagnostics.ChildProfile
+		for _, p := range c.Profile(ctx, kind, d) {
+			out = append(out, diagnostics.ChildProfile{Name: p.Name, PID: p.PID, Data: p.Data, Err: p.Err})
+		}
+		return out
+	})
+}
 
 // hardwareVideoFor is the client that decodes the saved GIFs on the
 // graphics card, nil where the setting is off or the system has no

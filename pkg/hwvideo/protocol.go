@@ -32,6 +32,11 @@ const (
 	opFlush
 	// opClose ends a stream.
 	opClose
+	// opProfile records a profile of the helper itself, for the client's
+	// profiler: how long, in milliseconds in 4 bytes, then its kind (cpu,
+	// trace, heap, allocs, goroutine). No stream. The answer is the
+	// profile as runtime/pprof or runtime/trace writes it.
+	opProfile
 )
 
 // Statuses.

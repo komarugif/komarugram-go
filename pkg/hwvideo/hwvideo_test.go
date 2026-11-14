@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"komarugram/pkg/mp4"
 	"komarugram/pkg/program"
@@ -386,6 +387,41 @@ func TestTiersFallBack(t *testing.T) {
 			t.Fatal("the second GPU was woken for a stream no GPU decodes")
 		}
 	})
+}
+
+// TestProfileOfHelpers records profiles in the running helpers alone,
+// while they decode, and stops waiting for one when told to.
+func TestProfileOfHelpers(t *testing.T) {
+	file := testFile(t)
+	c := testClient(t, "fake", "fake")
+	if got := c.Profile(context.Background(), "goroutine", 0); len(got) != 0 {
+		t.Fatalf("%d profiles of helpers not started", len(got))
+	}
+	v, err := c.Open(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Close(context.Background())
+	for _, kind := range []string{"cpu", "heap", "goroutine"} {
+		got := c.Profile(context.Background(), kind, 200*time.Millisecond)
+		if len(got) != 1 || got[0].Err != nil || got[0].PID == 0 || got[0].Name != "" && len(got[0].Data) == 0 {
+			t.Fatalf("%s: %+v", kind, got)
+		}
+		// A profile of pprof is gzip.
+		if len(got[0].Data) < 2 || got[0].Data[0] != 0x1f || got[0].Data[1] != 0x8b {
+			t.Fatalf("%s: not a pprof profile", kind)
+		}
+	}
+	if _, err := v.Next(context.Background()); err != nil {
+		t.Fatalf("the stream after the profiles: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	got := c.Profile(ctx, "cpu", 10*time.Second)
+	if len(got) != 1 || !errors.Is(got[0].Err, context.DeadlineExceeded) || time.Since(start) > 5*time.Second {
+		t.Fatalf("a profile not stopped: %+v after %v", got, time.Since(start))
+	}
 }
 
 // TestDeviceEnv reads what the client tells the helpers.

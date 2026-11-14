@@ -53,11 +53,11 @@ func TestRecorderAndRPC(t *testing.T) {
 	if row.Error != "RPC 420 FLOOD_WAIT 10" || row.ResponseBytes != -1 {
 		t.Fatal(row)
 	}
-	path, err := r.Capture(t.TempDir(), "snapshot")
+	paths, err := r.Capture(t.TempDir(), "snapshot")
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(paths[0])
 	if err != nil {
 		t.Fatal(err)
 	}

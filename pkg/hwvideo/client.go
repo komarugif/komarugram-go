@@ -50,6 +50,8 @@ type Client struct {
 
 // tier is a helper the client starts, and the streams open in it.
 type tier struct {
+	// name tells the helper's profiles apart.
+	name string
 	// command makes the command that starts the helper.
 	command func() *exec.Cmd
 	helper  *helper
@@ -66,7 +68,7 @@ func NewClient(command func() *exec.Cmd) *Client {
 	if command == nil {
 		command = selfCommand
 	}
-	return &Client{tiers: []*tier{{command: command}}}
+	return &Client{tiers: []*tier{{name: "video-decoder", command: command}}}
 }
 
 // Opened is how many videos the helper has opened so far.
@@ -108,7 +110,10 @@ func NewClientFor(driver string, vendor, device uint32) *Client {
 		cmd.Env = append(os.Environ(), DeviceEnv+"=!"+ids)
 		return cmd
 	}
-	return &Client{tiers: []*tier{{command: own}, {command: others}}}
+	return &Client{tiers: []*tier{
+		{name: "video-decoder-window-gpu", command: own},
+		{name: "video-decoder-other-gpus", command: others},
+	}}
 }
 
 // ParseDeviceEnv reads DeviceEnv: the ids of a GPU, and whether it is the
@@ -274,6 +279,12 @@ func (h *helper) stop() {
 
 // call asks the helper for kind of stream and waits for its answer.
 func (h *helper) call(kind uint8, stream uint32, body []byte) ([]byte, error) {
+	return h.callContext(context.Background(), kind, stream, body)
+}
+
+// callContext is call that stops waiting when ctx is done: the answer,
+// when it comes, is dropped.
+func (h *helper) callContext(ctx context.Context, kind uint8, stream uint32, body []byte) ([]byte, error) {
 	answer := make(chan message, 1)
 	h.mu.Lock()
 	if h.err != nil {
@@ -293,7 +304,16 @@ func (h *helper) call(kind uint8, stream uint32, body []byte) ([]byte, error) {
 		h.mu.Unlock()
 		return nil, fmt.Errorf("%w: %v", ErrHelper, err)
 	}
-	m, ok := <-answer
+	var m message
+	var ok bool
+	select {
+	case m, ok = <-answer:
+	case <-ctx.Done():
+		h.mu.Lock()
+		delete(h.calls, id)
+		h.mu.Unlock()
+		return nil, ctx.Err()
+	}
 	if !ok {
 		h.mu.Lock()
 		defer h.mu.Unlock()
@@ -476,6 +496,45 @@ func (c *Client) Close() {
 			t.helper = nil
 		}
 	}
+}
+
+// Profile is a profile of a helper (Client.Profile).
+type Profile struct {
+	// Name tells the helper: its GPUs.
+	Name string
+	PID  int
+	Data []byte
+	Err  error
+}
+
+// Profile records kind (cpu, trace, heap, allocs, goroutine) in every
+// helper that runs, for d where it lasts, at once, and returns once they
+// are done or ctx is. A helper that does not run is not started: there is
+// nothing of it to see.
+func (c *Client) Profile(ctx context.Context, kind string, d time.Duration) []Profile {
+	type running struct {
+		name string
+		h    *helper
+	}
+	var helpers []running
+	c.mu.Lock()
+	for _, t := range c.tiers {
+		if t.helper != nil {
+			helpers = append(helpers, running{t.name, t.helper})
+		}
+	}
+	c.mu.Unlock()
+	out := make([]Profile, len(helpers))
+	var wg sync.WaitGroup
+	for i, r := range helpers {
+		wg.Go(func() {
+			body := binary.LittleEndian.AppendUint32(nil, uint32(min(d, maxProfile)/time.Millisecond))
+			data, err := r.h.callContext(ctx, opProfile, 0, append(body, kind...))
+			out[i] = Profile{Name: r.name, PID: r.h.cmd.Process.Pid, Data: data, Err: err}
+		})
+	}
+	wg.Wait()
+	return out
 }
 
 // Size is the size the container gives the pictures.
