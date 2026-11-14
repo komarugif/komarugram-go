@@ -28,9 +28,38 @@ import (
 // own frame, or of one where they do not.
 func ownFrames(t *testing.T, own bool) {
 	t.Helper()
-	was := ownFrame
-	ownFrame = own
-	t.Cleanup(func() { ownFrame = was })
+	was, offered := ownFrame, ownFrameOffered
+	ownFrame, ownFrameOffered = own, own
+	t.Cleanup(func() { ownFrame, ownFrameOffered = was, offered })
+}
+
+// TestOwnFrameIsTheUsersChoice checks the frame a window is asked to draw
+// itself: it has none of the system's, with the blur and without it, and
+// has the system's again once it is not asked; where the system does not
+// let a window frame itself, the choice changes nothing.
+func TestOwnFrameIsTheUsersChoice(t *testing.T) {
+	ownFrames(t, true)
+	for _, blur := range []bool{false, true} {
+		if cnf := configOf(effectOptions(blur, blur, true)); cnf.Decorated {
+			t.Errorf("blur %v: a window asked to frame itself has the system's frame", blur)
+		}
+	}
+	if cnf := configOf(effectOptions(false, false, false)); !cnf.Decorated {
+		t.Error("a window not asked to frame itself, without blur, has no frame of the system's")
+	}
+	w := &Window{}
+	w.SetEffects(true, true)
+	if !w.OwnFrameForced() {
+		t.Error("a window that blurs is not held to its own frame")
+	}
+	w.SetEffects(true, false)
+	if w.OwnFrameForced() {
+		t.Error("a window that does not blur is held to its own frame")
+	}
+	ownFrames(t, false)
+	if cnf := configOf(effectOptions(false, false, true)); !cnf.Decorated {
+		t.Error("a window asked to frame itself where it cannot has no frame of the system's")
+	}
 }
 
 // configOf is the configuration the options make of a decorated window.
@@ -53,14 +82,14 @@ func TestBlurTakesTheSystemFrameWhereWindowsOwnTheirs(t *testing.T) {
 		{false, true, true},
 		{true, true, false},
 	} {
-		cnf := configOf(effectOptions(c.transparent, c.blur))
+		cnf := configOf(effectOptions(c.transparent, c.blur, false))
 		if cnf.Transparent != c.transparent || cnf.BlurBehind != c.blur || cnf.Decorated != c.decorated {
 			t.Errorf("transparent %v, blur %v: asked for transparent %v, blur %v, the system's frame %v", c.transparent, c.blur, cnf.Transparent, cnf.BlurBehind, cnf.Decorated)
 		}
 	}
 	// Elsewhere the frame is not the window's to take off.
 	ownFrames(t, false)
-	if cnf := configOf(effectOptions(true, true)); !cnf.Decorated || !cnf.BlurBehind {
+	if cnf := configOf(effectOptions(true, true, false)); !cnf.Decorated || !cnf.BlurBehind {
 		t.Errorf("on a system that frames blurred windows: the system's frame %v, blur %v", cnf.Decorated, cnf.BlurBehind)
 	}
 }

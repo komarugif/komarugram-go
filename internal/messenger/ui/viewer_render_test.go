@@ -78,6 +78,11 @@ func TestRenderMediaViewer(t *testing.T) {
 		v.editSink = box.edit
 	}
 	v.popout = func(int64, model.Message, mediaList) {}
+	// VIEWER_BLUR: the plates of the caption and of a video's controls blur
+	// what is under them, as with the toasts' blur on.
+	if os.Getenv("VIEWER_BLUR") != "" {
+		v.overlays = func() overlayPrefs { return overlayPrefs{toasts: true} }
+	}
 	v.share.chats = store.Chats
 	if boxItems != nil {
 		v.popout = nil

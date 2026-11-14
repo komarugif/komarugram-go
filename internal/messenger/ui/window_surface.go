@@ -36,14 +36,22 @@ func fillWindowSurface(gtx layout.Context, fill token.MatColor, size image.Point
 // Keep transparency available for live changes to the slider, but request
 // compositor blur only when enabled and some desktop can show through. Other backends
 // ignore these options and report opaque windows through Translucency.
+//
+// A window that blurs by itself is opaque to the system, and draws the
+// blurred wallpaper under its surfaces (layoutWindow): where the compositor
+// has no blur, or where the user chose so.
 func (a *App) updateWindowEffects() {
 	prefs := a.preferences.Global()
-	want := prefs.WindowBlur && prefs.WindowTransparency > 0
-	transparent := appwindow.WantsTransparent(prefs.WindowTransparency > 0)
-	if a.windowEffectsSet && a.windowBlurWanted == want && a.windowTransparentWanted == transparent {
+	blur := prefs.WindowBlur && prefs.WindowTransparency > 0
+	own := blur && a.window.OwnBlurSupported() && (prefs.WindowBlurOwn || !a.window.CompositorBlurs())
+	want := blur && !own
+	transparent := !own && appwindow.WantsTransparent(prefs.WindowTransparency > 0)
+	a.window.SetOwnFrame(prefs.WindowOwnFrame)
+	if a.windowEffectsSet && a.windowBlurWanted == want && a.windowTransparentWanted == transparent && a.window.OwnBlur() == own {
 		return
 	}
 	a.windowEffectsSet, a.windowBlurWanted, a.windowTransparentWanted = true, want, transparent
+	a.window.SetOwnBlur(own)
 	a.window.SetEffects(transparent, want)
 }
 
@@ -52,7 +60,7 @@ func (a *App) updateWindowEffects() {
 func (a *App) FrameFill(gtx layout.Context) (fill, on color.NRGBA) {
 	sc := scheme(gtx)
 	surface := sc.SurfaceContainer
-	if transparent, _ := a.window.Translucency(); transparent {
+	if transparent, _ := a.window.Translucency(); transparent || a.window.DesktopDrawn() {
 		surface = surface.SetOpacity(token.OpacityLevel(1 - float32(a.preferences.Global().WindowTransparency)/100))
 	}
 	return surface.AsNRGBA(), sc.Surface.OnColor.AsNRGBA()

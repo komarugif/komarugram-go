@@ -103,9 +103,19 @@ type Global struct {
 	// WindowTransparency lets the desktop show through the main window
 	// surfaces on Wayland and Windows, in percent. Text and media stay opaque.
 	WindowTransparency int `json:"window_transparency,omitempty"`
-	// WindowBlur asks the compositor, of Wayland or Windows, to blur behind translucent
-	// main window surfaces; transparency can also be used on its own.
+	// WindowBlur blurs what is behind the translucent main window surfaces:
+	// the compositor does, of Wayland or Windows, or the window itself (see
+	// WindowBlurOwn); transparency can also be used on its own.
 	WindowBlur bool `json:"window_blur"`
+	// WindowBlurOwn has the window blur the desktop by itself, drawing the
+	// blurred wallpaper behind its surfaces, where the compositor could
+	// blur too. Where it cannot (X11), the window does so whatever this is.
+	WindowBlurOwn bool `json:"window_blur_own,omitempty"`
+	// WindowOwnFrame has the windows draw their own frame, a caption with
+	// the title and the window's buttons, in place of the system's, where
+	// they can (Windows, Haiku). A window the compositor of Windows 10 or
+	// 11 blurs behind has it whatever this is.
+	WindowOwnFrame bool `json:"window_own_frame,omitempty"`
 	// Player is the external player videos open in; empty until the user
 	// chooses one, which is asked only when more than one is installed.
 	Player player.Kind `json:"player,omitempty"`
@@ -1288,6 +1298,17 @@ func (s *Store) SetOverlays(o Overlays) error {
 // SetWindowBlur changes the compositor blur independently of transparency.
 func (s *Store) SetWindowBlur(on bool) error {
 	return s.change(func(g *Global) { g.WindowBlur = on })
+}
+
+// SetWindowBlurOwn chooses who blurs behind the main window where both can:
+// the window itself, or the compositor.
+func (s *Store) SetWindowBlurOwn(own bool) error {
+	return s.change(func(g *Global) { g.WindowBlurOwn = own })
+}
+
+// SetWindowOwnFrame chooses the window's own frame over the system's.
+func (s *Store) SetWindowOwnFrame(own bool) error {
+	return s.change(func(g *Global) { g.WindowOwnFrame = own })
 }
 
 // SetWindowTransparency changes the window surfaces independently

@@ -593,7 +593,13 @@ size-stability fixes remain in place.
   fill over it at the chosen opacity. An overlay whose owner gives none is
   opaque. A toast is never less than 80% opaque (`toastMinOpacity`): its
   light text is only readable on its dark plate. A new overlay: take `p.menuBackdrop()` / `p.toastBackdrop()` (or the
-  list's), fill with `overlayFill`. Not covered: forms, dialogs' toasts, the media viewer,
+  list's), fill with `overlayFill`. The media viewer's plates over the
+  picture, of the caption and of a video's controls, blur what is under
+  them with the toasts' switch (`mediaViewer.plateFill`: the picture is
+  recorded as it is drawn, and drawn again blurred under the plate's dark
+  fill, which stays as it is for its white text; `VIEWER_BLUR` in the
+  viewer's render test). Not covered: forms, dialogs' toasts, the viewer's
+  own toast and bar, the viewer of an article's window,
   and the toast of the search results.
 - **Main window surfaces** (`window_surface.go`): on Wayland and Windows the
   sidebar, chat list (including the compact folder bar) and chat header let
@@ -610,6 +616,64 @@ size-stability fixes remain in place.
   same card, can turn compositor blur off without changing transparency; it
   does not depend on animation settings. `TestWindowSurfacePixels` checks actual
   frame alpha, with `WINDOW_SURFACES_PNG_DIR` saving the frames.
+- **The window's own blur** (`internal/wallpaper`, `internal/appwindow/backdrop.go`):
+  the window can blur the desktop by itself, without the compositor. It
+  reads the wallpaper, makes a picture of each screen several times smaller
+  and blurred once on the CPU (`wallpaper.Render`: 320 px on the longer
+  side, three passes of a box), and draws the part of it the window is over
+  under its surfaces (`Window.LayoutDesktop`, called first in
+  `App.layoutWindow`), stretched by the GPU. The window is then opaque to
+  the system, with the system's frame, and the surfaces are filled as those
+  of a transparent window are. The picture stays where it is on the screen
+  while the window moves, so it looks as the compositor's blur does while
+  only the wallpaper is behind the window; other windows behind it do not
+  show. The picture is not drawn as it is blurred: `wallpaper.Acrylic`
+  makes of it, for the color of the surfaces and how much they show, the
+  one under which they look as over the acrylic of Windows, which lifts
+  dark colors toward a gray, and whose compositor adds what shows through
+  to the window's pixel as bytes, where Gio mixes in linear light. Its
+  numbers are measured on Windows 10: a window drawn both ways at the same
+  places differs by a level of 255 on average at 35% and 70%, light and
+  dark, and by 4 to 9 at a point, where the blurs differ in shape; the
+  noise of acrylic is not drawn. The picture is made anew when the
+  theme or the transparency changes (320 px, under a millisecond). `Window.OwnBlurSupported` tells whether it can be done,
+  `CompositorBlurs` whether the compositor could; `App.updateWindowEffects`
+  picks: the window's own where the compositor has none (X11), the
+  compositor's otherwise unless `preferences.Global.WindowBlurOwn`, which
+  the two radio buttons under the checkbox set, shown where both can. Where
+  the wallpaper comes from and how its change and the window's moves are
+  noticed is the system's (`wallpaper_*.go`): on Windows the file
+  `SystemParametersInfo` names, placed on each monitor as
+  `Control Panel\Desktop` tells, a change of that key, and the window's
+  place asked at every frame (Gio draws one at every move); on X11 the
+  pixmap of the root window (`_XROOTPMAP_ID`), its `PropertyNotify`, and
+  the window's `ConfigureNotify`, on a connection of the watcher's own; on
+  Haiku Gio's driver tells both in events (`app.HaikuPlaceEvent`,
+  `app.HaikuDesktopEvent`: Tracker's wallpaper of the current workspace),
+  which the window gives its watcher (`Window.desktopEvent`), and the
+  picture is read only once the desktop is drawn. A
+  desktop that keeps no such pixmap (Plasma) has nothing to draw, and
+  Wayland tells a window nothing of its place: there the compositor's blur
+  is all there is. macOS is not done. A wallpaper per monitor
+  (Windows 8 and later) is not read: every monitor gets the one
+  `SystemParametersInfo` names. `TestDesktopStaysInPlaceUnderAMovingWindow`
+  checks the drawing under a window that moves.
+- **The window's own frame by choice**: `preferences.Global.WindowOwnFrame`,
+  the last checkbox of the Transparency and blur card, has the main window
+  draw the frame below in place of the system's (`Window.SetOwnFrame`,
+  `appwindow.OwnFrameSupported`: Windows and Haiku; the box is not shown
+  elsewhere). A window the compositor of Windows 10 or 11 blurs behind has
+  it anyway (`Window.OwnFrameForced`): the box is then checked and
+  disabled, and shows what the user chose again once that blur is off. With
+  the window's own blur the blurred desktop is under the caption too: the
+  window draws it before its frame (`layoutBackdrop`), for the look the
+  content asked for in the frame before (`LayoutDesktop`). On Haiku the
+  window has no frame of the system's then (`B_NO_BORDER_WINDOW_LOOK`), and
+  Gio's driver moves it by the caption, zooms it by a double click there and
+  resizes it by its right and bottom edges. The window stays where it is
+  seen when the frame changes: its content takes the place of the system's
+  tab and border, and gives it back (checked on Haiku: a window at 5,29 to
+  1018,741 is at 0,0 to 1023,746 with its own frame, and back).
 - **The window's own frame** (`internal/appwindow/frame.go`): on Windows blur
   is acrylic, which is drawn right only behind a window without the system's
   frame, so a window that blurs has none and `appwindow` draws one: a caption

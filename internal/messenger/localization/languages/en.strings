@@ -1871,8 +1871,11 @@
 "settings.visibility" = "Visibility";
 "settings.visibility_hint" = "Ghost mode, filters and deleted messages";
 "settings.window_blur" = "Blur behind the main window";
+"settings.window_blur_compositor" = "Blur by the compositor";
+"settings.window_blur_own" = "Blur by the app itself";
+"settings.window_own_frame" = "Window title bar drawn by the app";
 "settings.window_transparency" = "Main window transparency";
-"settings.window_transparency_hint" = "The backgrounds of the sidebar, chat list and chat header. Text and avatars stay opaque. Works on Wayland, Windows and macOS. On Wayland blur depends on the compositor; on Windows 10 and 11 a window with it draws its own frame in place of the system one.";
+"settings.window_transparency_hint" = "The backgrounds of the sidebar, chat list and chat header. Text and avatars stay opaque. Works on Wayland, Windows and macOS. On Wayland blur depends on the compositor; on Windows 10 and 11 a window with it draws its own frame in place of the system one. Blur by the app itself is the blurred desktop wallpaper drawn by the window: it costs the compositor nothing and works on Windows, X11 and Haiku, but does not show other windows behind.";
 
 "shared.columns" = "Thumbnails per Row";
 "shared.count.files" = "{count} · Files";

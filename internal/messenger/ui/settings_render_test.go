@@ -85,6 +85,13 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	p.windowTransparency = func() int { return windowTransparency }
 	p.setWindowTransparency = func(value int) { windowTransparency = value }
 	p.windowTransparencyAvailable = func() bool { return true }
+	windowBlurOwn := true
+	p.windowBlurOwn = func() bool { return windowBlurOwn }
+	p.setWindowBlurOwn = func(own bool) { windowBlurOwn = own }
+	p.windowBlurChoice = func() bool { return true }
+	windowOwnFrame := false
+	p.windowOwnFrame = func() (bool, bool) { return windowOwnFrame, false }
+	p.setWindowOwnFrame = func(own bool) { windowOwnFrame = own }
 	p.overlays = func() preferences.Overlays { return overlays }
 	p.setOverlays = func(o preferences.Overlays) { overlays = o }
 	p.uninstall = func() {}

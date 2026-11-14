@@ -524,9 +524,14 @@ func miniApps(prefs *preferences.Store) *miniappprefs.Settings {
 func windowOptions(prefs *preferences.Store) appwindow.Options {
 	global := prefs.Global()
 	catalog := localization.For(global.Language)
+	// A window that blurs by itself is opaque to the system. Where that is
+	// known before there is a window, it starts so, not to change its frame
+	// at its first frame.
+	own := global.WindowBlurOwn && appwindow.OwnBlurFromStart()
 	return appwindow.Options{
-		Transparent: appwindow.WantsTransparent(global.WindowTransparency > 0),
-		BlurBehind:  global.WindowBlur && global.WindowTransparency > 0,
+		Transparent: !own && appwindow.WantsTransparent(global.WindowTransparency > 0),
+		BlurBehind:  !own && global.WindowBlur && global.WindowTransparency > 0,
+		OwnFrame:    global.WindowOwnFrame,
 		Title:       catalog.T("app.title"),
 		Width:       unit.Dp(1200),
 		Height:      unit.Dp(760),
