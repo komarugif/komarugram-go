@@ -43,9 +43,10 @@ What differs from the proposal below, for now:
 
 - Frames come back over the helper's standard output, not shared memory:
   a tile's frame is tens of kilobytes.
-- The helper scales on the CPU (`resample.VideoScaler`, the same as the
-  sandbox's pictures, so they look the same), after reading the whole
-  NV12 picture back, not on the GPU.
+- The helper scales on the GPU where it can, with the CPU's filters on
+  Linux (see "Scaling on the GPU" below), and on the CPU
+  (`resample.VideoScaler`, the same as the sandbox's pictures) where it
+  cannot, after reading the whole NV12 picture back.
 - Nothing is kept across starts after the helper's deaths, the helper's
   memory is not bounded (`program.StartLimited`), and it is not confined
   (a restricted token, a job).
@@ -103,6 +104,7 @@ FFmpeg's row.
 - A picture rendered is scaled into a buffer of its stream, reused, and
   read by the window's process straight into the image it goes to
   (`readAnswer`, `callInto`): no copy, nothing allocated for it.
+- Pictures are scaled on the GPU (2026-11-14): see "Scaling on the GPU".
 - The GPUs are tried in order, a helper each (`NewClientFor`, tiers of
   `Client`): first the one the windows draw with, its driver alone
   loaded (`VK_DRIVER_FILES`) and the device named by its ids
@@ -121,11 +123,82 @@ FFmpeg's row.
   (synchronization2).
 
 To check on Linux: `go vet ./pkg/hwvideo`, `go test ./pkg/hwvideo` (the
-comparison with FFmpeg, `TestDecodesAsFFmpeg`, runs where a GPU decodes
-H.264, with `KOMARUGRAM_HW_VIDEOS` for more clips) and
+comparison with FFmpeg, `TestDecodesAsFFmpeg`, and the GPU's scaling
+against the CPU's, `TestRendersAsCPU`, run where a GPU decodes H.264, with
+`KOMARUGRAM_HW_VIDEOS` for more clips) and
 `go test ./internal/messenger/chatmedia -run SavedGIF`. lavapipe has no
 video decoding: in a container without a GPU those tests skip, and only
-the build and the refusal are checked.
+the build, the refusal and the scaler on pictures from the host
+(`TestScalerAsCPU`) are checked.
+
+### Scaling on the GPU (2026-11-14)
+
+A profile of the helper on Linux (RTX 3050 Laptop, Vulkan Video, the
+list of saved GIFs scrolled for 15 s: 1.56 cores) put 61% of its CPU in
+`resample.VideoScaler` and 28% in reading the whole NV12 picture back
+(the copy of the luma out of the mapped buffer, `splitUV` of the
+chroma); decoding itself was 2.6%. So the render request (`opRender`:
+the tile's size and the rough flag) is now served on the GPU, and only
+the tile's RGBA comes back: `session.render`, `Decoder.Render`. Where a
+session cannot (`errNoRender`), the stream goes back to the CPU's path
+for good, `Decoder.Read` and `VideoScaler.ResizeInto`, and the helper
+tells the first such stream in its log, with the reason.
+
+- **What is done is the CPU's**: `resample.VideoScaler.Plan` gives what
+  `ResizeInto` decides from the sizes (the blocks averaged first, whether
+  the filter after is Catmull-Rom or linear, the conversion's factors),
+  so the GPU does not decide it again. A change to `ResizeInto`'s path
+  for opaque 4:2:0 is a change to the shader.
+- **Vulkan** (`hwvk_linux.c`, `shaders/scale.comp`): a compute shader of
+  three steps in one submission on a queue that computes (the one that
+  copies if it does, else any): the decoded picture's layer is copied
+  into a buffer in the GPU's memory as the readback copied it (so the
+  DPB image needs no sampled or storage usage, which drivers may not
+  give a DPB), its planes are averaged in blocks into the same buffer,
+  then filtered and converted to RGBA straight into a buffer of cached
+  host memory, `w×h×4` bytes, copied into the answer. The buffers and
+  the descriptor set are the device's, grown as needed, shared by its
+  sessions: every scaling is waited for. The image and buffers are shared
+  by the decode, copy and compute queues (`VK_SHARING_MODE_CONCURRENT`
+  where they are not one). On lavapipe, from pictures filled on the host,
+  every case of `TestScalerAsCPU` (shrinking with and without the rough
+  filter, cropped, odd sizes, 1080p to 20×12, enlarged, the same size,
+  BT.601, BT.709, BT.2020, both ranges) is within 1 of the CPU's in each
+  channel, the mean under 0.0001 (0.07 for JPEG's colours at the same
+  size, which the CPU converts with `image/draw`).
+- **The SPIR-V is in the repository**, `scale_spv.h`, made from
+  `shaders/scale.comp` by `go generate ./pkg/hwvideo` (`shaders/gen.go`),
+  which needs `glslc` (shaderc) on the PATH: the build compiles no
+  shader. It was made with glslc of shaderc 2026.4 (SPIRV-Tools and
+  glslang 1.4.363), `--target-env=vulkan1.0 -O`, and checked with
+  `spirv-val`.
+- **Direct3D 11** (`d3d11_windows.go`): the decoder's slice goes through
+  an `ID3D11VideoProcessor` (`VideoProcessorBlt`), cropped as the stream
+  says, into an RGBA texture of the tile's size (BGRA where the processor
+  puts out only that, swapped as it is read), then a staging copy of it.
+  The filter is the driver's, not the CPU's: `TestRendersAsCPU` holds it
+  to a mean difference only. BT.2020 needs `ID3D11VideoContext1` and is
+  scaled on the CPU. Written on Linux, built and vetted for Windows, not
+  run.
+- **The log**: the helper's line telling the device tells now whether its
+  pictures are scaled on the GPU, or on the CPU and why (Vulkan: no queue
+  that computes, a pipeline not made); a stream refused later is told once.
+- **Measured** on the CPU's side only (`BenchmarkTileCPU`, a picture of
+  720×1280 to a tile of 160×284, on this VM): reading back the whole
+  picture and scaling it, 1.6 ms (1.2 ms rough), against 4 µs to copy the
+  tile's pixels; the GPU's work and the wait for it are not in it.
+
+To profile it: run the client with `-profile -profile-dir <dir>`, open
+the picker's GIF tab (the helpers start with the first tile), press the
+profiler's CPU button and scroll the list slowly and evenly for its
+15 s, then press Allocations. The helper's files are beside the
+window's, `<time>-cpu-video-decoder-window-gpu-<pid>.pprof` and
+`<time>-allocs-video-decoder-…`; its log line, on the client's standard
+error, tells whether the pictures were scaled on the GPU. Read them with
+`go tool pprof -top <file>`: `resample.(*VideoScaler).ResizeInto` and
+`vkSession.read` should be gone, and `vkSession.render` in their place,
+its time in C (`runtime.cgocall`): the submission and the wait for the
+GPU (`vkWaitForFences`, which may spin in NVIDIA's driver).
 
 ## Why
 

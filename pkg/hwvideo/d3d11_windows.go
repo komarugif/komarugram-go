@@ -4,14 +4,18 @@ package hwvideo
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"image"
+	"log"
 	"sync"
 	"syscall"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"komarugram/pkg/resample"
 )
 
 // The decoder of Direct3D 11 (DXVA 2): the application hands the driver
@@ -63,19 +67,33 @@ const (
 	contextUnmap                 = 15
 	contextCopySubresourceRegion = 46
 
-	videoDeviceCreateVideoDecoder           = 3
-	videoDeviceCreateVideoDecoderOutputView = 7
-	videoDeviceGetVideoDecoderProfileCount  = 11
-	videoDeviceGetVideoDecoderProfile       = 12
-	videoDeviceCheckVideoDecoderFormat      = 13
-	videoDeviceGetVideoDecoderConfigCount   = 14
-	videoDeviceGetVideoDecoderConfig        = 15
+	videoDeviceCreateVideoDecoder             = 3
+	videoDeviceCreateVideoProcessor           = 4
+	videoDeviceCreateVideoDecoderOutputView   = 7
+	videoDeviceCreateVideoProcessorInputView  = 8
+	videoDeviceCreateVideoProcessorOutputView = 9
+	videoDeviceCreateVideoProcessorEnumerator = 10
+	videoDeviceGetVideoDecoderProfileCount    = 11
+	videoDeviceGetVideoDecoderProfile         = 12
+	videoDeviceCheckVideoDecoderFormat        = 13
+	videoDeviceGetVideoDecoderConfigCount     = 14
+	videoDeviceGetVideoDecoderConfig          = 15
 
 	videoContextGetDecoderBuffer     = 7
 	videoContextReleaseDecoderBuffer = 8
 	videoContextDecoderBeginFrame    = 9
 	videoContextDecoderEndFrame      = 10
 	videoContextSubmitDecoderBuffers = 11
+
+	videoContextSetOutputTargetRect     = 13
+	videoContextSetOutputColorSpace     = 15
+	videoContextSetStreamFrameFormat    = 27
+	videoContextSetStreamColorSpace     = 28
+	videoContextSetStreamSourceRect     = 30
+	videoContextSetStreamDestRect       = 31
+	videoContextSetStreamAutoProcessing = 37
+	videoContextVideoProcessorBlt       = 53
+	processorEnumeratorCheckFormat      = 8
 )
 
 var (
@@ -87,6 +105,13 @@ var (
 
 const (
 	formatNV12 = 103 // DXGI_FORMAT_NV12
+	formatRGBA = 28  // DXGI_FORMAT_R8G8B8A8_UNORM
+	formatBGRA = 87  // DXGI_FORMAT_B8G8R8A8_UNORM
+
+	bindRenderTarget = 0x20
+	// D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT
+	processorInput  = 1
+	processorOutput = 2
 
 	bindDecoder    = 0x200
 	usageStaging   = 3
@@ -142,6 +167,39 @@ type decoderBufferDesc struct {
 	EncryptedBlockInfo                            [3]uint32
 }
 
+// processorContentDesc is D3D11_VIDEO_PROCESSOR_CONTENT_DESC.
+type processorContentDesc struct {
+	InputFrameFormat                     uint32
+	InputRateNumerator, InputRateDenom   uint32
+	InputWidth, InputHeight              uint32
+	OutputRateNumerator, OutputRateDenom uint32
+	OutputWidth, OutputHeight            uint32
+	Usage                                uint32
+}
+
+// processorInputViewDesc is D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC of a
+// slice of a texture.
+type processorInputViewDesc struct {
+	FourCC, ViewDimension, MipSlice, ArraySlice uint32
+}
+
+// processorOutputViewDesc is D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC of a
+// texture, its union as large as its largest member.
+type processorOutputViewDesc struct {
+	ViewDimension, MipSlice uint32
+	_                       [2]uint32
+}
+
+// processorStream is D3D11_VIDEO_PROCESSOR_STREAM.
+type processorStream struct {
+	Enable, OutputIndex, InputFrameOrField, PastFrames, FutureFrames uint32
+	PastSurfaces, InputSurface, FutureSurfaces                       uintptr
+	PastSurfacesRight, InputSurfaceRight, FutureSurfacesRight        uintptr
+}
+
+// rect is a RECT.
+type rect struct{ Left, Top, Right, Bottom int32 }
+
 type mappedSubresource struct {
 	Data                 unsafe.Pointer
 	RowPitch, DepthPitch uint32
@@ -150,6 +208,8 @@ type mappedSubresource struct {
 // d3dDevice is a Direct3D 11 device with its video decoder. The calls of
 // every session are made one at a time: mu.
 type d3dDevice struct {
+	// told is set once the device was told in the log.
+	told                      sync.Once
 	mu                        sync.Mutex
 	device, context           *comObject
 	videoDevice, videoContext *comObject
@@ -219,6 +279,39 @@ type d3dSession struct {
 	staging       *comObject
 	// report numbers the pictures for the driver's reports.
 	report uint32
+	// processor scales pictures to the size it was made for; noRender is
+	// why it could not be made, for the CPU to scale them.
+	processor *videoProcessor
+	noRender  error
+}
+
+// videoProcessor scales the pictures of a session to one size, into an
+// RGB texture read back through a staging one of that size.
+type videoProcessor struct {
+	width, height int
+	enumerator    *comObject
+	processor     *comObject
+	inputs        []*comObject // a view of each surface, made when first scaled
+	output, view  *comObject
+	staging       *comObject
+	// bgra is set when the processor puts out BGRA alone, the bytes
+	// swapped to RGBA as they are read back.
+	bgra bool
+}
+
+func (p *videoProcessor) release() {
+	if p == nil {
+		return
+	}
+	for _, v := range p.inputs {
+		v.release()
+	}
+	p.view.release()
+	p.output.release()
+	p.staging.release()
+	p.processor.release()
+	p.enumerator.release()
+	*p = videoProcessor{}
 }
 
 func (d *d3dDevice) open(sps *SPS, surfaces int) (session, error) {
@@ -271,10 +364,15 @@ func (d *d3dDevice) open(sps *SPS, surfaces int) (session, error) {
 	if err := check("CreateVideoDecoder", d.videoDevice.call(videoDeviceCreateVideoDecoder, uintptr(unsafe.Pointer(&desc)), uintptr(unsafe.Pointer(&config)), uintptr(unsafe.Pointer(&s.decoder)))); err != nil {
 		return fail(err)
 	}
+	d.told.Do(func() {
+		log.Printf("hwvideo: decoding on Direct3D 11; pictures are scaled on the GPU by its video processor, only the tile's pixels read back (a stream it cannot scale is told when met, and scaled on the CPU)")
+	})
 	return s, nil
 }
 
 func (s *d3dSession) release() {
+	s.processor.release()
+	s.processor = nil
 	s.decoder.release()
 	for _, v := range s.views {
 		v.release()
@@ -540,6 +638,155 @@ func (s *d3dSession) read(surface int, sps *SPS, dst *image.YCbCr) error {
 	for y := range ch {
 		row := chroma[(y+sps.CropTop/2)*pitch+sps.CropLeft/2*2:]
 		splitUV(dst.Cb[y*dst.CStride:y*dst.CStride+cw], dst.Cr[y*dst.CStride:y*dst.CStride+cw], row)
+	}
+	return nil
+}
+
+// newProcessor makes the video processor of s that scales its pictures to
+// w×h; an error of errNoRender is a GPU that cannot. s.d.mu is held.
+func (s *d3dSession) newProcessor(w, h int) (*videoProcessor, error) {
+	d := s.d
+	p := &videoProcessor{width: w, height: h, inputs: make([]*comObject, len(s.views))}
+	fail := func(err error) (*videoProcessor, error) {
+		p.release()
+		return nil, err
+	}
+	desc := processorContentDesc{
+		InputRateNumerator: 30, InputRateDenom: 1, InputWidth: uint32(s.width), InputHeight: uint32(s.height),
+		OutputRateNumerator: 30, OutputRateDenom: 1, OutputWidth: uint32(w), OutputHeight: uint32(h),
+	}
+	if err := check("CreateVideoProcessorEnumerator", d.videoDevice.call(videoDeviceCreateVideoProcessorEnumerator, uintptr(unsafe.Pointer(&desc)), uintptr(unsafe.Pointer(&p.enumerator)))); err != nil {
+		return fail(noRender("%v", err))
+	}
+	support := func(format uint32) uint32 {
+		var flags uint32
+		if int32(p.enumerator.call(processorEnumeratorCheckFormat, uintptr(format), uintptr(unsafe.Pointer(&flags)))) < 0 {
+			return 0
+		}
+		return flags
+	}
+	if support(formatNV12)&processorInput == 0 {
+		return fail(noRender("the video processor does not take NV12"))
+	}
+	format := uint32(formatRGBA)
+	if support(formatRGBA)&processorOutput == 0 {
+		if support(formatBGRA)&processorOutput == 0 {
+			return fail(noRender("the video processor puts out neither RGBA nor BGRA"))
+		}
+		format, p.bgra = formatBGRA, true
+	}
+	if err := check("CreateVideoProcessor", d.videoDevice.call(videoDeviceCreateVideoProcessor, uintptr(unsafe.Pointer(p.enumerator)), 0, uintptr(unsafe.Pointer(&p.processor)))); err != nil {
+		return fail(noRender("%v", err))
+	}
+	output := texture2DDesc{Width: uint32(w), Height: uint32(h), MipLevels: 1, ArraySize: 1, Format: format, SampleCount: 1, BindFlags: bindRenderTarget}
+	if err := check("CreateTexture2D", d.device.call(deviceCreateTexture2D, uintptr(unsafe.Pointer(&output)), 0, uintptr(unsafe.Pointer(&p.output)))); err != nil {
+		return fail(err)
+	}
+	staging := texture2DDesc{Width: uint32(w), Height: uint32(h), MipLevels: 1, ArraySize: 1, Format: format, SampleCount: 1, Usage: usageStaging, CPUAccessFlags: cpuAccessRead}
+	if err := check("CreateTexture2D", d.device.call(deviceCreateTexture2D, uintptr(unsafe.Pointer(&staging)), 0, uintptr(unsafe.Pointer(&p.staging)))); err != nil {
+		return fail(err)
+	}
+	view := processorOutputViewDesc{ViewDimension: 1}
+	if err := check("CreateVideoProcessorOutputView", d.videoDevice.call(videoDeviceCreateVideoProcessorOutputView, uintptr(unsafe.Pointer(p.output)), uintptr(unsafe.Pointer(p.enumerator)), uintptr(unsafe.Pointer(&view)), uintptr(unsafe.Pointer(&p.view)))); err != nil {
+		return fail(noRender("%v", err))
+	}
+	return p, nil
+}
+
+// colorSpace is a D3D11_VIDEO_PROCESSOR_COLOR_SPACE: YCbCr of colors, or
+// RGB of the full range.
+func colorSpace(colors resample.Colors, rgb bool) uint32 {
+	if rgb {
+		// Usage 0 (playback), RGB_Range 0 (0…255).
+		return 0
+	}
+	var cs uint32
+	if colors.Matrix == resample.BT709 {
+		cs |= 1 << 2 // YCbCr_Matrix: BT.709
+	}
+	if colors.Limited {
+		cs |= 1 << 4 // Nominal_Range: 16…235
+	} else {
+		cs |= 2 << 4 // Nominal_Range: 0…255
+	}
+	return cs
+}
+
+// render scales the picture with the video processor of the GPU, whose
+// filter is the driver's own: not the CPU's, rough or not.
+func (s *d3dSession) render(surface int, sps *SPS, plan resample.Plan, dst *image.RGBA) error {
+	if surface < 0 || surface >= len(s.views) {
+		return malformed("surface %d", surface)
+	}
+	colors := plan.Colors
+	if colors.Matrix != resample.BT601 && colors.Matrix != resample.BT709 {
+		// BT.2020 needs ID3D11VideoContext1's colour spaces.
+		return noRender("colours of BT.2020")
+	}
+	s.d.mu.Lock()
+	defer s.d.mu.Unlock()
+	if s.noRender != nil {
+		return s.noRender
+	}
+	w, h := dst.Rect.Dx(), dst.Rect.Dy()
+	if p := s.processor; p == nil || p.width != w || p.height != h {
+		p.release()
+		s.processor = nil
+		p, err := s.newProcessor(w, h)
+		if errors.Is(err, errNoRender) {
+			s.noRender = err
+		}
+		if err != nil {
+			return err
+		}
+		s.processor = p
+	}
+	p := s.processor
+	if p.inputs[surface] == nil {
+		desc := processorInputViewDesc{ViewDimension: 1, ArraySlice: uint32(surface)}
+		if err := check("CreateVideoProcessorInputView", s.d.videoDevice.call(videoDeviceCreateVideoProcessorInputView, uintptr(unsafe.Pointer(s.textures)), uintptr(unsafe.Pointer(p.enumerator)), uintptr(unsafe.Pointer(&desc)), uintptr(unsafe.Pointer(&p.inputs[surface])))); err != nil {
+			s.noRender = noRender("%v", err)
+			return s.noRender
+		}
+	}
+	vc, vp := s.d.videoContext, uintptr(unsafe.Pointer(p.processor))
+	source := rect{int32(sps.CropLeft), int32(sps.CropTop), int32(sps.CropLeft + sps.Width()), int32(sps.CropTop + sps.Height())}
+	target := rect{0, 0, int32(w), int32(h)}
+	vc.call(videoContextSetStreamFrameFormat, vp, 0, 0)
+	in, out := colorSpace(colors, false), colorSpace(colors, true)
+	vc.call(videoContextSetStreamColorSpace, vp, 0, uintptr(unsafe.Pointer(&in)))
+	vc.call(videoContextSetOutputColorSpace, vp, uintptr(unsafe.Pointer(&out)))
+	vc.call(videoContextSetStreamAutoProcessing, vp, 0, 0)
+	vc.call(videoContextSetStreamSourceRect, vp, 0, 1, uintptr(unsafe.Pointer(&source)))
+	vc.call(videoContextSetStreamDestRect, vp, 0, 1, uintptr(unsafe.Pointer(&target)))
+	vc.call(videoContextSetOutputTargetRect, vp, 1, uintptr(unsafe.Pointer(&target)))
+	stream := processorStream{Enable: 1, InputSurface: uintptr(unsafe.Pointer(p.inputs[surface]))}
+	if err := check("VideoProcessorBlt", vc.call(videoContextVideoProcessorBlt, vp, uintptr(unsafe.Pointer(p.view)), 0, 1, uintptr(unsafe.Pointer(&stream)))); err != nil {
+		return err
+	}
+	ctx := s.d.context
+	ctx.call(contextCopySubresourceRegion, uintptr(unsafe.Pointer(p.staging)), 0, 0, 0, 0, uintptr(unsafe.Pointer(p.output)), 0, 0)
+	var mapped mappedSubresource
+	if err := check("Map", ctx.call(contextMap, uintptr(unsafe.Pointer(p.staging)), 0, mapRead, 0, uintptr(unsafe.Pointer(&mapped)))); err != nil {
+		return err
+	}
+	defer ctx.call(contextUnmap, uintptr(unsafe.Pointer(p.staging)), 0)
+	pitch := int(mapped.RowPitch)
+	if mapped.Data == nil || pitch < w*4 {
+		return fmt.Errorf("hwvideo: picture mapped with rows of %d bytes", pitch)
+	}
+	src := unsafe.Slice((*byte)(mapped.Data), pitch*(h-1)+w*4)
+	for y := range h {
+		row := dst.Pix[y*dst.Stride : y*dst.Stride+w*4]
+		copy(row, src[y*pitch:])
+		for x := 0; x < len(row); x += 4 {
+			if p.bgra {
+				row[x], row[x+2] = row[x+2], row[x]
+			}
+			// The alpha the processor fills is not to be trusted: the
+			// picture is opaque.
+			row[x+3] = 0xff
+		}
 	}
 	return nil
 }

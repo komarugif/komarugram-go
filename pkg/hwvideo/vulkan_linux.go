@@ -2,6 +2,8 @@
 
 //go:build linux && cgo && !novulkan
 
+//go:generate go run ./shaders/gen.go
+
 package hwvideo
 
 /*
@@ -19,6 +21,8 @@ import (
 	"slices"
 	"sync"
 	"unsafe"
+
+	"komarugram/pkg/resample"
 )
 
 // The decoder of Vulkan Video (VK_KHR_video_decode_h264), in hwvk_linux.c:
@@ -92,9 +96,14 @@ func (d *vkDevice) open(sps *SPS, surfaces int) (session, error) {
 	}
 	d.told.Do(func() {
 		var name [256]C.char
-		var cached, local C.int
-		C.hwvk_describe(d.d, &name[0], C.size_t(len(name)), &cached, &local)
-		log.Printf("hwvideo: decoding on %s; pictures are read back from memory cached %v, on the GPU %v", C.GoString(&name[0]), cached != 0, local != 0)
+		var why [256]C.char
+		var cached, local, scales C.int
+		C.hwvk_describe(d.d, &name[0], C.size_t(len(name)), &cached, &local, &scales, &why[0], C.size_t(len(why)))
+		scaled := "scaled on the GPU (a compute shader), only the tile's pixels read back"
+		if scales == 0 {
+			scaled = "scaled on the CPU, read back whole: " + C.GoString(&why[0])
+		}
+		log.Printf("hwvideo: decoding on %s; pictures are %s; read back from memory cached %v, on the GPU %v", C.GoString(&name[0]), scaled, cached != 0, local != 0)
 	})
 	return &vkSession{s: s}, nil
 }
@@ -275,4 +284,63 @@ func (s *vkSession) read(surface int, sps *SPS, dst *image.YCbCr) error {
 		splitUV(dst.Cb[y*dst.CStride:y*dst.CStride+cw], dst.Cr[y*dst.CStride:y*dst.CStride+cw], row)
 	}
 	return nil
+}
+
+// scaleParams is the scaling of a picture of sps's size, cropped as it
+// says, to dst as plan says.
+func scaleParams(width, height, cropLeft, cropTop int, plan resample.Plan, dst *image.RGBA) C.hwvk_scale {
+	var same, linear C.uint32_t
+	if plan.Same {
+		same = 1
+	}
+	if plan.Linear {
+		linear = 1
+	}
+	return C.hwvk_scale{
+		width: C.uint32_t(width), height: C.uint32_t(height),
+		crop_left: C.uint32_t(cropLeft), crop_top: C.uint32_t(cropTop),
+		dst_width: C.uint32_t(dst.Rect.Dx()), dst_height: C.uint32_t(dst.Rect.Dy()),
+		block_x: C.uint32_t(plan.BlockX), block_y: C.uint32_t(plan.BlockY),
+		same: same, linear: linear,
+		gain: C.float(plan.Gain), black: C.float(plan.Black),
+		rv: C.float(plan.RV), gu: C.float(plan.GU), gv: C.float(plan.GV), bu: C.float(plan.BU),
+	}
+}
+
+func (s *vkSession) render(surface int, sps *SPS, plan resample.Plan, dst *image.RGBA) error {
+	params := scaleParams(sps.Width(), sps.Height(), sps.CropLeft, sps.CropTop, plan, dst)
+	var msg [512]C.char
+	status := C.hwvk_render(s.s, C.uint32_t(surface), &params, (*C.uint8_t)(unsafe.Pointer(&dst.Pix[0])), C.uint32_t(dst.Stride), &msg[0], C.size_t(len(msg)))
+	if status == C.HWVK_UNSUPPORTED {
+		return noRender("%s", C.GoString(&msg[0]))
+	}
+	return vkError("render", status, msg[:])
+}
+
+// computeScaler is a device that only scales pictures, for the scaler's
+// tests: any Vulkan device, lavapipe too.
+type computeScaler struct{ d *C.hwvk_device }
+
+func newComputeScaler() (*computeScaler, error) {
+	var d *C.hwvk_device
+	var msg [512]C.char
+	if err := vkError("Vulkan", C.hwvk_compute_open(&d, &msg[0], C.size_t(len(msg))), msg[:]); err != nil {
+		return nil, err
+	}
+	return &computeScaler{d: d}, nil
+}
+
+func (c *computeScaler) close() { C.hwvk_device_close(c.d) }
+
+// scale scales a picture of NV12, rows of pitch bytes, rows of luma then
+// rows/2 of chroma, of which the picture is width×height at (left, top),
+// into dst as plan says, with the shader the decoder's pictures are.
+func (c *computeScaler) scale(nv12 []byte, pitch, rows, left, top, width, height int, plan resample.Plan, dst *image.RGBA) error {
+	if len(nv12) < pitch*rows*3/2 {
+		return fmt.Errorf("hwvideo: %d bytes for %dx%d", len(nv12), pitch, rows)
+	}
+	params := scaleParams(width, height, left, top, plan, dst)
+	var msg [512]C.char
+	status := C.hwvk_scale_nv12(c.d, (*C.uint8_t)(unsafe.Pointer(&nv12[0])), C.uint32_t(pitch), C.uint32_t(rows), &params, (*C.uint8_t)(unsafe.Pointer(&dst.Pix[0])), C.uint32_t(dst.Stride), &msg[0], C.size_t(len(msg)))
+	return vkError("scale", status, msg[:])
 }

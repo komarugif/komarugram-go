@@ -403,6 +403,8 @@ func (s *VideoScaler) ResizeInto(dst *image.RGBA, im, alpha *image.YCbCr) *image
 	}
 	fx, fy := blocks(sw, w), blocks(sh, h)
 	if alpha == nil && im.SubsampleRatio == image.YCbCrSubsampleRatio420 {
+		// Plan describes this path for the GPU's scaler (pkg/hwvideo,
+		// scale.comp): a change here is one there.
 		if w == sw && h == sh {
 			if s.Colors == (Colors{}) {
 				draw.Draw(dst, dst.Rect, im, im.Rect.Min, draw.Src)

@@ -31,12 +31,24 @@ int hwvk_session_open(hwvk_device *d, uint32_t width_mbs, uint32_t height_mbs, u
 }
 void hwvk_session_close(hwvk_session *s) {}
 void hwvk_session_reset(hwvk_session *s) {}
-void hwvk_describe(hwvk_device *d, char *name, size_t namelen, int *cached, int *device_local) {}
+void hwvk_describe(hwvk_device *d, char *name, size_t namelen, int *cached, int *device_local, int *scales, char *why, size_t whylen) {}
 int hwvk_session_parameters(hwvk_session *s, const hwvk_sps *sps, uint32_t nsps, const hwvk_pps *pps, uint32_t npps, char *err, size_t errlen) { return HWVK_ERROR; }
 int hwvk_decode(hwvk_session *s, const hwvk_pic *p, const uint8_t *data, size_t size, const uint32_t *offsets, uint32_t nslices, char *err, size_t errlen) { return HWVK_ERROR; }
 int hwvk_read(hwvk_session *s, uint32_t surface, const uint8_t **nv12, uint32_t *pitch, uint32_t *rows, char *err, size_t errlen) { return HWVK_ERROR; }
+int hwvk_render(hwvk_session *s, uint32_t surface, const hwvk_scale *p, uint8_t *dst, uint32_t stride, char *err, size_t errlen) {
+	snprintf(err, errlen, "built without video decoding");
+	return HWVK_UNSUPPORTED;
+}
+int hwvk_compute_open(hwvk_device **out, char *err, size_t errlen) {
+	*out = NULL;
+	snprintf(err, errlen, "built with Vulkan headers older than 1.3.238");
+	return HWVK_UNSUPPORTED;
+}
+int hwvk_scale_nv12(hwvk_device *d, const uint8_t *nv12, uint32_t pitch, uint32_t rows, const hwvk_scale *p, uint8_t *dst, uint32_t stride, char *err, size_t errlen) { return HWVK_ERROR; }
 
 #else
+
+#include "scale_spv.h"
 
 #define INSTANCE_FUNCS(X) \
 	X(vkDestroyInstance) \
@@ -44,11 +56,13 @@ int hwvk_read(hwvk_session *s, uint32_t surface, const uint8_t **nv12, uint32_t 
 	X(vkGetPhysicalDeviceProperties) \
 	X(vkGetPhysicalDeviceQueueFamilyProperties2) \
 	X(vkEnumerateDeviceExtensionProperties) \
-	X(vkGetPhysicalDeviceVideoCapabilitiesKHR) \
-	X(vkGetPhysicalDeviceVideoFormatPropertiesKHR) \
 	X(vkGetPhysicalDeviceMemoryProperties) \
 	X(vkCreateDevice) \
 	X(vkGetDeviceProcAddr)
+
+#define VIDEO_INSTANCE_FUNCS(X) \
+	X(vkGetPhysicalDeviceVideoCapabilitiesKHR) \
+	X(vkGetPhysicalDeviceVideoFormatPropertiesKHR)
 
 #define DEVICE_FUNCS(X) \
 	X(vkDestroyDevice) \
@@ -80,6 +94,24 @@ int hwvk_read(hwvk_session *s, uint32_t surface, const uint8_t **nv12, uint32_t 
 	X(vkCmdPipelineBarrier2) \
 	X(vkCmdCopyImageToBuffer) \
 	X(vkDeviceWaitIdle) \
+	X(vkCreateShaderModule) \
+	X(vkDestroyShaderModule) \
+	X(vkCreateDescriptorSetLayout) \
+	X(vkDestroyDescriptorSetLayout) \
+	X(vkCreatePipelineLayout) \
+	X(vkDestroyPipelineLayout) \
+	X(vkCreateComputePipelines) \
+	X(vkDestroyPipeline) \
+	X(vkCreateDescriptorPool) \
+	X(vkDestroyDescriptorPool) \
+	X(vkAllocateDescriptorSets) \
+	X(vkUpdateDescriptorSets) \
+	X(vkCmdBindPipeline) \
+	X(vkCmdBindDescriptorSets) \
+	X(vkCmdPushConstants) \
+	X(vkCmdDispatch)
+
+#define VIDEO_DEVICE_FUNCS(X) \
 	X(vkCreateVideoSessionKHR) \
 	X(vkDestroyVideoSessionKHR) \
 	X(vkGetVideoSessionMemoryRequirementsKHR) \
@@ -97,6 +129,28 @@ int hwvk_read(hwvk_session *s, uint32_t surface, const uint8_t **nv12, uint32_t 
 #define MAX_SPS 32
 #define MAX_PPS 256
 
+// The buffers of a scaling: the picture copied and its blocks (work, on
+// the GPU), the pixels (out, mapped), and the descriptor set naming them.
+// One serves every session of a device: each scaling is waited for.
+typedef struct {
+	VkBuffer work;
+	VkDeviceMemory work_memory;
+	VkDeviceSize work_size;
+	VkBuffer out;
+	VkDeviceMemory out_memory;
+	uint8_t *out_map;
+	VkDeviceSize out_size;
+	VkDescriptorPool pool;
+	VkDescriptorSet set;
+} scale_target;
+
+// The push constants of shaders/scale.comp, in its order.
+typedef struct {
+	uint32_t mode, w, h, fx, fy, linear;
+	uint32_t sw, sh, src_y, src_uv, pitch, blocks;
+	float gain, black, rv, gu, gv, bu;
+} scale_push;
+
 struct hwvk_device {
 	void *lib;
 	PFN_vkGetInstanceProcAddr gipa;
@@ -107,6 +161,20 @@ struct hwvk_device {
 	VkQueue decode_queue, transfer_queue;
 	VkCommandPool decode_pool, transfer_pool;
 	VkCommandBuffer decode_cmd, transfer_cmd;
+	// The queue pictures are scaled on, -1 for none, and the families
+	// the pictures and buffers are shared by, each once.
+	int64_t compute_family;
+	VkQueue compute_queue;
+	VkCommandPool compute_pool;
+	VkCommandBuffer compute_cmd;
+	uint32_t families[3], nfamilies;
+	// The scaler (shaders/scale.comp): its pipeline, or why there is none.
+	VkShaderModule shader;
+	VkDescriptorSetLayout set_layout;
+	VkPipelineLayout pipeline_layout;
+	VkPipeline pipeline;
+	char scale_why[256];
+	scale_target target;
 	VkFence fence;
 	VkPhysicalDeviceMemoryProperties memory;
 	VkVideoDecodeH264ProfileInfoKHR h264_profile;
@@ -123,7 +191,9 @@ struct hwvk_device {
 	VkMemoryPropertyFlags readback_flags;
 #define X(f) PFN_##f f;
 	INSTANCE_FUNCS(X)
+	VIDEO_INSTANCE_FUNCS(X)
 	DEVICE_FUNCS(X)
+	VIDEO_DEVICE_FUNCS(X)
 #undef X
 };
 
@@ -256,6 +326,17 @@ static int suitable(hwvk_device *d, VkPhysicalDevice phys, char *why, size_t why
 			transfer = i;
 		}
 	}
+	// Pictures are scaled where they are copied if that queue computes,
+	// else on any queue that does.
+	int64_t compute = -1;
+	if (transfer >= 0 && (qf[transfer].queueFamilyProperties.queueFlags & VK_QUEUE_COMPUTE_BIT)) {
+		compute = transfer;
+	}
+	for (uint32_t i = 0; i < families && compute < 0; i++) {
+		if (qf[i].queueFamilyProperties.queueFlags & VK_QUEUE_COMPUTE_BIT) {
+			compute = i;
+		}
+	}
 	free(qf);
 	free(qv);
 	if (decode < 0 || transfer < 0) {
@@ -314,8 +395,46 @@ static int suitable(hwvk_device *d, VkPhysicalDevice phys, char *why, size_t why
 	}
 	d->decode_family = (uint32_t)decode;
 	d->transfer_family = (uint32_t)transfer;
+	d->compute_family = compute;
 	return 1;
 }
+
+// compute_suitable fills d's families for phys, which is only to scale
+// pictures (the scaler's tests): its first queue that computes.
+static int compute_suitable(hwvk_device *d, VkPhysicalDevice phys, char *why, size_t whylen) {
+	VkPhysicalDeviceProperties props;
+	d->vkGetPhysicalDeviceProperties(phys, &props);
+	if (props.apiVersion < VK_API_VERSION_1_3) {
+		snprintf(why, whylen, "%s: Vulkan %u.%u", props.deviceName, VK_API_VERSION_MAJOR(props.apiVersion), VK_API_VERSION_MINOR(props.apiVersion));
+		return 0;
+	}
+	uint32_t families = 0;
+	d->vkGetPhysicalDeviceQueueFamilyProperties2(phys, &families, NULL);
+	VkQueueFamilyProperties2 *qf = calloc(families ? families : 1, sizeof *qf);
+	if (!qf) {
+		return 0;
+	}
+	for (uint32_t i = 0; i < families; i++) {
+		qf[i].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2;
+	}
+	d->vkGetPhysicalDeviceQueueFamilyProperties2(phys, &families, qf);
+	int64_t compute = -1;
+	for (uint32_t i = 0; i < families && compute < 0; i++) {
+		if (qf[i].queueFamilyProperties.queueFlags & VK_QUEUE_COMPUTE_BIT) {
+			compute = i;
+		}
+	}
+	free(qf);
+	if (compute < 0) {
+		snprintf(why, whylen, "%s: no queue computes", props.deviceName);
+		return 0;
+	}
+	d->decode_family = d->transfer_family = (uint32_t)compute;
+	d->compute_family = compute;
+	return 1;
+}
+
+static void target_free(hwvk_device *d, scale_target *t);
 
 void hwvk_device_close(hwvk_device *d) {
 	if (!d) {
@@ -323,8 +442,24 @@ void hwvk_device_close(hwvk_device *d) {
 	}
 	if (d->device) {
 		d->vkDeviceWaitIdle(d->device);
+		target_free(d, &d->target);
+		if (d->pipeline) {
+			d->vkDestroyPipeline(d->device, d->pipeline, NULL);
+		}
+		if (d->pipeline_layout) {
+			d->vkDestroyPipelineLayout(d->device, d->pipeline_layout, NULL);
+		}
+		if (d->set_layout) {
+			d->vkDestroyDescriptorSetLayout(d->device, d->set_layout, NULL);
+		}
+		if (d->shader) {
+			d->vkDestroyShaderModule(d->device, d->shader, NULL);
+		}
 		if (d->fence) {
 			d->vkDestroyFence(d->device, d->fence, NULL);
+		}
+		if (d->compute_pool && d->compute_pool != d->transfer_pool && d->compute_pool != d->decode_pool) {
+			d->vkDestroyCommandPool(d->device, d->compute_pool, NULL);
 		}
 		if (d->transfer_pool && d->transfer_pool != d->decode_pool) {
 			d->vkDestroyCommandPool(d->device, d->transfer_pool, NULL);
@@ -367,7 +502,73 @@ static int command_pool(hwvk_device *d, uint32_t family, VkCommandPool *pool, Vk
 	return HWVK_OK;
 }
 
-int hwvk_device_open(hwvk_device **out, uint32_t vendor, uint32_t device, int pick, char *err, size_t errlen) {
+// scaler_create makes the pipeline pictures are scaled with, or tells in
+// d->scale_why why there is none: the pictures are then scaled on the CPU.
+static void scaler_create(hwvk_device *d) {
+	if (d->compute_family < 0) {
+		snprintf(d->scale_why, sizeof d->scale_why, "no queue of the device computes");
+		return;
+	}
+	VkShaderModuleCreateInfo si = {
+		.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+		.codeSize = sizeof hwvk_scale_spv,
+		.pCode = hwvk_scale_spv,
+	};
+	VkResult r = d->vkCreateShaderModule(d->device, &si, NULL, &d->shader);
+	if (r != VK_SUCCESS) {
+		d->shader = VK_NULL_HANDLE;
+		snprintf(d->scale_why, sizeof d->scale_why, "vkCreateShaderModule: VkResult %d", (int)r);
+		return;
+	}
+	VkDescriptorSetLayoutBinding bindings[2] = {
+		{.binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT},
+		{.binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT},
+	};
+	VkDescriptorSetLayoutCreateInfo li = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.bindingCount = 2,
+		.pBindings = bindings,
+	};
+	r = d->vkCreateDescriptorSetLayout(d->device, &li, NULL, &d->set_layout);
+	if (r != VK_SUCCESS) {
+		d->set_layout = VK_NULL_HANDLE;
+		snprintf(d->scale_why, sizeof d->scale_why, "vkCreateDescriptorSetLayout: VkResult %d", (int)r);
+		return;
+	}
+	VkPushConstantRange range = {VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(scale_push)};
+	VkPipelineLayoutCreateInfo pli = {
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+		.setLayoutCount = 1,
+		.pSetLayouts = &d->set_layout,
+		.pushConstantRangeCount = 1,
+		.pPushConstantRanges = &range,
+	};
+	r = d->vkCreatePipelineLayout(d->device, &pli, NULL, &d->pipeline_layout);
+	if (r != VK_SUCCESS) {
+		d->pipeline_layout = VK_NULL_HANDLE;
+		snprintf(d->scale_why, sizeof d->scale_why, "vkCreatePipelineLayout: VkResult %d", (int)r);
+		return;
+	}
+	VkComputePipelineCreateInfo ci = {
+		.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+		.stage = {
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+			.stage = VK_SHADER_STAGE_COMPUTE_BIT,
+			.module = d->shader,
+			.pName = "main",
+		},
+		.layout = d->pipeline_layout,
+	};
+	r = d->vkCreateComputePipelines(d->device, VK_NULL_HANDLE, 1, &ci, NULL, &d->pipeline);
+	if (r != VK_SUCCESS) {
+		d->pipeline = VK_NULL_HANDLE;
+		snprintf(d->scale_why, sizeof d->scale_why, "vkCreateComputePipelines: VkResult %d", (int)r);
+	}
+}
+
+// device_open opens the device of a decoder, or with video unset one that
+// only scales pictures, for the scaler's tests: any device that computes.
+static int device_open(hwvk_device **out, uint32_t vendor, uint32_t device, int pick, int video, char *err, size_t errlen) {
 	*out = NULL;
 	hwvk_device *d = calloc(1, sizeof *d);
 	if (!d) {
@@ -375,6 +576,7 @@ int hwvk_device_open(hwvk_device **out, uint32_t vendor, uint32_t device, int pi
 		return HWVK_ERROR;
 	}
 	pthread_mutex_init(&d->mu, NULL);
+	d->compute_family = -1;
 	setup_profile(d);
 	d->lib = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
 	if (!d->lib) {
@@ -418,6 +620,9 @@ int hwvk_device_open(hwvk_device **out, uint32_t vendor, uint32_t device, int pi
 		return HWVK_UNSUPPORTED; \
 	}
 	INSTANCE_FUNCS(X)
+	if (video) {
+		VIDEO_INSTANCE_FUNCS(X)
+	}
 #undef X
 	uint32_t count = 0;
 	d->vkEnumeratePhysicalDevices(d->instance, &count, NULL);
@@ -451,7 +656,10 @@ int hwvk_device_open(hwvk_device **out, uint32_t vendor, uint32_t device, int pi
 			if ((pick == HWVK_PICK_ONLY && !same) || (pick == HWVK_PICK_OTHERS && same)) {
 				continue;
 			}
-			if (props.deviceType == order[o] && suitable(d, phys[i], err, errlen)) {
+			if (props.deviceType != order[o]) {
+				continue;
+			}
+			if (video ? suitable(d, phys[i], err, errlen) : compute_suitable(d, phys[i], err, errlen)) {
 				d->phys = phys[i];
 				snprintf(d->name, sizeof d->name, "%s", props.deviceName);
 			}
@@ -463,11 +671,22 @@ int hwvk_device_open(hwvk_device **out, uint32_t vendor, uint32_t device, int pi
 		return HWVK_UNSUPPORTED;
 	}
 	d->vkGetPhysicalDeviceMemoryProperties(d->phys, &d->memory);
+	// Each family once: the decoder's, the copies', the scaler's.
+	int64_t wanted[3] = {d->decode_family, d->transfer_family, d->compute_family};
+	for (int i = 0; i < 3; i++) {
+		int seen = wanted[i] < 0;
+		for (uint32_t j = 0; j < d->nfamilies && !seen; j++) {
+			seen = d->families[j] == (uint32_t)wanted[i];
+		}
+		if (!seen) {
+			d->families[d->nfamilies++] = (uint32_t)wanted[i];
+		}
+	}
 	float priority = 1.0f;
-	VkDeviceQueueCreateInfo queues[2] = {
-		{.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, .queueFamilyIndex = d->decode_family, .queueCount = 1, .pQueuePriorities = &priority},
-		{.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, .queueFamilyIndex = d->transfer_family, .queueCount = 1, .pQueuePriorities = &priority},
-	};
+	VkDeviceQueueCreateInfo queues[3];
+	for (uint32_t i = 0; i < d->nfamilies; i++) {
+		queues[i] = (VkDeviceQueueCreateInfo){.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, .queueFamilyIndex = d->families[i], .queueCount = 1, .pQueuePriorities = &priority};
+	}
 	VkPhysicalDeviceVulkan13Features features13 = {
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
 		.synchronization2 = VK_TRUE,
@@ -475,10 +694,10 @@ int hwvk_device_open(hwvk_device **out, uint32_t vendor, uint32_t device, int pi
 	VkDeviceCreateInfo di = {
 		.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
 		.pNext = &features13,
-		.queueCreateInfoCount = d->decode_family == d->transfer_family ? 1 : 2,
+		.queueCreateInfoCount = d->nfamilies,
 		.pQueueCreateInfos = queues,
-		.enabledExtensionCount = sizeof device_extensions / sizeof *device_extensions,
-		.ppEnabledExtensionNames = device_extensions,
+		.enabledExtensionCount = video ? sizeof device_extensions / sizeof *device_extensions : 0,
+		.ppEnabledExtensionNames = video ? device_extensions : NULL,
 	};
 	r = d->vkCreateDevice(d->phys, &di, NULL, &d->device);
 	if (r != VK_SUCCESS) {
@@ -495,6 +714,9 @@ int hwvk_device_open(hwvk_device **out, uint32_t vendor, uint32_t device, int pi
 		return HWVK_UNSUPPORTED; \
 	}
 	DEVICE_FUNCS(X)
+	if (video) {
+		VIDEO_DEVICE_FUNCS(X)
+	}
 #undef X
 	d->vkGetDeviceQueue(d->device, d->decode_family, 0, &d->decode_queue);
 	d->vkGetDeviceQueue(d->device, d->transfer_family, 0, &d->transfer_queue);
@@ -504,6 +726,18 @@ int hwvk_device_open(hwvk_device **out, uint32_t vendor, uint32_t device, int pi
 	} else if (status == HWVK_OK) {
 		d->transfer_pool = d->decode_pool;
 		d->transfer_cmd = d->decode_cmd;
+	}
+	if (status == HWVK_OK && d->compute_family >= 0) {
+		d->vkGetDeviceQueue(d->device, (uint32_t)d->compute_family, 0, &d->compute_queue);
+		if ((uint32_t)d->compute_family == d->transfer_family) {
+			d->compute_pool = d->transfer_pool;
+			d->compute_cmd = d->transfer_cmd;
+		} else if ((uint32_t)d->compute_family == d->decode_family) {
+			d->compute_pool = d->decode_pool;
+			d->compute_cmd = d->decode_cmd;
+		} else {
+			status = command_pool(d, (uint32_t)d->compute_family, &d->compute_pool, &d->compute_cmd, err, errlen);
+		}
 	}
 	if (status == HWVK_OK) {
 		VkFenceCreateInfo fi = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
@@ -516,8 +750,22 @@ int hwvk_device_open(hwvk_device **out, uint32_t vendor, uint32_t device, int pi
 		hwvk_device_close(d);
 		return status;
 	}
+	scaler_create(d);
+	if (!video && !d->pipeline) {
+		snprintf(err, errlen, "%s", d->scale_why);
+		hwvk_device_close(d);
+		return HWVK_ERROR;
+	}
 	*out = d;
 	return HWVK_OK;
+}
+
+int hwvk_device_open(hwvk_device **out, uint32_t vendor, uint32_t device, int pick, char *err, size_t errlen) {
+	return device_open(out, vendor, device, pick, 1, err, errlen);
+}
+
+int hwvk_compute_open(hwvk_device **out, char *err, size_t errlen) {
+	return device_open(out, 0, 0, HWVK_PICK_ANY, 0, err, errlen);
 }
 
 // The memory type of bits that has want, best with prefer and without avoid, or -1.
@@ -554,15 +802,14 @@ static VkResult allocate(hwvk_device *d, VkMemoryRequirements req, VkMemoryPrope
 // A buffer mapped for the host; host_reads for one the CPU reads, which
 // must be cached and not across the bus in the GPU's memory to be read fast.
 static VkResult host_buffer(hwvk_device *d, VkDeviceSize size, VkBufferUsageFlags usage, const void *next, int host_reads, VkBuffer *buf, VkDeviceMemory *mem, uint8_t **map) {
-	uint32_t families[2] = {d->decode_family, d->transfer_family};
 	VkBufferCreateInfo bi = {
 		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
 		.pNext = next,
 		.size = size,
 		.usage = usage,
-		.sharingMode = families[0] == families[1] ? VK_SHARING_MODE_EXCLUSIVE : VK_SHARING_MODE_CONCURRENT,
-		.queueFamilyIndexCount = families[0] == families[1] ? 1 : 2,
-		.pQueueFamilyIndices = families,
+		.sharingMode = d->nfamilies == 1 ? VK_SHARING_MODE_EXCLUSIVE : VK_SHARING_MODE_CONCURRENT,
+		.queueFamilyIndexCount = d->nfamilies,
+		.pQueueFamilyIndices = d->families,
 	};
 	VkResult r = d->vkCreateBuffer(d->device, &bi, NULL, buf);
 	if (r != VK_SUCCESS) {
@@ -590,7 +837,7 @@ static VkResult host_buffer(hwvk_device *d, VkDeviceSize size, VkBufferUsageFlag
 }
 
 static void free_buffer(hwvk_device *d, VkBuffer *buf, VkDeviceMemory *mem, uint8_t **map) {
-	if (*map) {
+	if (map && *map) {
 		d->vkUnmapMemory(d->device, *mem);
 		*map = NULL;
 	}
@@ -602,6 +849,15 @@ static void free_buffer(hwvk_device *d, VkBuffer *buf, VkDeviceMemory *mem, uint
 		d->vkFreeMemory(d->device, *mem, NULL);
 		*mem = VK_NULL_HANDLE;
 	}
+}
+
+static void target_free(hwvk_device *d, scale_target *t) {
+	free_buffer(d, &t->work, &t->work_memory, NULL);
+	free_buffer(d, &t->out, &t->out_memory, &t->out_map);
+	if (t->pool) {
+		d->vkDestroyDescriptorPool(d->device, t->pool, NULL);
+	}
+	memset(t, 0, sizeof *t);
 }
 
 static void session_free(hwvk_session *s) {
@@ -647,9 +903,11 @@ void hwvk_session_close(hwvk_session *s) {
 	pthread_mutex_unlock(&d->mu);
 }
 
-void hwvk_describe(hwvk_device *d, char *name, size_t namelen, int *cached, int *device_local) {
+void hwvk_describe(hwvk_device *d, char *name, size_t namelen, int *cached, int *device_local, int *scales, char *why, size_t whylen) {
 	pthread_mutex_lock(&d->mu);
 	snprintf(name, namelen, "%s", d->name);
+	*scales = d->pipeline != VK_NULL_HANDLE;
+	snprintf(why, whylen, "%s", d->scale_why);
 	*cached = (d->readback_flags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) != 0;
 	*device_local = (d->readback_flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0;
 	pthread_mutex_unlock(&d->mu);
@@ -706,7 +964,6 @@ static int session_create(hwvk_session *s, uint32_t level, char *err, size_t err
 		extent.width = s->coded_w;
 		extent.height = s->coded_h;
 	}
-	uint32_t families[2] = {d->decode_family, d->transfer_family};
 	VkImageCreateInfo ii = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		.pNext = &d->profile_list,
@@ -719,9 +976,9 @@ static int session_create(hwvk_session *s, uint32_t level, char *err, size_t err
 		.samples = VK_SAMPLE_COUNT_1_BIT,
 		.tiling = d->format.imageTiling,
 		.usage = VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR | VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-		.sharingMode = families[0] == families[1] ? VK_SHARING_MODE_EXCLUSIVE : VK_SHARING_MODE_CONCURRENT,
-		.queueFamilyIndexCount = families[0] == families[1] ? 1 : 2,
-		.pQueueFamilyIndices = families,
+		.sharingMode = d->nfamilies == 1 ? VK_SHARING_MODE_EXCLUSIVE : VK_SHARING_MODE_CONCURRENT,
+		.queueFamilyIndexCount = d->nfamilies,
+		.pQueueFamilyIndices = d->families,
 		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 	};
 	VkResult r = d->vkCreateImage(d->device, &ii, NULL, &s->image);
@@ -1319,6 +1576,320 @@ int hwvk_read(hwvk_session *s, uint32_t surface, const uint8_t **nv12, uint32_t 
 	*nv12 = s->readback_map;
 	*pitch = s->coded_w;
 	*rows = s->coded_h;
+	return status;
+}
+
+// A buffer on the GPU, not mapped: where pictures are copied and averaged.
+static VkResult device_buffer(hwvk_device *d, VkDeviceSize size, VkBufferUsageFlags usage, VkBuffer *buf, VkDeviceMemory *mem) {
+	VkBufferCreateInfo bi = {
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.size = size,
+		.usage = usage,
+		.sharingMode = d->nfamilies == 1 ? VK_SHARING_MODE_EXCLUSIVE : VK_SHARING_MODE_CONCURRENT,
+		.queueFamilyIndexCount = d->nfamilies,
+		.pQueueFamilyIndices = d->families,
+	};
+	VkResult r = d->vkCreateBuffer(d->device, &bi, NULL, buf);
+	if (r != VK_SUCCESS) {
+		*buf = VK_NULL_HANDLE;
+		return r;
+	}
+	VkMemoryRequirements req;
+	d->vkGetBufferMemoryRequirements(d->device, *buf, &req);
+	r = allocate(d, req, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, mem);
+	if (r != VK_SUCCESS) {
+		*mem = VK_NULL_HANDLE;
+		return r;
+	}
+	return d->vkBindBufferMemory(d->device, *buf, *mem, 0);
+}
+
+static uint32_t align4(uint32_t v) {
+	return (v + 3) & ~3u;
+}
+
+// blocks_size is how many bytes the blocks of a picture take.
+static VkDeviceSize blocks_size(const hwvk_scale *p) {
+	if (p->same || (p->block_x == 1 && p->block_y == 1)) {
+		return 0;
+	}
+	uint32_t cw = (p->width + 1) / 2, ch = (p->height + 1) / 2;
+	uint32_t bw = (p->width + p->block_x - 1) / p->block_x, bh = (p->height + p->block_y - 1) / p->block_y;
+	uint32_t cbw = (cw + p->block_x - 1) / p->block_x, cbh = (ch + p->block_y - 1) / p->block_y;
+	return (VkDeviceSize)align4(bw) * bh + 2 * (VkDeviceSize)align4(cbw) * cbh;
+}
+
+// check_scale checks a scaling of a picture of rows of pitch bytes, rows
+// of luma, as hwvk_scale tells it, and fills the push constants for it.
+static int check_scale(const hwvk_scale *p, uint32_t pitch, uint32_t rows, uint32_t blocks, scale_push *pc, char *err, size_t errlen) {
+	int pow2 = p->block_x >= 1 && p->block_x <= 16 && !(p->block_x & (p->block_x - 1)) && p->block_y >= 1 && p->block_y <= 16 && !(p->block_y & (p->block_y - 1));
+	if (p->width == 0 || p->height == 0 || p->crop_left + p->width > pitch || p->crop_top + p->height > rows || p->dst_width == 0 || p->dst_height == 0 || p->dst_width > 4096 || p->dst_height > 4096 || !pow2 || (p->crop_left | p->crop_top) & 1) {
+		snprintf(err, errlen, "scaling of %ux%u at %u,%u of %ux%u to %ux%u in blocks of %ux%u", p->width, p->height, p->crop_left, p->crop_top, pitch, rows, p->dst_width, p->dst_height, p->block_x, p->block_y);
+		return HWVK_ERROR;
+	}
+	*pc = (scale_push){
+		.w = p->dst_width,
+		.h = p->dst_height,
+		.fx = p->block_x,
+		.fy = p->block_y,
+		.linear = p->linear,
+		.sw = p->width,
+		.sh = p->height,
+		.src_y = p->crop_top * pitch + p->crop_left,
+		.src_uv = pitch * rows + p->crop_top / 2 * pitch + p->crop_left / 2 * 2,
+		.pitch = pitch,
+		.blocks = blocks,
+		.gain = p->gain,
+		.black = p->black,
+		.rv = p->rv,
+		.gu = p->gu,
+		.gv = p->gv,
+		.bu = p->bu,
+	};
+	return HWVK_OK;
+}
+
+// target_ready makes t hold a picture of nv12 bytes with its blocks, and
+// pixels of out bytes, the work buffer mapped for the host when host is
+// set (the tests fill it); d->mu is held.
+static int target_ready(hwvk_device *d, scale_target *t, VkDeviceSize work, VkDeviceSize out, int host, uint8_t **work_map, char *err, size_t errlen) {
+	VkResult r;
+	if (work > t->work_size || host) {
+		free_buffer(d, &t->work, &t->work_memory, NULL);
+		t->work_size = 0;
+		VkBufferUsageFlags usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		r = host ? host_buffer(d, work, usage, NULL, 0, &t->work, &t->work_memory, work_map) : device_buffer(d, work, usage, &t->work, &t->work_memory);
+		if (r != VK_SUCCESS) {
+			free_buffer(d, &t->work, &t->work_memory, NULL);
+			return vk_fail(err, errlen, "scaler's work buffer", r);
+		}
+		t->work_size = work;
+	}
+	if (out > t->out_size) {
+		free_buffer(d, &t->out, &t->out_memory, &t->out_map);
+		t->out_size = 0;
+		// What the CPU reads, as the pictures read back: cached memory.
+		r = host_buffer(d, out, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, NULL, 1, &t->out, &t->out_memory, &t->out_map);
+		if (r != VK_SUCCESS) {
+			free_buffer(d, &t->out, &t->out_memory, &t->out_map);
+			return vk_fail(err, errlen, "scaler's pixel buffer", r);
+		}
+		t->out_size = out;
+	}
+	if (!t->pool) {
+		VkDescriptorPoolSize size = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2};
+		VkDescriptorPoolCreateInfo pi = {
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+			.maxSets = 1,
+			.poolSizeCount = 1,
+			.pPoolSizes = &size,
+		};
+		r = d->vkCreateDescriptorPool(d->device, &pi, NULL, &t->pool);
+		if (r != VK_SUCCESS) {
+			t->pool = VK_NULL_HANDLE;
+			return vk_fail(err, errlen, "vkCreateDescriptorPool", r);
+		}
+		VkDescriptorSetAllocateInfo ai = {
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+			.descriptorPool = t->pool,
+			.descriptorSetCount = 1,
+			.pSetLayouts = &d->set_layout,
+		};
+		r = d->vkAllocateDescriptorSets(d->device, &ai, &t->set);
+		if (r != VK_SUCCESS) {
+			d->vkDestroyDescriptorPool(d->device, t->pool, NULL);
+			t->pool = VK_NULL_HANDLE;
+			return vk_fail(err, errlen, "vkAllocateDescriptorSets", r);
+		}
+	}
+	// The set is not in use: every submission is waited for.
+	VkDescriptorBufferInfo buffers[2] = {
+		{t->work, 0, VK_WHOLE_SIZE},
+		{t->out, 0, VK_WHOLE_SIZE},
+	};
+	VkWriteDescriptorSet writes[2];
+	for (int i = 0; i < 2; i++) {
+		writes[i] = (VkWriteDescriptorSet){
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = t->set,
+			.dstBinding = (uint32_t)i,
+			.descriptorCount = 1,
+			.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+			.pBufferInfo = &buffers[i],
+		};
+	}
+	d->vkUpdateDescriptorSets(d->device, 2, writes, 0, NULL);
+	return HWVK_OK;
+}
+
+static void memory_barrier(hwvk_device *d, VkCommandBuffer cmd, VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access, VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access) {
+	VkMemoryBarrier2 b = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+		.srcStageMask = src_stage,
+		.srcAccessMask = src_access,
+		.dstStageMask = dst_stage,
+		.dstAccessMask = dst_access,
+	};
+	VkDependencyInfo dep = {
+		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+		.memoryBarrierCount = 1,
+		.pMemoryBarriers = &b,
+	};
+	d->vkCmdPipelineBarrier2(cmd, &dep);
+}
+
+// record_scale records the passes of the scaler over the picture in t's
+// work buffer, the pixels left in t's out for the host.
+static void record_scale(hwvk_device *d, VkCommandBuffer cmd, scale_target *t, const hwvk_scale *p, scale_push *pc) {
+	d->vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, d->pipeline);
+	d->vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, d->pipeline_layout, 0, 1, &t->set, 0, NULL);
+	if (!p->same && (p->block_x > 1 || p->block_y > 1)) {
+		// The blocks: an invocation for four of a row, the planes along z.
+		uint32_t bw = (p->width + p->block_x - 1) / p->block_x, bh = (p->height + p->block_y - 1) / p->block_y;
+		pc->mode = 0;
+		d->vkCmdPushConstants(cmd, d->pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof *pc, pc);
+		d->vkCmdDispatch(cmd, ((bw + 3) / 4 + 7) / 8, (bh + 7) / 8, 3);
+		memory_barrier(d, cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+	}
+	pc->mode = p->same ? 2 : 1;
+	d->vkCmdPushConstants(cmd, d->pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof *pc, pc);
+	d->vkCmdDispatch(cmd, (p->dst_width + 7) / 8, (p->dst_height + 7) / 8, 1);
+	memory_barrier(d, cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+		VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT);
+}
+
+// copy_pixels copies the pixels t's out holds into dst, rows of stride bytes.
+static void copy_pixels(scale_target *t, const hwvk_scale *p, uint8_t *dst, uint32_t stride) {
+	size_t row = (size_t)p->dst_width * 4;
+	if (stride == row) {
+		memcpy(dst, t->out_map, row * p->dst_height);
+		return;
+	}
+	for (uint32_t y = 0; y < p->dst_height; y++) {
+		memcpy(dst + (size_t)y * stride, t->out_map + y * row, row);
+	}
+}
+
+static int render_locked(hwvk_session *s, uint32_t surface, const hwvk_scale *p, uint8_t *dst, uint32_t stride, char *err, size_t errlen) {
+	hwvk_device *d = s->d;
+	if (d->lost) {
+		snprintf(err, errlen, "the device is lost");
+		return HWVK_LOST;
+	}
+	if (!d->pipeline) {
+		snprintf(err, errlen, "%s", d->scale_why);
+		return HWVK_UNSUPPORTED;
+	}
+	if (surface >= s->surfaces || s->layouts[surface] != VK_IMAGE_LAYOUT_VIDEO_DECODE_DPB_KHR) {
+		snprintf(err, errlen, "surface %u holds no picture", surface);
+		return HWVK_ERROR;
+	}
+	VkDeviceSize picture = (VkDeviceSize)s->coded_w * s->coded_h * 3 / 2;
+	scale_push pc;
+	int status = check_scale(p, s->coded_w, s->coded_h, (uint32_t)picture, &pc, err, errlen);
+	if (status != HWVK_OK) {
+		return status;
+	}
+	if (stride < p->dst_width * 4) {
+		snprintf(err, errlen, "rows of %u bytes for %u pixels", stride, p->dst_width);
+		return HWVK_ERROR;
+	}
+	status = target_ready(d, &d->target, picture + blocks_size(p), (VkDeviceSize)p->dst_width * p->dst_height * 4, 0, NULL, err, errlen);
+	if (status != HWVK_OK) {
+		return status;
+	}
+	VkCommandBuffer cmd = d->compute_cmd;
+	VkCommandBufferBeginInfo bi = {
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+	};
+	VkResult r = d->vkBeginCommandBuffer(cmd, &bi);
+	if (r != VK_SUCCESS) {
+		return vk_fail(err, errlen, "vkBeginCommandBuffer", r);
+	}
+	// The picture is copied as the readback copies it, but into the GPU's
+	// own memory: nothing of it crosses the bus.
+	image_barrier(d, cmd, s->image, surface, VK_IMAGE_LAYOUT_VIDEO_DECODE_DPB_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
+		VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+	VkBufferImageCopy regions[2] = {
+		{
+			.bufferOffset = 0,
+			.bufferRowLength = s->coded_w,
+			.bufferImageHeight = s->coded_h,
+			.imageSubresource = {VK_IMAGE_ASPECT_PLANE_0_BIT, 0, surface, 1},
+			.imageExtent = {s->coded_w, s->coded_h, 1},
+		},
+		{
+			.bufferOffset = (VkDeviceSize)s->coded_w * s->coded_h,
+			.bufferRowLength = s->coded_w / 2,
+			.bufferImageHeight = s->coded_h / 2,
+			.imageSubresource = {VK_IMAGE_ASPECT_PLANE_1_BIT, 0, surface, 1},
+			.imageExtent = {s->coded_w / 2, s->coded_h / 2, 1},
+		},
+	};
+	d->vkCmdCopyImageToBuffer(cmd, s->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, d->target.work, 2, regions);
+	image_barrier(d, cmd, s->image, surface, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_VIDEO_DECODE_DPB_KHR,
+		VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+		VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0);
+	memory_barrier(d, cmd, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+	record_scale(d, cmd, &d->target, p, &pc);
+	r = d->vkEndCommandBuffer(cmd);
+	if (r != VK_SUCCESS) {
+		return vk_fail(err, errlen, "vkEndCommandBuffer", r);
+	}
+	status = submit(d, d->compute_queue, cmd, err, errlen);
+	if (status == HWVK_OK) {
+		copy_pixels(&d->target, p, dst, stride);
+	}
+	return status;
+}
+
+int hwvk_render(hwvk_session *s, uint32_t surface, const hwvk_scale *p, uint8_t *dst, uint32_t stride, char *err, size_t errlen) {
+	pthread_mutex_lock(&s->d->mu);
+	int status = render_locked(s, surface, p, dst, stride, err, errlen);
+	pthread_mutex_unlock(&s->d->mu);
+	return status;
+}
+
+int hwvk_scale_nv12(hwvk_device *d, const uint8_t *nv12, uint32_t pitch, uint32_t rows, const hwvk_scale *p, uint8_t *dst, uint32_t stride, char *err, size_t errlen) {
+	if (pitch % 4 || rows % 2 || stride < p->dst_width * 4) {
+		snprintf(err, errlen, "a picture of %ux%u, rows of %u bytes", pitch, rows, stride);
+		return HWVK_ERROR;
+	}
+	pthread_mutex_lock(&d->mu);
+	VkDeviceSize picture = (VkDeviceSize)pitch * rows * 3 / 2;
+	scale_target t = {0};
+	uint8_t *work = NULL;
+	scale_push pc;
+	int status = check_scale(p, pitch, rows, (uint32_t)picture, &pc, err, errlen);
+	if (status == HWVK_OK) {
+		status = target_ready(d, &t, picture + blocks_size(p), (VkDeviceSize)p->dst_width * p->dst_height * 4, 1, &work, err, errlen);
+	}
+	if (status == HWVK_OK) {
+		memcpy(work, nv12, picture);
+		VkCommandBuffer cmd = d->compute_cmd;
+		VkCommandBufferBeginInfo bi = {
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+			.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+		};
+		VkResult r = d->vkBeginCommandBuffer(cmd, &bi);
+		if (r == VK_SUCCESS) {
+			record_scale(d, cmd, &t, p, &pc);
+			r = d->vkEndCommandBuffer(cmd);
+		}
+		status = r == VK_SUCCESS ? submit(d, d->compute_queue, cmd, err, errlen) : vk_fail(err, errlen, "command buffer", r);
+	}
+	if (status == HWVK_OK) {
+		copy_pixels(&t, p, dst, stride);
+	}
+	if (work) {
+		d->vkUnmapMemory(d->device, t.work_memory);
+	}
+	target_free(d, &t);
+	pthread_mutex_unlock(&d->mu);
 	return status;
 }
 

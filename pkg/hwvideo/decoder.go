@@ -20,8 +20,11 @@ package hwvideo
 
 import (
 	"errors"
+	"fmt"
 	"image"
 	"slices"
+
+	"komarugram/pkg/resample"
 )
 
 // ref is a reference picture of the picture being decoded.
@@ -70,6 +73,12 @@ type session interface {
 	// read copies the picture of surface, without what sps crops off it,
 	// into dst, whose planes are reused when large enough.
 	read(surface int, sps *SPS, dst *image.YCbCr) error
+	// render scales the picture of surface, without what sps crops off
+	// it, to the size of dst and converts it to RGB as plan says, on the
+	// GPU: only dst's pixels are read back. An error that is errNoRender
+	// tells the session cannot, and the picture is read and scaled on the
+	// CPU instead.
+	render(surface int, sps *SPS, plan resample.Plan, dst *image.RGBA) error
 	// reset makes a session of a stream that ended ready for a new one:
 	// nothing of the pictures before is referred to again.
 	reset()
@@ -101,6 +110,15 @@ type refusal struct{ err error }
 func (r refusal) Error() string        { return r.err.Error() }
 func (r refusal) Unwrap() error        { return r.err }
 func (r refusal) Is(target error) bool { return target == errRefused }
+
+// errNoRender is matched by the error of a session that does not scale
+// pictures on the GPU: they are read back whole and scaled on the CPU.
+var errNoRender = errors.New("hwvideo: pictures not scaled on the GPU")
+
+// noRender is an error of errNoRender, for why.
+func noRender(format string, args ...any) error {
+	return fmt.Errorf("%w: "+format, append([]any{errNoRender}, args...)...)
+}
 
 // errDeviceLost is the error of a GPU that was lost or hangs: the helper
 // ends on it, and its client decodes nothing more in hardware.
@@ -704,6 +722,20 @@ func (d *Decoder) Read(dst *image.YCbCr) error {
 		return malformed("no picture taken")
 	}
 	return d.session.read(d.current.surface, d.active, dst)
+}
+
+// Render scales the picture taken last to the size of dst on the GPU, as
+// plan says (resample.VideoScaler.Plan for the picture's size), into dst,
+// an image at the origin whose rows are Stride bytes apart. An error of
+// errNoRender is a session that cannot: Read it and scale it on the CPU.
+func (d *Decoder) Render(plan resample.Plan, dst *image.RGBA) error {
+	if d.current == nil {
+		return malformed("no picture taken")
+	}
+	if dst.Rect.Min != (image.Point{}) || dst.Rect.Empty() || len(dst.Pix) < (dst.Rect.Dy()-1)*dst.Stride+dst.Rect.Dx()*4 {
+		return malformed("rendered into %v", dst.Rect)
+	}
+	return d.session.render(d.current.surface, d.active, plan, dst)
 }
 
 // Flush forgets every picture, to go on from a keyframe.

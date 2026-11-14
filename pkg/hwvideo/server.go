@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"log"
 	"os"
 	"runtime/debug"
 	"runtime/pprof"
@@ -41,6 +42,9 @@ type stream struct {
 	// rgba is the picture rendered last, its pixels the answer: the next
 	// render request of the stream comes after that answer is sent.
 	rgba image.RGBA
+	// cpu is set once its session refused to scale on the GPU: the
+	// pictures are read back whole and scaled here from then on.
+	cpu bool
 }
 
 // server is the helper: the device and the streams decoded on it.
@@ -56,6 +60,8 @@ type server struct {
 	pictures []image.YCbCr
 	// quit is closed once the requests end: a profile recording stops.
 	quit chan struct{}
+	// toldCPU is set once a stream scaled on the CPU was told in the log.
+	toldCPU atomic.Bool
 }
 
 // Serve is the helper: it decodes the streams asked for on r and answers
@@ -173,12 +179,6 @@ func (s *server) do(m message) ([]byte, error) {
 		if !st.taken {
 			return nil, malformed("no picture taken")
 		}
-		if !st.read {
-			if err := st.decoder.Read(&st.picture); err != nil {
-				return nil, err
-			}
-			st.read = true
-		}
 		st.scaler.Rough = m.body[8] == 1
 		dst := &st.rgba
 		if n := w * h * 4; cap(dst.Pix) < n {
@@ -187,6 +187,26 @@ func (s *server) do(m message) ([]byte, error) {
 			dst.Pix = dst.Pix[:n]
 		}
 		dst.Stride, dst.Rect = w*4, image.Rect(0, 0, w, h)
+		if !st.cpu {
+			size := st.decoder.Size()
+			err := st.decoder.Render(st.scaler.Plan(size.X, size.Y, w, h), dst)
+			if !errors.Is(err, errNoRender) {
+				if err != nil {
+					return nil, err
+				}
+				return dst.Pix, nil
+			}
+			st.cpu = true
+			if s.toldCPU.CompareAndSwap(false, true) {
+				log.Printf("hwvideo: the pictures of a stream are scaled on the CPU: %v", err)
+			}
+		}
+		if !st.read {
+			if err := st.decoder.Read(&st.picture); err != nil {
+				return nil, err
+			}
+			st.read = true
+		}
 		st.scaler.ResizeInto(dst, &st.picture, nil)
 		return dst.Pix, nil
 	case opFlush:

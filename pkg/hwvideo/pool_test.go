@@ -6,6 +6,8 @@ import (
 	"image"
 	"testing"
 	"time"
+
+	"komarugram/pkg/resample"
 )
 
 // countingDevice makes sessions that count what is done to them.
@@ -33,6 +35,9 @@ func (d *countingDevice) close() {}
 func (s *countingSession) decode(p *picture) error { return nil }
 func (s *countingSession) read(surface int, sps *SPS, dst *image.YCbCr) error {
 	return nil
+}
+func (s *countingSession) render(surface int, sps *SPS, plan resample.Plan, dst *image.RGBA) error {
+	return noRender("a counting session")
 }
 func (s *countingSession) reset() { s.resets++ }
 func (s *countingSession) close() {

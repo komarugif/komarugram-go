@@ -75,8 +75,9 @@ void hwvk_device_close(hwvk_device *d);
 int hwvk_session_open(hwvk_device *d, uint32_t width_mbs, uint32_t height_mbs, uint32_t level, uint32_t refs, uint32_t surfaces, hwvk_session **out, char *err, size_t errlen);
 void hwvk_session_close(hwvk_session *s);
 
-// The device's name, and whether the memory pictures are read back from is cached and on the GPU.
-void hwvk_describe(hwvk_device *d, char *name, size_t namelen, int *cached, int *device_local);
+// The device's name, whether the memory pictures are read back from is cached and on the GPU,
+// and whether pictures are scaled on it, or why not.
+void hwvk_describe(hwvk_device *d, char *name, size_t namelen, int *cached, int *device_local, int *scales, char *why, size_t whylen);
 
 // Makes the session ready for a new stream: its DPB is reset at the next picture, no slot held.
 void hwvk_session_reset(hwvk_session *s);
@@ -89,3 +90,23 @@ int hwvk_decode(hwvk_session *s, const hwvk_pic *p, const uint8_t *data, size_t 
 
 // Copies surface to host memory as NV12 rows of pitch bytes, valid until the session's next read.
 int hwvk_read(hwvk_session *s, uint32_t surface, const uint8_t **nv12, uint32_t *pitch, uint32_t *rows, char *err, size_t errlen);
+
+// A scaling of a picture to RGBA, as resample.Plan describes it.
+typedef struct {
+	// The picture, cropped, and where it starts in the decoded one: an even place.
+	uint32_t width, height, crop_left, crop_top;
+	uint32_t dst_width, dst_height;
+	// The blocks averaged first, powers of two up to 16.
+	uint32_t block_x, block_y;
+	uint32_t same, linear;
+	float gain, black, rv, gu, gv, bu;
+} hwvk_scale;
+
+// Scales the picture of surface on the GPU into dst, rows of stride bytes of RGBA; HWVK_UNSUPPORTED
+// when the device has no scaler, err telling why.
+int hwvk_render(hwvk_session *s, uint32_t surface, const hwvk_scale *p, uint8_t *dst, uint32_t stride, char *err, size_t errlen);
+
+// For the scaler's tests: a device that only scales, any that computes, and a scaling of a picture
+// from the host, NV12 rows of pitch bytes, rows of luma then rows/2 of chroma.
+int hwvk_compute_open(hwvk_device **out, char *err, size_t errlen);
+int hwvk_scale_nv12(hwvk_device *d, const uint8_t *nv12, uint32_t pitch, uint32_t rows, const hwvk_scale *p, uint8_t *dst, uint32_t stride, char *err, size_t errlen);

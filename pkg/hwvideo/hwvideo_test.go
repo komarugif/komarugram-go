@@ -17,6 +17,7 @@ import (
 
 	"komarugram/pkg/mp4"
 	"komarugram/pkg/program"
+	"komarugram/pkg/resample"
 )
 
 // helperEnv makes the test binary a helper: "fake" decodes on a device
@@ -38,6 +39,8 @@ func TestMain(m *testing.M) {
 		_ = serve(os.Stdin, os.Stdout, func() (device, error) { return nil, unsupported("no GPU") })
 	case "refuse":
 		_ = serve(os.Stdin, os.Stdout, func() (device, error) { return &fakeDevice{refuse: true}, nil })
+	case "gpu":
+		_ = serve(os.Stdin, os.Stdout, func() (device, error) { return &fakeDevice{renders: true}, nil })
 	}
 	os.Exit(0)
 }
@@ -72,6 +75,10 @@ type fakeDevice struct {
 	refuse   bool
 	pictures []*picture
 	surfaces map[int]int
+	// renders scales pictures "on the GPU": each pixel the number of the
+	// picture, the blocks of the plan and 0xa5, an alpha the CPU never
+	// gives; otherwise it does not, and they are scaled on the CPU.
+	renders bool
 }
 
 func (d *fakeDevice) open(sps *SPS, surfaces int) (session, error) {
@@ -101,6 +108,17 @@ func (d *fakeDevice) read(surface int, sps *SPS, dst *image.YCbCr) error {
 	sizeYCbCr(dst, sps.Width(), sps.Height())
 	clear(dst.Y)
 	dst.Y[0], dst.Y[1] = byte(d.surfaces[surface]), byte(d.surfaces[surface]>>8)
+	return nil
+}
+
+func (d *fakeDevice) render(surface int, sps *SPS, plan resample.Plan, dst *image.RGBA) error {
+	if !d.renders {
+		return noRender("a fake device")
+	}
+	n := d.surfaces[surface]
+	for i := 0; i+3 < len(dst.Pix); i += 4 {
+		dst.Pix[i], dst.Pix[i+1], dst.Pix[i+2], dst.Pix[i+3] = byte(n), byte(plan.BlockX), byte(plan.BlockY), 0xa5
+	}
 	return nil
 }
 
@@ -546,4 +564,40 @@ func FuzzParameterSets(f *testing.F) {
 		_, _ = parseSliceHeader(nal, func(uint8) (*SPS, *PPS) { return known, pps })
 		_, _ = parseAVCConfig(nal)
 	})
+}
+
+// TestRendersOnGPU checks the helper has a session that scales pictures
+// on the GPU do it, with the plan of the CPU's scaler, and scales them
+// itself where the session cannot.
+func TestRendersOnGPU(t *testing.T) {
+	file := testFile(t)
+	size := image.Pt(36, 64)
+	// The CPU's blocks for this size: what the GPU is told to average.
+	plan := (&resample.VideoScaler{}).Plan(file.Width, file.Height, size.X, size.Y)
+	for _, mode := range []string{"gpu", "fake"} {
+		t.Run(mode, func(t *testing.T) {
+			c := testClient(t, mode)
+			v, err := c.Open(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer v.Close(context.Background())
+			for range 3 {
+				if _, err := v.Next(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				im := image.NewRGBA(image.Rectangle{Max: size})
+				if v.PictureInto(im) == nil {
+					t.Fatal(v.Err())
+				}
+				p := im.Pix[len(im.Pix)-4:]
+				switch {
+				case mode == "gpu" && (p[3] != 0xa5 || int(p[1]) != plan.BlockX || int(p[2]) != plan.BlockY):
+					t.Fatalf("a picture not scaled on the GPU as planned: %v, want blocks of %dx%d", p, plan.BlockX, plan.BlockY)
+				case mode == "fake" && p[3] != 0xff:
+					t.Fatalf("a picture not scaled on the CPU: %v", p)
+				}
+			}
+		})
+	}
 }
