@@ -24,7 +24,12 @@ HardwareGIFs`), shown where the system has a decoder to try.
   million runs, no finding).
 - **The helper**: the client's own binary with `-video-decoder`
   (`Serve`), started by `Client` when the first GIF of the list is opened,
-  stopped 10 s after the last is closed. The window demuxes the MP4 and
+  stopped 10 s after the last is closed, and at once when every window
+  has been hidden or closed for 5 s (`appwindow.OnAllHidden`, as the
+  memory is given back): a hidden window draws nothing. A helper stopped so
+  fails nothing (`ErrStopped`): the next GIF a window shown plays starts a
+  new one. Streams are counted by helper, so that those of one stopped,
+  ending late, do not count against the next. The window demuxes the MP4 and
   sends samples over the helper's standard input; the helper reads no
   file. A helper that ends on its own fails the client: every GIF goes
   back to software for the rest of the session, and the settings tell so;

@@ -3,6 +3,7 @@
 package chatmedia
 
 import (
+	"errors"
 	"image"
 	"os"
 	"os/exec"
@@ -126,5 +127,19 @@ func TestSavedGIFsWithoutHardwarePlayAsBefore(t *testing.T) {
 	}
 	if _, failed := m.hardwareFailed.Load(msg.Media.ID); !failed {
 		t.Fatal("the GIF was not left to software")
+	}
+}
+
+// stoppedVideo is a video whose helper was stopped.
+type stoppedVideo struct{ gifVideo }
+
+func (stoppedVideo) Err() error { return hwvideo.ErrStopped }
+
+// A picture missing because the helper was stopped, every window hidden,
+// tells so, for the GIF not to be taken as failed on the GPU.
+func TestNoPictureTellsWhy(t *testing.T) {
+	err := noPicture(stoppedVideo{})
+	if !errors.Is(err, errNoPicture) || !errors.Is(err, hwvideo.ErrStopped) {
+		t.Fatalf("%v", err)
 	}
 }

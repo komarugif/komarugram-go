@@ -61,3 +61,24 @@ func TestReleaseMemoryLaterPutsOffTheRelease(t *testing.T) {
 		t.Fatal("showing the view again kept the release")
 	}
 }
+
+// What serves only drawing is told when every window is hidden, before the
+// memory is given back.
+func TestAllHiddenTellsTheHooks(t *testing.T) {
+	hiddenHooks.mu.Lock()
+	saved := hiddenHooks.fs
+	hiddenHooks.fs = nil
+	hiddenHooks.mu.Unlock()
+	defer func() {
+		hiddenHooks.mu.Lock()
+		hiddenHooks.fs = saved
+		hiddenHooks.mu.Unlock()
+	}()
+	var told []int
+	OnAllHidden(func() { told = append(told, 1) })
+	OnAllHidden(func() { told = append(told, 2) })
+	allHidden()
+	if len(told) != 2 || told[0] != 1 || told[1] != 2 {
+		t.Fatalf("told %v", told)
+	}
+}

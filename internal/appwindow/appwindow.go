@@ -16,6 +16,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -354,6 +355,7 @@ func (h *Host) scheduleReleaseLocked() {
 		h.release = nil
 		h.mu.Unlock()
 		if current {
+			allHidden()
 			releaseMemory()
 		}
 	})
@@ -438,6 +440,33 @@ func (h *Host) releaseLaterLocked() {
 
 // releaseMemory collects garbage and returns the freed pages to the system,
 // which the Go runtime otherwise does only gradually and the C heap not at all.
+// hiddenHooks are what OnAllHidden was given.
+var hiddenHooks struct {
+	mu sync.Mutex
+	fs []func()
+}
+
+// OnAllHidden has f called whenever every window has been hidden or closed
+// for releaseDelay, the process waiting in the background, before the
+// memory is given back: for what serves only drawing, such as the processes
+// that decode GIFs on the GPU. It runs on a goroutine of its own; a panic
+// in it is reported and the others still run.
+func OnAllHidden(f func()) {
+	hiddenHooks.mu.Lock()
+	defer hiddenHooks.mu.Unlock()
+	hiddenHooks.fs = append(hiddenHooks.fs, f)
+}
+
+// allHidden calls what OnAllHidden was given.
+func allHidden() {
+	hiddenHooks.mu.Lock()
+	fs := slices.Clone(hiddenHooks.fs)
+	hiddenHooks.mu.Unlock()
+	for _, f := range fs {
+		crash.Guard("all windows hidden", f)
+	}
+}
+
 func releaseMemory() {
 	start := time.Now()
 	debug.FreeOSMemory()

@@ -19,6 +19,7 @@ import (
 
 	"gio-mw/token"
 	"gio-mw/widget/radio"
+	"komarugram/internal/appwindow"
 	"komarugram/internal/crash"
 	"komarugram/internal/diagnostics"
 	"komarugram/internal/messenger/localization"
@@ -408,6 +409,14 @@ func (v *graphicsView) Layout(gtx layout.Context, l localization.Catalog, height
 var hardwareVideo atomic.Pointer[hwvideo.Client]
 
 func init() {
+	// Every window hidden draws nothing: the helpers that decode GIFs for
+	// them are stopped, not left to stop on their own, and start again with
+	// the next GIF a window shown plays.
+	appwindow.OnAllHidden(func() {
+		if c := hardwareVideo.Load(); c != nil {
+			c.Close()
+		}
+	})
 	// The profiler records the helpers that decode on the graphics card
 	// with the process: their CPU goes there, not here.
 	diagnostics.SetChildProfiler("hwvideo", func(ctx context.Context, kind string, d time.Duration) []diagnostics.ChildProfile {
