@@ -4,6 +4,7 @@ package ui
 
 import (
 	"image"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,6 +30,131 @@ var (
 	testNVIDIA = app.VulkanDevice{Driver: "nvidia_icd.json", VendorID: 0x10de, DeviceID: 0x25a2, Name: "NVIDIA GeForce RTX 3050 Laptop GPU", Kind: app.VulkanDeviceDiscrete, API: "Vulkan 1.4.312", Version: "610.43.3"}
 )
 
+var (
+	testD3D11Intel  = app.D3D11Adapter{VendorID: 0x8086, DeviceID: 0x46a6, Name: "Intel(R) Iris(R) Xe Graphics", Kind: app.VulkanDeviceIntegrated, Version: "32.0.101.6979"}
+	testD3D11NVIDIA = app.D3D11Adapter{VendorID: 0x10de, DeviceID: 0x25a5, Name: "NVIDIA GeForce RTX 3050 Laptop GPU", Kind: app.VulkanDeviceDiscrete, Version: "32.0.15.6109"}
+)
+
+// newTestAdapterView is a section of hardware acceleration on Windows with
+// two GPUs, Intel's the default, keeping the setting in g and counting the
+// listings of adapters.
+func newTestAdapterView(g *preferences.Graphics, listings *atomic.Int32) *graphicsView {
+	v := newGraphicsView(func() {})
+	v.info = func() gpu.DeviceInfo {
+		return gpu.DeviceInfo{API: "Direct3D 11", Device: "Intel(R) Iris(R) Xe Graphics (8086:46a6)", Driver: "32.0.101.6979"}
+	}
+	v.choice = func() bool { return false }
+	v.devices = func() ([]app.VulkanDevice, error) {
+		panic("listed the Vulkan devices on Windows")
+	}
+	v.adapterChoice = func() bool { return true }
+	v.adapters = func() ([]app.D3D11Adapter, error) {
+		listings.Add(1)
+		return []app.D3D11Adapter{testD3D11Intel, testD3D11NVIDIA}, nil
+	}
+	v.adapterFailed = func() bool { return false }
+	v.get = func() preferences.Graphics { return *g }
+	v.set = func(n preferences.Graphics) { *g = n }
+	return v
+}
+
+// On Windows the section offers the Direct3D 11 adapters, listed once, and
+// no graphics API; the adapter chosen is kept, and makes the windows' GPUs
+// anew.
+func TestGraphicsD3D11Adapters(t *testing.T) {
+	l := localization.For("ru")
+	var g preferences.Graphics
+	var listings atomic.Int32
+	v := newTestAdapterView(&g, &listings)
+	for range 3 {
+		layoutGraphics(v, l)
+	}
+	if v.api != nil || v.device != nil {
+		t.Fatal("offered the graphics API or a Vulkan device on Windows")
+	}
+	if n := listings.Load(); n != 1 {
+		t.Fatalf("listed the adapters %d times", n)
+	}
+	intelKey := d3d11AdapterKey(testD3D11Intel.VendorID, testD3D11Intel.DeviceID)
+	nvidiaKey := d3d11AdapterKey(testD3D11NVIDIA.VendorID, testD3D11NVIDIA.DeviceID)
+	if want := []string{"", intelKey, nvidiaKey}; !slices.Equal(v.adapterKeys, want) {
+		t.Fatalf("adapters offered %q, want %q", v.adapterKeys, want)
+	}
+	if v.adapter.GetValue() != "" {
+		t.Fatalf("shown chosen %q, not the default", v.adapter.GetValue())
+	}
+	before := g
+	v.chooseAdapter(preferences.D3D11Adapter{VendorID: testD3D11NVIDIA.VendorID, DeviceID: testD3D11NVIDIA.DeviceID, Name: testD3D11NVIDIA.Name, Kind: uint8(testD3D11NVIDIA.Kind)})
+	if g.D3D11.DeviceID != testD3D11NVIDIA.DeviceID || g.API != preferences.GraphicsAuto {
+		t.Fatalf("kept %+v", g)
+	}
+	if !graphicsChanged(before, g) {
+		t.Fatal("another adapter does not make the windows' GPUs anew")
+	}
+	layoutGraphics(v, l)
+	if got := v.adapter.GetValue(); got != nvidiaKey {
+		t.Fatalf("shown chosen %q", got)
+	}
+	if want := "Intel(R) Iris(R) Xe Graphics · встроенная · драйвер 32.0.101.6979"; deviceLabel(l, testD3D11Intel.Name, uint8(testD3D11Intel.Kind), testD3D11Intel.Version) != want {
+		t.Fatalf("label %q", deviceLabel(l, testD3D11Intel.Name, uint8(testD3D11Intel.Kind), testD3D11Intel.Version))
+	}
+}
+
+// An adapter chosen and gone, as an external GPU unplugged, keeps its place
+// as not found.
+func TestGraphicsD3D11AdapterMissing(t *testing.T) {
+	l := localization.For("en")
+	amd := preferences.D3D11Adapter{VendorID: 0x1002, DeviceID: 0x73df, Name: "AMD Radeon RX 6700 XT", Kind: uint8(app.VulkanDeviceOther)}
+	g := preferences.Graphics{D3D11: amd}
+	v := newTestAdapterView(&g, new(atomic.Int32))
+	layoutGraphics(v, l)
+	key := d3d11AdapterKey(amd.VendorID, amd.DeviceID)
+	if len(v.adapterKeys) != 4 || v.adapterKeys[3] != key || v.adapter.GetValue() != key {
+		t.Fatalf("offered %q, chosen %q", v.adapterKeys, v.adapter.GetValue())
+	}
+}
+
+// The card of the adapter tells that a start takes longer while a discrete
+// GPU sleeps, when it draws: chosen, or the system's default.
+func TestDrawsOnDiscreteAdapter(t *testing.T) {
+	shown := []app.D3D11Adapter{testD3D11Intel, testD3D11NVIDIA}
+	nvidia := preferences.D3D11Adapter{VendorID: testD3D11NVIDIA.VendorID, DeviceID: testD3D11NVIDIA.DeviceID}
+	intel := preferences.D3D11Adapter{VendorID: testD3D11Intel.VendorID, DeviceID: testD3D11Intel.DeviceID}
+	for _, c := range []struct {
+		name  string
+		g     preferences.Graphics
+		shown []app.D3D11Adapter
+		want  bool
+	}{
+		{"nvidia chosen", preferences.Graphics{D3D11: nvidia}, shown, true},
+		{"intel chosen", preferences.Graphics{D3D11: intel}, shown, false},
+		{"intel the default", preferences.Graphics{}, shown, false},
+		{"nvidia the default", preferences.Graphics{}, []app.D3D11Adapter{testD3D11NVIDIA, testD3D11Intel}, true},
+		{"nvidia kept, not listed", preferences.Graphics{D3D11: preferences.D3D11Adapter{VendorID: 0x10de, DeviceID: 0x25a5, Kind: uint8(app.VulkanDeviceDiscrete)}}, nil, true},
+	} {
+		if got := drawsOnDiscreteAdapter(c.g, c.shown); got != c.want {
+			t.Errorf("%s: %v", c.name, got)
+		}
+	}
+}
+
+// Where the adapter chosen could not draw, the card tells that the default
+// one draws, and the note of a discrete GPU asleep follows the default.
+func TestAdapterNotesFailed(t *testing.T) {
+	l := localization.For("en")
+	nvidia := preferences.Graphics{D3D11: preferences.D3D11Adapter{VendorID: testD3D11NVIDIA.VendorID, DeviceID: testD3D11NVIDIA.DeviceID}}
+	shown := []app.D3D11Adapter{testD3D11Intel, testD3D11NVIDIA}
+	if got := adapterNotes(l, nvidia, shown, nil, false); !slices.Equal(got, []string{l.T("graphics.discrete_note")}) {
+		t.Fatalf("NVIDIA drawing: %q", got)
+	}
+	if got := adapterNotes(l, nvidia, shown, nil, true); !slices.Equal(got, []string{l.T("graphics.adapter_failed")}) {
+		t.Fatalf("NVIDIA failed, Intel the default drawing: %q", got)
+	}
+	if !strings.Contains(localization.For("ru").T("graphics.adapter_failed"), "по умолчанию") {
+		t.Fatal("the note is not in the Russian language file")
+	}
+}
+
 // newTestGraphicsView is a section of hardware acceleration on Wayland with
 // two GPUs, keeping the setting in g and counting the listings of devices,
 // which wake GPUs up.
@@ -42,6 +168,7 @@ func newTestGraphicsView(g *preferences.Graphics, listings *atomic.Int32) *graph
 		listings.Add(1)
 		return []app.VulkanDevice{testIntel, testNVIDIA}, nil
 	}
+	v.adapterChoice = func() bool { return false }
 	v.get = func() preferences.Graphics { return *g }
 	v.set = func(n preferences.Graphics) { *g = n }
 	return v
@@ -106,6 +233,12 @@ func TestApplyGraphics(t *testing.T) {
 	ApplyGraphics(preferences.Graphics{API: preferences.GraphicsVulkan, Vulkan: preferences.VulkanDevice{Driver: "intel_icd.x86_64.json", VendorID: 0x8086, DeviceID: 0x4626, Name: "Intel"}})
 	got := app.CurrentGraphics()
 	want := app.Graphics{API: app.GraphicsVulkan, Vulkan: app.VulkanDevice{Driver: "intel_icd.x86_64.json", VendorID: 0x8086, DeviceID: 0x4626, Name: "Intel"}}
+	if got != want {
+		t.Fatalf("Gio has %+v, want %+v", got, want)
+	}
+	ApplyGraphics(preferences.Graphics{D3D11: preferences.D3D11Adapter{VendorID: 0x10de, DeviceID: 0x25a5, Name: "NVIDIA", Kind: uint8(app.VulkanDeviceDiscrete)}})
+	got = app.CurrentGraphics()
+	want = app.Graphics{D3D11: app.D3D11Adapter{VendorID: 0x10de, DeviceID: 0x25a5, Name: "NVIDIA"}}
 	if got != want {
 		t.Fatalf("Gio has %+v, want %+v", got, want)
 	}

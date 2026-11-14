@@ -325,6 +325,16 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		}
 		size.Y = 1100
 	}
+	if section := os.Getenv("SETTINGS_SECTION"); section == "graphics-d3d11" {
+		// Windows on a laptop with two GPUs, the NVIDIA one chosen.
+		p.section = settingsGraphics
+		g := preferences.Graphics{D3D11: preferences.D3D11Adapter{VendorID: testD3D11NVIDIA.VendorID, DeviceID: testD3D11NVIDIA.DeviceID, Name: testD3D11NVIDIA.Name, Kind: uint8(testD3D11NVIDIA.Kind)}}
+		p.graphics = newTestAdapterView(&g, new(atomic.Int32))
+		p.graphics.info = func() gpu.DeviceInfo {
+			return gpu.DeviceInfo{API: "Direct3D 11", Device: "NVIDIA GeForce RTX 3050 Laptop GPU (10de:25a5)", Driver: "32.0.15.6109"}
+		}
+		size.Y = 900
+	}
 	if os.Getenv("SETTINGS_SECTION") == "power" {
 		p.section = settingsPower
 		pause := true

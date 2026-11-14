@@ -876,6 +876,9 @@
 "gift.title" = "Gift";
 "gift.value" = "Value";
 
+"graphics.adapter" = "D3D11 device";
+"graphics.adapter_auto" = "Automatic: the system's default";
+"graphics.adapter_failed" = "The chosen graphics card could not draw the windows; the default one draws them instead.";
 "graphics.api" = "Graphics API";
 "graphics.api_auto" = "Automatic";
 "graphics.api_auto_chosen" = "Automatic ({api})";

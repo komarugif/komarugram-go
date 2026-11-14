@@ -43,15 +43,19 @@ func ApplyGraphics(g preferences.Graphics) {
 		VendorID: d.VendorID,
 		DeviceID: d.DeviceID,
 		Name:     d.Name,
-	}, VulkanFailed: g.VulkanFailed})
+	}, VulkanFailed: g.VulkanFailed, D3D11: app.D3D11Adapter{
+		VendorID: g.D3D11.VendorID,
+		DeviceID: g.D3D11.DeviceID,
+		Name:     g.D3D11.Name,
+	}})
 }
 
 // graphicsChanged reports whether what windows are drawn with changes from
-// before to after: the API, or the Vulkan device while Vulkan may draw
-// them, chosen or automatically. The windows then make their GPU anew
-// (app.ResetGPUs).
+// before to after: the API, the Direct3D 11 adapter, or the Vulkan device
+// while Vulkan may draw them, chosen or automatically. The windows then
+// make their GPU anew (app.ResetGPUs).
 func graphicsChanged(before, after preferences.Graphics) bool {
-	if before.API != after.API {
+	if before.API != after.API || !before.D3D11.Same(after.D3D11) {
 		return true
 	}
 	return after.API != preferences.GraphicsOpenGL && !before.Effective().Same(after.Effective())
@@ -207,18 +211,33 @@ func rememberVulkanFailed(store graphicsStore, failed bool) {
 }
 
 // graphicsView is the settings' section of hardware acceleration: what the
-// windows are drawn with and, where there is a choice (Wayland), the
-// graphics API and the Vulkan device to draw with.
+// windows are drawn with and, where there is a choice, the graphics API and
+// the Vulkan device to draw with (Wayland), or the Direct3D 11 adapter
+// (Windows).
 type graphicsView struct {
 	// get and set are the setting; the section shows no choice without them.
 	get func() preferences.Graphics
 	set func(preferences.Graphics)
-	// info, choice and devices are Gio's (app.GPUInfo, GraphicsChoice,
-	// VulkanDevices), replaced in tests.
-	info       func() gpu.DeviceInfo
-	choice     func() bool
-	devices    func() ([]app.VulkanDevice, error)
-	invalidate func()
+	// info, choice, devices, adapterChoice, adapters and adapterFailed are
+	// Gio's (app.GPUInfo, GraphicsChoice, VulkanDevices, D3D11AdapterChoice,
+	// D3D11Adapters, D3D11AdapterFailed), replaced in tests.
+	info          func() gpu.DeviceInfo
+	choice        func() bool
+	devices       func() ([]app.VulkanDevice, error)
+	adapterChoice func() bool
+	adapters      func() ([]app.D3D11Adapter, error)
+	adapterFailed func() bool
+	invalidate    func()
+
+	// adapter chooses among "" (the system's default) and the keys of the
+	// adapters listed; adapterKeys is what it was made with. The adapters
+	// are listed once, the first time the card is shown: listing them wakes
+	// no GPU up.
+	adapter       *radio.Radios[string]
+	adapterKeys   []string
+	adaptersDone  bool
+	adaptersShown []app.D3D11Adapter
+	adaptersErr   error
 
 	api *radio.Radios[string]
 	// gifs chooses what decodes the saved GIFs, "" for software and
@@ -244,11 +263,14 @@ type graphicsView struct {
 
 func newGraphicsView(invalidate func()) *graphicsView {
 	return &graphicsView{
-		info:       app.GPUInfo,
-		choice:     app.GraphicsChoice,
-		devices:    app.VulkanDevices,
-		invalidate: invalidate,
-		hardware:   hwvideo.Available,
+		info:          app.GPUInfo,
+		choice:        app.GraphicsChoice,
+		devices:       app.VulkanDevices,
+		adapterChoice: app.D3D11AdapterChoice,
+		adapters:      app.D3D11Adapters,
+		adapterFailed: app.D3D11AdapterFailed,
+		invalidate:    invalidate,
+		hardware:      hwvideo.Available,
 		hardwareFailed: func() error {
 			if c := hardwareVideo.Load(); c != nil {
 				return c.Failed()
@@ -256,6 +278,14 @@ func newGraphicsView(invalidate func()) *graphicsView {
 			return nil
 		},
 	}
+}
+
+// d3d11AdapterKey names an adapter among the others: its ids.
+func d3d11AdapterKey(vendorID, deviceID uint32) string {
+	if vendorID == 0 && deviceID == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%04x:%04x", vendorID, deviceID)
 }
 
 // vulkanDeviceKey names a device among the others: its driver and ids.
@@ -329,6 +359,11 @@ func (v *graphicsView) Layout(gtx layout.Context, l localization.Catalog, height
 				return v.layoutDevices(gtx, l, height("graphics-device"))
 			}))
 		}
+	}
+	if v.get != nil && v.adapterChoice() {
+		cards = append(cards, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return v.layoutAdapters(gtx, l, height("graphics-adapter"))
+		}))
 	}
 	if v.get != nil && v.hardware != nil && v.hardware() {
 		g := v.get()
@@ -408,6 +443,98 @@ func resetHardwareVideo() {
 		c.Close()
 		hardwareVideo.CompareAndSwap(c, nil)
 	}
+}
+
+// layoutAdapters draws the card of the Direct3D 11 adapter: the system's
+// default, named as the first adapter listed, and the adapters listed.
+func (v *graphicsView) layoutAdapters(gtx layout.Context, l localization.Catalog, height *heightTransition) layout.Dimensions {
+	if !v.adaptersDone {
+		v.adaptersDone = true
+		v.adaptersShown, v.adaptersErr = v.adapters()
+	}
+	g := v.get()
+	shown := v.adaptersShown
+	chosen := d3d11AdapterKey(g.D3D11.VendorID, g.D3D11.DeviceID)
+	keys := []string{""}
+	auto := l.T("graphics.adapter_auto")
+	if len(shown) > 0 {
+		auto = l.Format("graphics.device_auto_remembered", map[string]string{"name": shown[0].Name})
+	}
+	labels := map[string]string{"": auto}
+	adapters := map[string]preferences.D3D11Adapter{}
+	for _, a := range shown {
+		key := d3d11AdapterKey(a.VendorID, a.DeviceID)
+		if _, ok := labels[key]; ok {
+			continue
+		}
+		keys = append(keys, key)
+		labels[key] = deviceLabel(l, a.Name, uint8(a.Kind), a.Version)
+		adapters[key] = preferences.D3D11Adapter{VendorID: a.VendorID, DeviceID: a.DeviceID, Name: a.Name, Kind: uint8(a.Kind)}
+	}
+	if _, ok := labels[chosen]; !ok {
+		// An adapter chosen before and not listed now keeps its place:
+		// windows are drawn with the default one meanwhile.
+		keys = append(keys, chosen)
+		labels[chosen] = l.Format("graphics.device_missing", map[string]string{"name": g.D3D11.Name})
+	}
+	if v.adapter == nil || !slices.Equal(v.adapterKeys, keys) {
+		v.adapterKeys = keys
+		v.adapter = radio.NewRadios(keys, chosen, func(key string) {
+			if a, ok := adapters[key]; ok || key == "" {
+				v.chooseAdapter(a)
+			}
+		})
+	}
+	if v.adapter.GetValue() != chosen {
+		v.adapter.SetValue(chosen)
+	}
+	v.adapter.Update(gtx)
+	notes := adapterNotes(l, g, shown, v.adaptersErr, !g.D3D11.IsZero() && v.adapterFailed())
+	return settingsChoiceCard(gtx, height, l.T("graphics.adapter"), strings.Join(notes, "\n"), func(gtx layout.Context) layout.Dimensions {
+		return v.adapter.Layout(gtx, radio.LeadingKind, labels)
+	})
+}
+
+// adapterNotes is what the card of the adapter tells under it: the error of
+// the listing, that the adapter chosen failed and the default one draws
+// instead, and that a start takes longer while a discrete GPU that draws
+// sleeps.
+func adapterNotes(l localization.Catalog, g preferences.Graphics, shown []app.D3D11Adapter, listErr error, failed bool) []string {
+	var notes []string
+	if listErr != nil {
+		notes = append(notes, l.Format("graphics.device_error", map[string]string{"error": listErr.Error()}))
+	}
+	if failed {
+		notes = append(notes, l.T("graphics.adapter_failed"))
+		g.D3D11 = preferences.D3D11Adapter{}
+	}
+	if drawsOnDiscreteAdapter(g, shown) {
+		notes = append(notes, l.T("graphics.discrete_note"))
+	}
+	return notes
+}
+
+// drawsOnDiscreteAdapter reports whether Direct3D 11 draws on a discrete
+// GPU: the one chosen, as the adapters shown tell it, else as it was kept;
+// with none chosen, the system's default, the first shown.
+func drawsOnDiscreteAdapter(g preferences.Graphics, shown []app.D3D11Adapter) bool {
+	if g.D3D11.IsZero() {
+		return len(shown) > 0 && shown[0].Kind == app.VulkanDeviceDiscrete
+	}
+	for _, a := range shown {
+		if a.VendorID == g.D3D11.VendorID && a.DeviceID == g.D3D11.DeviceID {
+			return a.Kind == app.VulkanDeviceDiscrete
+		}
+	}
+	return app.VulkanDeviceKind(g.D3D11.Kind) == app.VulkanDeviceDiscrete
+}
+
+// chooseAdapter keeps the Direct3D 11 adapter chosen; the zero adapter is
+// the system's default.
+func (v *graphicsView) chooseAdapter(a preferences.D3D11Adapter) {
+	g := v.get()
+	g.D3D11 = a
+	v.set(g)
 }
 
 // layoutInfo draws the card of what windows are drawn with.
@@ -550,17 +677,23 @@ func (v *graphicsView) chooseDevice(d preferences.VulkanDevice) {
 
 // vulkanDeviceLabel names a device with its kind and its driver's version.
 func vulkanDeviceLabel(d preferences.VulkanDevice, l localization.Catalog) string {
-	kind := map[app.VulkanDeviceKind]string{
+	return deviceLabel(l, d.Name, d.Kind, d.Version)
+}
+
+// deviceLabel names a GPU with its kind, Gio's app.VulkanDeviceKind, and
+// its driver's version.
+func deviceLabel(l localization.Catalog, name string, kind uint8, version string) string {
+	kindName := map[app.VulkanDeviceKind]string{
 		app.VulkanDeviceIntegrated: l.T("graphics.kind_integrated"),
 		app.VulkanDeviceDiscrete:   l.T("graphics.kind_discrete"),
 		app.VulkanDeviceVirtual:    l.T("graphics.kind_virtual"),
-	}[app.VulkanDeviceKind(d.Kind)]
-	label := d.Name
-	if kind != "" {
-		label += " · " + kind
+	}[app.VulkanDeviceKind(kind)]
+	label := name
+	if kindName != "" {
+		label += " · " + kindName
 	}
-	if d.Version != "" {
-		label += " · " + l.Format("graphics.driver_version", map[string]string{"version": d.Version})
+	if version != "" {
+		label += " · " + l.Format("graphics.driver_version", map[string]string{"version": version})
 	}
 	return label
 }
