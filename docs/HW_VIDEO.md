@@ -1,7 +1,77 @@
 # Hardware-decoded video for the saved GIFs (design, 2026-11-13)
 
-Not started. The requirements were set by the maintainer on 2026-11-13;
-the rest is a proposal to be measured and agreed before it is built.
+The requirements were set by the maintainer on 2026-11-13. Windows is
+built (2026-11-14, see "What is built"); Linux, on Vulkan, is not: the
+rest of this document is still its proposal.
+
+## What is built (2026-11-14)
+
+`pkg/hwvideo`, off by default: the settings' section of hardware
+acceleration has the choice, "Saved GIFs" (`preferences.Graphics.
+HardwareGIFs`), shown where the system has a decoder to try.
+
+- **The part every system shares**, in Go: the parser of the H.264
+  headers (`headers.go`: parameter sets, scaling lists, slice headers to
+  the end of the marking of references) and what a hardware decoder leaves
+  to the application (`decoder.go`: picture order counts, references by
+  the sliding window and the marking operations, the order pictures show
+  in, a surface for each). Only progressive 4:2:0 of 8 bits, Baseline,
+  Main and High, frames only, at most 2048 a side, is taken; fields, slice
+  groups, switching slices, data partitioning, gaps in the frame numbers
+  and a size that changes are refused with `ErrUnsupported`, and that GIF
+  plays in software. Fuzzed (`FuzzSend`, `FuzzParameterSets`: 8 and 3
+  million runs, no finding).
+- **The helper**: the client's own binary with `-video-decoder`
+  (`Serve`), started by `Client` when the first GIF of the list is opened,
+  stopped 10 s after the last is closed. The window demuxes the MP4 and
+  sends samples over the helper's standard input; the helper reads no
+  file. A helper that ends on its own fails the client: every GIF goes
+  back to software for the rest of the session, and the settings tell so;
+  choosing again tries again.
+- **Windows**: Direct3D 11 (`d3d11_windows.go`), COM called without cgo
+  as Gio's backend does: `ID3D11VideoDecoder` of
+  `D3D11_DECODER_PROFILE_H264_VLD_NOFGT`, the slices sent as they are
+  (`ConfigBitstreamRaw` 2), NV12 read back through a staging texture.
+- **In the list**: `chatmedia.Manager.SetHardware`; `GIFRow` leaves the
+  row to the GPU, each tile a stream of the helper (`playGIFHardware`),
+  played by the loop that plays the sandbox's (`playVideoFrames`). A GIF
+  the hardware refuses, or a helper that ended, gives the row back to
+  FFmpeg, or the tile to the sandbox.
+
+What differs from the proposal below, for now:
+
+- Frames come back over the helper's standard output, not shared memory:
+  a tile's frame is tens of kilobytes.
+- The helper scales on the CPU (`resample.VideoScaler`, the same as the
+  sandbox's pictures, so they look the same), after reading the whole
+  NV12 picture back, not on the GPU.
+- Nothing is kept across starts after the helper's deaths, the helper's
+  memory is not bounded (`program.StartLimited`), and it is not confined
+  (a restricted token, a job).
+
+Checked on Windows 11, AMD Radeon RX 580 (driver 26.5.2):
+
+- `TestDecodesAsFFmpeg`: every picture of `assets/video.mp4` (720x1280,
+  1081 pictures, High, B-frames) and of 13 clips made with x264 (CAVLC
+  and CABAC, 16 references, B-pyramid with an open GOP, 5 slices, JVT
+  scaling lists, weighted prediction, cropped 636x358, 1080p, 60 a
+  second, intra only) is the same bytes as FFmpeg's.
+- The built client as the helper, 12 streams of 720x1280 at once, each
+  picture scaled to a tile of 72x128: 533 pictures a second, 1.9 ms a
+  picture, against 360 a second that 12 tiles show. The sandbox takes
+  10.5 ms a picture of this size (`docs/PLAN.md`).
+
+Not checked: Intel and NVIDIA, Windows 7 and 8, a laptop with two GPUs
+(the device is the system's default one), a GPU reset, the list itself in
+a window with an account (the tests play it through `chatmedia`,
+`TestSavedGIFPlaysOnGPU`), and the processor time of the whole against
+FFmpeg's row.
+
+**Linux is one type to write**: a `device` and its `session` on Vulkan
+Video (`VK_KHR_video_decode_h264`) beside `d3d11_windows.go`; `picture`
+holds what `StdVideoDecodeH264PictureInfo` and the reference slots need.
+Nothing else changes. It needs a machine whose GPU has Vulkan Video to be
+written against: the one this was built on has none.
 
 ## Why
 

@@ -47,6 +47,7 @@ import (
 	"komarugram/internal/miniappprefs"
 	"komarugram/internal/notify"
 	"komarugram/internal/tray"
+	"komarugram/pkg/hwvideo"
 	"komarugram/pkg/miniapp"
 	"komarugram/pkg/program"
 	"komarugram/pkg/sandbox"
@@ -82,9 +83,17 @@ func main() {
 	noIntegrations := flag.Bool("no-integrations", false, "do not look for FFmpeg, mpv, VLC or a browser on the system; only the paths set in the settings are used, as on a machine without them")
 	uninstall := flag.Bool("uninstall", false, "show the window that uninstalls the program installed into the system; the system's list of programs runs it so")
 	installSystem := flag.String(install.FlagInstallSystem, "", "used by the installation itself, with the administrator's rights: copy the program to this folder and register it for every user")
+	videoDecoder := flag.Bool(hwvideo.Flag, false, "used by the client itself: decode the videos sent on the standard input with the graphics card, and answer on the standard output")
 	uninstallSystem := flag.String(install.FlagUninstallSystem, "", "used by the uninstallation itself, with the administrator's rights: remove the program registered for every user from this folder")
 	flag.Parse()
 	switch {
+	case *videoDecoder:
+		// The helper of hardware decoding: no window, no account, nothing
+		// but the streams on its input (docs/HW_VIDEO.md).
+		if err := hwvideo.Serve(os.Stdin, os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
 	case *installSystem != "":
 		if err := install.InstallSystem(*installSystem); err != nil {
 			log.Fatal(err)

@@ -887,6 +887,11 @@
 "graphics.device_missing" = "{name} (not found)";
 "graphics.discrete_note" = "When the discrete graphics card is asleep, KomaruGram takes longer than usual to start.";
 "graphics.driver_version" = "driver {version}";
+"graphics.gifs" = "Saved GIFs";
+"graphics.gifs_failed" = "The graphics card could not decode them: they play in software. Choose again to retry.";
+"graphics.gifs_hardware" = "Decode on the graphics card";
+"graphics.gifs_hint" = "The list of saved GIFs plays many videos at once. The graphics card decodes them in a separate process.";
+"graphics.gifs_software" = "Decode in software";
 "graphics.info" = "What draws the windows";
 "graphics.info_api" = "Graphics API";
 "graphics.info_device" = "Graphics card";

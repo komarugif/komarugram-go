@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"gioui.org/app"
 	"gioui.org/gpu"
@@ -18,6 +19,7 @@ import (
 	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/preferences"
+	"komarugram/pkg/hwvideo"
 )
 
 // ApplyGraphics hands the setting of how windows are drawn to Gio, for the
@@ -216,6 +218,13 @@ type graphicsView struct {
 	invalidate func()
 
 	api *radio.Radios[string]
+	// gifs chooses what decodes the saved GIFs, "" for software and
+	// "hardware"; hardware tells whether the choice is there, and
+	// hardwareFailed why the graphics card decodes none, both replaced in
+	// tests.
+	gifs           *radio.Radios[string]
+	hardware       func() bool
+	hardwareFailed func() error
 	// device chooses among "" (the first that can draw) and the keys of
 	// the listed devices; deviceKeys is what it was made with.
 	device     *radio.Radios[string]
@@ -236,6 +245,13 @@ func newGraphicsView(invalidate func()) *graphicsView {
 		choice:     app.GraphicsChoice,
 		devices:    app.VulkanDevices,
 		invalidate: invalidate,
+		hardware:   hwvideo.Available,
+		hardwareFailed: func() error {
+			if c := hardwareVideo.Load(); c != nil {
+				return c.Failed()
+			}
+			return nil
+		},
 	}
 }
 
@@ -311,7 +327,68 @@ func (v *graphicsView) Layout(gtx layout.Context, l localization.Catalog, height
 			}))
 		}
 	}
+	if v.get != nil && v.hardware != nil && v.hardware() {
+		g := v.get()
+		value := ""
+		if g.HardwareGIFs {
+			value = "hardware"
+		}
+		if v.gifs == nil {
+			v.gifs = radio.NewRadios([]string{"", "hardware"}, value, func(chosen string) {
+				g := v.get()
+				g.HardwareGIFs = chosen == "hardware"
+				if g.HardwareGIFs {
+					// A choice tries the graphics card again.
+					resetHardwareVideo()
+				}
+				v.set(g)
+			})
+		}
+		if v.gifs.GetValue() != value {
+			v.gifs.SetValue(value)
+		}
+		v.gifs.Update(gtx)
+		hint := l.T("graphics.gifs_hint")
+		if g.HardwareGIFs && v.hardwareFailed != nil && v.hardwareFailed() != nil {
+			hint = l.T("graphics.gifs_failed")
+		}
+		cards = append(cards, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return settingsChoiceCard(gtx, height("graphics-gifs"), l.T("graphics.gifs"), hint, func(gtx layout.Context) layout.Dimensions {
+				return v.gifs.Layout(gtx, radio.LeadingKind, map[string]string{
+					"":         l.T("graphics.gifs_software"),
+					"hardware": l.T("graphics.gifs_hardware"),
+				})
+			})
+		}))
+	}
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, cards...)
+}
+
+// hardwareVideo is the client of the helper that decodes on the graphics
+// card, of the process: made when the setting first asks for it.
+var hardwareVideo atomic.Pointer[hwvideo.Client]
+
+// hardwareVideoFor is the client that decodes the saved GIFs on the
+// graphics card, nil where the setting is off or the system has no
+// decoder.
+func hardwareVideoFor(g preferences.Graphics) *hwvideo.Client {
+	if !g.HardwareGIFs || !hwvideo.Available() {
+		return nil
+	}
+	if c := hardwareVideo.Load(); c != nil {
+		return c
+	}
+	hardwareVideo.CompareAndSwap(nil, hwvideo.NewClient(nil))
+	return hardwareVideo.Load()
+}
+
+// resetHardwareVideo forgets a client that failed, a helper that ended or
+// a machine that had no decoder, for the next one to try again.
+func resetHardwareVideo() {
+	if c := hardwareVideo.Load(); c != nil && c.Failed() != nil {
+		c.Close()
+		hardwareVideo.CompareAndSwap(c, nil)
+	}
 }
 
 // layoutInfo draws the card of what windows are drawn with.

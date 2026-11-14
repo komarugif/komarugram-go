@@ -24,6 +24,7 @@ import (
 	"komarugram/internal/crash"
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/h264"
+	"komarugram/pkg/hwvideo"
 	"komarugram/pkg/lottie"
 	"komarugram/pkg/player"
 	"komarugram/pkg/resample"
@@ -45,6 +46,9 @@ type entry struct {
 	still     image.Image
 	wasm      bool
 	ffmpeg    string
+	// hardwareGIF plays the GIF with the decoder of the GPU, in the helper
+	// (playGIFHardware), before any other: a GIF of the list of saved ones.
+	hardwareGIF bool
 	// sandboxGIF plays the GIF with the H.264 decoder in its sandbox, for
 	// want of an FFmpeg.
 	sandboxGIF bool
@@ -208,6 +212,12 @@ type Manager struct {
 	rows       map[string]*gifRow
 	rowsFailed map[string]bool
 	rowFiles   rowFiles
+	// hardware decodes the GIFs of the list of saved ones on the GPU, nil
+	// when it does not; hardwareGIFs are those GIFs, by media ID, UI thread
+	// only (hardware.go).
+	hardware       *hwvideo.Client
+	hardwareGIFs   map[string]bool
+	hardwareFailed sync.Map
 }
 
 func New(source Source, changed func()) *Manager {
@@ -385,7 +395,7 @@ func (m *Manager) frame(msg model.Message, animate bool, want image.Point, cover
 			preview = m.held[key]
 		}
 		ctx, cancel := context.WithCancel(m.ctx)
-		e = &entry{wake: make(chan struct{}, 1), consumed: make(chan struct{}, 1), wasm: wasm, ffmpeg: m.ffmpeg, sandboxGIF: m.SandboxGIFs() && !m.ffmpegGIFs[key], seen: m.generation, animate: animate, cancel: cancel, cancelled: m.cancelled[key], frame: previous, preview: preview, still: still, clip: clip, textColor: textColor, box: box, cover: cover, sticker: animatedSticker || msg.Kind == model.MessageSticker}
+		e = &entry{wake: make(chan struct{}, 1), consumed: make(chan struct{}, 1), wasm: wasm, ffmpeg: m.ffmpeg, hardwareGIF: m.hardwareGIFs[key], sandboxGIF: m.SandboxGIFs() && !m.ffmpegGIFs[key], seen: m.generation, animate: animate, cancel: cancel, cancelled: m.cancelled[key], frame: previous, preview: preview, still: still, clip: clip, textColor: textColor, box: box, cover: cover, sticker: animatedSticker || msg.Kind == model.MessageSticker}
 		m.entries[key] = e
 		if at, ok := m.seeks[key]; ok {
 			delete(m.seeks, key)
@@ -1136,6 +1146,17 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 				publish(toRGBA(im), nil)
 			}
 		}
+		if e.hardwareGIF && msg.Media.MIMEType != "image/gif" {
+			e.mu.Lock()
+			e.waiting = true
+			e.mu.Unlock()
+			m.changed()
+			release()
+			if m.playGIFHardware(ctx, e, msg.Media.ID, data, publish) {
+				return
+			}
+			// Not decoded in hardware: played as any other GIF is.
+		}
 		if e.sandboxGIF {
 			e.mu.Lock()
 			e.waiting = true
@@ -1377,7 +1398,7 @@ func showStill(e *entry, im image.Image, publish func(image.Image, error)) {
 // while the GIF animates, and returns once it has not for gifIdle. Asked to
 // go elsewhere, it goes on from there; standing still, it shows the picture
 // there.
-func (m *Manager) playVideoFrames(ctx context.Context, e *entry, v *h264.Video, from time.Duration, publish func(image.Image, error)) error {
+func (m *Manager) playVideoFrames(ctx context.Context, e *entry, v gifVideo, from time.Duration, publish func(image.Image, error)) error {
 	size := resample.Fit(v.Size().X, v.Size().Y, e.box, e.cover)
 	if roughlyDecoded(v.Size(), size) {
 		// A module without the setting decodes as it did.
@@ -1399,7 +1420,11 @@ func (m *Manager) playVideoFrames(ctx context.Context, e *entry, v *h264.Video, 
 				return err
 			}
 			e.setPosition(v.Time(i))
-			showStill(e, v.Picture(size), publish)
+			still := v.Picture(size)
+			if still == nil {
+				return errNoPicture
+			}
+			showStill(e, still, publish)
 			// Played on, it goes on from there.
 			from, start, idle = -1, time.Time{}, time.Now()
 		}
@@ -1454,6 +1479,9 @@ func (m *Manager) playVideoFrames(ctx context.Context, e *entry, v *h264.Video, 
 		} else {
 			im = v.Picture(size)
 		}
+		if im == nil {
+			return errNoPicture
+		}
 		if at.Before(soonest) {
 			// Behind time, the next picture follows at once: a slow machine
 			// plays slower rather than skipping, which H.264 cannot.
@@ -1477,7 +1505,7 @@ func roughlyDecoded(source, size image.Point) bool {
 
 // seekPicture decodes the picture of v that shows at at, or the last one,
 // and returns its index.
-func seekPicture(ctx context.Context, v *h264.Video, at time.Duration) (int, error) {
+func seekPicture(ctx context.Context, v gifVideo, at time.Duration) (int, error) {
 	if last := v.Pictures() - 1; last >= 0 && at > v.Time(last) {
 		at = v.Time(last)
 	}

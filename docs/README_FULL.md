@@ -35,6 +35,7 @@ Two applications built on the same base:
 | `internal/kitchen`          | Kitchen app shell, pages and services                             |
 | `pkg/resample`              | Streaming Catmull-Rom image scaling with a few rows of memory       |
 | `pkg/video`                 | ffmpeg-backed player and frame cache, independent of any UI        |
+| `pkg/hwvideo`               | H.264 decoded by the GPU in a helper process: headers and references in Go, Direct3D 11 on Windows (`docs/HW_VIDEO.md`) |
 | `pkg/lottie`                | Lottie/.tgs renderer: tlottie compiled to wasm, run by wazero       |
 | `pkg/ratex`                 | LaTeX formulas: RaTeX compiled to wasm, run by wazero; drawn with KaTeX's fonts |
 | `pkg/cmark`                 | Markdown: cmark-gfm compiled to wasm, run by wazero; `internal/messenger/markdown` makes an article of its tree |

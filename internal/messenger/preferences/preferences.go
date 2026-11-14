@@ -1039,6 +1039,10 @@ type Graphics struct {
 	// with OpenGL at once instead of loading every driver to fail again.
 	// A choice made in the settings tries Vulkan again.
 	VulkanFailed bool `json:"vulkan_failed,omitempty"`
+	// HardwareGIFs decodes the GIFs of the list of saved ones with the
+	// video decoder of the graphics card, in a process of its own
+	// (docs/HW_VIDEO.md), where there is one.
+	HardwareGIFs bool `json:"hardware_gifs,omitempty"`
 }
 
 // VulkanDevice is a Vulkan device, by the manifest of its driver and its

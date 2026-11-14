@@ -936,6 +936,11 @@
 "graphics.device_missing" = "{name} (не найдено)";
 "graphics.discrete_note" = "Когда дискретная видеокарта находится в спящем режиме, для запуска KomaruGram требуется больше времени, чем обычно.";
 "graphics.driver_version" = "драйвер {version}";
+"graphics.gifs" = "Сохранённые GIF";
+"graphics.gifs_failed" = "Видеокарта не смогла их декодировать: они играют программно. Выберите ещё раз, чтобы повторить.";
+"graphics.gifs_hardware" = "Декодировать на видеокарте";
+"graphics.gifs_hint" = "Список сохранённых GIF играет много видео сразу. Видеокарта декодирует их в отдельном процессе.";
+"graphics.gifs_software" = "Декодировать программно";
 "graphics.info" = "Чем рисуются окна";
 "graphics.info_api" = "Графический API";
 "graphics.info_device" = "Видеокарта";

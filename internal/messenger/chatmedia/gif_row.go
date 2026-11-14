@@ -74,6 +74,10 @@ func rowIDs(msgs []model.Message) string {
 // would have failed alone. im is nil while the row loads, the GIFs showing
 // their stills meanwhile.
 func (m *Manager) GIFRow(msgs []model.Message, widths []int, height int) (im *image.RGBA, ok bool) {
+	if m.hardwareRow(msgs) {
+		// Each GIF is decoded on the GPU, one by one.
+		return nil, false
+	}
 	if len(msgs) == 0 || len(msgs) != len(widths) || height <= 0 || m.SandboxGIFs() || m.paused || m.quiet {
 		return nil, false
 	}

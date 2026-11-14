@@ -1348,6 +1348,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	paused := decoderPrefs.PauseInactive && !a.focused
 	configureMedia := func(m *chatmedia.Manager) {
 		m.ConfigureDecoders(decoderPrefs.StickerPlayer == "wasm", decoderPrefs.AnimationPlayer == "wasm", decoderPrefs.FFmpegPath)
+		m.SetHardware(hardwareVideoFor(decoderPrefs.Graphics))
 		m.SetPaused(paused)
 	}
 	if a.info != nil {
