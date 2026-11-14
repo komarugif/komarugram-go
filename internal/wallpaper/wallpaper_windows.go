@@ -10,6 +10,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -32,7 +33,10 @@ import (
 // names, placed on each as the registry tells; Windows 8 and later can keep
 // a picture per monitor (IDesktopWallpaper), which is not read: the
 // monitors then all get the one SystemParametersInfo names. A change of
-// either is a change of the key the placement is in.
+// either is a change of the key the placement is in. The picture itself may
+// change with the key left as it is: Windows 7's themes write
+// TranscodedWallpaper.jpg in place, with the path the same, so the folder of
+// the file is watched too.
 
 var (
 	user32                = windows.NewLazySystemDLL("user32.dll")
@@ -72,6 +76,9 @@ type Watcher struct {
 	signature string
 	failures  int
 	closed    sync.Once
+	// path is the picture's file as load found it, for the watch of its
+	// folder; it belongs to the goroutine of run.
+	path string
 }
 
 // Supported reports whether a window of the view can be followed.
@@ -158,7 +165,10 @@ func (w *Watcher) run() {
 	if watching {
 		defer key.Close()
 	}
-	handles := []windows.Handle{w.stop, w.kick, changed}
+	// The folder of the picture, followed from the notification of the
+	// system; zero when there is none.
+	var folder folderWatch
+	defer folder.close()
 	for {
 		if watching {
 			// Asked before the desktop is read, not to miss a change between.
@@ -167,20 +177,72 @@ func (w *Watcher) run() {
 			}
 		}
 		w.load()
+		folder.follow(filepath.Dir(w.path), w.path != "")
+		handles := []windows.Handle{w.stop, w.kick, changed}
+		if folder.handle != 0 {
+			handles = append(handles, folder.handle)
+		}
 		event, err := windows.WaitForMultipleObjects(handles, false, infiniteTimeout)
 		if err != nil || event == waitObject0 {
 			return
 		}
-		if event == waitObject0+2 {
+		if event == waitObject0+3 {
+			// Asked again before the desktop is read, as the key is.
+			folder.rearm()
+		}
+		if event >= waitObject0+2 {
 			// The picture's file is written about when the key is.
 			time.Sleep(settleDelay)
 		}
 	}
 }
 
+// folderWatch is the system's notification of the writes in one folder.
+type folderWatch struct {
+	dir    string
+	handle windows.Handle
+}
+
+// follow watches dir, the folder of the picture, when there is one, and
+// stops watching another.
+func (f *folderWatch) follow(dir string, ok bool) {
+	if !ok {
+		dir = ""
+	}
+	if dir == f.dir {
+		return
+	}
+	f.close()
+	f.dir = dir
+	if dir == "" {
+		return
+	}
+	// A file written in place, or put in the place of another.
+	h, err := windows.FindFirstChangeNotification(dir, false, windows.FILE_NOTIFY_CHANGE_FILE_NAME|windows.FILE_NOTIFY_CHANGE_SIZE|windows.FILE_NOTIFY_CHANGE_LAST_WRITE)
+	if err == nil {
+		f.handle = h
+	}
+}
+
+// rearm has the system tell of the next change.
+func (f *folderWatch) rearm() {
+	if f.handle != 0 && windows.FindNextChangeNotification(f.handle) != nil {
+		f.close()
+	}
+}
+
+func (f *folderWatch) close() {
+	if f.handle != 0 {
+		windows.FindCloseChangeNotification(f.handle)
+		f.handle = 0
+	}
+	f.dir = ""
+}
+
 // load reads the desktop, if it is not what was read last.
 func (w *Watcher) load() {
-	path, fit, span, back := source()
+	path, fit, span, back := sourceOf()
+	w.path = path
 	monitors := monitors()
 	signature := fmt.Sprint(path, fit, span, back, monitors)
 	if info, err := os.Stat(path); err == nil {
@@ -243,6 +305,9 @@ func decode(path string) (image.Image, error) {
 	im, _, err := image.Decode(f)
 	return im, err
 }
+
+// sourceOf is source, for the tests to change.
+var sourceOf = source
 
 // source is the wallpaper's file, empty when the desktop is of a color, how
 // it is placed, whether over all monitors as one, and the color around it.
