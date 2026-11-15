@@ -127,7 +127,7 @@ func (s *Store) Chats() []model.Chat {
 	s.mu.RLock()
 	chats := s.chats
 	s.mu.RUnlock()
-	return s.withLocalCollections(s.withOutgoingPreviews(chats))
+	return s.withLocalCollections(s.withOutgoingPreviews(s.withForumUnread(chats)))
 }
 
 // Load reads the profile, the folders and every dialog of the main list,
@@ -297,6 +297,7 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) (er
 		return err
 	}
 	s.dialogsRead()
+	s.preloadForums()
 	s.resync(0)
 	return nil
 }

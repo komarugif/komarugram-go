@@ -448,3 +448,46 @@ func TestTopicRead(t *testing.T) {
 		time.Sleep(2 * time.Millisecond)
 	}
 }
+
+// A forum's unread count in the list is how many of its topics are unread,
+// as Telegram Desktop counts it, from its topics read ahead of its opening:
+// Telegram's count of the forum's dialog stays as it was when its topics are
+// read (messages.readDiscussion), and a forum whose every topic was read
+// kept its count, after a restart too.
+func TestForumUnreadIsOfItsTopics(t *testing.T) {
+	s, server, chat := forumStore(t)
+	s.publish(func() { s.chats = []model.Chat{{ID: chat, Kind: model.KindGroup, Forum: true, Unread: 5}} })
+	forumUnread := func() int {
+		for _, c := range s.Chats() {
+			if c.ID == chat {
+				return c.Unread
+			}
+		}
+		return -1
+	}
+	// The dialogs read, the forum's topics are read ahead.
+	s.preloadForums()
+	deadline := time.Now().Add(5 * time.Second)
+	for forumUnread() != 1 {
+		if time.Now().After(deadline) {
+			t.Fatalf("the forum counts %d unread, not its one unread topic", forumUnread())
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	server.mu.Lock()
+	asked := len(server.requests)
+	server.mu.Unlock()
+	if asked != 1 {
+		t.Fatalf("its topics were asked for %d times", asked)
+	}
+	// Its one unread topic read, nothing is unread.
+	s.SetGhost(model.Ghost{SendRead: true})
+	thread := openedTopic(t, s, chat, 7)
+	s.MarkRead(thread.ID, 45, false)
+	for forumUnread() != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("every topic read, the forum counts %d unread", forumUnread())
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
