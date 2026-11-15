@@ -3,8 +3,10 @@
 package miniapp
 
 import (
+	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 )
 
 func TestParseVersion(t *testing.T) {
@@ -108,4 +110,38 @@ func TestBrowserChoice(t *testing.T) {
 	if BrowserEnv != "KOMARUGRAM_MINIAPP_BROWSER" {
 		t.Errorf("BrowserEnv is %q", BrowserEnv)
 	}
+}
+
+// TestKnownBrowserDoesNotWait has KnownBrowser answer at once while the
+// browser the user picked has not been asked yet, or is being asked: a frame
+// calls it.
+func TestKnownBrowserDoesNotWait(t *testing.T) {
+	t.Setenv(BrowserEnv, "")
+	t.Setenv(legacyBrowserEnv, "")
+	t.Cleanup(func() { SetBrowser("") })
+	picked := filepath.Join(t.TempDir(), "browser")
+	SetBrowser(picked)
+	if _, known := KnownBrowser(); known {
+		t.Error("a browser not asked yet is known")
+	}
+	customMu.Lock()
+	probed := customProbed
+	customMu.Unlock()
+	if probed == picked {
+		t.Error("KnownBrowser asked the browser itself")
+	}
+
+	// While it is asked, the lock is held.
+	customMu.Lock()
+	answered := make(chan bool)
+	go func() { _, known := KnownBrowser(); answered <- known }()
+	select {
+	case known := <-answered:
+		if known {
+			t.Error("a browser being asked is known")
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("KnownBrowser waited for the browser to be asked")
+	}
+	customMu.Unlock()
 }

@@ -1450,6 +1450,7 @@
 "program.old_version" = "version {version} is not supported, {want} is needed";
 "program.rejected" = "The file was not accepted";
 "program.reset" = "Find automatically";
+"program.searching" = "looking…";
 "program.snap" = "players installed as snaps are not supported yet";
 "program.unsupported_system" = "it is not supported on this system yet";
 "program.wrong" = "the program does not answer as {program}";

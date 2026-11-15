@@ -315,11 +315,20 @@ func TestRenderSettingsAccounts(t *testing.T) {
 			gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
 			wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
 			p.Update(gtx, themeAuto, "ru")
-			if p.browser.detected != nil && p.players.programs[player.VLC].customAbout != nil && p.players.programs[player.MPV].customAbout != nil {
+			if p.players.checked && p.browser.detected != nil && p.players.programs[player.VLC].customAbout != nil && p.players.programs[player.MPV].customAbout != nil {
 				break
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
+	}
+	// The players and the browser of Mini Apps are looked for in the
+	// background; the screenshot shows what was found.
+	if !p.players.checked {
+		p.players.refresh()
+	}
+	for deadline := time.Now().Add(20 * time.Second); !p.players.checked && time.Now().Before(deadline); {
+		time.Sleep(20 * time.Millisecond)
+		p.players.receive()
 	}
 	win, err := headless.NewWindow(size.X, size.Y)
 	if err != nil {

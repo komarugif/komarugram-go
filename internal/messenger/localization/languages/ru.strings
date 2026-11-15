@@ -1528,6 +1528,7 @@
 "program.old_version" = "версия {version} не поддерживается, нужна {want}";
 "program.rejected" = "Файл не подошёл";
 "program.reset" = "Искать автоматически";
+"program.searching" = "ищем…";
 "program.snap" = "плееры из snap пока не поддерживаются";
 "program.unsupported_system" = "на этой системе он пока не поддерживается";
 "program.wrong" = "программа не отвечает как {program}";

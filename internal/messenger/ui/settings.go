@@ -507,6 +507,7 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 	if m != nil {
 		p.about.animate = m.AnimationsEnabled
 	}
+	p.players.invalidate = invalidate
 	return p
 }
 
@@ -521,6 +522,12 @@ func (p *settingsPage) open() {
 }
 
 func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language string) {
+	p.players.receive()
+	// The browser of Mini Apps, shown in the privacy section, is looked for
+	// with the players; it may be unknown again when another one was picked.
+	if _, known := miniapp.KnownBrowser(); !known && !p.players.looking {
+		p.players.refresh()
+	}
 	if l := localization.For(language); l != p.worded {
 		p.worded = l
 		p.animations.SetStrings(viewtexts.Motion(l))
