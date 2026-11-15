@@ -49,11 +49,15 @@ var (
 const (
 	spiGetDeskWallpaper = 0x0073
 	// The virtual screen, all monitors together, and their number.
-	smXVirtualScreen  = 76
-	smCMonitors       = 80
-	desktopKey        = `Control Panel\Desktop`
-	colorsKey         = `Control Panel\Colors`
-	settleDelay       = 300 * time.Millisecond
+	smXVirtualScreen = 76
+	smCMonitors      = 80
+	desktopKey       = `Control Panel\Desktop`
+	colorsKey        = `Control Panel\Colors`
+	settleDelay      = 300 * time.Millisecond
+	// glassPoll is how often, in milliseconds, the DWM's colorization is
+	// asked for on Windows 7.
+	glassPoll         = 1000
+	waitTimeout       = 0x102
 	retryDelay        = time.Second
 	retries           = 3
 	regNotifyLastSet  = 0x00000004
@@ -71,9 +75,11 @@ type Watcher struct {
 	stop, kick windows.Handle
 	// metrics are the monitors as Origin saw them last.
 	metrics atomic.Value
-	// signature is what the desktop was made of, and failures how many
-	// times in a row its file could not be read.
+	// signature is what the desktop's pictures were made of, glass the
+	// colorization it was drawn with, and failures how many times in a row
+	// its file could not be read.
 	signature string
+	glass     Glass
 	failures  int
 	closed    sync.Once
 }
@@ -157,28 +163,51 @@ func (w *Watcher) run() {
 		return
 	}
 	defer windows.CloseHandle(changed)
-	key, err := registry.OpenKey(registry.CURRENT_USER, desktopKey, registry.NOTIFY)
-	watching := err == nil
-	if watching {
-		defer key.Close()
+	// The keys of the wallpaper's placement, and on Windows 7 of the glass's
+	// colorization and of the theme, whose streaks it has.
+	paths := []string{desktopKey}
+	if aeroGlass() {
+		paths = append(paths, dwmKey, themeKey)
+	}
+	var keys []registry.Key
+	for _, path := range paths {
+		if key, err := registry.OpenKey(registry.CURRENT_USER, path, registry.NOTIFY); err == nil {
+			defer key.Close()
+			keys = append(keys, key)
+		}
 	}
 	// The folder of the picture, followed from the notification of the
 	// system; zero when there is none.
 	var folder folderWatch
 	defer folder.close()
 	for {
-		if watching {
-			// Asked before the desktop is read, not to miss a change between.
-			if err := windows.RegNotifyChangeKeyValue(windows.Handle(key), false, regNotifyLastSet, changed, true); err != nil {
-				watching = false
+		// Asked before the desktop is read, not to miss a change between.
+		watching := keys[:0]
+		for _, key := range keys {
+			if windows.RegNotifyChangeKeyValue(windows.Handle(key), false, regNotifyLastSet, changed, true) == nil {
+				watching = append(watching, key)
 			}
 		}
+		keys = watching
 		w.load(&folder)
 		handles := []windows.Handle{w.stop, w.kick, changed}
 		if folder.handle != 0 {
 			handles = append(handles, folder.handle)
 		}
-		event, err := windows.WaitForMultipleObjects(handles, false, infiniteTimeout)
+		// The DWM's colorization changes without a word in the registry
+		// while the personalization previews a color: on Windows 7 it is
+		// asked again once a second.
+		timeout := uint32(infiniteTimeout)
+		if aeroGlass() {
+			timeout = glassPoll
+		}
+		event, err := windows.WaitForMultipleObjects(handles, false, timeout)
+		for err == nil && event == waitTimeout {
+			if glassSettings() != w.glass {
+				w.load(&folder)
+			}
+			event, err = windows.WaitForMultipleObjects(handles, false, timeout)
+		}
 		if err != nil || event == waitObject0 {
 			return
 		}
@@ -247,6 +276,24 @@ func (w *Watcher) load(folder *folderWatch) {
 	if info, err := os.Stat(path); err == nil {
 		signature += fmt.Sprint(info.Size(), info.ModTime().UnixNano())
 	}
+	// On Windows 7 the glass is drawn, as the DWM colors it, with the
+	// theme's streaks.
+	var glass *Glass
+	var theme string
+	if aeroGlass() {
+		g := glassSettings()
+		glass, theme = &g, themeName()
+		signature += theme
+		if old := w.desktop.Load(); old != nil && signature == w.signature && g != w.glass {
+			// Only the colorization changed: the pictures are as they were.
+			w.glass = g
+			w.desktop.Store(&Desktop{Screens: old.Screens, Glass: glass})
+			if w.changed != nil {
+				w.changed()
+			}
+			return
+		}
+	}
 	if signature == w.signature {
 		return
 	}
@@ -265,23 +312,37 @@ func (w *Watcher) load(folder *folderWatch) {
 		}
 	}
 	w.signature = signature
-	d := new(Desktop)
+	if glass != nil {
+		w.glass = *glass
+	}
+	d := &Desktop{Glass: glass}
+	render := Render
+	var streaks image.Image
+	if glass != nil {
+		render = RenderGlass
+		streaks = reflectionStreaks(w.hwnd, theme)
+	}
+	// Monitors of one size show one picture, and the same streaks.
+	type made struct{ picture, reflection *image.RGBA }
+	screens := map[image.Point]made{}
+	screen := func(bounds image.Rectangle, placement Placement) Screen {
+		m, ok := screens[bounds.Size()]
+		if !ok {
+			m.picture = render(picture, placement, back, bounds.Size())
+			m.reflection = StretchReflection(streaks, m.picture.Bounds().Size())
+			screens[bounds.Size()] = m
+		}
+		return Screen{Bounds: bounds, Picture: m.picture, Reflection: m.reflection}
+	}
 	if span && len(monitors) > 0 {
 		all := monitors[0]
 		for _, m := range monitors[1:] {
 			all = all.Union(m)
 		}
-		d.Screens = []Screen{{Bounds: all, Picture: Render(picture, Placement{Fit: Fill}, back, all.Size())}}
+		d.Screens = []Screen{screen(all, Placement{Fit: Fill})}
 	} else {
-		// Monitors of one size show one picture.
-		pictures := map[image.Point]*image.RGBA{}
 		for _, m := range monitors {
-			p := pictures[m.Size()]
-			if p == nil {
-				p = Render(picture, Placement{Fit: fit}, back, m.Size())
-				pictures[m.Size()] = p
-			}
-			d.Screens = append(d.Screens, Screen{Bounds: m, Picture: p})
+			d.Screens = append(d.Screens, screen(m, Placement{Fit: fit}))
 		}
 	}
 	w.desktop.Store(d)

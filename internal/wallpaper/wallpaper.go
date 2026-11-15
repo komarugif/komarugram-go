@@ -33,12 +33,19 @@ type Screen struct {
 	// Picture is the wallpaper as Bounds show it, blurred and several times
 	// smaller: it is drawn stretched over them.
 	Picture *image.RGBA
+	// Reflection is the streaks of Aero's glass, of the picture's size and
+	// premultiplied, stretched over the screen (StretchReflection); nil
+	// without the glass, or where the theme has none.
+	Reflection *image.RGBA
 }
 
 // Desktop is what is behind the windows. It does not change: a new
 // wallpaper is a new Desktop.
 type Desktop struct {
 	Screens []Screen
+	// Glass is Aero's glass of Windows 7 the windows are drawn over, its
+	// pictures made by RenderGlass; nil for acrylic, of the other systems.
+	Glass *Glass
 }
 
 // Fit is how a picture is placed on a screen.

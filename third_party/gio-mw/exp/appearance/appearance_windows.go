@@ -8,7 +8,10 @@ import (
 	"unsafe"
 )
 
-var procRegGetValue = syscall.NewLazyDLL("advapi32.dll").NewProc("RegGetValueW")
+var (
+	procRegGetValue             = syscall.NewLazyDLL("advapi32.dll").NewProc("RegGetValueW")
+	procDwmGetColorizationColor = syscall.NewLazyDLL("dwmapi.dll").NewProc("DwmGetColorizationColor")
+)
 
 const (
 	hkeyCurrentUser = 0x80000001
@@ -44,8 +47,10 @@ func readScheme() Scheme {
 // chosen in Personalization > Colors, which DWM keeps as 0xAABBGGRR
 // ("Automatically pick an accent color" writes the one picked there too);
 // on Windows 8 the Start screen's; on Windows 7, which has no accent, the
-// color of the windows' glass (Personalization > Window Color), which DWM
-// keeps as 0xAARRGGBB, its alpha the glass's transparency.
+// color of the windows' glass (Personalization > Window Color), as DWM
+// draws it now: the color previewed before it is saved is in the registry
+// only once it is. DWM tells it, and keeps it, as 0xAARRGGBB, its alpha the
+// glass's transparency; the registry is read where DWM does not tell.
 func readAccent() (color.NRGBA, bool) {
 	const dwm = `Software\Microsoft\Windows\DWM`
 	if data, ok := readDword(dwm, "AccentColor"); ok {
@@ -53,6 +58,11 @@ func readAccent() (color.NRGBA, bool) {
 	}
 	if data, ok := readDword(`Software\Microsoft\Windows\CurrentVersion\Explorer\Accent`, "AccentColorMenu"); ok {
 		return abgr(data), true
+	}
+	var live uint32
+	var opaque int32
+	if r, _, _ := procDwmGetColorizationColor.Call(uintptr(unsafe.Pointer(&live)), uintptr(unsafe.Pointer(&opaque))); r == 0 {
+		return color.NRGBA{R: uint8(live >> 16), G: uint8(live >> 8), B: uint8(live), A: 255}, true
 	}
 	if data, ok := readDword(dwm, "ColorizationColor"); ok {
 		return color.NRGBA{R: uint8(data >> 16), G: uint8(data >> 8), B: uint8(data), A: 255}, true

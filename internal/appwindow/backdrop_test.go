@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"image/draw"
 	"testing"
+	"time"
 
 	"gioui.org/gpu/headless"
 	"gioui.org/io/event"
@@ -94,5 +95,45 @@ func TestDesktopStaysInPlaceUnderAMovingWindow(t *testing.T) {
 	w.layoutBackdrop(frameContext(new(op.Ops), size, false), size)
 	if w.DesktopDrawn() {
 		t.Error("a window over no screen drew the desktop")
+	}
+}
+
+// TestGlassStreaksFollowTheWindow checks the glass of Windows 7 a window
+// draws by itself: its streaks move with the window, by an eighth of how
+// far it went, once the picture is made anew in the background; and the
+// window draws the picture it had meanwhile.
+func TestGlassStreaksFollowTheWindow(t *testing.T) {
+	size := image.Pt(400, 300)
+	picture := image.NewRGBA(image.Rect(0, 0, 960, 540))
+	streaks := image.NewRGBA(picture.Bounds())
+	glass := wallpaper.SkyGlass
+	screen := wallpaper.Screen{Bounds: image.Rect(0, 0, 1920, 1080), Picture: picture, Reflection: streaks}
+	source := &fakeDesktop{desktop: &wallpaper.Desktop{Screens: []wallpaper.Screen{screen}, Glass: &glass}}
+	w := &Window{}
+	w.backdrop.source, w.backdrop.tried, w.backdrop.on = source, true, true
+	fill := color.NRGBA{R: 0xf0, G: 0xf0, B: 0xf0, A: 0xff}
+	frame := func() {
+		gtx := frameContext(new(op.Ops), size, false)
+		w.layoutBackdrop(gtx, size)
+		w.LayoutDesktop(gtx, fill, 0.5)
+	}
+	// The window's center at the screen's: the streaks as stretched.
+	source.origin = image.Pt(960-200, 300)
+	frame()
+	frame()
+	if !w.DesktopDrawn() || w.backdrop.images[pictureKey{picture: picture, glass: w.backdrop.glass}].shift != 0 {
+		t.Fatalf("at the center: drawn %t, streaks moved by %d", w.DesktopDrawn(), w.backdrop.images[pictureKey{picture: picture, glass: w.backdrop.glass}].shift)
+	}
+	// 320 pixels to the right are 160 of the picture; an eighth is 20.
+	source.origin.X += 320
+	deadline := time.Now().Add(5 * time.Second)
+	for frame(); w.backdrop.images[pictureKey{picture: picture, glass: w.backdrop.glass}].shift != 20; frame() {
+		if !w.DesktopDrawn() {
+			t.Fatal("the window drew no desktop while its glass was made anew")
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the streaks are moved by %d, want 20", w.backdrop.images[pictureKey{picture: picture, glass: w.backdrop.glass}].shift)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }

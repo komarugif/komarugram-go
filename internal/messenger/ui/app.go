@@ -44,6 +44,7 @@ import (
 	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/messenger/security"
 	"komarugram/internal/miniappprefs"
+	"komarugram/internal/wallpaper"
 	"komarugram/pkg/miniapp"
 	"komarugram/pkg/player"
 	"komarugram/pkg/sandbox"
@@ -581,6 +582,14 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		}
 	}
 	a.settings.windowOwnFrameSupported = appwindow.OwnFrameSupported
+	a.settings.windowColor.color = func() uint32 { return a.preferences.Global().WindowColor }
+	a.settings.windowColor.setColor = func(argb uint32) {
+		if err := services.Preferences.SetWindowColor(argb); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.windowColor.system = wallpaper.SystemWindowColor
+	a.settings.windowColor.offered = appwindow.WindowColorOffered
 	a.settings.windowBlurChoice = func() bool {
 		return w.OwnBlurSupported() && w.CompositorBlurs()
 	}
@@ -1082,8 +1091,14 @@ func (a *App) Theme(gtx layout.Context) *token.Theme {
 // accent returns the system's accent color when the application's colors
 // follow it, else transparent.
 func (a *App) accent() color.NRGBA {
-	if !a.preferences.Global().SystemAccent {
+	prefs := a.preferences.Global()
+	if !prefs.SystemAccent {
 		return color.NRGBA{}
+	}
+	// Windows 7 without Aero has the color of the windows the settings
+	// chose, as the glass does.
+	if c := prefs.WindowColor; c != 0 && appwindow.WindowColorOffered() {
+		return color.NRGBA{R: uint8(c >> 16), G: uint8(c >> 8), B: uint8(c), A: 0xff}
 	}
 	c, _ := a.window.Appearance.Accent()
 	return c

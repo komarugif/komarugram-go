@@ -18,6 +18,7 @@ import (
 	"komarugram/internal/messenger/preferences"
 	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/messenger/shortcuts"
+	"komarugram/internal/wallpaper"
 	"komarugram/pkg/player"
 )
 
@@ -174,6 +175,10 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	p.windowBlurChoice = func() bool { return true }
 	p.windowOwnFrameSupported = func() bool { return true }
 	p.windowTransparencyAvailable = func() bool { return true }
+	// Windows 7 without Aero, its glass as the Basic theme left it: the
+	// color of the windows is offered.
+	p.windowColor.offered = func() bool { return true }
+	p.windowColor.system = func() uint32 { return wallpaper.WindowColors[0] }
 	if p.about.openCommunity == nil {
 		p.about.openCommunity = func() {}
 	}

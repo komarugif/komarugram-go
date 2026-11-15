@@ -127,6 +127,12 @@ type Global struct {
 	// they can (Windows, Haiku). A window the compositor of Windows 10 or
 	// 11 blurs behind has it whatever this is.
 	WindowOwnFrame bool `json:"window_own_frame,omitempty"`
+	// WindowColor is the color of the windows on Windows 7 without Aero,
+	// where Windows offers none, 0xAARRGGBB, its alpha the intensity, as
+	// the personalization of Windows 7 keeps it: it colors the glass the
+	// windows draw by themselves and, with SystemAccent, the accent. 0 is
+	// the system's, the color the theme wrote.
+	WindowColor uint32 `json:"window_color,omitempty"`
 	// Player is the external player videos open in; empty until the user
 	// chooses one, which is asked only when more than one is installed.
 	Player player.Kind `json:"player,omitempty"`
@@ -1333,6 +1339,12 @@ func (s *Store) SetViewerBlur(on bool) error {
 // the window itself, or the compositor.
 func (s *Store) SetWindowBlurOwn(own bool) error {
 	return s.change(func(g *Global) { g.WindowBlurOwn = own })
+}
+
+// SetWindowColor chooses the color of the windows on Windows 7 without
+// Aero, 0xAARRGGBB; 0 is the system's.
+func (s *Store) SetWindowColor(argb uint32) error {
+	return s.change(func(g *Global) { g.WindowColor = argb })
 }
 
 // SetWindowOwnFrame chooses the window's own frame over the system's.

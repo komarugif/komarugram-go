@@ -151,3 +151,149 @@ func TestBlurKeepsAFlatPicture(t *testing.T) {
 		}
 	}
 }
+
+// TestGlassIsWhatTheDWMDrew checks the glass of Windows 7 against what its
+// DWM drew over a backdrop of one color, at several settings of the
+// colorization (docs/UI_COMPONENTS.md, "Aero's glass of Windows 7,
+// measured"): in a window with the system's frame, active and not, and in
+// one without it; each balance changed alone, another color, and the
+// opaque glass.
+func TestGlassIsWhatTheDWMDrew(t *testing.T) {
+	orange := color.NRGBA{R: 0xff, G: 0x9c, A: 0xff}
+	base := Glass{Color: orange, Afterglow: orange, ColorBalance: 0.24, AfterglowBalance: 0.32, BlurBalance: 0.44, Reflection: 0.5}
+	with := func(change func(g *Glass)) Glass {
+		g := base
+		change(&g)
+		return g
+	}
+	noBlur := with(func(g *Glass) { g.BlurBalance = 0 })
+	allColor := with(func(g *Glass) { g.ColorBalance = 1 })
+	afterglow := with(func(g *Glass) { g.AfterglowBalance = 0.64 })
+	opaque := with(func(g *Glass) { g.Opaque, g.ColorBalance = true, 0.6 })
+	blue := with(func(g *Glass) {
+		g.Color, g.Afterglow = color.NRGBA{R: 0x40, G: 0x80, B: 0xff, A: 0xff}, color.NRGBA{G: 0xff, B: 0x40, A: 0xff}
+	})
+	gray, red, bluish := [3]float64{120, 120, 120}, [3]float64{255, 0, 0}, [3]float64{0, 0, 255}
+	for _, tc := range []struct {
+		name  string
+		glass Glass
+		state GlassState
+		under [3]float64
+		drew  [3]float64
+	}{
+		{"active", base, GlassActive, gray, [3]float64{150.4, 112.8, 52.1}},
+		{"active", base, GlassActive, red, [3]float64{189.3, 47.0, 0}},
+		{"active", base, GlassActive, bluish, [3]float64{65.9, 40.2, 110.8}},
+		{"active, no blur balance", noBlur, GlassActive, gray, [3]float64{98.7, 60.1, 0}},
+		{"active, twice the afterglow", afterglow, GlassActive, gray, [3]float64{189.3, 135.5, 52.1}},
+		{"active, opaque", opaque, GlassActive, gray, [3]float64{239.8, 181.2, 88.0}},
+		{"inactive", base, GlassInactive, gray, [3]float64{155.7, 131.6, 93.2}},
+		{"inactive", base, GlassInactive, red, [3]float64{240.1, 25.4, 0}},
+		{"inactive, all the color", allColor, GlassInactive, gray, [3]float64{232.4, 177.6, 93.2}},
+		{"inactive, all the color", allColor, GlassInactive, bluish, [3]float64{107.1, 65.1, 197.6}},
+		{"inactive, opaque", with(func(g *Glass) { g.Opaque = true }), GlassInactive, gray, [3]float64{224.3, 215.4, 200.5}},
+		{"frameless", base, GlassFrameless, gray, [3]float64{157.0, 132.7, 94.1}},
+		{"frameless, no blur balance", noBlur, GlassFrameless, red, [3]float64{195.9, 26.0, 0}},
+		{"frameless, another color", blue, GlassFrameless, gray, [3]float64{100.0, 144.8, 128.7}},
+		{"frameless, opaque", opaque, GlassFrameless, bluish, [3]float64{230.9, 207.0, 168.9}},
+	} {
+		got := tc.glass.over(tc.state, tc.under)
+		for c := range 3 {
+			// The formula's round numbers are within two levels of what
+			// was measured at each setting alone.
+			if d := got[c] - tc.drew[c]; d > 2.5 || d < -2.5 {
+				t.Errorf("%s, over %v: %.1f, the DWM drew %.1f", tc.name, tc.under, got, tc.drew)
+				break
+			}
+		}
+	}
+}
+
+// TestGlassUnderLooksAsOverTheDWM checks the picture drawn under the
+// window's surfaces on Windows 7: a surface mixed with it in linear light,
+// as Gio mixes, is the pixel the DWM shows for the surface over its glass,
+// streaks and all, the surface's light as a byte plus the glass's share.
+func TestGlassUnderLooksAsOverTheDWM(t *testing.T) {
+	g := SkyGlass
+	picture := image.NewRGBA(image.Rect(0, 0, 2, 1))
+	picture.SetRGBA(0, 0, color.RGBA{R: 30, G: 90, B: 160, A: 0xff})
+	picture.SetRGBA(1, 0, color.RGBA{R: 230, G: 200, B: 120, A: 0xff})
+	// A streak of white at half its alpha over the second pixel.
+	streaks := image.NewRGBA(picture.Bounds())
+	streaks.SetRGBA(1, 0, color.RGBA{R: 128, G: 128, B: 128, A: 128})
+	s := Screen{Picture: picture, Reflection: streaks}
+	for _, fill := range []color.NRGBA{{R: 250, G: 246, B: 252, A: 0xff}, {R: 20, G: 18, B: 24, A: 0xff}} {
+		for _, show := range []float64{0.35, 0.7} {
+			under := GlassUnder(nil, s, g, GlassFrameless, 0, fill, show)
+			for x := range 2 {
+				p := picture.RGBAAt(x, 0)
+				glass := g.over(GlassFrameless, [3]float64{float64(p.R), float64(p.G), float64(p.B)})
+				if x == 1 {
+					k := GlassFrameless.reflection(g.Reflection)
+					for c := range 3 {
+						glass[c] = glass[c]*(1-k*128/255) + k*128
+					}
+				}
+				drawn := under.RGBAAt(x, 0)
+				for c, f := range [3]uint8{fill.R, fill.G, fill.B} {
+					surface := (1 - show) * toLinear(float64(f))
+					want := min(fromLinear(surface)+show*glass[c], 255)
+					v := [3]uint8{drawn.R, drawn.G, drawn.B}[c]
+					got := fromLinear(surface + show*toLinear(float64(v)))
+					if d := got - want; d > 1.5 || d < -1.5 && v != 255 {
+						t.Errorf("fill %v, showing %.2f, pixel %d, channel %d: the window shows %.1f, the DWM %.1f", fill, show, x, c, got, want)
+					}
+				}
+			}
+		}
+	}
+}
+
+// TestReflectionMovesAnEighthWithTheWindow checks where the streaks are:
+// stretched over the screen for a window at its center, and moved with a
+// window by an eighth of how far it went.
+func TestReflectionMovesAnEighthWithTheWindow(t *testing.T) {
+	screen := image.Rect(1920, 0, 3840, 1080)
+	picture := image.Pt(960, 540)
+	if got := ReflectionShift(screen, picture, 2880); got != 0 {
+		t.Errorf("a window at the screen's center moves the streaks by %d", got)
+	}
+	// 160 pixels of the screen are 80 of the picture; an eighth is 10.
+	if got := ReflectionShift(screen, picture, 2880+160); got != 10 {
+		t.Errorf("a window moved right by 160 moves the streaks by %d, want 10", got)
+	}
+	if got := ReflectionShift(screen, picture, 2880-160); got != -10 {
+		t.Errorf("a window moved left by 160 moves the streaks by %d, want -10", got)
+	}
+}
+
+// TestGlassOfColorIsWhatWindowsSets checks the glass of a color of the
+// personalization of Windows 7: the balances it wrote for its colors, each
+// at its own intensity, and at both ends of its slider (measured
+// 2026-11-15).
+func TestGlassOfColorIsWhatWindowsSets(t *testing.T) {
+	for _, tc := range []struct {
+		argb                   uint32
+		color, afterglow, blur int
+	}{
+		{0x6b74b8fc, 8, 43, 49},  // Sky
+		{0xa80046ad, 56, 11, 33}, // Twilight
+		{0x8032cdcd, 24, 32, 44}, // Sea
+		{0x6614a600, 5, 45, 50},  // Leaf
+		{0x54fadc0e, 5, 35, 60},  // Sun
+		{0x70fcc7f8, 12, 40, 48}, // Blush
+		{0x856e3ba1, 29, 29, 42}, // Violet
+		{0x528d5a94, 5, 34, 61},  // Lavender
+		{0x1a75b8fa, 5, 5, 90},   // the slider at its least
+		{0xd975b8fa, 85, 0, 15},  // and at its most
+	} {
+		g := GlassOfColor(tc.argb)
+		got := [3]int{int(g.ColorBalance*100 + 0.5), int(g.AfterglowBalance*100 + 0.5), int(g.BlurBalance*100 + 0.5)}
+		if want := [3]int{tc.color, tc.afterglow, tc.blur}; got != want {
+			t.Errorf("%08x: balances %v, Windows sets %v", tc.argb, got, want)
+		}
+		if c := g.Color; c != g.Afterglow || c.R != uint8(tc.argb>>16) || c.G != uint8(tc.argb>>8) || c.B != uint8(tc.argb) {
+			t.Errorf("%08x: color %v, afterglow %v", tc.argb, c, g.Afterglow)
+		}
+	}
+}

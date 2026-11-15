@@ -156,7 +156,10 @@ animate as Material 3 describes, and every animation can be turned off.
   which reads it then, tells of a new accent with the one before it;
   elsewhere on Linux the portal's `accent-color` (GNOME
   47); on Windows the DWM `AccentColor` (on Windows 7, which has none,
-  the glass's `ColorizationColor`), polled; none elsewhere. `WithAccent`
+  the glass's color as DWM draws it now, `DwmGetColorizationColor`, and
+  `ColorizationColor` where DWM does not tell: the color the
+  personalization previews is in the registry only once it is saved),
+  polled; none elsewhere. `WithAccent`
   gives a `Fixed` monitor one.
   `appearance_linux_test.go`.
 - `defaults/schemes`: `SchemeFromSeed` makes the Material 3 scheme of a

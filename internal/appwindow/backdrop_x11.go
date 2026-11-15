@@ -17,3 +17,6 @@ func desktopView(e event.Event) (wallpaper.View, bool) {
 	v, ok := e.(app.X11ViewEvent)
 	return wallpaper.View{Window: v.Window}, ok
 }
+
+// composes is asked on Windows only.
+func composes() bool { return true }

@@ -585,6 +585,7 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 			w.fullscreen = e.Config.Mode == app.Fullscreen
 			w.transparent, w.blurred = e.Config.Transparent, e.Config.BlurBehind
 			w.frame.configure(e.Config)
+			w.backdrop.glass = glassState(e.Config)
 			if ownsFrame() && w.blurAsked && !e.Config.Decorated && !e.Config.BlurBehind {
 				// No blur was granted: the system's frame is the better
 				// one, unless the user would rather have the window's.

@@ -12,3 +12,6 @@ import (
 
 // desktopView finds no native window to follow over the desktop here.
 func desktopView(event.Event) (wallpaper.View, bool) { return wallpaper.View{}, false }
+
+// composes is asked on Windows only.
+func composes() bool { return true }

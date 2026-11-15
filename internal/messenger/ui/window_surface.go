@@ -77,6 +77,7 @@ func (e *windowEffects) update(w *appwindow.Window, prefs preferences.Global, as
 	want := blur && !own
 	transparent := !own && appwindow.WantsTransparent(translucent)
 	w.SetOwnFrame(prefs.WindowOwnFrame)
+	w.SetWindowColor(prefs.WindowColor)
 	if e.set && e.blur == want && e.transparent == transparent && w.OwnBlur() == own {
 		return own
 	}
