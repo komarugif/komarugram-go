@@ -117,7 +117,9 @@ func (h *stickerHover) still(t *testing.T) image.Image {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if still == nil {
-		t.Fatal("no static preview")
+		// What the media came to tells why: a decode over the sandbox's
+		// time limit fails with an error, not a picture.
+		t.Fatalf("no static preview: %v", h.p.media.Status(h.msg, false).Err)
 	}
 	return still
 }

@@ -17,6 +17,7 @@ import (
 	_ "embed"
 	"fmt"
 	"image"
+	"runtime"
 	"time"
 
 	"komarugram/pkg/sandbox"
@@ -43,8 +44,20 @@ type Limits struct {
 // pixels a side. A 512x512 sticker keeps about 3 MiB in its decoder and takes
 // a few milliseconds a frame.
 var DefaultLimits = Limits{
-	Limits:  sandbox.Limits{Memory: 32 << 20, Slow: 250 * time.Millisecond},
+	Limits:  sandbox.Limits{Memory: 32 << 20, Slow: slowLimit()},
 	MaxSide: 512,
+}
+
+// slowLimit is how long one operation of a decoder may take: 250 ms, and
+// 500 ms on Haiku, where in a virtual machine the first frame of a sticker
+// with transparency took 300 to 600 ms while other work ran, and the
+// sticker was left blank. An operation over it is tried once more
+// (Sticker's seek).
+func slowLimit() time.Duration {
+	if runtime.GOOS == "haiku" {
+		return 500 * time.Millisecond
+	}
+	return 250 * time.Millisecond
 }
 
 // Runtime compiles the decoder once; each stream then gets its own instance.
@@ -163,8 +176,17 @@ func (d *Decoder) Decode(ctx context.Context, packet []byte) (*image.YCbCr, erro
 	if err := d.runtime.sandbox.Check(ctx, d.module, started); err != nil {
 		return nil, fmt.Errorf("vp9: %w", err)
 	}
+	if slowFault != nil && slowFault() {
+		// A test's: this decode took longer than the limit.
+		_ = d.module.Close(ctx)
+		return nil, fmt.Errorf("vp9: %w", sandbox.ErrSlow)
+	}
 	return frame, nil
 }
+
+// slowFault, set by a test, has a decode fail as one that took longer than
+// the limit when it reports true.
+var slowFault func() bool
 
 func (d *Decoder) decode(ctx context.Context, packet []byte) (*image.YCbCr, error) {
 	ptr, err := d.call(ctx, "vpxw_alloc", uint64(len(packet)))
