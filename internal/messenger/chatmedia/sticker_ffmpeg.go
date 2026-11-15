@@ -66,7 +66,7 @@ func decodeFFmpegSticker(ctx context.Context, path string, data []byte, size ima
 	}
 	// A sticker is 512 pixels across at most: the memory of a decoder of
 	// twice that bounds its ffmpeg.
-	if err = program.StartLimited(cmd, program.Limits{Memory: memory}, nil); err != nil {
+	if err = program.StartLimited(cmd, video.Limits(cmd.Path, memory), nil); err != nil {
 		return nil, err
 	}
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
