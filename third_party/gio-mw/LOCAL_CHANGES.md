@@ -148,6 +148,24 @@ animate as Material 3 describes, and every animation can be turned off.
   Windows and macOS: polled). `appearance_test.go`.
   `Fixed` reports one scheme and watches nothing, for a window no system
   shows, as tests and renders draw.
+  It watches the system's accent color too (`Accent`): on KDE Plasma the
+  selection color of kdeglobals, which Plasma makes from the accent (else
+  its `AccentColor`), read again on KConfig's `ConfigChanged` and the
+  portal's change, and 300 ms after the last of them: the signals come
+  about when the file is replaced, some before it, and Plasma's portal,
+  which reads it then, tells of a new accent with the one before it;
+  elsewhere on Linux the portal's `accent-color` (GNOME
+  47); on Windows the DWM `AccentColor`, polled; none elsewhere. `WithAccent` gives a `Fixed` monitor one.
+  `appearance_linux_test.go`.
+- `defaults/schemes`: `SchemeFromSeed` makes the Material 3 scheme of a
+  seed color, light or dark, as the Material Theme Builder made Baseline
+  (the "tonal spot" variant), in HCT (`hct.go`: CAM16 and its inverse,
+  written from the published equations, with tone as CIE L*). Baseline's
+  seed gives Baseline within two steps of a channel (`seed_test.go`).
+  `SchemeFromSeedNeutral` is the same scheme with gray surfaces, background
+  and outlines (the neutral palettes without chroma), and `BaselineSeed`
+  is Baseline's seed. A chroma of zero is an exact sRGB gray, as in
+  Material's own solver: CAM16's gray is a shade warm.
 - `exp/powersave`: watches power saving, the battery and the system's
   animation setting (Linux: power-profiles-daemon, UPower, the portal's
   GNOME and KDE settings over D-Bus; Windows: polled), with the `Policy`

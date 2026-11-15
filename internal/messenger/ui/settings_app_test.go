@@ -4,13 +4,13 @@ package ui
 
 import (
 	"image"
+	"image/color"
 	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"gio-mw/defaults/schemes"
 	"gio-mw/exp"
 	"gio-mw/exp/appearance"
 	"gio-mw/wdk"
@@ -63,8 +63,10 @@ func newSettingsPrefs(t *testing.T) *preferences.Store {
 func newSettingsApp(t *testing.T, prefs *preferences.Store, services Services, transparent bool, size image.Point) *settingsApp {
 	t.Helper()
 	skipFrames(t)
-	// A system that tells its scheme, light, as most do.
-	w := &appwindow.Window{Motion: motion.New(func() {}), Appearance: appearance.Fixed(appearance.Light)}
+	// A system that tells its scheme, light, as most do, and its accent
+	// color, as KDE Plasma and Windows do: Breeze's blue.
+	system := appearance.Fixed(appearance.Light).WithAccent(color.NRGBA{R: 61, G: 174, B: 233, A: 255})
+	w := &appwindow.Window{Motion: motion.New(func() {}), Appearance: system}
 	t.Cleanup(w.Motion.Close)
 	w.SetTranslucency(transparent, false)
 	services.Preferences = prefs
@@ -84,11 +86,7 @@ func newSettingsApp(t *testing.T, prefs *preferences.Store, services Services, t
 func (h *settingsApp) context() layout.Context {
 	h.ops.Reset()
 	gtx := layout.Context{Ops: &h.ops, Now: time.Now(), Constraints: layout.Exact(h.size), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
-	sc := schemes.SchemeBaselineLight()
-	if h.app.dark() {
-		sc = schemes.SchemeBaselineDark()
-	}
-	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, sc))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, appColors{h.app.accent(), h.prefs.Global().NeutralSurfaces}.scheme(h.app.dark())))
 	return gtx
 }
 

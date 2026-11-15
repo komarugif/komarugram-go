@@ -216,6 +216,18 @@ type settingsPage struct {
 	silentAsVideo    func() bool
 	setSilentAsVideo func(bool)
 	silentVideo      *radio.Radios[bool]
+	// systemAccent and setSystemAccent read and switch whether the colors
+	// follow the system's accent color; systemAccentAvailable reports
+	// whether the system has one, and the checkbox is shown only then.
+	systemAccent          func() bool
+	setSystemAccent       func(bool)
+	systemAccentAvailable func() bool
+	systemAccentCheckbox  *checkbox.Checkboxes[string]
+	// neutralSurfaces and setNeutralSurfaces read and switch whether the
+	// surfaces are gray rather than tinted with the accent.
+	neutralSurfaces         func() bool
+	setNeutralSurfaces      func(bool)
+	neutralSurfacesCheckbox *checkbox.Checkboxes[string]
 	// composerBlur and setComposerBlur read and switch the blur behind the
 	// floating composer; without them the checkbox is hidden.
 	composerBlur    func() bool
@@ -471,6 +483,16 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 	for v := 0; v <= preferences.TransparencyMax; v += 5 {
 		steps = append(steps, v)
 	}
+	p.systemAccentCheckbox = checkbox.NewCheckboxes([]string{"accent"}, nil, func(values []string) {
+		if p.setSystemAccent != nil {
+			p.setSystemAccent(slices.Contains(values, "accent"))
+		}
+	})
+	p.neutralSurfacesCheckbox = checkbox.NewCheckboxes([]string{"neutral"}, nil, func(values []string) {
+		if p.setNeutralSurfaces != nil {
+			p.setNeutralSurfaces(slices.Contains(values, "neutral"))
+		}
+	})
 	p.pauseInactiveCheckbox = checkbox.NewCheckboxes([]string{"pause"}, nil, func(values []string) {
 		if p.setPauseInactive != nil {
 			p.setPauseInactive(slices.Contains(values, "pause"))
@@ -590,6 +612,27 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 	// The sidebar can switch the theme too.
 	p.theme.SetValue(mode)
 	p.theme.Update(gtx)
+	if p.accentOffered() {
+		// Another window may have changed the shared preference.
+		var want []string
+		if p.systemAccent() {
+			want = []string{"accent"}
+		}
+		if !slices.Equal(p.systemAccentCheckbox.GetValues(), want) {
+			p.systemAccentCheckbox.SetValues(want)
+		}
+		p.systemAccentCheckbox.Update(gtx)
+	}
+	if p.neutralSurfaces != nil {
+		var want []string
+		if p.neutralSurfaces() {
+			want = []string{"neutral"}
+		}
+		if !slices.Equal(p.neutralSurfacesCheckbox.GetValues(), want) {
+			p.neutralSurfacesCheckbox.SetValues(want)
+		}
+		p.neutralSurfacesCheckbox.Update(gtx)
+	}
 	p.language.SetValue(language)
 	p.language.Update(gtx)
 	if p.composerStyle != nil {
@@ -1226,7 +1269,20 @@ func (p *settingsPage) layoutAppearance(gtx layout.Context, mode themeMode, syst
 	cards := []layout.FlexChild{
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return settingsChoiceCard(gtx, p.cardHeight("choice-theme"), l.T("settings.theme"), hint, func(gtx layout.Context) layout.Dimensions {
-				return p.theme.Layout(gtx, radio.LeadingKind, themeLabels(l))
+				children := []layout.FlexChild{layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return p.theme.Layout(gtx, radio.LeadingKind, themeLabels(l))
+				})}
+				if p.accentOffered() {
+					children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return p.systemAccentCheckbox.Layout(gtx, map[string]string{"accent": l.T("settings.system_accent")})
+					}))
+				}
+				if p.neutralSurfaces != nil {
+					children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return p.neutralSurfacesCheckbox.Layout(gtx, map[string]string{"neutral": l.T("settings.neutral_surfaces")})
+					}))
+				}
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 			})
 		}),
 		vspace(12),
@@ -1342,6 +1398,13 @@ func (p *settingsPage) layoutPauseInactive(gtx layout.Context, l localization.Ca
 			return label(gtx, l.T("settings.pause_inactive_hint"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 0)
 		}),
 	)
+}
+
+// accentOffered reports whether the checkbox of the system's accent color
+// is shown: where the system tells its accent color, KDE Plasma and
+// Windows; elsewhere it would do nothing.
+func (p *settingsPage) accentOffered() bool {
+	return p.systemAccent != nil && p.systemAccentAvailable != nil && p.systemAccentAvailable()
 }
 
 // blurAvailable reports whether the blur checkboxes have an effect: it costs
