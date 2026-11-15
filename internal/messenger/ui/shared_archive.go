@@ -151,7 +151,8 @@ func (p *chatInfo) resetMessages() {
 }
 
 // messagesText is the row's title: "n messages (n in the local cache)", or,
-// until Telegram has told its count, the cache's alone.
+// until Telegram has told its count, the cache's alone. A chat with no
+// messages in the cache and none in Telegram has no row.
 func (p *chatInfo) messagesText(l localization.Catalog) string {
 	m := &p.msgs
 	if !p.messagesShown() || !m.known {
@@ -161,6 +162,11 @@ func (p *chatInfo) messagesText(l localization.Catalog) string {
 	if job := m.dialog.job; job != nil {
 		// The cache's count follows the saving.
 		cached = max(cached, job.state().Cached)
+	}
+	if cached == 0 && total <= 0 {
+		// Nothing in the cache and nothing to save, or not yet known whether
+		// there is: the row would only say so.
+		return ""
 	}
 	if total < 0 {
 		return l.Count("info.messages_cached", cached, map[string]string{"count": groupDigits(cached)})
