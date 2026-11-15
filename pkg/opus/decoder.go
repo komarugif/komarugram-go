@@ -41,7 +41,7 @@ const (
 
 // DefaultLimits suit a voice message: a decoder keeps about 30 KiB, and a
 // packet takes well under a millisecond.
-var DefaultLimits = sandbox.Limits{Memory: 4 << 20, Slow: 250 * time.Millisecond}
+var DefaultLimits = sandbox.Limits{Memory: 4 << 20, PerFrame: true}
 
 // Runtime compiles the decoder once; each stream then gets its own instance.
 type Runtime struct {

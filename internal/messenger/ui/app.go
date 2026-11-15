@@ -46,6 +46,7 @@ import (
 	"komarugram/internal/miniappprefs"
 	"komarugram/pkg/miniapp"
 	"komarugram/pkg/player"
+	"komarugram/pkg/sandbox"
 )
 
 // App is the messenger window content.
@@ -1342,6 +1343,9 @@ func (a *App) Layout(gtx layout.Context) {
 func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	if !a.softwareChecked && app.SoftwareRendered() {
 		a.softwareChecked = true
+		// The rasterizer takes much of the CPU the decoders of stickers and
+		// sound need: their operations are allowed longer.
+		sandbox.SetSoftwareRendered(true)
 		if err := a.preferences.DefaultMotionOff(); err != nil {
 			log.Printf("save settings: %v", err)
 		}

@@ -163,7 +163,7 @@ func TestBudget(t *testing.T) {
 func TestSlowLimit(t *testing.T) {
 	data := readSticker(t)
 	limits := vp9.DefaultLimits
-	limits.Slow = time.Microsecond
+	limits.Slow, limits.PerFrame = time.Microsecond, false
 	runtime, ctx := runtimeWith(t, limits)
 
 	started := time.Now()

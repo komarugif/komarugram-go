@@ -116,7 +116,7 @@ func TestBudget(t *testing.T) {
 func TestSlowLimit(t *testing.T) {
 	data := sampleAnimation(t)
 	limits := lottie.DefaultLimits
-	limits.Slow = time.Microsecond
+	limits.Slow, limits.PerFrame = time.Microsecond, false
 	runtime, ctx := runtimeWith(t, limits)
 
 	animation, err := runtime.Open(ctx, "sample.json", data, 512)

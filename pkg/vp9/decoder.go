@@ -17,7 +17,6 @@ import (
 	_ "embed"
 	"fmt"
 	"image"
-	"runtime"
 	"time"
 
 	"komarugram/pkg/sandbox"
@@ -42,22 +41,11 @@ type Limits struct {
 
 // DefaultLimits suit stickers and custom emoji, which Telegram caps at 512
 // pixels a side. A 512x512 sticker keeps about 3 MiB in its decoder and takes
-// a few milliseconds a frame.
+// a few milliseconds a frame. An operation is a frame's (sandbox.FrameSlow);
+// one over the limit is tried once more (Sticker's seek).
 var DefaultLimits = Limits{
-	Limits:  sandbox.Limits{Memory: 32 << 20, Slow: slowLimit()},
+	Limits:  sandbox.Limits{Memory: 32 << 20, PerFrame: true},
 	MaxSide: 512,
-}
-
-// slowLimit is how long one operation of a decoder may take: 250 ms, and
-// 500 ms on Haiku, where in a virtual machine the first frame of a sticker
-// with transparency took 300 to 600 ms while other work ran, and the
-// sticker was left blank. An operation over it is tried once more
-// (Sticker's seek).
-func slowLimit() time.Duration {
-	if runtime.GOOS == "haiku" {
-		return 500 * time.Millisecond
-	}
-	return 250 * time.Millisecond
 }
 
 // Runtime compiles the decoder once; each stream then gets its own instance.
