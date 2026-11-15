@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -95,7 +94,7 @@ func TestSettingsChangeTheLookOfChats(t *testing.T) {
 	// The wallpaper is rendered at the size the history takes.
 	ops := new(op.Ops)
 	gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(image.Pt(640, 480)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	themes.Background(gtx)
 	wait()
 	if themes.image == nil || themes.image.Bounds().Size() != image.Pt(640, 480) {

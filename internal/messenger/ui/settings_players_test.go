@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/exp/appearance"
 	"gio-mw/wdk"
@@ -39,7 +38,7 @@ func TestSettingsOpenDoesNotWaitForPlayers(t *testing.T) {
 	}
 	ops := new(op.Ops)
 	gtx := layout.Context{Ops: ops, Constraints: layout.Exact(image.Pt(800, 1600)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	frame := func() {
 		ops.Reset()
 		gtx.Now = time.Now()

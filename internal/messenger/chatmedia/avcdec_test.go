@@ -6,9 +6,12 @@ import (
 	"testing"
 
 	"komarugram/pkg/video"
+
+	"komarugram/internal/testenv"
 )
 
 func TestSandboxGIFsWhenChosen(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	if video.ResolveFFmpeg("") == "" {
 		t.Skip("no FFmpeg")
 	}

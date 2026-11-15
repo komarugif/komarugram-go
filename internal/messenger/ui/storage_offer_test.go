@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -80,7 +79,7 @@ func (f *fakeStorage) setPass(p model.StoragePass) {
 func storageFrame(o *storageOffer, toasts *[]string, size image.Point) *op.Ops {
 	ops := new(op.Ops)
 	gtx := layout.Context{Ops: ops, Now: time.Now().Add(time.Second), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	fillRect(gtx, scheme(gtx).Surface.Color, size)
 	l := localization.For("ru")
 	o.Update(gtx, func(s string) { *toasts = append(*toasts, s) }, l, func() {})

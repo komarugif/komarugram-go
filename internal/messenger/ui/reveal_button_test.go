@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -28,7 +27,7 @@ func TestRevealButtonWidensOnHover(t *testing.T) {
 	now := time.Now()
 	frame := func() int {
 		gtx := layout.Context{Ops: new(op.Ops), Source: r.Source(), Now: now, Constraints: layout.Exact(image.Pt(600, 100)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		width := b.Layout(gtx, iconGift, "Send a gift", scheme(gtx).Primary.Color).Size.X
 		r.Frame(gtx.Ops)
 		return width

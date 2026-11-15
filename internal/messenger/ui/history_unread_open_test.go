@@ -28,6 +28,7 @@ func (s anchorSource) SaveView(v model.Viewport, _ []model.MessageLayout) {
 // the messages the cache had, at their end, took the place of the anchor,
 // and the chat opened at its end, read whole.
 func TestWaitingHistorySavesNoView(t *testing.T) {
+	skipFrames(t)
 	var messages []model.Message
 	for i := 1; i <= 40; i++ {
 		messages = append(messages, model.Message{Key: model.MessageKey{ChatID: 1, MessageID: model.MessageID(i)}, Date: time.Unix(1000, 0), Text: fmt.Sprint("Message ", i), ContentRevision: 1})

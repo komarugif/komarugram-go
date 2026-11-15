@@ -12,7 +12,6 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -26,7 +25,7 @@ import (
 // received message's bubble.
 func tileColors() (tile, bubble color.NRGBA) {
 	gtx := layout.Context{Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	sc := scheme(gtx)
 	return sc.SurfaceContainerHigh.AsNRGBA(), sc.Surface.Color.AsNRGBA()
 }

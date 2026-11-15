@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -38,6 +37,7 @@ type stickerHover struct {
 // newStickerHover shows count items of codec in view: chat, pack,
 // readonly-pack, picker or emoji-picker.
 func newStickerHover(t *testing.T, codec, view string, count int) *stickerHover {
+	skipFrames(t)
 	p := newChatPage(mockstore.New(time.Now(), 0), func() {})
 	t.Cleanup(p.Close)
 	p.images = &imageOps{}
@@ -83,7 +83,7 @@ func (h *stickerHover) frame() image.Image {
 	}
 	ops := new(op.Ops)
 	gtx := layout.Context{Ops: ops, Source: h.router.Source(), Now: time.Now(), Constraints: layout.Exact(image.Pt(220, 260)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	wdk.SetAnimationsEnabled(gtx, false)
 	p.images.BeginFrame()
 	p.media.BeginFrame()

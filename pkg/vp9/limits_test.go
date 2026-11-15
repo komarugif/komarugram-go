@@ -14,12 +14,15 @@ import (
 	"komarugram/pkg/sandbox"
 	"komarugram/pkg/vp9"
 	"komarugram/pkg/webm"
+
+	"komarugram/internal/testenv"
 )
 
 // bigFrame encodes one 4096x4096 VP9 frame: a legal bitstream, eight times
 // wider than any sticker, which libvpx needs about 50 MiB to decode.
 func bigFrame(t *testing.T) (*webm.File, []byte) {
 	t.Helper()
+	testenv.Integration(t, "runs FFmpeg")
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		t.Skip("ffmpeg is not installed")
 	}

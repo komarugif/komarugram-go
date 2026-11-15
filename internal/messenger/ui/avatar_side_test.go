@@ -11,7 +11,6 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -69,7 +68,7 @@ func TestAvatarBesideLongSentMessage(t *testing.T) {
 	defer win.Release()
 	ops := new(op.Ops)
 	gtx := layout.Context{Ops: ops, Now: h.now, Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	bubble := scheme(gtx).PrimaryContainer.Color.AsNRGBA()
 	h.page.Layout(gtx, model.Chat{ID: 1, Title: "Chat", Kind: model.KindGroup}, localization.For("en"), false)
 	if err := win.Frame(ops); err != nil {

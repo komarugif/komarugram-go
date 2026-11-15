@@ -15,7 +15,6 @@ import (
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 	"gio-mw/widget/indicator"
@@ -144,7 +143,7 @@ func TestRenderMediaViewer(t *testing.T) {
 			// The viewer is dark in either; its dialogs are the theme's.
 			scheme = schemes.SchemeBaselineDark()
 		}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, scheme))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, scheme))
 		images.BeginFrame()
 		v.Layout(gtx, localization.For("ru"), false)
 		images.EndFrame()

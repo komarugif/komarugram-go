@@ -8,7 +8,6 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -217,7 +216,7 @@ func TestLetGoRowsTakeShapesFromProfiles(t *testing.T) {
 	heights := layOut(h, store.all)
 	// The rows' profiles, laid out at the history's width.
 	metric := unit.Metric{PxPerDp: 1, PxPerSp: 1}
-	theme := defaults.NewTheme(layout.Context{Ops: new(op.Ops), Metric: metric, Values: map[string]any{}}, schemes.SchemeBaselineLight())
+	theme := testTheme(layout.Context{Ops: new(op.Ops), Metric: metric, Values: map[string]any{}}, schemes.SchemeBaselineLight())
 	profiles := map[model.MessageID][]byte{}
 	bubbles := map[model.MessageID]int{}
 	for _, m := range store.all[:60] {

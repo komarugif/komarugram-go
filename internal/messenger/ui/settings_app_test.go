@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/exp"
 	"gio-mw/exp/appearance"
@@ -63,6 +62,7 @@ func newSettingsPrefs(t *testing.T) *preferences.Store {
 // their main page once, as the window shows it first.
 func newSettingsApp(t *testing.T, prefs *preferences.Store, services Services, transparent bool, size image.Point) *settingsApp {
 	t.Helper()
+	skipFrames(t)
 	// A system that tells its scheme, light, as most do.
 	w := &appwindow.Window{Motion: motion.New(func() {}), Appearance: appearance.Fixed(appearance.Light)}
 	t.Cleanup(w.Motion.Close)
@@ -88,7 +88,7 @@ func (h *settingsApp) context() layout.Context {
 	if h.app.dark() {
 		sc = schemes.SchemeBaselineDark()
 	}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, sc))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, sc))
 	return gtx
 }
 

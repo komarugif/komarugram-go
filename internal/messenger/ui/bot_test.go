@@ -80,18 +80,6 @@ func botHarness(t *testing.T, answer model.BotAnswer, err error, buttons [][]mod
 	return h, store
 }
 
-func waitFor(t *testing.T, h *menuHarness, what string, ok func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for !ok() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out: %s", what)
-		}
-		h.frames(1)
-		time.Sleep(time.Millisecond)
-	}
-}
-
 // A callback button asks the bot for the message it is under, with its data,
 // and the bot's notice comes to the toast; a link it answers is offered.
 func TestCallbackButton(t *testing.T) {
@@ -104,11 +92,11 @@ func TestCallbackButton(t *testing.T) {
 	if store.pressed[0].MessageID != 3 || string(store.data[0]) != "\x07\x08" {
 		t.Fatalf("asked %v with %v", store.pressed, store.data)
 	}
-	waitFor(t, h, "the bot's notice in the toast", func() bool { return h.page.toast.Text() == "Refreshed" })
+	waitFor(t, "the bot's notice in the toast", h.frame, func() bool { return h.page.toast.Text() == "Refreshed" })
 
 	h, store = botHarness(t, model.BotAnswer{URL: "https://example.org/x"}, nil, buttons)
 	h.pressButtonOf(3, 60, store)
-	waitFor(t, h, "the link the bot answered", func() bool { return h.page.link == "https://example.org/x" })
+	waitFor(t, "the link the bot answered", h.frame, func() bool { return h.page.link == "https://example.org/x" })
 }
 
 // A bot that stays silent, or a failure, is told in the toast.
@@ -116,7 +104,7 @@ func TestCallbackButtonFailures(t *testing.T) {
 	buttons := [][]model.MessageButton{{{Text: "Refresh", Kind: "callback", Data: []byte{1}}}}
 	h, store := botHarness(t, model.BotAnswer{}, model.ErrBotSilent, buttons)
 	h.pressButtonOf(3, 60, store)
-	waitFor(t, h, "the silent bot in the toast", func() bool { return h.page.toast.Text() == "The bot did not answer" })
+	waitFor(t, "the silent bot in the toast", h.frame, func() bool { return h.page.toast.Text() == "The bot did not answer" })
 }
 
 // A button that is not the client's to press does nothing.
@@ -133,14 +121,7 @@ func TestActionButtonIsDisabled(t *testing.T) {
 // waitBotPage draws the page of the demo's notes bot until ok.
 func waitBotPage(t *testing.T, h *composerHarness, what string, ok func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for !ok() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out: %s", what)
-		}
-		h.frame()
-		time.Sleep(time.Millisecond)
-	}
+	waitFor(t, what, func() { h.frame() }, ok)
 }
 
 // An empty chat with a bot has Start in place of the composer; the bot's
@@ -165,9 +146,8 @@ func TestBotStartAndKeyboard(t *testing.T) {
 	// The key that says Settings is in the second row: find it from the top
 	// of the page, as the keys before it send their text and change nothing.
 	for y := float32(440); y < 700 && h.p.bot.keyboard != nil; y += 10 {
-		for range 5 {
-			h.frame() // What was sent is done sending.
-		}
+		// What was sent is done sending.
+		waitBotPage(t, h, "the key's text sent", func() bool { return !h.p.composer.draft(h.chat).sending })
 		h.click(100, y)
 	}
 	waitBotPage(t, h, "the keyboard taken away", func() bool { return h.p.bot.keyboard == nil })

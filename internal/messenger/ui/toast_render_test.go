@@ -17,7 +17,6 @@ import (
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/motion"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/exp"
 	"gio-mw/wdk"
@@ -180,7 +179,7 @@ func renderToast(t *testing.T, path string, size image.Point, dark bool, draw fu
 		if dark {
 			s = schemes.SchemeBaselineDark()
 		}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, s))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, s))
 		exp.Background(gtx)
 		draw(gtx)
 	}

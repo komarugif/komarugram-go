@@ -4,6 +4,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"os"
@@ -16,7 +17,6 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -91,6 +91,7 @@ type menuHarness struct {
 }
 
 func newMenuHarness(t *testing.T, edit func(*menuStore, []model.Message)) *menuHarness {
+	skipFrames(t)
 	return newMenuHarnessOn(t, edit, nil)
 }
 
@@ -98,6 +99,7 @@ func newMenuHarness(t *testing.T, edit func(*menuStore, []model.Message)) *menuH
 // store, such as one that also takes reactions.
 func newMenuHarnessOn(t *testing.T, edit func(*menuStore, []model.Message), wrap func(*menuStore) model.ConversationStore) *menuHarness {
 	t.Helper()
+	skipFrames(t)
 	h := &menuHarness{t: t, now: time.Unix(1000, 0)}
 	var messages []model.Message
 	for i := 1; i <= 20; i++ {
@@ -126,7 +128,7 @@ func (h *menuHarness) frame() {
 		width = 500
 	}
 	gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(width, 700)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	if h.still {
 		wdk.SetAnimationsEnabled(gtx, false)
 	}
@@ -143,6 +145,32 @@ func (h *menuHarness) frames(n int) {
 	for range n {
 		h.frame()
 	}
+}
+
+// settle draws frames until none of the media drawn is loading, for a
+// picture of the page to be of what the media came to, whatever the
+// goroutines that load them took.
+func (h *menuHarness) settle(t *testing.T) {
+	t.Helper()
+	h.page.media.LoadingSeen()
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		h.frame()
+		if h.page.media.LoadingSeen() == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the media are still loading")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// errNoMedia is what the media of menuStore are: it keeps none.
+var errNoMedia = errors.New("the test's store keeps no media")
+
+// Media has no media: the store keeps none.
+func (s *menuStore) Media(context.Context, model.Message) ([]byte, error) {
+	return nil, errNoMedia
 }
 func (h *menuHarness) press(button pointer.Buttons, pos f32.Point) {
 	for _, kind := range []pointer.Kind{pointer.Press, pointer.Release} {
@@ -180,6 +208,17 @@ func (h *menuHarness) openMenu(id model.MessageID) {
 func (h *menuHarness) choose(a menuAction) {
 	h.t.Helper()
 	m := &h.page.messageMenu
+	// An item that comes from the background, as the emoji packs, grows
+	// the menu, to the height m.rect has at once and on screen in an
+	// animation: it is clicked once the menu is still, and has grown, on
+	// the test's clock.
+	last := m.rect
+	waitFor(h.t, "the menu still", h.frame, func() bool {
+		still := m.rect == last
+		last = m.rect
+		return still && len(m.shown) > 0
+	})
+	h.frames(30)
 	y := m.rect.Min.Y + menuPadding
 	if strip := m.reactions.height(layout.Context{Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}); strip > 0 {
 		y = m.rect.Min.Y + strip
@@ -346,7 +385,11 @@ func TestMessageMenuReply(t *testing.T) {
 	h.router.Queue(key.EditEvent{Text: "yes"})
 	h.frame()
 	h.router.Queue(key.Event{Name: key.NameReturn, State: key.Press})
-	h.frames(10)
+	waitFor(t, "the reply sent", h.frame, func() bool {
+		h.store.mu.Lock()
+		defer h.store.mu.Unlock()
+		return len(h.store.sent) > 0 && d.reply == nil
+	})
 	h.store.mu.Lock()
 	sent := append([]model.OutgoingMessage(nil), h.store.sent...)
 	h.store.mu.Unlock()
@@ -399,7 +442,14 @@ func TestMessageMenuEmojiPacks(t *testing.T) {
 		m[2].Entities = one
 		m[3].Entities = append(one, model.Entity{Kind: "emoji", DocumentID: 3})
 	})
+	// The packs of a message's emoji are looked up in the background, and
+	// the item comes once they are found.
+	hasPacks := func() bool {
+		shown := h.page.messageMenu.shown
+		return len(shown) > 0 && shown[len(shown)-1] == actionEmojiPacks
+	}
 	h.openMenu(3)
+	waitFor(t, "the packs of message 3", h.frame, hasPacks)
 	shown := h.page.messageMenu.shown
 	if shown[len(shown)-1] != actionEmojiPacks {
 		t.Fatalf("no emoji packs item: %v", shown)
@@ -413,10 +463,15 @@ func TestMessageMenuEmojiPacks(t *testing.T) {
 	}
 	h.page.stickers.stop()
 	h.openMenu(4)
+	waitFor(t, "the packs of message 4", h.frame, func() bool {
+		return hasPacks() && h.page.menuLabel(actionEmojiPacks, localization.For("en")) != "This message contains emoji from 0 packs."
+	})
 	if got := h.page.menuLabel(actionEmojiPacks, localization.For("en")); got != "This message contains emoji from 2 packs." {
 		t.Fatalf("label %q", got)
 	}
 	h.choose(actionEmojiPacks)
+	// The sets are read in the background, as the menu's label was.
+	waitFor(t, "the sets", h.frame, func() bool { return len(h.page.emojiPacks.refs) > 0 })
 	if !h.page.emojiPacks.modal.Shown() || len(h.page.emojiPacks.refs) != 2 {
 		t.Fatal("the sets did not open")
 	}

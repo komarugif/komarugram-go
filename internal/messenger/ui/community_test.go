@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -254,7 +253,7 @@ func TestChatHeaderCommunityBadge(t *testing.T) {
 	now := time.Now()
 	frame := func(chat int64) bool {
 		gtx := layout.Context{Ops: new(op.Ops), Source: router.Source(), Now: now, Constraints: layout.Exact(image.Pt(500, 300)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		clicked := page.communityBadge.Clicked(gtx)
 		layoutChatPageHead(gtx, model.Chat{ID: chat, Kind: model.KindChannel, Title: "Channel"}, l, noAvatar, nil, nil, nil, func(gtx layout.Context) layout.Dimensions {
 			return layout.Dimensions{Size: gtx.Constraints.Max}
@@ -315,7 +314,7 @@ func TestCommunitySwitchWithoutRow(t *testing.T) {
 	l := localization.For("ru")
 	frame := func() {
 		gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(600, 700)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		c, ok := a.selectedChat()
 		if !ok {
 			t.Fatal("the community's page lost its chat")

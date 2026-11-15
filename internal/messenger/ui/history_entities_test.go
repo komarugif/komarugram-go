@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -93,6 +92,7 @@ type entityHarness struct {
 
 func newEntityHarness(t *testing.T, m model.Message, kind model.ChatKind) *entityHarness {
 	t.Helper()
+	skipFrames(t)
 	store := &entityStore{}
 	h := &entityHarness{t: t, store: store, page: newChatPage(store, func() {}), m: m, now: time.Unix(1_790_000_000, 0), l: localization.For("en")}
 	h.page.kind, h.page.chat = kind, 100
@@ -104,7 +104,7 @@ func newEntityHarness(t *testing.T, m model.Message, kind model.ChatKind) *entit
 
 func (h *entityHarness) frame() {
 	gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Constraints{Max: image.Pt(400, 400)}, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	h.page.entityMenu.watch(gtx)
 	h.page.keyboardEvents(gtx)
 	h.page.chatSearchUpdate(gtx)

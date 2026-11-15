@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"komarugram/internal/testenv"
 )
 
 // TestIdentify checks how a browser is told from what it printed for
@@ -55,6 +57,7 @@ func TestCheckGecko(t *testing.T) {
 // TestGeckoVersion checks that the version of Waterfox's engine is read out of
 // platform.ini beside the program it links to.
 func TestGeckoVersion(t *testing.T) {
+	testenv.Integration(t, "starts a browser")
 	dir := t.TempDir()
 	program := filepath.Join(dir, "opt", "waterfox", "waterfox")
 	if err := os.MkdirAll(filepath.Dir(program), 0o755); err != nil {
@@ -174,6 +177,7 @@ func TestSeedFirefoxProfile(t *testing.T) {
 // /snap/bin, a link to the snap launcher, or a script that runs one, as
 // Ubuntu's /usr/bin/firefox.
 func TestSnapName(t *testing.T) {
+	testenv.Integration(t, "starts a browser")
 	dir := t.TempDir()
 	launcher := filepath.Join(dir, "snap")
 	if err := os.WriteFile(launcher, []byte("\x7fELF"), 0o755); err != nil {

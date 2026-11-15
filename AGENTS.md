@@ -137,8 +137,10 @@ maintainer runs the whole set, on a machine faster than an agent's.
 - **`-short` skips what is dear.** A test that draws frames, starts a
   program of the system (a browser, FFmpeg, a player) or waits on the
   clock skips itself when `testing.Short()`, in its harness's constructor
-  rather than in each test. A test that takes over about a second needs a
-  reason.
+  rather than in each test: `skipFrames(t)` in the UI's harnesses,
+  `testenv.Integration(t, …)` and `testenv.Waits(t, …)`
+  (`internal/testenv`) elsewhere. A test that takes over about a second
+  needs a reason.
 
 Writing them:
 
@@ -155,10 +157,13 @@ Writing them:
   area, not one for each test: `newSettingsApp` is `New` on the demo's
   store. A harness of its own drifts from the client.
 - **Frames run on a clock of the test's, a frame's time at a time, with one
-  theme for the test.** A frame on the real clock passes or fails by how
-  fast frames are drawn; a theme made for each frame makes a text shaper
-  each frame, and lays all text out from scratch, five times as slow. The
-  harnesses written before these rules do not all keep them yet.
+  theme for the test (`testTheme`).** A theme made for each frame makes a
+  text shaper each frame, and lays all text out from scratch, five times as
+  slow. A frame on the real clock passes or fails by how fast frames are
+  drawn; some harnesses still draw on it.
+- **A test waits for what it needs, not for a number of frames**
+  (`waitFor`): what a goroutine does comes when it comes, later on a
+  machine of one core. Check a test that waits with `GOMAXPROCS=1`.
 
 ## Rules
 

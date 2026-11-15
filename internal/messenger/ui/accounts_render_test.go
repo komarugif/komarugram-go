@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/exp"
 	"gio-mw/token"
@@ -58,7 +57,7 @@ func renderPNG(t *testing.T, path string, size image.Point, frames int, draw fun
 	for i := 0; i < frames; i++ {
 		ops.Reset()
 		gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		exp.Background(gtx)
 		draw(gtx)
 	}
@@ -227,6 +226,8 @@ func TestRenderAccountScreens(t *testing.T) {
 	logOut.ready()
 	// As a click on the row asks it: the page scrolls to the card.
 	logOut.app.settings.confirmingLogOut, logOut.app.settings.revealLogOut = true, true
+	// The page scrolls to the card for as long as that takes.
+	logOut.settle(600 * time.Millisecond)
 	renderPNG(t, filepath.Join(dir, "logout.png"), size, 3, logOut.draw)
 }
 

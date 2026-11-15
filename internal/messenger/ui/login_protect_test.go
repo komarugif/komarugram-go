@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -53,7 +52,7 @@ func TestProtectOfferFitsALowWindow(t *testing.T) {
 		for range 3 {
 			ops.Reset()
 			gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(image.Pt(900, height)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-			wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+			wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 			page.Update(gtx, l)
 			page.Layout(gtx, l, false)
 		}
@@ -102,7 +101,7 @@ func imageOf(t *testing.T, size image.Point, frames int, draw func(gtx layout.Co
 	for range frames {
 		ops.Reset()
 		gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		draw(gtx)
 	}
 	if err := win.Frame(ops); err != nil {

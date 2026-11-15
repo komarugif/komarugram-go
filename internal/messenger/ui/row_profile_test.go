@@ -14,7 +14,6 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -69,7 +68,7 @@ func profileTexts() []model.Message {
 func TestProfileTellsTheTextAtEveryWidth(t *testing.T) {
 	h := newMenuHarness(t, nil)
 	metric := unit.Metric{PxPerDp: 1, PxPerSp: 1}
-	theme := defaults.NewTheme(layout.Context{Ops: new(op.Ops), Metric: metric, Values: map[string]any{}}, schemes.SchemeBaselineLight())
+	theme := testTheme(layout.Context{Ops: new(op.Ops), Metric: metric, Values: map[string]any{}}, schemes.SchemeBaselineLight())
 	l := localization.For("en")
 	lay := func(m model.Message, width int) *messageRow {
 		gtx := layout.Context{Ops: new(op.Ops), Now: h.now, Constraints: layout.Constraints{Max: image.Pt(width, 1<<20)}, Metric: metric, Values: map[string]any{}}
@@ -202,7 +201,7 @@ func TestRowsHandTheirProfilesOver(t *testing.T) {
 func TestRowProfileBytes(t *testing.T) {
 	h := newMenuHarness(t, nil)
 	metric := unit.Metric{PxPerDp: 1, PxPerSp: 1}
-	theme := defaults.NewTheme(layout.Context{Ops: new(op.Ops), Metric: metric, Values: map[string]any{}}, schemes.SchemeBaselineLight())
+	theme := testTheme(layout.Context{Ops: new(op.Ops), Metric: metric, Values: map[string]any{}}, schemes.SchemeBaselineLight())
 	for _, m := range profileTexts() {
 		gtx := layout.Context{Ops: new(op.Ops), Now: h.now, Constraints: layout.Constraints{Max: image.Pt(600, 1<<20)}, Metric: metric, Values: map[string]any{}}
 		wdk.InitMaterialThemeInContext(gtx, theme)

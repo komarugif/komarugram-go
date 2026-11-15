@@ -11,11 +11,14 @@ import (
 	"testing"
 
 	"komarugram/pkg/program"
+
+	"komarugram/internal/testenv"
 )
 
 // An FFmpeg that takes more memory than it may is stopped, and its
 // reader told why; one within its bound decodes the video.
 func TestFFmpegMemoryBound(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg := ResolveFFmpeg("")
 	if ffmpeg == "" {
 		t.Skip("no FFmpeg")
@@ -65,6 +68,7 @@ func TestFFmpegMemoryBound(t *testing.T) {
 // counts, and an FFmpeg on a many-core machine could not start. 64 threads
 // stand for the cores, asked before the arguments under test.
 func TestRawOutputOneThread(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg := ResolveFFmpeg("")
 	if ffmpeg == "" {
 		t.Skip("no FFmpeg")

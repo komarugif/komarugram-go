@@ -19,7 +19,6 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -143,6 +142,7 @@ type viewerHarness struct {
 }
 
 func newViewerHarness(t *testing.T) *viewerHarness {
+	skipFrames(t)
 	h := &viewerHarness{t: t, store: newGalleryStore(), now: time.Unix(1000, 0), changed: make(chan struct{}, 64)}
 	h.viewer = newMediaViewer(h.store, &h.images, func() {
 		select {
@@ -160,7 +160,7 @@ func (h *viewerHarness) frame() {
 	// in the window, and a frame of the same time is a nested Layout to it.
 	defer func() { h.now = h.now.Add(16 * time.Millisecond) }()
 	gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(800, 600)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	h.images.BeginFrame()
 	h.viewer.Layout(gtx, localization.For("en"), false)
 	h.images.EndFrame()
@@ -323,7 +323,7 @@ func TestPhotoTileUsesVariantAndOpensViewer(t *testing.T) {
 	p.images = &images
 	r := &messageRow{}
 	gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(800, 600)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	tile := func() {
 		gtx.Ops.Reset()
 		p.media.BeginFrame()

@@ -17,6 +17,8 @@ import (
 	"github.com/gotd/td/bin"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/tg"
+
+	"komarugram/internal/testenv"
 )
 
 func composerAPI(fn func(bin.Encoder) (bin.Encoder, error)) *tg.Client {
@@ -278,6 +280,7 @@ func TestPickerRecentsPersist(t *testing.T) {
 }
 
 func TestVideoAttachmentAttributes(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	if _, err := exec.LookPath("ffprobe"); err != nil {
 		t.Skip("ffprobe unavailable")
 	}

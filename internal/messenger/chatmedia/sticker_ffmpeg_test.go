@@ -12,6 +12,8 @@ import (
 
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/webm"
+
+	"komarugram/internal/testenv"
 )
 
 func TestStickerHoverDoesNotAnimateOtherCopies(t *testing.T) {
@@ -143,6 +145,7 @@ func TestHeldAnimationPlaysOn(t *testing.T) {
 }
 
 func TestFFmpegStickerAlphaAndHover(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	path, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip(err)

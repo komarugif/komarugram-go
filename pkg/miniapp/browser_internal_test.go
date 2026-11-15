@@ -7,6 +7,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"komarugram/internal/testenv"
 )
 
 func TestParseVersion(t *testing.T) {
@@ -60,6 +62,7 @@ func TestNewest(t *testing.T) {
 // browser found is one that told its version, or, built from Firefox, its
 // name: the version of its engine may come only once it runs.
 func TestFindBrowser(t *testing.T) {
+	testenv.Integration(t, "starts a browser")
 	for _, b := range candidates() {
 		if b.found {
 			t.Logf("%s: %q → %v", b.ref, b.banner, b.version)

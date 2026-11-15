@@ -16,7 +16,6 @@ import (
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -32,7 +31,7 @@ import (
 
 func sharedContext(ops *op.Ops, size image.Point) layout.Context {
 	gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	return gtx
 }
 func awaitShared(t *testing.T, p *chatInfo) {
@@ -718,6 +717,7 @@ func TestChatInfoSupergroupIDAndCreation(t *testing.T) {
 // many the cache holds; a click saves the rest in a dialog with a progress
 // bar, which can be stopped, and a click again goes on from what was saved.
 func TestChatInfoSavesMessagesToTheCache(t *testing.T) {
+	skipFrames(t)
 	store := mockstore.New(time.Now(), 0)
 	var images imageOps
 	p := newChatInfo(store, &images, func() {})

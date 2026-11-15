@@ -22,6 +22,8 @@ import (
 	"github.com/gotd/td/tg"
 
 	"komarugram/internal/messenger/model"
+
+	"komarugram/internal/testenv"
 )
 
 // filesServer records what sending files asks of Telegram.
@@ -375,6 +377,7 @@ func sentThumbnail(t *testing.T, server *filesServer, doc *tg.InputMediaUploaded
 // pixels, as media, as a file and in an album: Telegram makes none itself of
 // a large file, which shows as an empty box.
 func TestSendVideoWithThumbnail(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip(err)
@@ -415,6 +418,7 @@ func TestSendVideoWithThumbnail(t *testing.T) {
 // A video a phone recorded turned says the size it shows at, the thumbnail's
 // shape, not the size it is stored at.
 func TestSendTurnedVideoSaysItsShape(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip(err)
@@ -442,6 +446,7 @@ func TestSendTurnedVideoSaysItsShape(t *testing.T) {
 // length and its first picture, which reads as any thumbnail does; as a file,
 // it shows none of it.
 func TestSendingVideoShowsItsPicture(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip(err)
