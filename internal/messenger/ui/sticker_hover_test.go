@@ -106,10 +106,12 @@ func (h *stickerHover) frame() image.Image {
 	return nil
 }
 
-// still waits for the static preview.
+// still waits for the static preview: on a slow machine, as Haiku in a
+// virtual machine, behind what the tests before left decoding, it took over
+// five seconds.
 func (h *stickerHover) still(t *testing.T) image.Image {
 	var still image.Image
-	until := time.Now().Add(5 * time.Second)
+	until := time.Now().Add(20 * time.Second)
 	for time.Now().Before(until) && still == nil {
 		still = h.frame()
 		time.Sleep(10 * time.Millisecond)

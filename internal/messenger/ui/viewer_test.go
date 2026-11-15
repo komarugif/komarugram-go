@@ -170,7 +170,7 @@ func (h *viewerHarness) frame() {
 // until draws frames until cond holds, waiting for background work between them.
 func (h *viewerHarness) until(what string, cond func() bool) {
 	h.t.Helper()
-	deadline := time.After(3 * time.Second)
+	deadline := time.After(10 * time.Second)
 	for h.frame(); !cond(); h.frame() {
 		select {
 		case <-h.changed:
@@ -289,6 +289,17 @@ func TestMediaViewerNavigatesCachedPhotos(t *testing.T) {
 			shown[fmt.Sprintf("p%d", n)] = true
 		}
 	}
+	thumbnails := func() int {
+		n := 0
+		for _, id := range s.read() {
+			if strings.HasSuffix(id, "/m") {
+				n++
+			}
+		}
+		return n
+	}
+	// The strip's thumbnails are read in the background.
+	h.until("the strip's thumbnails", func() bool { return thumbnails() >= 10 })
 	thumbs := 0
 	for _, id := range s.read() {
 		if strings.HasSuffix(id, "/m") {
