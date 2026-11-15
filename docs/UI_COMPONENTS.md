@@ -593,13 +593,21 @@ size-stability fixes remain in place.
   fill over it at the chosen opacity. An overlay whose owner gives none is
   opaque. A toast is never less than 80% opaque (`toastMinOpacity`): its
   light text is only readable on its dark plate. A new overlay: take `p.menuBackdrop()` / `p.toastBackdrop()` (or the
-  list's), fill with `overlayFill`. Not covered: forms, dialogs' toasts, the media viewer,
+  list's), fill with `overlayFill`. The media viewer's plates over the
+  picture, of the caption and of a video's controls, blur what is under
+  them with the toasts' switch (`mediaViewer.plateFill`: the picture is
+  recorded as it is drawn, and drawn again blurred under the plate's dark
+  fill, which stays as it is for its white text; `VIEWER_BLUR` in the
+  viewer's render test). Not covered: forms, dialogs' toasts, the viewer's
+  own toast and bar, the viewer of an article's window,
   and the toast of the search results.
 - **Main window surfaces** (`window_surface.go`): on Wayland and Windows the
   sidebar, chat list (including the compact folder bar) and chat header let
   the desktop show through at `preferences.Global.WindowTransparency`. The
   compositor supplies blur through the same effects as the media viewer's
-  window: `appwindow.Options.Transparent` / `BlurBehind`, and
+  window, which follows the same settings (blur, the window's own blur and
+  frame; `windowEffects`, `WindowEffectOptions`) and not a blur of its own:
+  `appwindow.Options.Transparent` / `BlurBehind`, and
   `Window.SetEffects` to change them; do not pass `app.Transparent` or
   `app.BlurBehind` to a window yourself. `fillWindowSurface` changes only the fill alpha; text, avatars and
   history stay opaque. Other backends retain opaque surfaces. Never paint an
@@ -608,8 +616,201 @@ size-stability fixes remain in place.
   slider is in Appearance → Transparency and blur; zero disables compositor
   blur and keeps the window opaque. `WindowBlur`, a separate checkbox in the
   same card, can turn compositor blur off without changing transparency; it
-  does not depend on animation settings. `TestWindowSurfacePixels` checks actual
+  does not depend on animation settings. The media viewer's window has a
+  checkbox of its own, `ViewerBlur`, on by default and not tied to the main
+  window's blur or transparency (`viewerWindowBlur`; its backdrop has its
+  own alphas). The viewer's window draws a frame only for an event or an
+  animation, so it subscribes to the settings and asks for a redraw
+  (`Window.Invalidate`, safe from any goroutine) when they change anywhere;
+  its state is still changed by its own goroutine, in `Update`.
+  `TestWindowSurfacePixels` checks actual
   frame alpha, with `WINDOW_SURFACES_PNG_DIR` saving the frames.
+- **The window's own blur** (`internal/wallpaper`, `internal/appwindow/backdrop.go`):
+  the window can blur the desktop by itself, without the compositor. It
+  reads the wallpaper, makes a picture of each screen several times smaller
+  and blurred once on the CPU (`wallpaper.Render`: 320 px on the longer
+  side, three passes of a box), and draws the part of it the window is over
+  under its surfaces (`Window.LayoutDesktop`, called first in
+  `App.layoutWindow`), stretched by the GPU. The window is then opaque to
+  the system, with the system's frame, and the surfaces are filled as those
+  of a transparent window are. The picture stays where it is on the screen
+  while the window moves, so it looks as the compositor's blur does while
+  only the wallpaper is behind the window; other windows behind it do not
+  show. The picture is not drawn as it is blurred: `wallpaper.Acrylic`
+  makes of it, for the color of the surfaces and how much they show, the
+  one under which they look as over the acrylic of Windows, which lifts
+  dark colors toward a gray, and whose compositor adds what shows through
+  to the window's pixel as bytes, where Gio mixes in linear light. Its
+  numbers are measured on Windows 10: a window drawn both ways at the same
+  places differs by a level of 255 on average at 35% and 70%, light and
+  dark, and by 4 to 9 at a point, where the blurs differ in shape; the
+  noise of acrylic is not drawn. The picture is made anew when the
+  theme or the transparency changes (320 px, under a millisecond). `Window.OwnBlurSupported` tells whether it can be done,
+  `CompositorBlurs` whether the compositor could; `App.updateWindowEffects`
+  picks: the window's own where the compositor has none (X11), the
+  compositor's otherwise unless `preferences.Global.WindowBlurOwn`, which
+  the two radio buttons at the end of the card set for the main window and
+  the viewer's alike, shown where both can, and never locked. Where
+  the wallpaper comes from and how its change and the window's moves are
+  noticed is the system's (`wallpaper_*.go`): on Windows the file
+  `SystemParametersInfo` names, placed on each monitor as
+  `Control Panel\Desktop` tells, a change of that key and of the file's
+  folder (Windows 7's themes write the file in place, with the key left
+  as it is; `TestWatcherSeesTheFileWrittenInPlace`), and the window's
+  place asked at every frame (Gio draws one at every move); on X11 the
+  pixmap of the root window (`_XROOTPMAP_ID`), its `PropertyNotify`, and
+  the window's `ConfigureNotify`, on a connection of the watcher's own; on
+  Haiku Gio's driver tells both in events (`app.HaikuPlaceEvent`,
+  `app.HaikuDesktopEvent`: Tracker's wallpaper of the current workspace),
+  which the window gives its watcher (`Window.desktopEvent`), and the
+  picture is read only once the desktop is drawn. A
+  desktop that keeps no such pixmap (Plasma) has nothing to draw, and
+  Wayland tells a window nothing of its place: there the compositor's blur
+  is all there is. macOS is not done. A wallpaper per monitor
+  (Windows 8 and later) is not read: every monitor gets the one
+  `SystemParametersInfo` names. `TestDesktopStaysInPlaceUnderAMovingWindow`
+  checks the drawing under a window that moves.
+- **Aero's glass of Windows 7, measured** (2026-11-15, Windows 7 SP1 in a
+  VM, one monitor of 1920×953): the glass of `DwmEnableBlurBehindWindow`,
+  which a Gio window asks for there, photographed over windows of known
+  colors, at 23 places and sizes, under 21 settings of the colorization
+  for a window without the system's frame and 18 for one with it, active
+  and not, each written in `HKCU\Software\Microsoft\Windows\DWM` with the
+  DWM restarted after (`net stop uxsms`, `net start uxsms`). The values of the
+  key: `ColorizationColor` C and `ColorizationAfterglow` A, colors whose
+  alpha does nothing (0x20, 0x80 and 0xFF give the same glass), and
+  `ColorizationColorBalance` cb, `ColorizationAfterglowBalance` ab,
+  `ColorizationBlurBalance` bb and `ColorizationGlassReflectionIntensity`
+  ri, percents taken here as 0 to 1. Everything is in sRGB bytes, not in
+  linear light, and clamped to 0..255 before the next step. Every formula
+  below is within two levels of 255 of what the DWM drew (the
+  coefficients fitted to each setting alone, within half a level, are
+  near the round numbers given: 0.7794 for 0.6 + 0.4·0.44). **The glass
+  is of three kinds**, and the first measures, of windows without the
+  system's frame, missed the one that matters most: a window with the
+  system's frame has another glass while it is active, a popup without
+  it (`WS_POPUP`) has the inactive one's, active or not. "With the
+  system's frame" is the window's style, not what it shows: Gio's window
+  that draws its own frame keeps `WS_OVERLAPPEDWINDOW` and takes the frame
+  off its client area only, and the DWM gives it the glass of a framed
+  window; Gio's window is a popup only full screen:
+  - **Blur:** a Gaussian of σ ≈ 2.4 px reaching ±7 px, at the screen's
+    pixels: about a tenth of acrylic's. The detail of the backdrop shows
+    through it.
+  - **Color:** with B the blurred backdrop and luma its Rec. 709 luma
+    (0.2126, 0.7152, 0.0722), and s the share of the colorization, 1 for
+    the active window with the system's frame and 0.4 for the others,
+    `glass = (1 − s)·B + s·(bb·B + cb·C) + ab·A·luma(B)`: the active
+    window's is `bb·B + cb·C + ab·A·luma(B)`, the others'
+    `(0.6 + 0.4·bb)·B + 0.4·cb·C + ab·A·luma(B)`. Checked with each balance
+    alone at 0 to 100 (bb 0, 44, 80, 100; cb 0, 24, 50, 100; ab 0, 32, 64),
+    all three at 0 (black, and 0.6·B), and another color and afterglow.
+  - **Opaque** (`ColorizationOpaqueBlend` 1, the personalization's
+    "Enable transparency" off): the backdrop is not seen;
+    `glass = 221·(1 − s·cb) + s·cb·C` (223 without the system's frame),
+    whatever bb and ab are.
+  - **The reflection** (the diagonal streaks): part 40 of the theme's class
+    `DWMWINDOW`, an image in the atlas of the current theme (in Aero's,
+    802×604 at 555,0 of a PNG of 1357×780, which also has the frames'
+    highlights, parts 34 and 43, and the caption's buttons). A program
+    reads it from uxtheme: `OpenThemeData(hwnd, "DWMWINDOW")` (in a process
+    that has made a window, or the process is not themed yet),
+    `GetThemeRect(theme, 40, 0, TMT_ATLASRECT = 8002)`, and the atlas from
+    `GetThemeStream(theme, 0, 0, TMT_DISKSTREAM = 213, …)` with the theme's
+    file (`GetCurrentThemeName`) loaded as a module of data. It is
+    stretched over the screen, stays in its place vertically, and moves
+    with the window horizontally by an eighth of how far the window's
+    center is from the screen's: at the screen's pixel X, Y, with cx the
+    window's center, W×H the screen and w×h the image,
+    `u = (X − (cx − W/2)/8)·w/W`, `v = Y·h/H` (R² 0.994 over the 23
+    windows; a window at the screen's center sees it as stretched). It is
+    laid over the glass in its own colors,
+    `out = glass·(1 − k·a) + k·a·T` with a its alpha and T its color, and
+    k by the window: `0.745·min(1, 1.79·ri)` for the active window with the
+    system's frame (ri 0.25 → 0.34, 0.5 → 0.67, 1 → 0.74),
+    `0.745·min(1, 1.49·ri)` for another (0.27, 0.56, 0.75), and
+    `min(1, 1.49·ri)` without the frame (0.37, 0.745, and 1 from 0.75).
+    It is laid over the opaque color as well. The streaks of a window with
+    the frame are where they are without it, within a few pixels.
+  - **A window's own pixels** go over all of it as acrylic's compositor
+    has them: `out = P + (1 − α)·glass`, P the premultiplied bytes Gio
+    wrote (a surface of 200 at α 0.6, and of 40, 60, 90 at 0.3, within 0.6
+    over every glass).
+  - **Without Aero:** the Basic theme turns composition off and keeps
+    `Aero.msstyles`, part 40 is read as with Aero; the Classic theme has no
+    visual styles, `OpenThemeData` fails, and there is no reflection to
+    read. Applying a theme writes its colorization in the key (Basic and
+    Classic: Sky, 0x6b74b8fc), which stays there while composition is off.
+  Not measured: a second monitor (the reflection's screen may be the
+  monitor or the whole desktop), and other themes' reflections.
+  On Windows 7 the window's own blur draws this glass instead of acrylic
+  (`wallpaper/glass.go`; `aeroGlass` in `glass_windows.go`): the watcher
+  reads the key (`glassSettings`, Sky where it lacks a value) and the
+  theme's streaks (`reflectionStreaks`), follows the key and
+  `ThemeManager`'s besides the wallpaper's, and makes each screen's
+  picture with `RenderGlass` (about half the screen, 960 px on the longer
+  side of 1920, and the Gaussian at that scale) with the streaks
+  stretched to the picture's size (`StretchReflection`); the Desktop has
+  the colorization (`Desktop.Glass`). The window draws `GlassUnder`, the
+  glass with the streaks, made for its surfaces as `Acrylic` is (tables of
+  the bytes to draw, not a power per pixel: 12 ms for 960×540), of the
+  kind the window has (`GlassState`, from `app.Config`'s `Focused`, and
+  `Mode` for a full-screen window): it keeps a picture of each kind it has
+  had, and is redrawn at once when it is activated or not. The
+  colorization is the DWM's as it is now (`DwmGetColorizationParameters`,
+  ordinal 127 of dwmapi.dll, the values of the key in its order), the key
+  only where the DWM does not tell: the personalization's Window Color
+  previews a color on the frames and the taskbar before it is saved, and
+  the key has it only then, and the two differ after a program wrote the
+  key. The watcher asks the DWM once a second besides following the keys;
+  a change of the colorization alone gives a Desktop of the same pictures
+  (the wallpaper is not read again, as a slider dragged in the preview
+  would have it every second). The theme's accent on Windows 7 is the
+  DWM's color now too (gio-mw's `appearance`, `DwmGetColorizationColor`),
+  polled every 5 s. The
+  streaks move with the window (`ReflectionShift`), so a window that moved
+  far enough for them to move by a pixel of the picture (16 px at 1920)
+  has its picture made anew in the background, and draws the one it has
+  meanwhile; the first is made in the frame. Under the Basic and Classic
+  themes composition is off, `CompositorBlurs` is false, and the window
+  blurs by itself whatever the radio buttons say; the Classic theme's
+  glass has no streaks. Other systems keep acrylic: the glass of Windows 7
+  is its own, and Plasma's blur is close enough to acrylic.
+- **The color of the windows without Aero** (`settings_window_color.go`,
+  `preferences.Global.WindowColor`): under Windows 7's Basic and Classic
+  themes Windows offers no color for the windows (Window Color is the
+  classic dialog there), and the glass keeps the one the theme wrote, Sky,
+  its reflection at 0. The Appearance section then has a card of
+  Window color (`appwindow.WindowColorOffered`: Windows 7, the desktop not
+  composed): the personalization's sixteen colors (`wallpaper.WindowColors`,
+  each at the intensity it starts with, measured from the DWM's
+  colorization once each was clicked), the name of the one the windows
+  have, "As in Windows" back to the system's, and the intensity, 10 to 85 %
+  in steps of 5, the alpha of the color as Windows' slider has it
+  (`wallpaper.IntensityMin`, `IntensityMax`: 0x1a to 0xd9). The glass is
+  `wallpaper.GlassOfColor`: the color and the afterglow alike, the balances
+  as the personalization makes them of the intensity, checked against what
+  it wrote for every color and both ends of its slider; the reflection at
+  half. The color is the settings' only, Windows is not told of it; the
+  window draws it (`Window.SetWindowColor`, from the windows' effects) and,
+  with the system accent color, the accent is it (`App.accent`). With Aero
+  the card is not shown, and the colors are the system's.
+- **The window's own frame by choice**: `preferences.Global.WindowOwnFrame`,
+  the last checkbox of the Transparency and blur card, has the main window
+  draw the frame below in place of the system's (`Window.SetOwnFrame`,
+  `appwindow.OwnFrameSupported`: Windows and Haiku; the box is not shown
+  elsewhere). A window the compositor of Windows 10 or 11 blurs behind has
+  it anyway (`Window.OwnFrameForced`): the box is then checked and
+  disabled, and shows what the user chose again once that blur is off. With
+  the window's own blur the blurred desktop is under the caption too: the
+  window draws it before its frame (`layoutBackdrop`), for the look the
+  content asked for in the frame before (`LayoutDesktop`). On Haiku the
+  window has no frame of the system's then (`B_NO_BORDER_WINDOW_LOOK`), and
+  Gio's driver moves it by the caption, zooms it by a double click there and
+  resizes it by its right and bottom edges. The window stays where it is
+  seen when the frame changes: its content takes the place of the system's
+  tab and border, and gives it back (checked on Haiku: a window at 5,29 to
+  1018,741 is at 0,0 to 1023,746 with its own frame, and back).
 - **The window's own frame** (`internal/appwindow/frame.go`): on Windows blur
   is acrylic, which is drawn right only behind a window without the system's
   frame, so a window that blurs has none and `appwindow` draws one: a caption

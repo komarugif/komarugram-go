@@ -36,12 +36,26 @@ var ownFrame = runtime.GOOS == "windows" && !app.FrameBlurs()
 
 func ownsFrame() bool { return ownFrame }
 
+// OwnFrameSupported reports whether a window can draw its own frame in
+// place of the system's when the user would rather have it: on Windows,
+// where it does so for the blur as well, and on Haiku. Elsewhere the frame
+// is the compositor's or Gio's.
+func OwnFrameSupported() bool { return ownFrameOffered }
+
+// ownFrameOffered is OwnFrameSupported, for the tests to change.
+var ownFrameOffered = runtime.GOOS == "windows" || runtime.GOOS == "haiku"
+
+// framesItself is whether a window without the system's frame draws its
+// own here.
+func framesItself() bool { return ownsFrame() || OwnFrameSupported() }
+
 // effectOptions are the options of a window that is transparent, and blurs
-// what is behind it.
-func effectOptions(transparent, blur bool) []app.Option {
+// what is behind it, and of one that draws its own frame because it was
+// asked to.
+func effectOptions(transparent, blur, own bool) []app.Option {
 	opts := []app.Option{app.Transparent(transparent), app.BlurBehind(blur)}
-	if ownsFrame() {
-		opts = append(opts, app.Decorated(!(transparent && blur)))
+	if framesItself() {
+		opts = append(opts, app.Decorated(!(own && OwnFrameSupported() || ownsFrame() && transparent && blur)))
 	}
 	return opts
 }
@@ -56,11 +70,30 @@ func WantsTransparent(translucent bool) bool { return runtime.GOOS != "darwin" |
 // does not paint, and for the blur of what shows. Translucency reports what
 // was granted.
 func (w *Window) SetEffects(transparent, blur bool) {
+	w.transparentAsked, w.blurWanted = transparent, blur
 	w.blurAsked = transparent && blur
 	if w.Window != nil {
-		w.Option(effectOptions(transparent, blur)...)
+		w.Option(effectOptions(transparent, blur, w.ownFrame)...)
 	}
 }
+
+// SetOwnFrame has the window draw its own frame in place of the system's,
+// where OwnFrameSupported, or leaves the frame to the system and to what
+// the blur needs. Setting what it has does nothing.
+func (w *Window) SetOwnFrame(own bool) {
+	if w.ownFrame == own {
+		return
+	}
+	w.ownFrame = own
+	if w.Window != nil {
+		w.Option(effectOptions(w.transparentAsked, w.blurWanted, own)...)
+	}
+}
+
+// OwnFrameForced reports whether the window draws its own frame whatever
+// SetOwnFrame was told: it blurs what is behind it on a system that draws
+// the blur right only behind a window without its frame (Windows 10 and 11).
+func (w *Window) OwnFrameForced() bool { return ownsFrame() && w.blurAsked }
 
 // FrameFiller is implemented by the content whose window's own frame is not
 // of the theme's surface: a translucent one, as the content is.
@@ -102,7 +135,7 @@ type frame struct {
 
 // configure takes what the window is from its configuration.
 func (f *frame) configure(cnf app.Config) {
-	f.shown = ownsFrame() && !cnf.Decorated && cnf.Mode != app.Fullscreen
+	f.shown = framesItself() && !cnf.Decorated && cnf.Mode != app.Fullscreen
 	f.maximized = cnf.Mode == app.Maximized
 	if cnf.Mode == app.Minimized {
 		// The pointer left with the window, and nothing told the button

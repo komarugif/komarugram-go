@@ -44,6 +44,7 @@ import (
 	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/messenger/security"
 	"komarugram/internal/miniappprefs"
+	"komarugram/internal/wallpaper"
 	"komarugram/pkg/miniapp"
 	"komarugram/pkg/player"
 	"komarugram/pkg/sandbox"
@@ -59,7 +60,7 @@ type App struct {
 	currentAccount func() string
 	store          model.Store
 
-	windowEffectsSet, windowBlurWanted, windowTransparentWanted bool
+	windowFx windowEffects
 
 	preferences *preferences.Store
 	// softwareChecked is set once the window was found drawn by a software
@@ -550,6 +551,12 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			log.Printf("save settings: %v", err)
 		}
 	}
+	a.settings.viewerBlur = func() bool { return a.preferences.Global().ViewerBlur }
+	a.settings.setViewerBlur = func(on bool) {
+		if err := services.Preferences.SetViewerBlur(on); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
 	a.settings.windowTransparency = func() int { return a.preferences.Global().WindowTransparency }
 	a.settings.setWindowTransparency = func(value int) {
 		if err := services.Preferences.SetWindowTransparency(value); err != nil {
@@ -557,7 +564,34 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		}
 	}
 	a.settings.windowTransparencyAvailable = func() bool {
-		return w.CanBeTransparent()
+		return w.CanBeTransparent() || w.OwnBlurSupported()
+	}
+	a.settings.windowBlurOwn = func() bool { return a.preferences.Global().WindowBlurOwn }
+	a.settings.setWindowBlurOwn = func(own bool) {
+		if err := services.Preferences.SetWindowBlurOwn(own); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.windowOwnFrame = func() (own, forced bool) {
+		forced = w.OwnFrameForced()
+		return forced || a.preferences.Global().WindowOwnFrame, forced
+	}
+	a.settings.setWindowOwnFrame = func(own bool) {
+		if err := services.Preferences.SetWindowOwnFrame(own); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.windowOwnFrameSupported = appwindow.OwnFrameSupported
+	a.settings.windowColor.color = func() uint32 { return a.preferences.Global().WindowColor }
+	a.settings.windowColor.setColor = func(argb uint32) {
+		if err := services.Preferences.SetWindowColor(argb); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.windowColor.system = wallpaper.SystemWindowColor
+	a.settings.windowColor.offered = appwindow.WindowColorOffered
+	a.settings.windowBlurChoice = func() bool {
+		return w.OwnBlurSupported() && w.CompositorBlurs()
 	}
 	a.settings.overlays = func() preferences.Overlays { return a.preferences.Global().Overlays }
 	a.settings.setOverlays = func(o preferences.Overlays) {
@@ -1057,8 +1091,14 @@ func (a *App) Theme(gtx layout.Context) *token.Theme {
 // accent returns the system's accent color when the application's colors
 // follow it, else transparent.
 func (a *App) accent() color.NRGBA {
-	if !a.preferences.Global().SystemAccent {
+	prefs := a.preferences.Global()
+	if !prefs.SystemAccent {
 		return color.NRGBA{}
+	}
+	// Windows 7 without Aero has the color of the windows the settings
+	// chose, as the glass does.
+	if c := prefs.WindowColor; c != 0 && appwindow.WindowColorOffered() {
+		return color.NRGBA{R: uint8(c >> 16), G: uint8(c >> 8), B: uint8(c), A: 0xff}
 	}
 	c, _ := a.window.Appearance.Accent()
 	return c
@@ -1352,6 +1392,11 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 		if err := a.preferences.DefaultVideoExternal(); err != nil {
 			log.Printf("save settings: %v", err)
 		}
+	}
+	if a.window.OwnBlur() && a.preferences.Global().WindowTransparency > 0 {
+		// The window blurs by itself: the blurred wallpaper is under the
+		// surfaces, as the desktop is under those of a transparent window.
+		transparent = a.window.LayoutDesktop(gtx, scheme(gtx).Surface.Color.AsNRGBA(), float32(a.preferences.Global().WindowTransparency)/100)
 	}
 	withWindowSurfaceOpacity(gtx, a.preferences.Global().WindowTransparency, transparent)
 	withLook(gtx, a.preferences.Global().Look)

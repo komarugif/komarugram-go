@@ -141,11 +141,18 @@ type mediaViewer struct {
 	// backdrop is the colour under the picture; a translucent window lets
 	// the desktop show through it.
 	backdropColor color.NRGBA
-	keys          struct{}
-	strip         layout.List
-	drag          stripDrag
-	thumbState    map[model.MessageID]*viewerThumbState
-	targets       map[model.MessageID]model.Message
+	// overlays says how the overlays are drawn; nil draws them without
+	// blur. With the toasts' blur on, the plates over the picture, of the
+	// caption and of a video's controls, blur what is under them: behind
+	// is the recording of it in this frame, in the viewer's coordinates,
+	// nil when they do not.
+	overlays   func() overlayPrefs
+	behind     *op.CallOp
+	keys       struct{}
+	strip      layout.List
+	drag       stripDrag
+	thumbState map[model.MessageID]*viewerThumbState
+	targets    map[model.MessageID]model.Message
 	// layingOut stays set when Layout panics, for recoverFrame.
 	layingOut bool
 	// play opens a video in the external player from a time, below 0 from
@@ -942,7 +949,16 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	if editing {
 		v.edit.placeStage(gtx, size)
 	}
-	v.layoutCurrent(gtx, items[i], stage, view, fit, l, animate)
+	v.behind = nil
+	if v.overlays != nil && v.overlays().toasts {
+		recording := op.Record(gtx.Ops)
+		v.layoutCurrent(gtx, items[i], stage, view, fit, l, animate)
+		call := recording.Stop()
+		call.Add(gtx.Ops)
+		v.behind = &call
+	} else {
+		v.layoutCurrent(gtx, items[i], stage, view, fit, l, animate)
+	}
 	captionTop := math.MaxInt
 	// What the editor puts away fades out, and takes no input from then on.
 	chrome := v.edit.chromeAlpha()
@@ -1307,7 +1323,9 @@ func (v *mediaViewer) layoutCaption(gtx layout.Context, m model.Message, stage i
 	size := dims.Size.Add(image.Pt(2*pad, 2*gtx.Dp(8)))
 	at := image.Pt(stage.Min.X+(stage.Dx()-size.X)/2, stage.Max.Y-margin-size.Y)
 	offset(gtx, at, func(gtx layout.Context) layout.Dimensions {
-		paint.FillShape(gtx.Ops, color.NRGBA{A: 150}, clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(8)).Op(gtx.Ops))
+		plate := clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(8)).Push(gtx.Ops)
+		v.plateFill(gtx, size, at, color.NRGBA{A: 150})
+		plate.Pop()
 		offset(gtx, image.Pt(pad, gtx.Dp(8)), func(gtx layout.Context) layout.Dimensions {
 			call.Add(gtx.Ops)
 			return dims
@@ -1320,6 +1338,21 @@ func (v *mediaViewer) layoutCaption(gtx layout.Context, m model.Message, stage i
 		return layout.Dimensions{Size: size}
 	})
 	return at.Y
+}
+
+// plateFill fills the current clip, a plate of the viewer of size whose
+// top left corner is at origin in the viewer, with the dark fill its white
+// text is read on: over what is under the plate, blurred, when the plates
+// blur (the toasts' switch), which shows through the fill as it did sharp.
+func (v *mediaViewer) plateFill(gtx layout.Context, size, origin image.Point, fill color.NRGBA) {
+	if v.behind != nil {
+		// Around the picture is the viewer's backdrop, which may be
+		// translucent itself: opaque here, not to blur the desktop in.
+		base := v.backdropColor
+		base.A = 0xff
+		layoutBackdropOver(gtx, size, origin, *v.behind, base)
+	}
+	paint.Fill(gtx.Ops, fill)
 }
 
 // layoutSides lays out the zones beside the picture that switch to its

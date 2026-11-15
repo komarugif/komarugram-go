@@ -18,6 +18,7 @@ import (
 	"komarugram/internal/messenger/preferences"
 	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/messenger/shortcuts"
+	"komarugram/internal/wallpaper"
 	"komarugram/pkg/player"
 )
 
@@ -71,6 +72,9 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	must(prefs.SetOverlays(preferences.Overlays{Transparency: 30, MenusBlur: true, Shadow: preferences.ShadowDefault}))
 	must(prefs.SetWindowBlur(true))
 	must(prefs.SetWindowTransparency(40))
+	must(prefs.SetViewerBlur(true))
+	// The window blurs the desktop by itself, where the compositor could too.
+	must(prefs.SetWindowBlurOwn(true))
 	// Sound and channels off, to show both states of a switch.
 	must(prefs.SetNotify(preferences.Notify{Desktop: true, Name: true, Text: true, Private: true, Groups: true, AllAccounts: true}))
 	// A key taken by the desktop, to show the warning.
@@ -165,6 +169,16 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	p.shortcuts.check = func(context.Context, []shortcuts.Chord) shortcuts.SystemReport { return report }
 	// Offline: the pictures GitHub gives stay the icons in their place.
 	p.about.fetch = func(context.Context, string) ([]byte, error) { return nil, errors.New("offline") }
+	// A system where both the window and the compositor can blur, and
+	// where the window may draw its own frame: every choice of the
+	// appearance shown.
+	p.windowBlurChoice = func() bool { return true }
+	p.windowOwnFrameSupported = func() bool { return true }
+	p.windowTransparencyAvailable = func() bool { return true }
+	// Windows 7 without Aero, its glass as the Basic theme left it: the
+	// color of the windows is offered.
+	p.windowColor.offered = func() bool { return true }
+	p.windowColor.system = func() uint32 { return wallpaper.WindowColors[0] }
 	if p.about.openCommunity == nil {
 		p.about.openCommunity = func() {}
 	}

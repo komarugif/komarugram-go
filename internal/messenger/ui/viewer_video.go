@@ -778,6 +778,8 @@ func (a *App) videoEngine(m model.Message) string {
 // the client's sound has, pausing the window's audio player as one starts.
 func (a *App) configureViewer(v *mediaViewer) {
 	v.videoEngine = a.videoEngine
+	// Its plates blur with the toasts.
+	v.overlays = a.overlayPrefs
 	// What it shows of its own, GIFs playing in the sandbox whatever is chosen for the
 	// chat's: they are small, and it is what the viewer gives them. A GIF the sandbox
 	// does not take falls to the FFmpeg chosen. Read in the viewer's own frames.

@@ -5,6 +5,7 @@ package ui
 import (
 	"image/color"
 	"sync"
+	"sync/atomic"
 
 	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
@@ -17,6 +18,7 @@ import (
 	"komarugram/internal/appwindow"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
+	"komarugram/internal/messenger/preferences"
 )
 
 // viewerWindow is the media viewer in a window of its own. It has its own
@@ -31,10 +33,27 @@ type viewerWindow struct {
 	// themeFonts is the version of the fonts the theme was made with.
 	themeFonts uint64
 	closing    bool
+	// prefs are the settings of the windows' blur and frame, which the viewer
+	// follows as the main window does; effects is what it asked of w by them.
+	prefs   *preferences.Store
+	effects windowEffects
+	// unsubscribe ends the window's watch on the settings, and asked counts
+	// the redraws a change of them asked for.
+	unsubscribe func()
+	asked       atomic.Int64
 }
 
-func newViewerWindow(w *appwindow.Window, source model.ConversationStore, catalog localization.Catalog, chat int64, current model.Message, known mediaList) *viewerWindow {
-	p := &viewerWindow{w: w, catalog: catalog}
+func newViewerWindow(w *appwindow.Window, prefs *preferences.Store, source model.ConversationStore, catalog localization.Catalog, chat int64, current model.Message, known mediaList) *viewerWindow {
+	p := &viewerWindow{w: w, catalog: catalog, prefs: prefs}
+	// The window learns of a change of the settings made in another window
+	// at once: it draws no frame of its own, but for an event or an
+	// animation, and would take them at the next of these. Only the redraw
+	// is asked from here, which any goroutine may do; the window's state is
+	// changed by its own goroutine, in Update.
+	p.unsubscribe = prefs.Subscribe(func() {
+		p.asked.Add(1)
+		w.Invalidate()
+	})
 	p.viewer = newMediaViewer(source, &p.images, w.Invalidate)
 	p.viewer.standalone = true
 	p.viewer.openList(chat, current, known)
@@ -50,12 +69,23 @@ func (p *viewerWindow) Theme(gtx layout.Context) *token.Theme {
 	return p.theme
 }
 
-func (p *viewerWindow) Update(layout.Context) {}
+// Update asks the window for the blur and the frame the settings name, as
+// the main window's are.
+func (p *viewerWindow) Update(layout.Context) {
+	p.effects.update(p.w, p.prefs.Global(), viewerWindowBlur)
+}
 
 func (p *viewerWindow) Layout(gtx layout.Context) {
 	p.images.BeginFrame()
 	defer p.images.EndFrame()
-	switch transparent, blurred := p.w.Translucency(); {
+	transparent, blurred := p.w.Translucency()
+	if p.w.OwnBlur() {
+		// The window blurs by itself: the blurred wallpaper is under the
+		// backdrop, which lets through what the compositor's blur would.
+		blurred = p.w.LayoutDesktop(gtx, viewerBackdropBlurred, 1-float32(viewerBackdropBlurred.A)/255)
+		transparent = blurred
+	}
+	switch {
 	case blurred:
 		p.viewer.backdropColor = viewerBackdropBlurred
 	case transparent:
@@ -89,7 +119,10 @@ func (p *viewerWindow) SetSuspended(hidden bool) {
 }
 
 // Close is called by the window loop after the window is gone.
-func (p *viewerWindow) Close() { p.viewer.Destroy() }
+func (p *viewerWindow) Close() {
+	p.unsubscribe()
+	p.viewer.Destroy()
+}
 
 // viewerWindows are the viewer windows opened from one account window. They
 // read that account's store, so they close with it.
@@ -136,16 +169,16 @@ func (a *App) openViewerWindow(chat int64, m model.Message, known mediaList) {
 	}
 	source := a.history.source
 	var opened *appwindow.Window
+	// The desktop shows through as the viewer's blur setting says, blurred by
+	// whom the windows' choice says, and the frame is the one they choose.
+	opts := effectOptions(a.preferences.Global(), viewerWindowBlur)
+	opts.Title, opts.Width, opts.Height, opts.Locale = title, unit.Dp(1100), unit.Dp(780), a.Locale()
 	a.openWindow(appwindow.Spec{
-		Options: appwindow.Options{
-			Title: title, Width: unit.Dp(1100), Height: unit.Dp(780), Locale: a.Locale(),
-			// The desktop shows through, blurred where the compositor can.
-			Transparent: true, BlurBehind: true,
-		},
+		Options: opts,
 		Build: func(w *appwindow.Window) appwindow.Content {
 			opened = w
 			a.viewerWindows.add(w)
-			window := newViewerWindow(w, source, catalog, chat, m, known)
+			window := newViewerWindow(w, a.preferences, source, catalog, chat, m, known)
 			a.configureViewer(window.viewer)
 			return window
 		},

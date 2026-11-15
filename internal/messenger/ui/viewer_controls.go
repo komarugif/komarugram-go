@@ -301,7 +301,7 @@ func (v *mediaViewer) layoutVideoControls(gtx layout.Context, m model.Message, s
 	offset(gtx, plate.Min, func(gtx layout.Context) layout.Dimensions {
 		size := plate.Size()
 		area := clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(8)).Push(gtx.Ops)
-		paint.FillShape(gtx.Ops, color.NRGBA{A: 160}, clip.Rect{Max: size}.Op())
+		v.plateFill(gtx, size, plate.Min, color.NRGBA{A: 160})
 		event.Op(gtx.Ops, &c.plate)
 		area.Pop()
 		d := gtx.Dp(40)
