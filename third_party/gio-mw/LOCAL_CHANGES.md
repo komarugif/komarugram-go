@@ -146,6 +146,8 @@ animate as Material 3 describes, and every animation can be turned off.
 - `exp/appearance`: watches the system's light or dark scheme (Linux: the
   XDG desktop portal, GNOME, XFCE's and GNOME's theme names over D-Bus;
   Windows and macOS: polled). `appearance_test.go`.
+  `Fixed` reports one scheme and watches nothing, for a window no system
+  shows, as tests and renders draw.
 - `exp/powersave`: watches power saving, the battery and the system's
   animation setting (Linux: power-profiles-daemon, UPower, the portal's
   GNOME and KDE settings over D-Bus; Windows: polled), with the `Policy`

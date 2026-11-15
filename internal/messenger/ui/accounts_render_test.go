@@ -13,7 +13,6 @@ import (
 	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/exp"
-	"gio-mw/exp/appearance"
 	"gio-mw/token"
 	"gio-mw/wdk"
 
@@ -27,9 +26,6 @@ import (
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/security"
-	"komarugram/internal/miniappprefs"
-	"komarugram/internal/motion"
-	"komarugram/pkg/miniapp"
 )
 
 // renderTPM is a TPM for screenshots: it works, or fails as access says.
@@ -177,29 +173,25 @@ func TestRenderAccountScreens(t *testing.T) {
 	}
 
 	// The privacy section with visual privacy on.
-	privacy := newSettingsPage(motion.New(func() {}), miniappprefs.New(miniapp.Ephemeral), nil, func() {}, nil,
-		func() string { return "" }, themeAuto, "ru", func(themeMode) {}, func(string) {})
-	privacy.private = func() bool { return true }
-	privacy.setPrivate = func(bool) {}
-	privacy.section = settingsPrivacy
-	renderPNG(t, filepath.Join(dir, "privacy.png"), size, 2, func(gtx layout.Context) {
-		privacy.Update(gtx, themeAuto, "ru")
-		privacy.Layout(gtx, themeAuto, appearance.Light, false, l)
-	})
+	prefs := newSettingsPrefs(t)
+	if err := prefs.SetVisualPrivacy(true); err != nil {
+		t.Fatal(err)
+	}
+	privacy := newSettingsApp(t, prefs, Services{}, false, size)
+	privacy.show(settingsPrivacy)
+	privacy.ready()
+	renderPNG(t, filepath.Join(dir, "privacy.png"), size, 2, privacy.draw)
 
 	// Premium: the section with and without a subscription, the chat list
 	// and the profile with the star.
 	// Without media, custom emoji do not load: the star and the status are blank.
 	badges := (&App{}).badges
 	for name, active := range map[string]bool{"premium-on": true, "premium-off": false} {
-		page := newSettingsPage(motion.New(func() {}), miniappprefs.New(miniapp.Ephemeral), nil, func() {}, nil,
-			func() string { return "" }, themeAuto, "ru", func(themeMode) {}, func(string) {})
-		page.premium = fixedPremium(model.PremiumFromConfig(active, map[string]any{"premium_purchase_blocked": false, "premium_bot_username": "PremiumBot"}))
-		page.section = settingsPremium
-		renderPNG(t, filepath.Join(dir, name+".png"), size, 2, func(gtx layout.Context) {
-			page.Update(gtx, themeAuto, "ru")
-			page.Layout(gtx, themeAuto, appearance.Light, false, l)
-		})
+		h := newSettingsApp(t, newSettingsPrefs(t), Services{}, false, size)
+		h.app.settings.premium = fixedPremium(model.PremiumFromConfig(active, map[string]any{"premium_purchase_blocked": false, "premium_bot_username": "PremiumBot"}))
+		h.show(settingsPremium)
+		h.ready()
+		renderPNG(t, filepath.Join(dir, name+".png"), size, 2, h.draw)
 	}
 	list := newChatList()
 	list.badges = badges
@@ -231,14 +223,11 @@ func TestRenderAccountScreens(t *testing.T) {
 
 	// Settings asking to confirm logging out.
 	accounts := staticAccounts{{ID: "1", UserID: 1, Name: "Ада Лавлейс", Username: "ada"}}
-	p := newSettingsPage(motion.New(func() {}), miniappprefs.New(miniapp.Ephemeral), nil, func() {}, accounts,
-		func() string { return "1" }, themeAuto, "ru", func(themeMode) {}, func(string) {})
-	p.images = new(imageOps)
+	logOut := newSettingsApp(t, newSettingsPrefs(t), Services{Accounts: accounts, AccountID: "1"}, false, size)
+	logOut.ready()
 	// As a click on the row asks it: the page scrolls to the card.
-	p.confirmingLogOut, p.revealLogOut = true, true
-	renderPNG(t, filepath.Join(dir, "logout.png"), size, 3, func(gtx layout.Context) {
-		p.Layout(gtx, themeAuto, appearance.Light, false, l)
-	})
+	logOut.app.settings.confirmingLogOut, logOut.app.settings.revealLogOut = true, true
+	renderPNG(t, filepath.Join(dir, "logout.png"), size, 3, logOut.draw)
 }
 
 type fixedPremium model.Premium

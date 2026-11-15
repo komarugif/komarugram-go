@@ -15,14 +15,11 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
-	"komarugram/internal/miniappprefs"
 	"komarugram/internal/motion"
-	"komarugram/pkg/miniapp"
 
 	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/exp"
-	"gio-mw/exp/appearance"
 	"gio-mw/wdk"
 
 	"gioui.org/app"
@@ -134,16 +131,16 @@ func TestRenderToasts(t *testing.T) {
 		}
 
 		// A settings page, and the profile, which share scrollPage.
-		settings := newSettingsPage(motion.New(func() {}), miniappprefs.New(miniapp.Ephemeral), nil, func() {}, nil,
-			func() string { return "" }, themeAuto, "ru", func(themeMode) {}, func(string) {})
-		settings.images = &imageOps{}
-		settings.toast.Show("Не удалось загрузить устройства: нет соединения")
-		renderToast(t, name("settings"), image.Pt(900, 640), dark, func(gtx layout.Context) {
-			settings.images.BeginFrame()
-			settings.Update(gtx, themeAuto, "ru")
-			settings.Layout(gtx, themeAuto, appearance.Light, dark, l)
-			settings.images.EndFrame()
-		})
+		prefs := newSettingsPrefs(t)
+		if dark {
+			if err := prefs.SetTheme(themeDark); err != nil {
+				t.Fatal(err)
+			}
+		}
+		settings := newSettingsApp(t, prefs, Services{}, false, image.Pt(900, 640))
+		settings.ready()
+		settings.app.settings.toast.Show("Не удалось загрузить устройства: нет соединения")
+		renderToast(t, name("settings"), image.Pt(900, 640), dark, settings.draw)
 
 		// The media viewer, over its strip.
 		var start model.Message

@@ -42,6 +42,12 @@ func Start(onChange func(Scheme)) *Monitor {
 	return m
 }
 
+// Fixed is a monitor that watches nothing and reports s: the system of a
+// window no system shows, as one a test or a render draws.
+func Fixed(s Scheme) *Monitor {
+	return &Monitor{scheme: s}
+}
+
 // Scheme returns the current system color scheme.
 func (m *Monitor) Scheme() Scheme {
 	if m == nil {

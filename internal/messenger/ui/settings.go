@@ -521,6 +521,24 @@ func (p *settingsPage) open() {
 	p.sessions.refresh()
 }
 
+// show opens section, as a click on its row does.
+func (p *settingsPage) show(section settingsSection) {
+	p.section = section
+	p.list.Position = layout.Position{}
+	switch section {
+	case settingsIntegrations:
+		p.refreshPrograms()
+	case settingsDevices:
+		p.sessions.refresh()
+	case settingsAbout:
+		p.about.open()
+	case settingsProxy:
+		if p.proxy != nil {
+			p.proxy.Open()
+		}
+	}
+}
+
 func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language string) {
 	p.players.receive()
 	// The browser of Mini Apps, shown in the privacy section, is looked for
@@ -558,20 +576,7 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 	}
 	for section, item := range p.items {
 		if item.click.Clicked(gtx) {
-			p.section = section
-			p.list.Position = layout.Position{}
-			if section == settingsIntegrations {
-				p.refreshPrograms()
-			}
-			if section == settingsDevices {
-				p.sessions.refresh()
-			}
-			if section == settingsAbout {
-				p.about.open()
-			}
-			if section == settingsProxy && p.proxy != nil {
-				p.proxy.Open()
-			}
+			p.show(section)
 		}
 	}
 	if p.back.Clicked(gtx) {

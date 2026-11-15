@@ -120,6 +120,13 @@ func (w *Window) Translucency() (transparent, blurred bool) {
 	return w.transparent, w.blurred
 }
 
+// SetTranslucency sets what Translucency reports for a window that no
+// system window shows, as in tests and renders, which draw it on their own:
+// the window that has one learns it from the system, which overrides it.
+func (w *Window) SetTranslucency(transparent, blurred bool) {
+	w.transparent, w.blurred = transparent, blurred
+}
+
 // CanBeTransparent reports whether the window can be made transparent: it is
 // now, or the system makes it when asked (macOS, where it is asked only when
 // the surfaces are translucent, see WantsTransparent).
