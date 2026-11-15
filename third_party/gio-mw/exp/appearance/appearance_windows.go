@@ -40,16 +40,26 @@ func readScheme() Scheme {
 	return Light
 }
 
-// readAccent reads the accent color chosen in Personalization > Colors,
-// which DWM keeps as 0xAABBGGRR (Windows 10 and later; "Automatically pick
-// an accent color" writes the one picked there too).
+// readAccent reads the accent color: on Windows 10 and later the one
+// chosen in Personalization > Colors, which DWM keeps as 0xAABBGGRR
+// ("Automatically pick an accent color" writes the one picked there too);
+// on Windows 8 the Start screen's; on Windows 7, which has no accent, the
+// color of the windows' glass (Personalization > Window Color), which DWM
+// keeps as 0xAARRGGBB, its alpha the glass's transparency.
 func readAccent() (color.NRGBA, bool) {
-	data, ok := readDword(`Software\Microsoft\Windows\DWM`, "AccentColor")
-	if !ok {
-		data, ok = readDword(`Software\Microsoft\Windows\CurrentVersion\Explorer\Accent`, "AccentColorMenu")
+	const dwm = `Software\Microsoft\Windows\DWM`
+	if data, ok := readDword(dwm, "AccentColor"); ok {
+		return abgr(data), true
 	}
-	if !ok {
-		return color.NRGBA{}, false
+	if data, ok := readDword(`Software\Microsoft\Windows\CurrentVersion\Explorer\Accent`, "AccentColorMenu"); ok {
+		return abgr(data), true
 	}
-	return color.NRGBA{R: uint8(data), G: uint8(data >> 8), B: uint8(data >> 16), A: 255}, true
+	if data, ok := readDword(dwm, "ColorizationColor"); ok {
+		return color.NRGBA{R: uint8(data >> 16), G: uint8(data >> 8), B: uint8(data), A: 255}, true
+	}
+	return color.NRGBA{}, false
+}
+
+func abgr(data uint32) color.NRGBA {
+	return color.NRGBA{R: uint8(data), G: uint8(data >> 8), B: uint8(data >> 16), A: 255}
 }

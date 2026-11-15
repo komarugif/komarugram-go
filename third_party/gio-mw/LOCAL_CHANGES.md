@@ -155,7 +155,9 @@ animate as Material 3 describes, and every animation can be turned off.
   about when the file is replaced, some before it, and Plasma's portal,
   which reads it then, tells of a new accent with the one before it;
   elsewhere on Linux the portal's `accent-color` (GNOME
-  47); on Windows the DWM `AccentColor`, polled; none elsewhere. `WithAccent` gives a `Fixed` monitor one.
+  47); on Windows the DWM `AccentColor` (on Windows 7, which has none,
+  the glass's `ColorizationColor`), polled; none elsewhere. `WithAccent`
+  gives a `Fixed` monitor one.
   `appearance_linux_test.go`.
 - `defaults/schemes`: `SchemeFromSeed` makes the Material 3 scheme of a
   seed color, light or dark, as the Material Theme Builder made Baseline

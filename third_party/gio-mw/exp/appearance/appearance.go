@@ -17,7 +17,8 @@
 //     Plasma makes from the accent (or its AccentColor), followed by
 //     KConfig's and the portal's change notifications; elsewhere the XDG
 //     desktop portal accent-color setting (GNOME 47 and later).
-//   - Windows: the DWM "AccentColor" personalization setting, polled.
+//   - Windows: the DWM "AccentColor" personalization setting, on Windows 7
+//     the glass's "ColorizationColor", polled.
 //   - Other platforms: none.
 package appearance
 
