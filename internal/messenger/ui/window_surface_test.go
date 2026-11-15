@@ -30,6 +30,7 @@ import (
 // window pixels. This catches an opaque root under the panels, double-painted
 // headers, and opacity accidentally applied to the contents of a panel.
 func TestWindowSurfacePixels(t *testing.T) {
+	skipFrames(t)
 	t.Chdir("../../..") // The demo media paths are relative to the repository root.
 	size := image.Pt(1200, 760)
 	win, err := headless.NewWindow(size.X, size.Y)

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -50,7 +49,7 @@ func TestPlayersWithoutMPV(t *testing.T) {
 	p := newSettingsPage(motion.New(func() {}), miniappprefs.New(miniapp.Ephemeral), nil, func() {}, nil,
 		func() string { return "" }, themeAuto, "ru", func(themeMode) {}, func(string) {})
 	gtx := layout.Context{Ops: new(op.Ops), Constraints: layout.Exact(image.Pt(800, 3000)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	p.section = settingsIntegrations
 	p.Update(gtx, themeAuto, "ru")
 	p.layoutIntegrations(gtx, localization.For("ru"))

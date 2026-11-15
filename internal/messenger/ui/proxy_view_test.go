@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -245,7 +244,7 @@ func TestLoginCardKeepsOutOfTheCorner(t *testing.T) {
 		for range 3 {
 			ops.Reset()
 			gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(image.Pt(900, height)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-			wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+			wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 			page.Update(gtx, l)
 			page.Layout(gtx, l, false)
 		}

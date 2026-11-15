@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -53,7 +52,7 @@ func renderFrames(t *testing.T, size image.Point, path string, frame func(gtx la
 	for range 30 {
 		ops.Reset()
 		gtx := layout.Context{Ops: ops, Now: now, Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
-		theme := defaults.NewTheme(gtx, schemes.SchemeBaselineLight())
+		theme := testTheme(gtx, schemes.SchemeBaselineLight())
 		wdk.InitMaterialThemeInContext(gtx, theme)
 		fillRect(gtx, scheme(gtx).Surface.Color, size)
 		frame(gtx)

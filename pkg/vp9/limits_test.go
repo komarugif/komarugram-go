@@ -4,6 +4,7 @@ package vp9_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,12 +15,15 @@ import (
 	"komarugram/pkg/sandbox"
 	"komarugram/pkg/vp9"
 	"komarugram/pkg/webm"
+
+	"komarugram/internal/testenv"
 )
 
 // bigFrame encodes one 4096x4096 VP9 frame: a legal bitstream, eight times
 // wider than any sticker, which libvpx needs about 50 MiB to decode.
 func bigFrame(t *testing.T) (*webm.File, []byte) {
 	t.Helper()
+	testenv.Integration(t, "runs FFmpeg")
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		t.Skip("ffmpeg is not installed")
 	}
@@ -159,7 +163,7 @@ func TestBudget(t *testing.T) {
 func TestSlowLimit(t *testing.T) {
 	data := readSticker(t)
 	limits := vp9.DefaultLimits
-	limits.Slow = time.Microsecond
+	limits.Slow, limits.PerFrame = time.Microsecond, false
 	runtime, ctx := runtimeWith(t, limits)
 
 	started := time.Now()
@@ -172,4 +176,51 @@ func TestSlowLimit(t *testing.T) {
 		t.Fatal("decoding finished within a microsecond")
 	}
 	t.Logf("after %v: %v", time.Since(started), err)
+}
+
+// A decode over the time limit, as one on a slow machine under other work,
+// is made once more in new decoders, and the sticker shows its frame: on
+// Haiku in a virtual machine a sticker's first frame took 300 to 600 ms and
+// the sticker was left blank. One that takes too long again fails, after
+// the one retry.
+func TestStickerDecodesAgainAfterASlowOperation(t *testing.T) {
+	ctx := context.Background()
+	runtime, err := vp9.NewRuntime(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close(ctx)
+	t.Cleanup(func() { vp9.SetSlowFault(nil) })
+	for _, c := range []struct {
+		name   string
+		slow   int // how many decodes are too slow
+		failed bool
+	}{
+		{"once", 1, false},
+		{"always", 1 << 20, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			sticker, err := runtime.OpenSticker(ctx, "circle.webm", readSticker(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sticker.Close(ctx)
+			slow := 0
+			vp9.SetSlowFault(func() bool {
+				slow++
+				return slow <= c.slow
+			})
+			frame, err := sticker.FrameAt(ctx, 0)
+			vp9.SetSlowFault(nil)
+			if c.failed {
+				if !errors.Is(err, sandbox.ErrSlow) || slow != 2 {
+					t.Fatalf("%d decodes, and %v; want 2, and the error of a slow one", slow, err)
+				}
+				return
+			}
+			if err != nil || frame == nil {
+				t.Fatalf("a decode slow once left %v", err)
+			}
+		})
+	}
 }

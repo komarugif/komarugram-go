@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -44,7 +43,7 @@ func offerCatalog(t *testing.T) string {
 // and the downloads it started.
 func offerFrame(h *emojiSettingsHarness, o *emojiOffer, toasts *[]string) {
 	gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(600, 900)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	l := localization.For("ru")
 	h.s.drain()
 	o.Update(gtx, h.s, func(s string) { *toasts = append(*toasts, s) }, l, func() {})

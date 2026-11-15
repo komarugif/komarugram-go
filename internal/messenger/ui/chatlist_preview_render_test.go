@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -267,7 +266,7 @@ func renderChatPreviews(t *testing.T, path string, size image.Point, scale float
 	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		ops.Reset()
 		gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: scale, PxPerSp: scale}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, sc))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, sc))
 		images.BeginFrame()
 		l.previews.media.BeginFrame()
 		l.Layout(gtx, section{kind: sectionAll}, nil, chats, 21, false, catalog)

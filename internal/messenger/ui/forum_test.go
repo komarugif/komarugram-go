@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -39,6 +38,7 @@ type forumHarness struct {
 
 func newForumHarness(t *testing.T) *forumHarness {
 	t.Helper()
+	skipFrames(t)
 	h := &forumHarness{t: t, store: mockstore.New(time.Unix(100000, 0), 0), page: newForumPage(), now: time.Unix(100000, 0)}
 	h.frames(2)
 	return h
@@ -47,7 +47,7 @@ func newForumHarness(t *testing.T) *forumHarness {
 func (h *forumHarness) frames(n int) {
 	for range n {
 		gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(500, 700)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		h.page.layout(gtx, model.Chat{ID: mockstore.DemoForum, Kind: model.KindGroup, Forum: true}, h.store, localization.For("en"))
 		h.router.Frame(gtx.Ops)
 		h.now = h.now.Add(16 * time.Millisecond)

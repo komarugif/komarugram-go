@@ -190,3 +190,59 @@ func TestRemoveRecentSticker(t *testing.T) {
 		t.Fatalf("recent stickers %+v", page.Recent)
 	}
 }
+
+// A saved GIF a message also shows keeps being renewed by the saved GIFs
+// when it is sent from the picker: the message's reference, of the same
+// document, took the place of the saved GIF's, and every send of it failed
+// with "media reference of no message" until the list was read again.
+func TestSavedGIFRenewedAfterAMessageShowsIt(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	gif := func(ref string) *tg.Document {
+		return &tg.Document{ID: 9, AccessHash: 99, FileReference: []byte(ref), MimeType: "video/mp4", Attributes: []tg.DocumentAttributeClass{&tg.DocumentAttributeAnimated{}, &tg.DocumentAttributeVideo{W: 1, H: 1}},
+			Thumbs: []tg.PhotoSizeClass{&tg.PhotoSize{Type: "m", W: 90, H: 90, Size: 100}}}
+	}
+	renewed := 0
+	s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
+		if _, ok := in.(*tg.MessagesGetSavedGifsRequest); ok {
+			renewed++
+			return &tg.MessagesSavedGifs{Gifs: []tg.DocumentClass{gif("fresh")}}, nil
+		}
+		return nil, fmt.Errorf("unexpected %T", in)
+	})
+	items := s.savedGIFItems(ctx, []tg.DocumentClass{gif("old")})
+	s.picker.mu.Lock()
+	if s.picker.pages == nil {
+		s.picker.pages = map[model.PickerTab]model.PickerPage{}
+	}
+	s.picker.pages[model.PickerGIF] = model.PickerPage{Items: items}
+	s.picker.mu.Unlock()
+	// A message with the same GIF comes.
+	if _, err := s.ingest(ctx, []tg.MessageClass{&tg.Message{ID: 3, PeerID: &tg.PeerUser{UserID: 5}, Media: &tg.MessageMediaDocument{Document: gif("message")}}}, false, 0); err != nil {
+		t.Fatal(err)
+	}
+	// The thumbnail shown in the picker, then the GIF sent: each renewed
+	// alone, as a renewal of one renews the other.
+	media := items[0].Media
+	thumb := model.Message{Kind: model.MessagePhoto, Media: media.Media.Thumbnail}
+	for i, m := range []model.Message{thumb, media} {
+		if i > 0 {
+			// Another message with it comes in between.
+			if _, err := s.ingest(ctx, []tg.MessageClass{&tg.Message{ID: 4, PeerID: &tg.PeerUser{UserID: 5}, Media: &tg.MessageMediaDocument{Document: gif("message")}}}, false, 0); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if m.Media == nil {
+			t.Fatal("the GIF has no thumbnail")
+		}
+		if err := s.refreshReference(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+		s.history.mu.Lock()
+		ref := s.history.refs[m.Media.ID]
+		s.history.mu.Unlock()
+		if renewed != i+1 || string(ref.Reference) != "fresh" {
+			t.Fatalf("%s renewed %d times, to %q", m.Media.ID, renewed, ref.Reference)
+		}
+	}
+}

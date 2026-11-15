@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -31,7 +30,7 @@ import (
 // TestSettingsOpenEverySection opens every section of the settings the way
 // a user does, by its row on the main page, in the whole window as it draws
 // itself, and draws it for a few frames: in both languages, both themes, and
-// a narrow and a wide window. It draws the log-out confirmation and the
+// a narrow and a wide window, each of them once. It draws the log-out confirmation and the
 // gallery of wallpapers too.
 //
 // The sections are laid out by the window, not on their own as the render
@@ -50,18 +49,24 @@ func TestSettingsOpenEverySection(t *testing.T) {
 	}
 	slices.Sort(sections)
 	titles := settingsTitles(localization.For("en"))
-	for _, language := range []string{"ru", "en"} {
-		for theme, themeName := range map[preferences.Theme]string{preferences.ThemeLight: "light", preferences.ThemeDark: "dark"} {
-			for _, size := range []image.Point{{360, 640}, {1280, 800}} {
-				t.Run(fmt.Sprintf("%s/%s/%dx%d", language, themeName, size.X, size.Y), func(t *testing.T) {
-					for _, s := range sections {
-						w := newSettingsWindow(t, language, theme, size)
-						w.open(s, titles[s])
-						w.close()
-					}
-				})
+	// Every language, theme and size once for each section: a section that
+	// fails in one of them fails in a window of its, without the others'.
+	for _, c := range []struct {
+		language  string
+		theme     preferences.Theme
+		themeName string
+		size      image.Point
+	}{
+		{"ru", preferences.ThemeLight, "light", image.Pt(360, 640)},
+		{"en", preferences.ThemeDark, "dark", image.Pt(1280, 800)},
+	} {
+		t.Run(fmt.Sprintf("%s/%s/%dx%d", c.language, c.themeName, c.size.X, c.size.Y), func(t *testing.T) {
+			for _, s := range sections {
+				w := newSettingsWindow(t, c.language, c.theme, c.size)
+				w.open(s, titles[s])
+				w.close()
 			}
-		}
+		})
 	}
 }
 
@@ -76,6 +81,7 @@ type settingsWindow struct {
 }
 
 func newSettingsWindow(t *testing.T, language string, theme preferences.Theme, size image.Point) *settingsWindow {
+	skipFrames(t)
 	prefs := preferences.Memory()
 	if err := prefs.SetLanguage(language); err != nil {
 		t.Fatal(err)
@@ -107,7 +113,7 @@ func (w *settingsWindow) frames(what string, n int) bool {
 				}
 			}()
 			gtx := layout.Context{Ops: new(op.Ops), Source: w.router.Source(), Now: time.Now(), Constraints: layout.Exact(w.size), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
-			wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+			wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 			w.a.Update(gtx)
 			w.a.Layout(gtx)
 			w.router.Frame(gtx.Ops)

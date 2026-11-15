@@ -12,12 +12,14 @@ import (
 	"testing"
 	"time"
 
+	"komarugram/internal/testenv"
 	"komarugram/pkg/miniapp"
 )
 
 // TestChromiumFit checks that the window takes the shape of the video once
 // the video tells its size.
 func TestChromiumFit(t *testing.T) {
+	testenv.Integration(t, "starts a browser")
 	if !miniapp.Available() {
 		t.Skip("no Chromium-based browser")
 	}
@@ -98,6 +100,7 @@ func TestChromiumSizeArgs(t *testing.T) {
 // and the system makes one higher than the screen as high as it is (450 by
 // 768 for 450 by 800 on Haiku in a VM's screen).
 func TestChromiumOpensAtSize(t *testing.T) {
+	testenv.Integration(t, "starts a browser")
 	if !miniapp.Available() {
 		t.Skip("no Chromium-based browser")
 	}

@@ -85,7 +85,7 @@ func later(a, b time.Time) time.Time {
 // wait waits for the moment of the next request, and returns how long it
 // waited.
 func (p *historyPacer) wait(ctx context.Context) (time.Duration, error) {
-	now, sleep := time.Now, sleepCtx
+	now, sleep := time.Now, paceSleep
 	if p.now != nil {
 		now = p.now
 	}
@@ -99,6 +99,10 @@ func (p *historyPacer) wait(ctx context.Context) (time.Duration, error) {
 	}
 	return d, sleep(ctx, d)
 }
+
+// paceSleep is how a pacer without a sleep of its own waits: the store's
+// tests, but those of the pace, have it wait not at all (main_test.go).
+var paceSleep = sleepCtx
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
 	t := time.NewTimer(d)
@@ -136,7 +140,10 @@ func (p *historyPacer) used() int {
 // half the requests, under the pacer's window, for the same scroll. Telegram
 // Desktop asks for 50 (30 when a chat opens), and its export for 100.
 const (
-	pageNormal    = 50
-	pageActive    = 100
-	pageActiveGap = 2 * time.Second
+	pageNormal = 50
+	pageActive = 100
 )
+
+// pageActiveGap is a variable for the store's tests, which wait it out
+// (main_test.go).
+var pageActiveGap = 2 * time.Second

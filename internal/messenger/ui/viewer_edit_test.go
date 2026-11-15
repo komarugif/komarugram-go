@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/token"
 	"gio-mw/wdk"
@@ -93,7 +92,7 @@ func renderEditor(t *testing.T, v *mediaViewer, m model.Message, variant string,
 		frame()
 		i := e.scene.Add(&photoedit.Element{Text: &photoedit.Text{Color: editPalette[2], Style: style, Size: h * .07, Wrap: 14}, Center: photoedit.Point{X: w / 2, Y: y}, Width: w / 2, Height: h * .1})
 		gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(800, 600)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineDark()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineDark()))
 		e.changeText(gtx, i, func(x *photoedit.Text) { x.Text = words })
 	}
 	settle := func() {
@@ -191,6 +190,7 @@ type viewerEditHarness struct {
 
 func newViewerEditHarness(t *testing.T, want func(model.Message) bool) *viewerEditHarness {
 	t.Helper()
+	skipFrames(t)
 	store := mockstore.New(time.Now(), 0)
 	var found model.Message
 	for _, m := range store.History(2).Messages {
@@ -213,7 +213,7 @@ func (h *viewerEditHarness) frame() {
 	h.t.Helper()
 	h.ops.Reset()
 	h.gtx = layout.Context{Ops: h.ops, Now: time.Now(), Constraints: layout.Exact(h.size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}, Source: h.router.Source()}
-	wdk.InitMaterialThemeInContext(h.gtx, defaults.NewTheme(h.gtx, schemes.SchemeBaselineDark()))
+	wdk.InitMaterialThemeInContext(h.gtx, testTheme(h.gtx, schemes.SchemeBaselineDark()))
 	h.v.images.BeginFrame()
 	h.v.Layout(h.gtx, localization.For("ru"), h.animate)
 	h.v.images.EndFrame()
@@ -683,7 +683,7 @@ func TestEditResultPicture(t *testing.T) {
 // plate stays around the text, and the row centers it.
 func TestEditBarButtonHeight(t *testing.T) {
 	gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(600, 200)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineDark()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineDark()))
 	var s surface
 	dims := editBarButton(gtx, &s, "Done", token.NewMatColorFromHexRGB(0xffffff))
 	if dims.Size.Y >= 200 || dims.Size.X >= 600 {
@@ -1567,7 +1567,7 @@ func TestEditFailedReplaceKeepsResult(t *testing.T) {
 // picture the view and the file draw alike.
 func TestEditTextKeepsLinesAsItGrows(t *testing.T) {
 	gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(400, 400)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	text := &photoedit.Text{Text: "several words that do not fit in one line", Color: color.NRGBA{A: 255}, Size: 20, Wrap: 8}
 	small := recordText(gtx, new(op.Ops), text, 20, textWrapAt(text, 20))
 	large := recordText(gtx, new(op.Ops), text, 80, textWrapAt(text, 80))
@@ -1692,7 +1692,7 @@ func TestEditTextPicture(t *testing.T) {
 	}
 	win.Release()
 	gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(400, 400)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	text := &photoedit.Text{Text: "WW", Color: color.NRGBA{B: 255, A: 255}, Style: photoedit.TextSemiTransparent, Size: 64}
 	ops := new(op.Ops)
 	size := recordText(gtx, ops, text, 64, 800)

@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -234,7 +233,7 @@ func TestForumHeaderBack(t *testing.T) {
 	info := false
 	frame := func() {
 		gtx := layout.Context{Ops: new(op.Ops), Source: router.Source(), Now: time.Now(), Constraints: layout.Exact(image.Pt(700, 500)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		a.updateReturn(gtx)
 		info = info || a.forum.header.Clicked(gtx)
 		if a.selected == forum.ID {
@@ -270,7 +269,7 @@ func TestCommentsBackDrawsChannel(t *testing.T) {
 	var router input.Router
 	frame := func() {
 		gtx := layout.Context{Ops: new(op.Ops), Source: router.Source(), Now: time.Now(), Constraints: layout.Exact(image.Pt(500, 600)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		a.layoutPage(gtx)
 		router.Frame(gtx.Ops)
 	}
@@ -303,7 +302,7 @@ func TestDiscussionReturns(t *testing.T) {
 	c.chat = channel
 	c.discussions <- discussionResult{from: channel, chat: group}
 	gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(400, 56)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	c.layoutReadOnly(gtx, a.history, localization.For("ru"))
 	a.testUpdate()
 	if a.selected != group.ID || a.returnButton() == nil {

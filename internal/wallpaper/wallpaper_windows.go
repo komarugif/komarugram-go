@@ -76,9 +76,6 @@ type Watcher struct {
 	signature string
 	failures  int
 	closed    sync.Once
-	// path is the picture's file as load found it, for the watch of its
-	// folder; it belongs to the goroutine of run.
-	path string
 }
 
 // Supported reports whether a window of the view can be followed.
@@ -176,8 +173,7 @@ func (w *Watcher) run() {
 				watching = false
 			}
 		}
-		w.load()
-		folder.follow(filepath.Dir(w.path), w.path != "")
+		w.load(&folder)
 		handles := []windows.Handle{w.stop, w.kick, changed}
 		if folder.handle != 0 {
 			handles = append(handles, folder.handle)
@@ -239,10 +235,13 @@ func (f *folderWatch) close() {
 	f.dir = ""
 }
 
-// load reads the desktop, if it is not what was read last.
-func (w *Watcher) load() {
+// load reads the desktop, if it is not what was read last, and has folder
+// follow the folder of its picture. The folder is followed before the file
+// is read, as the key is asked before: a write between the two would be
+// told of by neither.
+func (w *Watcher) load(folder *folderWatch) {
 	path, fit, span, back := sourceOf()
-	w.path = path
+	folder.follow(filepath.Dir(path), path != "")
 	monitors := monitors()
 	signature := fmt.Sprint(path, fit, span, back, monitors)
 	if info, err := os.Stat(path); err == nil {

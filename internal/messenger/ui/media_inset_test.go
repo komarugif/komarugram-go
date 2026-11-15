@@ -11,7 +11,6 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -31,6 +30,7 @@ func tallVideo(m *model.Message) {
 // drawHistory draws the harness's history headless, at one pixel to a dp.
 func drawHistory(t *testing.T, h *menuHarness, size image.Point) *image.RGBA {
 	t.Helper()
+	h.settle(t)
 	win, err := headless.NewWindow(size.X, size.Y)
 	if err != nil {
 		t.Skip("no GPU:", err)
@@ -38,7 +38,7 @@ func drawHistory(t *testing.T, h *menuHarness, size image.Point) *image.RGBA {
 	defer win.Release()
 	ops := new(op.Ops)
 	gtx := layout.Context{Ops: ops, Now: h.now, Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	// What fades is drawn as it ends.
 	wdk.SetAnimationsEnabled(gtx, false)
 	h.page.Layout(gtx, model.Chat{ID: 1, Title: "Chat", Kind: model.KindGroup}, localization.For("en"), false)
@@ -71,7 +71,7 @@ func TestMediaInsetInBubble(t *testing.T) {
 	size := image.Pt(500, 700)
 	img := drawHistory(t, h, size)
 	gtx := layout.Context{Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	sc := scheme(gtx)
 	tile, bubble := sc.SurfaceContainerHigh.AsNRGBA(), sc.Surface.Color.AsNRGBA()
 	box := findTile(img, tile)

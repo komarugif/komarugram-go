@@ -23,6 +23,7 @@ import (
 // dark across the plate over its edge; without it the plate is its fill
 // alone.
 func TestViewerPlateBlursWhatIsUnderIt(t *testing.T) {
+	skipFrames(t)
 	origin, size := image.Pt(50, 25), image.Pt(100, 50)
 	row := func(blurred bool) (left, middle, right uint8) {
 		path := filepath.Join(t.TempDir(), "plate.png")

@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 	"gioui.org/f32"
@@ -35,7 +34,7 @@ func TestMenuSettingsDragAndHidePersist(t *testing.T) {
 	now := time.Unix(1000, 0)
 	frame := func() {
 		gtx := layout.Context{Ops: new(op.Ops), Source: router.Source(), Now: now, Constraints: layout.Exact(image.Pt(500, 400)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		view.Update(gtx, localization.For("en"))
 		view.layoutCard(gtx, catalog, localization.For("en"))
 		router.Frame(gtx.Ops)

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -53,6 +52,7 @@ type articleViewHarness struct {
 // fragment.
 func newArticleViewHarness(t *testing.T, part, whole model.RichPage, fragment string) *articleViewHarness {
 	t.Helper()
+	skipFrames(t)
 	h := &articleViewHarness{t: t, store: wholeArticleStore{whole: whole, ready: make(chan struct{})}, now: time.Unix(1_790_000_000, 0)}
 	h.view = newArticleView(h.store, localization.For("en"), richMessage(part), fragment, func() {})
 	t.Cleanup(h.view.Close)
@@ -62,7 +62,7 @@ func newArticleViewHarness(t *testing.T, part, whole model.RichPage, fragment st
 
 func (h *articleViewHarness) frame() {
 	gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(500, 400)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	h.view.layout(gtx, false)
 	h.router.Frame(gtx.Ops)
 	h.now = h.now.Add(16 * time.Millisecond)

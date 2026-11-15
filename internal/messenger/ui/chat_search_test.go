@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -52,7 +51,7 @@ func (s *chatSearchStore) Reveal(int64, model.MessageID) {}
 // headFrame draws the page with its header, as the app does.
 func headFrame(h *menuHarness) {
 	gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(500, 700)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	l := localization.For("en")
 	p := h.page
 	p.images.BeginFrame()
@@ -91,9 +90,12 @@ func TestChatSearchAndMenu(t *testing.T) {
 		t.Fatal("the search button did not open the search")
 	}
 	p.chatSearch.field.SetText("Message 1")
-	for range 40 {
-		headFrame(h)
-	}
+	// The search runs in the background; what it found is shown.
+	waitFor(t, "what the search found", func() { headFrame(h) }, func() bool {
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		return len(store.asked) > 0 && p.highlight != 0
+	})
 	store.mu.Lock()
 	asked := store.asked
 	store.mu.Unlock()
@@ -217,7 +219,8 @@ func TestChatSearchStaysOnAFarMessage(t *testing.T) {
 		t.Fatal("the search button did not open the search")
 	}
 	p.chatSearch.field.SetText("far")
-	for range 40 {
+	waitFor(t, "the far message revealed", func() { headFrame(h) }, func() bool { return len(store.revealed) > 0 })
+	for range 5 {
 		headFrame(h)
 	}
 	if len(store.revealed) != 1 || store.revealed[0] != 500 {

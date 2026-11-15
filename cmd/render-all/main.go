@@ -62,6 +62,7 @@ func renders() []render {
 		render{"viewer-zoom", "TestRenderMediaViewer", []string{"VIEWER_ZOOM=2", "VIEWER_PNG={out}/viewer-zoom.png"}},
 		render{"viewer-profile-plays", "TestRenderMediaViewer", []string{"VIEWER_PROFILE=plays", "VIEWER_PNG={out}/viewer-profile-plays.png"}},
 		render{"viewer-gifs", "TestRenderMediaViewer", []string{"VIEWER_GIFS=1", "VIEWER_PNG={out}/viewer-gifs.png"}},
+		render{"viewer-blur", "TestRenderMediaViewer", []string{"VIEWER_BLUR=1", "VIEWER_PNG={out}/viewer-blur.png"}},
 		render{"viewer-stories", "TestRenderMediaViewer", []string{"VIEWER_STORIES=1", "VIEWER_PNG={out}/viewer-stories.png"}},
 		render{"viewer-save-gif", "TestRenderMediaViewer", []string{"VIEWER_SAVE_GIF=1", "VIEWER_PNG={out}/viewer-save-gif.png"}},
 		render{"viewer-edit-paint", "TestRenderMediaViewer", []string{"VIEWER_EDIT=paint", "VIEWER_PNG={out}/viewer-edit-paint.png"}},

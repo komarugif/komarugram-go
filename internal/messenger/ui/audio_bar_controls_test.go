@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -37,7 +36,7 @@ type barHarness struct {
 func (h *barHarness) frame() {
 	ops := new(op.Ops)
 	gtx := layout.Context{Ops: ops, Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(600, 400)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	h.p.layoutAudioBar(gtx, localization.For("en"), h.away)
 	h.router.Frame(ops)
 }

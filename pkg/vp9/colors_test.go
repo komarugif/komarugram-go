@@ -14,11 +14,14 @@ import (
 
 	"komarugram/pkg/vp9"
 	"komarugram/pkg/webm"
+
+	"komarugram/internal/testenv"
 )
 
 // A video of one known color, its levels and its tags as encoder settings make them,
 // comes back that color: black black, white white, however it is drawn.
 func TestColorsAsTheStreamTells(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg unavailable")
@@ -43,6 +46,7 @@ func TestColorsAsTheStreamTells(t *testing.T) {
 			{"000000", 0, 0, 0}, {"FFFFFF", 255, 255, 255},
 		} {
 			t.Run(v.name+"/"+c.hex, func(t *testing.T) {
+				testenv.Integration(t, "runs FFmpeg")
 				path := filepath.Join(t.TempDir(), "clip.webm")
 				filter := fmt.Sprintf("format=gbrp,scale=out_color_matrix=%s:out_range=%s:flags=accurate_rnd+full_chroma_int,format=yuv420p", v.matrix, v.levels)
 				out, err := exec.Command(ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", fmt.Sprintf("color=c=0x%s:s=%dx%d:r=5:d=0.4", c.hex, v.w, v.h), "-vf", filter,

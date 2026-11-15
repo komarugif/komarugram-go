@@ -11,10 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"komarugram/internal/testenv"
 	"komarugram/pkg/program"
 )
 
 func TestCustomFFmpegPlayer(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink fixture needs Unix")
 	}
@@ -71,6 +73,7 @@ func TestCustomFFmpegPlayer(t *testing.T) {
 // A video recorded turned is told at the size its pictures come out at, as
 // FFmpeg turns them: the scaler would squeeze them otherwise.
 func TestProbeMediaTellsTheTurnedSize(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip(err)

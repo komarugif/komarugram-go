@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -56,7 +55,7 @@ func TestAudioBarOverOtherPages(t *testing.T) {
 		renderFrames(t, image.Pt(700, 500), path, frame)
 	}
 	gtx := layout.Context{Ops: new(op.Ops), Constraints: layout.Exact(image.Pt(700, 500)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	a.withAudioBar(gtx, a.catalog(), func(gtx layout.Context) layout.Dimensions {
 		page = gtx.Constraints.Max
 		return layout.Dimensions{Size: page}

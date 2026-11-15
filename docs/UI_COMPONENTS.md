@@ -1050,6 +1050,13 @@ new piece sits next to its neighbours.
   the composer of a half-transparent window over stripes, as over a desktop:
   the classic bar is a surface of the window and shows them, the history
   and the floating capsule, which casts a shadow, do not.
+  The settings' renders draw the window as the client builds it:
+  `newSettingsApp` (`settings_app_test.go`) is `New` on the demo's store,
+  so what `app.go` connects to the settings is in them without a word in
+  the test. What a section shows is set where the user sets it, in the
+  preferences (`newSettingsPrefs`); only what comes from the system or
+  Telegram (the players found, the keys the desktop takes, Premium) is set
+  on the page, and a section opens as a click opens it (`settingsPage.show`).
   `SETTINGS_SECTION=premium` with `SETTINGS_PNG` shows the Premium section of
   an account without Premium and with Local Premium on (`LOCAL_PREMIUM=off`,
   off).

@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 	"gioui.org/gpu/headless"
@@ -62,7 +61,7 @@ func TestComposerDrawsCustomEmojiPixels(t *testing.T) {
 	for time.Now().Before(deadline) {
 		ops := new(op.Ops)
 		gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Constraints{Max: image.Pt(200, 50)}, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		images.BeginFrame()
 		media.BeginFrame()
 		formattedEditor(gtx, editor, "", entities, fieldEmojiMedia{media: media, images: images})
@@ -95,6 +94,7 @@ func TestComposerDrawsCustomEmojiPixels(t *testing.T) {
 // A custom emoji the account could not really send is its ordinary emoji in the
 // field: its picture is never drawn.
 func TestComposerHidesFakeEmoji(t *testing.T) {
+	skipFrames(t)
 	picture := image.NewNRGBA(image.Rect(0, 0, 24, 24))
 	for y := range 24 {
 		for x := range 24 {
@@ -125,7 +125,7 @@ func TestComposerHidesFakeEmoji(t *testing.T) {
 	for time.Now().Before(deadline) {
 		ops := new(op.Ops)
 		gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Constraints{Max: image.Pt(200, 50)}, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		images.BeginFrame()
 		media.BeginFrame()
 		formattedEditor(gtx, editor, "", entities, fieldEmojiMedia{media: media, images: images, hidden: hidden})
@@ -185,7 +185,7 @@ func TestPreviewEmojiKeepsPlaying(t *testing.T) {
 	frame := func(now time.Time) *image.RGBA {
 		ops := new(op.Ops)
 		gtx := layout.Context{Ops: ops, Now: now, Constraints: layout.Constraints{Max: image.Pt(200, 40)}, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		sc := scheme(gtx)
 		images.BeginFrame()
 		media.BeginFrame()

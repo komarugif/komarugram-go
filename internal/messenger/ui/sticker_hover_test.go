@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -38,6 +37,7 @@ type stickerHover struct {
 // newStickerHover shows count items of codec in view: chat, pack,
 // readonly-pack, picker or emoji-picker.
 func newStickerHover(t *testing.T, codec, view string, count int) *stickerHover {
+	skipFrames(t)
 	p := newChatPage(mockstore.New(time.Now(), 0), func() {})
 	t.Cleanup(p.Close)
 	p.images = &imageOps{}
@@ -83,7 +83,7 @@ func (h *stickerHover) frame() image.Image {
 	}
 	ops := new(op.Ops)
 	gtx := layout.Context{Ops: ops, Source: h.router.Source(), Now: time.Now(), Constraints: layout.Exact(image.Pt(220, 260)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	wdk.SetAnimationsEnabled(gtx, false)
 	p.images.BeginFrame()
 	p.media.BeginFrame()
@@ -106,16 +106,20 @@ func (h *stickerHover) frame() image.Image {
 	return nil
 }
 
-// still waits for the static preview.
+// still waits for the static preview: on a slow machine, as Haiku in a
+// virtual machine, behind what the tests before left decoding, it took over
+// five seconds.
 func (h *stickerHover) still(t *testing.T) image.Image {
 	var still image.Image
-	until := time.Now().Add(5 * time.Second)
+	until := time.Now().Add(20 * time.Second)
 	for time.Now().Before(until) && still == nil {
 		still = h.frame()
 		time.Sleep(10 * time.Millisecond)
 	}
 	if still == nil {
-		t.Fatal("no static preview")
+		// What the media came to tells why: a decode over the sandbox's
+		// time limit fails with an error, not a picture.
+		t.Fatalf("no static preview: %v", h.p.media.Status(h.msg, false).Err)
 	}
 	return still
 }

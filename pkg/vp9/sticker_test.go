@@ -15,6 +15,8 @@ import (
 
 	"komarugram/pkg/vp9"
 	"komarugram/pkg/webm"
+
+	"komarugram/internal/testenv"
 )
 
 const stickerPath = "../../assets/stickers/circle.webm"
@@ -84,6 +86,7 @@ func TestDemuxAndDecode(t *testing.T) {
 // TestMatchesFFmpeg compares the sandboxed decoder against ffmpeg's own
 // libvpx-vp9 output, which is the reference these clients are measured by.
 func TestMatchesFFmpeg(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		t.Skip("ffmpeg is not installed")
 	}

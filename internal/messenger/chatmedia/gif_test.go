@@ -22,6 +22,8 @@ import (
 
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/h264"
+
+	"komarugram/internal/testenv"
 )
 
 // gifData is an animation of frames moving squares.
@@ -78,6 +80,7 @@ func children(name string) []string {
 // TestGIFStillStartsNoLastingDecoder checks that GIFs shown still keep no
 // ffmpeg running, and that one played gives its process back once it stops.
 func TestGIFStillStartsNoLastingDecoder(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	if runtime.GOOS != "linux" {
 		t.Skip("counts processes in /proc")
 	}
@@ -262,6 +265,7 @@ func TestGIFsShareTheFrameClock(t *testing.T) {
 		{"ffmpeg", model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "gif", MIMEType: "image/gif"}},
 			func(t *testing.T) []byte { return gifData(t, 24) },
 			func(t *testing.T, m *Manager) {
+				testenv.Integration(t, "runs FFmpeg")
 				if _, err := exec.LookPath("ffmpeg"); err != nil {
 					t.Skip("no ffmpeg")
 				}

@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -205,7 +204,7 @@ func TestSenderNameHasBadges(t *testing.T) {
 	}
 	width := func(sender int64) int {
 		gtx := layout.Context{Ops: new(op.Ops), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Constraints{Max: image.Pt(400, 100)}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		return p.layoutSenderName(gtx, &model.Message{SenderID: sender, SenderName: "Анна"}).Size.X
 	}
 	plain, premium := width(1), width(42)

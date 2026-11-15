@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 	"gioui.org/f32"
@@ -22,7 +21,7 @@ import (
 
 func heightContext(now time.Time) layout.Context {
 	gtx := layout.Context{Ops: new(op.Ops), Now: now, Constraints: layout.Constraints{Max: image.Pt(240, 600)}, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	return gtx
 }
 
