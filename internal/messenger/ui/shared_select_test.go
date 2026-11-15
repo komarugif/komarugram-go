@@ -33,6 +33,7 @@ type sharedHarness struct {
 
 func newSharedHarness(t *testing.T, kind model.SharedKind) *sharedHarness {
 	t.Helper()
+	skipFrames(t)
 	store := mockstore.New(time.Now(), 0)
 	var images imageOps
 	p := newChatInfo(store, &images, func() {})

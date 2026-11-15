@@ -6,7 +6,6 @@ import (
 	"image"
 	"testing"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -33,7 +32,7 @@ type modalHarness struct {
 func (h *modalHarness) frame() {
 	ops := new(op.Ops)
 	gtx := layout.Context{Ops: ops, Source: h.router.Source(), Constraints: layout.Exact(image.Pt(400, 400)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	square := func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{Size: image.Pt(100, 100)} }
 	// The owner of both updates the upper one first.
 	h.above.Update(gtx, h.locked)

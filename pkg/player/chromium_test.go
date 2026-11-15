@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"komarugram/internal/testenv"
 	"komarugram/pkg/miniapp"
 	"komarugram/pkg/player"
 )
@@ -57,6 +58,7 @@ func serveFile(t *testing.T, path string) *player.Stream {
 // TestChromium plays a video in the browser of Mini Apps, KOMARUGRAM_MINIAPP_BROWSER
 // or the one found, and checks that it reports its state and takes commands.
 func TestChromium(t *testing.T) {
+	testenv.Integration(t, "starts a browser")
 	if !miniapp.Available() {
 		t.Skip("no Chromium-based browser")
 	}
@@ -100,6 +102,7 @@ func TestChromium(t *testing.T) {
 // TestChromiumCannotPlay checks that a file the browser cannot play is
 // reported as such, rather than leaving a black window.
 func TestChromiumCannotPlay(t *testing.T) {
+	testenv.Integration(t, "starts a browser")
 	if !miniapp.Available() {
 		t.Skip("no Chromium-based browser")
 	}
@@ -126,6 +129,7 @@ func TestChromiumCannotPlay(t *testing.T) {
 // TestChromiumStartsAt checks that the browser starts the video at the
 // time StartArgs names, as a timestamp opens it, and moves it to another.
 func TestChromiumStartsAt(t *testing.T) {
+	testenv.Integration(t, "starts a browser")
 	if !miniapp.Available() {
 		t.Skip("no Chromium-based browser")
 	}

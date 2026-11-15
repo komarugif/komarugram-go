@@ -1057,9 +1057,15 @@ bug, a failed test or a wrong first guess at least once.
 
 - Fakes must be cheap. Under `-race`, compressing a 1600×1200 PNG per request
   took seconds and timed a test out; encode once, uncompressed.
-- Check that a new test fails without the fix (break the code on purpose,
-  run, restore). Two tests written here passed at first without testing
-  anything.
+- A test of a breakage that reached `main` or a user must fail without the
+  fix (break the code on purpose, run, restore). Two tests written here
+  passed at first without testing anything. What to run when, and which
+  tests to write, is in `AGENTS.md`, "Tests".
+- A harness that made a theme for each frame (`defaults.NewTheme`) made a
+  text shaper each frame, and laid all text out from scratch: the UI's
+  tests took five times as long. A frame on the real clock (`Now:
+  time.Now()`) hid that a test waited for a number of frames, not for a
+  time: drawn faster, the dialog had not closed yet.
 - Pixels can be checked on the GPU with `gioui.org/gpu/headless` (see
   `TestTranslucentViewerPixels`); `VIEWER_PNG=… go test ./internal/messenger/ui
   -run RenderPhotoViewer` saves a screenshot to look at.

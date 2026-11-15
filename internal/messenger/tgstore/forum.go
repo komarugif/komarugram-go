@@ -4,6 +4,7 @@ package tgstore
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"time"
 
@@ -375,4 +376,78 @@ func (s *Store) markTopicRead(chat int64, id model.MessageID, asked bool) {
 		_, err := api.MessagesReadDiscussion(ctx, &tg.MessagesReadDiscussionRequest{Peer: group.input(), MsgID: top, ReadMaxID: int(id)})
 		return err
 	})
+}
+
+// preloadForums reads the first page of the topics of every forum in the
+// list whose topics are not known, as Telegram Desktop does for a forum in
+// its list (Data::Forum::preloadTopics): the list counts a forum's unread
+// topics (withForumUnread), which only its topics tell. One at a time, a
+// page's pause apart.
+func (s *Store) preloadForums() {
+	s.mu.RLock()
+	var forums []int64
+	for _, ch := range s.chats {
+		if ch.Forum {
+			forums = append(forums, ch.ID)
+		}
+	}
+	s.mu.RUnlock()
+	c := s.history
+	c.wg.Go(func() {
+		defer crash.Recover("forum topics ahead", nil)
+		for i, chat := range forums {
+			c.mu.Lock()
+			f := c.forums[chat]
+			known := f != nil && (f.loading || !f.loaded.IsZero())
+			ctx := c.ctx
+			c.mu.Unlock()
+			if known {
+				continue
+			}
+			if i > 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(pagePause):
+				}
+			}
+			s.readTopics(chat, false)
+		}
+	})
+}
+
+// withForumUnread counts a forum's unread topics as its unread count, as
+// Telegram Desktop shows it (History::chatListUnreadState): Telegram's count
+// of the forum's dialog is of its messages, which the reads of its topics
+// (messages.readDiscussion) leave as they were. Until its topics are known
+// it counts none.
+func (s *Store) withForumUnread(chats []model.Chat) []model.Chat {
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []model.Chat
+	for i, ch := range chats {
+		if !ch.Forum {
+			continue
+		}
+		n := 0
+		if f := c.forums[ch.ID]; f != nil && !f.loaded.IsZero() {
+			for _, t := range f.topics {
+				if t.Unread > 0 {
+					n++
+				}
+			}
+		}
+		if n == ch.Unread {
+			continue
+		}
+		if out == nil {
+			out = slices.Clone(chats)
+		}
+		out[i].Unread = n
+	}
+	if out == nil {
+		return chats
+	}
+	return out
 }

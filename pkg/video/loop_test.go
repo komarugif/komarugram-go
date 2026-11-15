@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"komarugram/internal/testenv"
 )
 
 // ffmpegPIDs lists the ffmpeg processes this test started.
@@ -43,6 +45,8 @@ func ffmpegPIDs() []int {
 // TestPlayerLoopsInOneProcess checks that a looping clip keeps its ffmpeg
 // instead of starting one for every pass.
 func TestPlayerLoopsInOneProcess(t *testing.T) {
+	// It counts every ffmpeg of the system: another run's are counted too.
+	testenv.Integration(t, "runs FFmpeg")
 	if runtime.GOOS != "linux" {
 		t.Skip("counts processes in /proc")
 	}

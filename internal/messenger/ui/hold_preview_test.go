@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -36,7 +35,7 @@ type holdGrid struct {
 
 func (g *holdGrid) frame() {
 	gtx := layout.Context{Ops: new(op.Ops), Source: g.router.Source(), Now: g.now, Constraints: layout.Exact(image.Pt(150, 100)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	g.preview.Update(gtx)
 	for i := range g.clicks {
 		if g.clicks[i].Clicked(gtx) && !g.preview.Swallow() {

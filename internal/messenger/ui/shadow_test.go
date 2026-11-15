@@ -7,7 +7,6 @@ import (
 	"image/color"
 	"testing"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -67,7 +66,7 @@ func TestMakeShadow(t *testing.T) {
 // smaller than its corners, and that the picture is made once for all of them.
 func TestDrawShadowSizes(t *testing.T) {
 	gtx := layout.Context{Ops: new(op.Ops), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	// Other tests have made pictures of their own.
 	shadowPictures.Lock()
 	clear(shadowPictures.made)
@@ -87,7 +86,7 @@ func TestDrawShadowSizes(t *testing.T) {
 // and darker pictures as it grows.
 func TestShadowIntensity(t *testing.T) {
 	gtx := layout.Context{Ops: new(op.Ops), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	card := image.Rect(0, 0, 400, 300)
 	made := func() map[shadowKey]bool {
 		shadowPictures.Lock()

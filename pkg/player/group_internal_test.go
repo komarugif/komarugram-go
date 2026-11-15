@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"komarugram/internal/testenv"
 	"komarugram/pkg/program"
 )
 
@@ -19,6 +20,7 @@ import (
 // started. A flatpak VLC runs under bwrap, and killing bwrap alone leaves
 // VLC playing with no parent.
 func TestCloseLeavesNothing(t *testing.T) {
+	testenv.Integration(t, "starts VLC")
 	var paths []string
 	if path, err := exec.LookPath("vlc"); err == nil {
 		paths = append(paths, path)

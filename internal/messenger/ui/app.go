@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	"komarugram/internal/crash"
 	"komarugram/internal/diagnostics"
 	"log"
@@ -45,6 +46,7 @@ import (
 	"komarugram/internal/miniappprefs"
 	"komarugram/pkg/miniapp"
 	"komarugram/pkg/player"
+	"komarugram/pkg/sandbox"
 )
 
 // App is the messenger window content.
@@ -107,8 +109,10 @@ type App struct {
 	filter     *messageFilter
 	lightTheme *token.Theme
 	darkTheme  *token.Theme
-	// themeFonts is the version of the fonts the themes were made with.
-	themeFonts uint64
+	// themeFonts is the version of the fonts the themes were made with,
+	// and themeColors the colors they were made of.
+	themeFonts  uint64
+	themeColors appColors
 	// emojiPacks keeps the emoji packs installed, beside the settings.
 	emojiPacks *emojipacks.Store
 
@@ -509,6 +513,22 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	a.settings.composerStyle = a.composerStyle
 	a.settings.setComposerStyle = func(style preferences.ComposerStyle) {
 		if err := services.Preferences.SetComposer(style); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.systemAccent = func() bool { return a.preferences.Global().SystemAccent }
+	a.settings.setSystemAccent = func(on bool) {
+		if err := services.Preferences.SetSystemAccent(on); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.systemAccentAvailable = func() bool {
+		_, ok := a.window.Appearance.Accent()
+		return ok
+	}
+	a.settings.neutralSurfaces = func() bool { return a.preferences.Global().NeutralSurfaces }
+	a.settings.setNeutralSurfaces = func(on bool) {
+		if err := services.Preferences.SetNeutralSurfaces(on); err != nil {
 			log.Printf("save settings: %v", err)
 		}
 	}
@@ -1013,15 +1033,18 @@ func (a *App) Theme(gtx layout.Context) *token.Theme {
 	if v := defaults.FontsVersion(); v != a.themeFonts {
 		a.themeFonts, a.darkTheme, a.lightTheme = v, nil, nil
 	}
+	if colors := (appColors{a.accent(), a.preferences.Global().NeutralSurfaces}); colors != a.themeColors {
+		a.themeColors, a.darkTheme, a.lightTheme = colors, nil, nil
+	}
 	theme := a.lightTheme
 	if a.dark() {
 		if a.darkTheme == nil {
-			a.darkTheme = defaults.NewTheme(gtx, schemes.SchemeBaselineDark())
+			a.darkTheme = defaults.NewTheme(gtx, a.themeColors.scheme(true))
 		}
 		theme = a.darkTheme
 	} else {
 		if a.lightTheme == nil {
-			a.lightTheme = defaults.NewTheme(gtx, schemes.SchemeBaselineLight())
+			a.lightTheme = defaults.NewTheme(gtx, a.themeColors.scheme(false))
 		}
 		theme = a.lightTheme
 	}
@@ -1029,6 +1052,42 @@ func (a *App) Theme(gtx layout.Context) *token.Theme {
 	a.window.SetFrameColor(theme.Scheme.Surface.Color.AsNRGBA())
 	a.window.SetTheme(hostTheme(a.themeMode()))
 	return theme
+}
+
+// accent returns the system's accent color when the application's colors
+// follow it, else transparent.
+func (a *App) accent() color.NRGBA {
+	if !a.preferences.Global().SystemAccent {
+		return color.NRGBA{}
+	}
+	c, _ := a.window.Appearance.Accent()
+	return c
+}
+
+// appColors is what the application's colors are made of: the system's
+// accent color, transparent for the baseline's, and whether the surfaces
+// are gray.
+type appColors struct {
+	accent  color.NRGBA
+	neutral bool
+}
+
+// scheme is the application's color scheme: the baseline's, or the one
+// made from the accent; with neutral surfaces, the one of the accent or of
+// Baseline's seed whose surfaces are gray.
+func (c appColors) scheme(dark bool) *token.Scheme {
+	seed := c.accent
+	switch {
+	case c.neutral && seed.A == 0:
+		return schemes.SchemeFromSeedNeutral(schemes.BaselineSeed, dark)
+	case c.neutral:
+		return schemes.SchemeFromSeedNeutral(seed, dark)
+	case seed.A != 0:
+		return schemes.SchemeFromSeed(seed, dark)
+	case dark:
+		return schemes.SchemeBaselineDark()
+	}
+	return schemes.SchemeBaselineLight()
 }
 
 // hostTheme is the theme the host draws its own windows in, the panic's.
@@ -1284,6 +1343,9 @@ func (a *App) Layout(gtx layout.Context) {
 func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	if !a.softwareChecked && app.SoftwareRendered() {
 		a.softwareChecked = true
+		// The rasterizer takes much of the CPU the decoders of stickers and
+		// sound need: their operations are allowed longer.
+		sandbox.SetSoftwareRendered(true)
 		if err := a.preferences.DefaultMotionOff(); err != nil {
 			log.Printf("save settings: %v", err)
 		}

@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/token"
 	"gio-mw/wdk"
@@ -47,7 +46,7 @@ func TestFrameHelpersDoNotAllocate(t *testing.T) {
 func TestThemedValuesAreReusedAcrossFrames(t *testing.T) {
 	ctl := &chatThemeController{}
 	gtx := layout.Context{Ops: new(op.Ops), Values: map[string]any{}, Now: time.Now()}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	edit := func(sc *token.Scheme) { sc.Primary.Color = token.MatColor{R: 1, A: 255} }
 	frame := func() {
 		gtx.Now = gtx.Now.Add(time.Second / 60)
@@ -94,7 +93,7 @@ func TestHistoryFrameAllocations(t *testing.T) {
 	p.images = &images
 	var ops op.Ops
 	gtx := layout.Context{Ops: &ops, Now: time.Now(), Constraints: layout.Exact(image.Pt(800, 720)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: make(map[string]any)}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	render := func() {
 		ops.Reset()
 		images.BeginFrame()

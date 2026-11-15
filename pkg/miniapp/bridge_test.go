@@ -12,12 +12,14 @@ import (
 	"testing"
 	"time"
 
+	"komarugram/internal/testenv"
 	"komarugram/pkg/miniapp"
 )
 
 // TestBridge runs the bundled Mini App against Telegram's real SDK and checks
 // that both directions of the bridge work.
 func TestBridge(t *testing.T) {
+	testenv.Integration(t, "starts a browser")
 	if !miniapp.Available() {
 		t.Skip("no Chromium-based browser or Firefox found")
 	}
@@ -73,6 +75,7 @@ func TestBridge(t *testing.T) {
 // on a per-app profile finds what it stored last time, and one opened on a
 // throwaway profile does not.
 func TestStorageModes(t *testing.T) {
+	testenv.Integration(t, "starts a browser")
 	if !miniapp.Available() {
 		t.Skip("no Chromium-based browser or Firefox found")
 	}
@@ -116,6 +119,7 @@ func TestStorageModes(t *testing.T) {
 // already in place: loaded before it, as Chromium was when opened on the
 // app's address, it ran without the shim and then again after a reload.
 func TestLoadsOnce(t *testing.T) {
+	testenv.Integration(t, "starts a browser")
 	if !miniapp.Available() {
 		t.Skip("no Chromium-based browser or Firefox found")
 	}
@@ -166,6 +170,7 @@ document.title = typeof TelegramWebviewProxy === 'object' ? 'bridged' : 'alone';
 // TestProfileInUse checks that opening a Mini App twice on one persistent
 // profile is refused rather than silently attaching to the first window.
 func TestProfileInUse(t *testing.T) {
+	testenv.Integration(t, "starts a browser")
 	if !miniapp.Available() {
 		t.Skip("no Chromium-based browser or Firefox found")
 	}

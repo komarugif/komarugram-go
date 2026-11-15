@@ -12,6 +12,8 @@ import (
 
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/h264"
+
+	"komarugram/internal/testenv"
 )
 
 // TestGIFPausesAndSeeks pauses a GIF that plays, with ffmpeg and with the
@@ -30,6 +32,7 @@ func TestGIFPausesAndSeeks(t *testing.T) {
 		set  func(t *testing.T, m *Manager)
 	}{
 		{"ffmpeg", func(t *testing.T, m *Manager) {
+			testenv.Integration(t, "runs FFmpeg")
 			if _, err := exec.LookPath("ffmpeg"); err != nil {
 				t.Skip("no ffmpeg")
 			}

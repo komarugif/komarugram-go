@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -34,6 +33,7 @@ type searchHarness struct {
 }
 
 func newSearchHarness(t *testing.T) *searchHarness {
+	skipFrames(t)
 	store := mockstore.New(time.Now(), 0)
 	l := newChatList()
 	l.panel = newSearchPanel(store)
@@ -42,7 +42,7 @@ func newSearchHarness(t *testing.T) *searchHarness {
 
 func (h *searchHarness) frame() {
 	gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(360, 700)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	l := localization.For("ru")
 	sec := section{kind: sectionSearch}
 	if pick, ok := h.list.Update(gtx, sec, l); ok {

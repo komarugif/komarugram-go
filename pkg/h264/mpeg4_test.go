@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"komarugram/pkg/mp4"
+
+	"komarugram/internal/testenv"
 )
 
 // An MPEG-4 Part 2 video (mp4v, as Telegram's GIFs of codec "mpeg4" are)
@@ -19,6 +21,7 @@ import (
 //
 //	ffmpeg -f lavfi -i testsrc2=size=96x64:rate=30 -frames:v 12 -c:v mpeg4 -q:v 3 -an testdata/mpeg4.mp4
 func TestMPEG4(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ctx := context.Background()
 	path := os.Getenv("KOMARUGRAM_AVCDEC")
 	if path == "" {

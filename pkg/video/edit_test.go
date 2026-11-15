@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"komarugram/pkg/program"
+
+	"komarugram/internal/testenv"
 )
 
 // A GIF edited is encoded as one made anew: GIFPlan's preset, quality and cap, its
@@ -52,6 +54,7 @@ func TestEditPlanOfAGIF(t *testing.T) {
 
 // One too large is encoded again under a lower cap, up to what ends it.
 func TestEncodeEditGIFKeepsWithinLimit(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg := ResolveFFmpeg("")
 	if ffmpeg == "" || ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")

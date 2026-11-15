@@ -59,10 +59,23 @@ type limited struct {
 	exceeded atomic.Bool
 }
 
+// idleArgs have an FFmpeg or ffprobe wait for its standard input, for
+// program.Reserved: it reads it to tell its format.
+var idleArgs = []string{"-hide_banner", "-loglevel", "quiet", "-i", "pipe:0"}
+
+// Limits are the limits of the FFmpeg or ffprobe at path that may take
+// memory: what it reserves as it starts is not counted in it. That is its
+// libraries', the same whatever it reads: SVT-AV1's .bss alone is 128 MiB,
+// in every FFmpeg that links it, and would leave a program that decodes
+// sound under 256 MiB about a hundred.
+func Limits(path string, memory uint64) program.Limits {
+	return program.Limits{Memory: memory, Reserved: program.Reserved(path, idleArgs...)}
+}
+
 // startLimited starts cmd with its memory bounded to memory.
 func startLimited(cmd *exec.Cmd, memory uint64) (*limited, error) {
 	l := &limited{memory: memory}
-	if err := program.StartLimited(cmd, program.Limits{Memory: memory}, func() { l.exceeded.Store(true) }); err != nil {
+	if err := program.StartLimited(cmd, Limits(cmd.Path, memory), func() { l.exceeded.Store(true) }); err != nil {
 		return nil, err
 	}
 	return l, nil

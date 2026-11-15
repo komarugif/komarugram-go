@@ -9,7 +9,6 @@ import (
 
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -25,7 +24,7 @@ func TestToastGoesByItself(t *testing.T) {
 	now := time.Now()
 	frame := func(at time.Duration) {
 		gtx := layout.Context{Ops: new(op.Ops), Now: now.Add(at), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		tt.Layout(gtx, image.Rect(0, 0, 400, 300))
 	}
 	tt.Show("Скопировано")

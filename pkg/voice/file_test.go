@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"komarugram/internal/testenv"
 )
 
 // TestFileDurationOfEncodedFiles encodes 3.7 s of tone in each format and
@@ -18,6 +20,7 @@ import (
 // reference: it guesses a variable bit rate MP3 without a Xing header from
 // its first frames.
 func TestFileDurationOfEncodedFiles(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("no ffmpeg")

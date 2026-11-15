@@ -20,16 +20,34 @@ func ticksPer(period time.Duration, fullRate bool) int64 {
 	return 2
 }
 
+// clockEpoch is where the ticks are counted from. They are of the monotonic
+// clock, as the window's frames are: the wall clock is slewed by a time
+// sync (VirtualBox's guest additions slew it by as much as a tenth), and
+// ticks of it came as much more or less often than the frames. The ticks
+// keep the monotonic reading, which comparisons with time.Now use; a time
+// without one, as a test's made-up clock, is counted on the wall clock.
+var clockEpoch = time.Now()
+
 // tickCeil is the first of every k-th tick at or after t.
 func tickCeil(t time.Time, k int64) time.Time {
-	unit := int64(frameTick) * k
-	return time.Unix(0, (t.UnixNano()+unit-1)/unit*unit)
+	unit := frameTick * time.Duration(k)
+	d := t.Sub(clockEpoch)
+	n := d / unit
+	if n*unit < d {
+		n++
+	}
+	return clockEpoch.Add(n * unit)
 }
 
 // tickFloor is the last of every k-th tick at or before t.
 func tickFloor(t time.Time, k int64) time.Time {
-	unit := int64(frameTick) * k
-	return time.Unix(0, t.UnixNano()/unit*unit)
+	unit := frameTick * time.Duration(k)
+	d := t.Sub(clockEpoch)
+	n := d / unit
+	if n*unit > d {
+		n--
+	}
+	return clockEpoch.Add(n * unit)
 }
 
 // A picture due at d shows on the first tick from half a tick before d:

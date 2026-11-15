@@ -49,6 +49,7 @@ func (s *editStore) asked() []editAsked {
 // newEditHarness is a chat whose messages 5 and 7 are the account's, 7
 // with "Message" bold.
 func newEditHarness(t *testing.T) (*menuHarness, *editStore) {
+	skipFrames(t)
 	var store *editStore
 	h := newMenuHarnessOn(t, func(_ *menuStore, m []model.Message) {
 		m[4].Outgoing = true
@@ -81,7 +82,8 @@ func TestEditFromMenuSavesFormatting(t *testing.T) {
 	h.router.Queue(key.Event{Name: "I", Physical: "I", Modifiers: key.ModShortcut, State: key.Press})
 	h.frame()
 	h.router.Queue(key.Event{Name: key.NameReturn, State: key.Press})
-	h.frames(10)
+	d = h.page.composer.draft(1)
+	waitFor(t, "the edit saved", h.frame, func() bool { return len(store.asked()) > 0 && d.editing == nil })
 	asked := store.asked()
 	if len(asked) != 1 || asked[0].key.MessageID != 7 || asked[0].text != "Message 7" {
 		t.Fatalf("edits asked: %+v", asked)
@@ -148,8 +150,8 @@ func TestEditForbiddenIsTold(t *testing.T) {
 	h.router.Queue(key.EditEvent{Text: "!"})
 	h.frame()
 	h.router.Queue(key.Event{Name: key.NameReturn, State: key.Press})
-	h.frames(10)
 	d := h.page.composer.draft(1)
+	waitFor(t, "the edit refused", h.frame, func() bool { return d.err != nil || !d.sending && d.editing == nil })
 	if d.editing == nil || d.err == nil {
 		t.Fatal("a refused edit ended")
 	}

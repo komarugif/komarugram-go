@@ -16,6 +16,8 @@ import (
 	"komarugram/internal/ffmpegtest"
 	"komarugram/pkg/program"
 	"komarugram/pkg/video"
+
+	"komarugram/internal/testenv"
 )
 
 // testClip makes a clip of a smooth picture, with a tone, turned as rotation
@@ -127,6 +129,7 @@ func probeClip(t *testing.T, clip, ffmpeg string) video.Media {
 // What comes out of FFmpeg is what Flatten draws, turned and cropped as the
 // scene says, on a video that is straight and on those a phone records turned.
 func TestVideoMatchesPicture(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg := video.ResolveFFmpeg("")
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
@@ -187,6 +190,7 @@ func TestVideoMatchesPicture(t *testing.T) {
 // Saturated colors come out as they went in, read by the matrix the video
 // states: left to the conversions, an HD video's come back through BT.601.
 func TestVideoKeepsColors(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg := video.ResolveFFmpeg("")
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
@@ -216,6 +220,7 @@ func TestVideoKeepsColors(t *testing.T) {
 // The translucent marker comes out of FFmpeg as it does here, in the values of
 // the pixels: linear light would be 13 and 21 off.
 func TestVideoMarkerInGamma(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg := video.ResolveFFmpeg("")
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
@@ -239,6 +244,7 @@ func TestVideoMarkerInGamma(t *testing.T) {
 }
 
 func TestVideoTrim(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg := video.ResolveFFmpeg("")
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
@@ -255,6 +261,7 @@ func TestVideoTrim(t *testing.T) {
 
 // Cancelled, the encoding stops at once and leaves no file.
 func TestVideoCancel(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg := video.ResolveFFmpeg("")
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")

@@ -14,6 +14,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
@@ -211,11 +212,21 @@ func (p *chatPage) playerDialog(gtx layout.Context, l localization.Catalog) {
 type playerSettings struct {
 	height heightTransition
 	radios *radio.Radios[player.Kind]
-	// installed is looked up when the settings open, not on every frame.
+	// installed is looked up when the settings open, not on every frame,
+	// and off the frame: finding the browser starts programs to ask their
+	// versions, which may take a second. checked is set once it is known.
 	installed []player.Kind
 	checked   bool
-	chosen    func() player.Kind
-	choose    func(player.Kind)
+	// find looks the players up: player.Installed, and the browser of Mini
+	// Apps with it. looking is set while it runs; again, when the players
+	// were asked for again meanwhile.
+	find       func(custom map[player.Kind]string) []player.Kind
+	looking    bool
+	again      bool
+	found      chan []player.Kind
+	invalidate func()
+	chosen     func() player.Kind
+	choose     func(player.Kind)
 	// paths are the players the user pointed at; programs, where they
 	// point at them.
 	paths    func() map[player.Kind]string
@@ -223,7 +234,7 @@ type playerSettings struct {
 }
 
 func newPlayerSettings() *playerSettings {
-	s := &playerSettings{programs: make(map[player.Kind]*programSetting)}
+	s := &playerSettings{programs: make(map[player.Kind]*programSetting), find: findPlayers, found: make(chan []player.Kind, 1)}
 	for _, kind := range player.Kinds {
 		// A fallback plays in a program set elsewhere, such as the browser.
 		if kind.Fallback() {
@@ -254,30 +265,75 @@ func newPlayerSettings() *playerSettings {
 			s.choose(kind)
 		}
 	})
+	// Nothing is chosen among players not found yet.
+	for _, kind := range append(slices.Clone(player.Kinds), "") {
+		s.radios.DisableOption(kind)
+	}
 	return s
 }
 
+// findPlayers is player.Installed, and the browser of Mini Apps looked for
+// with it: the settings show it too, and a player may be the browser.
+func findPlayers(custom map[player.Kind]string) []player.Kind {
+	installed := player.Installed(custom)
+	miniapp.Browser()
+	return installed
+}
+
 // refresh looks for installed players again, as one may have been installed
-// or removed since.
+// or removed since. It does not wait: what is found comes to receive, and
+// what was found before is shown meanwhile.
 func (s *playerSettings) refresh() {
+	if s.looking {
+		s.again = true
+		return
+	}
 	var paths map[player.Kind]string
 	if s.paths != nil {
 		paths = s.paths()
 	}
-	s.installed = player.Installed(paths)
-	s.checked = true
-	for _, kind := range player.Kinds {
-		if s.has(kind) {
-			s.radios.EnableOption(kind)
-		} else {
-			s.radios.DisableOption(kind)
+	s.looking = true
+	find, found, invalidate := s.find, s.found, s.invalidate
+	go func() {
+		// Players that panic are not offered, as those not found.
+		defer crash.Recover("find players", func(*crash.Panic) {
+			found <- nil
+			if invalidate != nil {
+				invalidate()
+			}
+		})
+		found <- find(paths)
+		if invalidate != nil {
+			invalidate()
 		}
-	}
-	// There is nothing to ask about with one player or none.
-	if len(dedicatedPlayers(s.installed)) > 1 {
-		s.radios.EnableOption("")
-	} else {
-		s.radios.DisableOption("")
+	}()
+}
+
+// receive takes the players found, once they are, and looks again when
+// asked to meanwhile.
+func (s *playerSettings) receive() {
+	select {
+	case installed := <-s.found:
+		s.looking = false
+		s.installed, s.checked = installed, true
+		for _, kind := range player.Kinds {
+			if s.has(kind) {
+				s.radios.EnableOption(kind)
+			} else {
+				s.radios.DisableOption(kind)
+			}
+		}
+		// There is nothing to ask about with one player or none.
+		if len(dedicatedPlayers(s.installed)) > 1 {
+			s.radios.EnableOption("")
+		} else {
+			s.radios.DisableOption("")
+		}
+		if s.again {
+			s.again = false
+			s.refresh()
+		}
+	default:
 	}
 }
 
@@ -290,13 +346,15 @@ func (s *playerSettings) has(kind player.Kind) bool {
 	return false
 }
 
+// current is the player media open in; while the players are not known
+// yet, the one chosen.
 func (s *playerSettings) current() (player.Kind, bool) {
-	if !s.checked {
-		s.refresh()
-	}
 	var chosen player.Kind
 	if s.chosen != nil {
 		chosen = s.chosen()
+	}
+	if !s.checked {
+		return chosen, false
 	}
 	return playerFor(chosen, s.installed)
 }
@@ -315,6 +373,8 @@ func (s *playerSettings) subtitle(l localization.Catalog) string {
 	kind, ask := s.current()
 	name := playerTitle(kind, l)
 	switch {
+	case !s.checked:
+		name = l.T("program.searching")
 	case ask:
 		name = l.T("player.not_chosen")
 	case kind == "":
@@ -327,6 +387,7 @@ func (s *playerSettings) Layout(gtx layout.Context, l localization.Catalog) layo
 	kind, ask := s.current()
 	hint := l.T("player.hint")
 	switch {
+	case !s.checked:
 	case ask:
 		hint = l.T("player.undecided")
 	case kind == "":
@@ -345,7 +406,7 @@ func (s *playerSettings) Layout(gtx layout.Context, l localization.Catalog) layo
 	labels := map[player.Kind]string{"": l.T("player.ask_option")}
 	for _, k := range player.Kinds {
 		labels[k] = playerTitle(k, l)
-		if !s.has(k) {
+		if s.checked && !s.has(k) {
 			labels[k] += " · " + l.T("player.not_installed")
 		}
 	}
@@ -370,6 +431,7 @@ func newBrowserSetting() *programSetting {
 
 // refreshPrograms looks for the programs of the integrations section again.
 func (p *settingsPage) refreshPrograms() {
+	p.players.invalidate = p.invalidate
 	p.players.refresh()
 	for _, program := range p.players.programs {
 		program.refresh(context.Background(), p.invalidate)

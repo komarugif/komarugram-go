@@ -12,7 +12,6 @@ import (
 	"komarugram/internal/motion"
 	"komarugram/pkg/miniapp"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/exp/appearance"
 	"gio-mw/wdk"
@@ -35,7 +34,7 @@ func TestLogOutConfirmationInView(t *testing.T) {
 	now := time.Unix(1000, 0)
 	frame := func() {
 		gtx := layout.Context{Ops: new(op.Ops), Now: now, Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		p.Update(gtx, themeAuto, "ru")
 		p.Layout(gtx, themeAuto, appearance.Light, false, l)
 		now = now.Add(16 * time.Millisecond)

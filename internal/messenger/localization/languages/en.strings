@@ -1450,6 +1450,7 @@
 "program.old_version" = "version {version} is not supported, {want} is needed";
 "program.rejected" = "The file was not accepted";
 "program.reset" = "Find automatically";
+"program.searching" = "looking…";
 "program.snap" = "players installed as snaps are not supported yet";
 "program.unsupported_system" = "it is not supported on this system yet";
 "program.wrong" = "the program does not answer as {program}";
@@ -1833,6 +1834,7 @@
 "settings.motion_auto" = "auto";
 "settings.motion_off" = "disabled";
 "settings.motion_on" = "always enabled";
+"settings.neutral_surfaces" = "Neutral surface colors";
 "settings.no_accounts" = "No connected accounts.";
 "settings.notify" = "Notifications and Sounds";
 "settings.now_off" = "currently disabled";
@@ -1858,6 +1860,7 @@
 "settings.storage_none" = "store nothing";
 "settings.storage_per_app" = "separate for every app";
 "settings.storage_shared" = "shared account storage";
+"settings.system_accent" = "System accent color";
 "settings.system_dark" = "The system reports a dark theme.";
 "settings.system_light" = "The system reports a light theme.";
 "settings.system_unknown" = "The system does not report its theme; Auto uses light.";

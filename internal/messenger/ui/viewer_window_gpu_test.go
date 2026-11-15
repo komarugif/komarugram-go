@@ -9,7 +9,6 @@ import (
 
 	"komarugram/internal/messenger/localization"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -39,7 +38,7 @@ func TestTranslucentViewerPixels(t *testing.T) {
 	})
 	ops := new(op.Ops)
 	gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineDark()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineDark()))
 	h.images.BeginFrame()
 	h.viewer.Layout(gtx, localization.For("en"), false)
 	h.images.EndFrame()

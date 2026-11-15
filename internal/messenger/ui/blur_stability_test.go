@@ -96,6 +96,7 @@ func decodePNG(t *testing.T, path string) image.Image {
 // w at a fixed place, as a menu opening does, and returns the frame.
 func blurredUnder(t *testing.T, w int) image.Image {
 	t.Helper()
+	skipFrames(t)
 	path := filepath.Join(t.TempDir(), "blur.png")
 	renderFrames(t, image.Pt(240, 120), path, func(gtx layout.Context) {
 		page := markPattern(gtx)

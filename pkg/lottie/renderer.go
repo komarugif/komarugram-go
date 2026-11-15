@@ -40,7 +40,7 @@ type Limits struct {
 // DefaultLimits suit stickers, which are drawn at up to 512 pixels, doubled
 // on a high density screen.
 var DefaultLimits = Limits{
-	Limits:  sandbox.Limits{Memory: 64 << 20, Slow: 250 * time.Millisecond},
+	Limits:  sandbox.Limits{Memory: 64 << 20, PerFrame: true},
 	MaxSide: 1024,
 }
 

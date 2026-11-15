@@ -41,9 +41,10 @@ type Limits struct {
 
 // DefaultLimits suit stickers and custom emoji, which Telegram caps at 512
 // pixels a side. A 512x512 sticker keeps about 3 MiB in its decoder and takes
-// a few milliseconds a frame.
+// a few milliseconds a frame. An operation is a frame's (sandbox.FrameSlow);
+// one over the limit is tried once more (Sticker's seek).
 var DefaultLimits = Limits{
-	Limits:  sandbox.Limits{Memory: 32 << 20, Slow: 250 * time.Millisecond},
+	Limits:  sandbox.Limits{Memory: 32 << 20, PerFrame: true},
 	MaxSide: 512,
 }
 
@@ -163,8 +164,17 @@ func (d *Decoder) Decode(ctx context.Context, packet []byte) (*image.YCbCr, erro
 	if err := d.runtime.sandbox.Check(ctx, d.module, started); err != nil {
 		return nil, fmt.Errorf("vp9: %w", err)
 	}
+	if slowFault != nil && slowFault() {
+		// A test's: this decode took longer than the limit.
+		_ = d.module.Close(ctx)
+		return nil, fmt.Errorf("vp9: %w", sandbox.ErrSlow)
+	}
 	return frame, nil
 }
+
+// slowFault, set by a test, has a decode fail as one that took longer than
+// the limit when it reports true.
+var slowFault func() bool
 
 func (d *Decoder) decode(ctx context.Context, packet []byte) (*image.YCbCr, error) {
 	ptr, err := d.call(ctx, "vpxw_alloc", uint64(len(packet)))

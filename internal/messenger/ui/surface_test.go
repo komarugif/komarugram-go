@@ -6,7 +6,6 @@ import (
 	"image"
 	"testing"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -34,7 +33,7 @@ func TestSurfaceStates(t *testing.T) {
 	center := func() uint8 {
 		ops := new(op.Ops)
 		gtx := layout.Context{Ops: ops, Source: router.Source(), Constraints: layout.Exact(image.Pt(40, 40)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		sc := scheme(gtx)
 		fillRect(gtx, sc.Surface.Color, image.Pt(40, 40))
 		style := surfaceStyle{area: image.Rect(10, 10, 30, 30), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor}

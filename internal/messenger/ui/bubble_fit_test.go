@@ -11,7 +11,6 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -201,7 +200,7 @@ func TestLongSignatureUnderReactions(t *testing.T) {
 		t.Fatal("chips not laid out")
 	}
 	gtx := layout.Context{Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}, Ops: new(op.Ops), Constraints: layout.Constraints{Max: image.Pt(1000, 100)}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	foot := messageFooter(gtx, r.shown, localization.For("en"), true, model.SendNone).Size.X
 	row := r.lastChips.Max.X
 	// The bubble is no wider than the chips or the time alone and its

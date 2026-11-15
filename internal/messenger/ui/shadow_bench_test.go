@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -51,7 +50,7 @@ func BenchmarkDialogShadowFrame(b *testing.B) {
 				for range b.N {
 					ops.Reset()
 					gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
-					wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, sch))
+					wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, sch))
 					fillRect(gtx, scheme(gtx).Surface.Color, size)
 					card := image.Rect(180, 80, 820, 820)
 					if shadow {

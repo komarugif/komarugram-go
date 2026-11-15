@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -26,7 +25,7 @@ import (
 // what plays. Animations are off: the bar is there at once, or gone.
 func audioFrame(p *chatPage, chat int64) int {
 	gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(600, 820)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{wdk.AnimationsNamespace: false}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	if p.images == nil {
 		p.images = &imageOps{}
 	}
@@ -235,7 +234,7 @@ func TestAudioBarClosesWithWhatItShowed(t *testing.T) {
 	frame := func() {
 		ops.Reset()
 		gtx := layout.Context{Ops: ops, Now: now, Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		paint.Fill(gtx.Ops, background)
 		if p.audioBarSize(gtx) > 0 {
 			p.layoutAudioBar(gtx, localization.For("ru"), false)

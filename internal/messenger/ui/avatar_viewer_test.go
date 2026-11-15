@@ -63,6 +63,7 @@ func TestChatHeaderAvatarOpensPhoto(t *testing.T) {
 // of its profile after them, page by page as the strip comes to its end,
 // placed among all of them as Telegram counts them.
 func TestViewerOpensProfilePhotos(t *testing.T) {
+	skipFrames(t)
 	store := mockstore.New(time.Now(), 0)
 	var images imageOps
 	changed := make(chan struct{}, 1)

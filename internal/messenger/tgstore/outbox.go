@@ -515,6 +515,10 @@ func (s *Store) deliverOutgoing(ctx context.Context, e *outgoingEntry) (err erro
 	return err
 }
 
+// outgoingBackoff is the wait before the first retry of what was sent, which
+// doubles with each attempt; the store's tests wait less (main_test.go).
+var outgoingBackoff = time.Second
+
 // outgoingRetry is how long to wait before asking again after err, if at all.
 // Waiting for Telegram or for the network spends no attempts: however long they
 // last, the message goes in the end. An attempt out of time may have sent a
@@ -523,7 +527,7 @@ func outgoingRetry(err error, attempts int) (time.Duration, bool) {
 	if delay, ok := tgerr.AsFloodWait(err); ok {
 		return max(time.Second, delay), true
 	}
-	backoff := time.Second << min(attempts, 5)
+	backoff := outgoingBackoff << min(attempts, 5)
 	var serverError *tgerr.Error
 	if errors.As(err, &serverError) {
 		return backoff, serverError.Code >= 500 && attempts < 5

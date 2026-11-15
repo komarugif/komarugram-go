@@ -18,7 +18,6 @@ import (
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -59,6 +58,7 @@ type composerHarness struct {
 }
 
 func newComposerHarness(t *testing.T) *composerHarness {
+	skipFrames(t)
 	s := mockstore.New(time.Now(), 0)
 	p := newChatPage(s, func() {})
 	p.images = &imageOps{}
@@ -70,7 +70,7 @@ func newComposerHarness(t *testing.T) *composerHarness {
 func (h *composerHarness) frame() *op.Ops {
 	ops := new(op.Ops)
 	gtx := layout.Context{Ops: ops, Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(h.size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineDark()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineDark()))
 	wdk.SetAnimationsEnabled(gtx, !h.still)
 	if h.transparency > 0 {
 		withWindowSurfaceOpacity(gtx, h.transparency, true)
@@ -893,7 +893,7 @@ func TestPickerHidesPaidWithTheCalm(t *testing.T) {
 			deadline := time.Now().Add(5 * time.Second)
 			for time.Now().Before(deadline) {
 				gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(400, 500)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-				wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+				wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 				withCalm(gtx, tc.calm)
 				c.update(gtx, 5, l, p)
 				c.pickerOpen = true

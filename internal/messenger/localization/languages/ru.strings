@@ -1528,6 +1528,7 @@
 "program.old_version" = "версия {version} не поддерживается, нужна {want}";
 "program.rejected" = "Файл не подошёл";
 "program.reset" = "Искать автоматически";
+"program.searching" = "ищем…";
 "program.snap" = "плееры из snap пока не поддерживаются";
 "program.unsupported_system" = "на этой системе он пока не поддерживается";
 "program.wrong" = "программа не отвечает как {program}";
@@ -1923,6 +1924,7 @@
 "settings.motion_auto" = "авто";
 "settings.motion_off" = "выключены";
 "settings.motion_on" = "всегда включены";
+"settings.neutral_surfaces" = "Нейтральный цвет поверхностей";
 "settings.no_accounts" = "Нет подключённых аккаунтов.";
 "settings.notify" = "Уведомления и звуки";
 "settings.now_off" = "сейчас выключены";
@@ -1948,6 +1950,7 @@
 "settings.storage_none" = "ничего не хранить";
 "settings.storage_per_app" = "отдельно для каждого приложения";
 "settings.storage_shared" = "общее хранилище аккаунта";
+"settings.system_accent" = "Системный акцентный цвет";
 "settings.system_dark" = "Система сообщает тёмную тему.";
 "settings.system_light" = "Система сообщает светлую тему.";
 "settings.system_unknown" = "Система не сообщает свою тему, в режиме «Авто» используется светлая.";

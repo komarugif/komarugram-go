@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -209,7 +208,7 @@ func TestPasswordEyeShowsWhatIsTypedWhileItIsHeld(t *testing.T) {
 	}
 	gtx := phoneContext()
 	gtx.Values = map[string]any{}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	field := view.master
 	for _, held := range []bool{false, true, false} {
 		field.peek.down = held

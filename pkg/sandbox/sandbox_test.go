@@ -43,3 +43,26 @@ func TestCompileZstdModule(t *testing.T) {
 		t.Fatal("a module not compressed compiled")
 	}
 }
+
+// An operation a frame waits for may take 300 ms, and 600 ms on a machine
+// that draws its windows on the CPU, almost surely a virtual one, whose
+// rasterizer takes the time the decoders need: there a sticker's frame took
+// 300 to 600 ms. The limit is the one of when the runtime is made.
+func TestPerFrameLimit(t *testing.T) {
+	ctx := context.Background()
+	t.Cleanup(func() { SetSoftwareRendered(false) })
+	for _, c := range []struct {
+		software bool
+		want     time.Duration
+	}{{false, 300 * time.Millisecond}, {true, 600 * time.Millisecond}} {
+		SetSoftwareRendered(c.software)
+		rt, err := NewRuntime(ctx, Limits{Memory: 1 << 20, Slow: time.Hour, PerFrame: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := rt.limits.Slow; got != c.want {
+			t.Errorf("software %v: a frame's operation may take %v, want %v", c.software, got, c.want)
+		}
+		rt.Close(ctx)
+	}
+}

@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -73,6 +72,7 @@ type emojiSettingsHarness struct {
 }
 
 func newEmojiSettingsHarness(t *testing.T, catalog string) *emojiSettingsHarness {
+	skipFrames(t)
 	h := &emojiSettingsHarness{t: t, woken: make(chan struct{}, 64)}
 	h.s = newEmojiSettings(func() {
 		select {
@@ -91,7 +91,7 @@ func newEmojiSettingsHarness(t *testing.T, catalog string) *emojiSettingsHarness
 // frame updates and draws the settings once.
 func (h *emojiSettingsHarness) frame() {
 	gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(600, 900)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	h.s.Update(gtx)
 	h.s.Layout(gtx, localization.For("ru"))
 }

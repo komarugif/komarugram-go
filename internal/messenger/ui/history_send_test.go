@@ -30,6 +30,7 @@ func sendAndWait(t *testing.T, h *composerHarness, text string) model.MessageID 
 }
 
 func newSendHarness(t *testing.T) *composerHarness {
+	skipFrames(t)
 	h := newComposerHarness(t)
 	h.chat = 2
 	h.animate = true
@@ -147,6 +148,7 @@ func (s savedStore) HistorySince(chat int64, revision uint64) (model.History, bo
 }
 
 func newUnmarkedHarness(t *testing.T, kind model.ChatKind) *composerHarness {
+	skipFrames(t)
 	p := newChatPage(savedStore{mockstore.New(time.Now(), 0)}, func() {})
 	p.images = &imageOps{}
 	t.Cleanup(p.Close)

@@ -61,6 +61,12 @@ type Global struct {
 	// PauseInactive stops stickers, GIFs, animated emoji and video avatars
 	// while the window is not active, as Telegram Desktop does.
 	PauseInactive bool `json:"pause_inactive"`
+	// SystemAccent takes the application's accent color from the system's,
+	// where the system has one, in place of the baseline scheme's.
+	SystemAccent bool `json:"system_accent,omitempty"`
+	// NeutralSurfaces makes the surfaces of the application's colors gray,
+	// not tinted with the accent.
+	NeutralSurfaces bool `json:"neutral_surfaces,omitempty"`
 	// VisualPrivacy hides phone numbers from the interface and covers the
 	// account's identifiers in its profile with spoilers, for showing the
 	// screen to others: streams, recordings, screenshots.
@@ -956,6 +962,18 @@ func (s *Store) SetSharedColumns(n int) error {
 
 func (s *Store) SetTheme(value Theme) error {
 	return s.change(func(g *Global) { g.Theme = value })
+}
+
+// SetSystemAccent switches whether the application's colors follow the
+// system's accent color.
+func (s *Store) SetSystemAccent(on bool) error {
+	return s.change(func(g *Global) { g.SystemAccent = on })
+}
+
+// SetNeutralSurfaces switches whether the application's surfaces are gray
+// or tinted with the accent.
+func (s *Store) SetNeutralSurfaces(on bool) error {
+	return s.change(func(g *Global) { g.NeutralSurfaces = on })
 }
 
 // SetLanguage changes the UI language for all windows.

@@ -548,8 +548,9 @@ func (m *Manager) clipFrame(e *entry) image.Image {
 	step := e.clip.frameDuration
 	elapsed := now.Sub(e.clipStart)
 	if elapsed < 0 {
-		// The ticks are of the wall clock, which a time sync can set back:
-		// the loop goes on from where it is, not from before its start.
+		// A frame's time without a monotonic reading is of the wall clock,
+		// which a time sync can set back: the loop goes on from where it
+		// is, not from before its start.
 		e.clipStart = now.Add(-e.clipAt)
 		elapsed = e.clipAt
 	}

@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -41,7 +40,7 @@ func measuredRow(t *testing.T, m model.Message, width int) (measured, guessed in
 	t.Cleanup(p.Close)
 	for range 3 {
 		gtx := layout.Context{Ops: new(op.Ops), Now: now, Constraints: layout.Exact(image.Pt(width, 1200)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		p.list.Position.First, p.list.Position.Offset, p.list.Position.BeforeEnd = 1, 0, true
 		p.Layout(gtx, model.Chat{ID: 1}, localization.For("ru"), false)
 		if guessed == 0 {
@@ -108,7 +107,7 @@ func TestArticleLoadsMediaNearTheView(t *testing.T) {
 	t.Cleanup(p.Close)
 	frame := func() {
 		gtx := layout.Context{Ops: new(op.Ops), Now: now, Constraints: layout.Exact(image.Pt(500, 600)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		p.images.BeginFrame()
 		p.Layout(gtx, model.Chat{ID: 1}, localization.For("ru"), false)
 		p.images.EndFrame()
@@ -163,7 +162,7 @@ func BenchmarkLongArticleFrame(b *testing.B) {
 	defer p.Close()
 	ops := new(op.Ops)
 	base := layout.Context{Ops: ops, Now: now, Constraints: layout.Exact(image.Pt(700, 800)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	theme := defaults.NewTheme(base, schemes.SchemeBaselineLight())
+	theme := testTheme(base, schemes.SchemeBaselineLight())
 	frame := func() {
 		ops.Reset()
 		gtx := layout.Context{Ops: ops, Now: now, Constraints: layout.Exact(image.Pt(700, 800)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}

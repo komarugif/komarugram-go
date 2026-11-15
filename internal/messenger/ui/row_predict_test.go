@@ -9,7 +9,6 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -109,7 +108,7 @@ func predictTheRows(t *testing.T, avatars bool) {
 		h.frame()
 	}
 	metric := unit.Metric{PxPerDp: 1, PxPerSp: 1}
-	theme := defaults.NewTheme(layout.Context{Ops: new(op.Ops), Metric: metric, Values: map[string]any{}}, schemes.SchemeBaselineLight())
+	theme := testTheme(layout.Context{Ops: new(op.Ops), Metric: metric, Values: map[string]any{}}, schemes.SchemeBaselineLight())
 	lay := func(m model.Message, width int) (*messageRow, int) {
 		gtx := layout.Context{Ops: new(op.Ops), Now: h.now, Constraints: layout.Constraints{Max: image.Pt(width, 1<<20)}, Metric: metric, Values: map[string]any{}}
 		wdk.InitMaterialThemeInContext(gtx, theme)

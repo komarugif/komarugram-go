@@ -186,9 +186,13 @@ func TestDownloadsDelete(t *testing.T) {
 	p.openMessage = func(d model.DownloadedFile) { opened = append(opened, d.Key) }
 	l := localization.For("en")
 	var router input.Router
+	// Frames on a clock of the test's: the dialog closes in a frame's
+	// time at a time, however fast the frames are drawn.
+	now := time.Now()
 	frame := func() {
 		ops := new(op.Ops)
 		gtx := sharedContext(ops, image.Pt(760, 900))
+		gtx.Now, now = now, now.Add(time.Second/60)
 		gtx.Source = router.Source()
 		p.Update(gtx, l)
 		p.Layout(gtx, l, false)

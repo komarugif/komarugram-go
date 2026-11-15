@@ -54,7 +54,32 @@ type Limits struct {
 	// Slow is how long one operation on a sandbox may take. An operation that
 	// takes longer fails with ErrSlow, and its sandbox is closed.
 	Slow time.Duration
+	// PerFrame has Slow be the limit of an operation that a frame waits
+	// for, as a picture of a sticker or a unit of sound: FrameSlow when the
+	// runtime is made, whatever Slow says.
+	PerFrame bool
 }
+
+// FrameSlow is the limit of an operation a frame waits for (Limits.PerFrame):
+// 300 ms, and 600 ms while windows are drawn by a software rasterizer
+// (SetSoftwareRendered). A machine that draws on the CPU is almost surely a
+// virtual one, whose rasterizer takes much of the time the decoders need: a
+// sticker's frame took 300 to 600 ms there, and at 250 ms the sticker was
+// left blank.
+func FrameSlow() time.Duration {
+	if softwareRendered.Load() {
+		return 600 * time.Millisecond
+	}
+	return 300 * time.Millisecond
+}
+
+// softwareRendered is set by SetSoftwareRendered.
+var softwareRendered atomic.Bool
+
+// SetSoftwareRendered tells that windows are drawn by a software rasterizer
+// (llvmpipe, WARP), which FrameSlow allows longer for. Runtimes made before
+// keep their limits.
+func SetSoftwareRendered(on bool) { softwareRendered.Store(on) }
 
 // DefaultBudget is the budget a runtime gets when its Limits name none.
 const DefaultBudget = 256 << 20
@@ -79,6 +104,9 @@ func NewRuntime(ctx context.Context, l Limits) (*Runtime, error) {
 	pages := l.Memory / pageSize
 	if pages == 0 || pages > 65536 {
 		return nil, fmt.Errorf("sandbox: memory limit %d is out of range", l.Memory)
+	}
+	if l.PerFrame {
+		l.Slow = FrameSlow()
 	}
 	if l.Slow <= 0 {
 		return nil, fmt.Errorf("sandbox: time limit %v is out of range", l.Slow)

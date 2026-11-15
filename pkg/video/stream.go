@@ -266,7 +266,10 @@ func NewSound(path, ffmpeg string, start time.Duration) (*Sound, error) {
 	if start > 0 {
 		args = append(args, "-ss", strconv.FormatFloat(start.Seconds(), 'f', 3, 64))
 	}
-	args = append(args, "-i", path, "-vn", "-sn", "-dn",
+	// One thread of the filters that resample the sound, not one a core:
+	// sound needs no more, and the stack of each is memory the bound
+	// counts (8 MiB each where the stack's limit is 8 MiB, on 8 cores 64).
+	args = append(args, "-i", path, "-vn", "-sn", "-dn", "-filter_threads", "1",
 		"-ac", "2", "-ar", strconv.Itoa(SoundRate), "-f", "s16le", "-")
 	cmd := program.CommandContext(ctx, ResolveFFmpeg(ffmpeg), args...)
 	stdout, err := cmd.StdoutPipe()

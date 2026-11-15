@@ -49,7 +49,8 @@ func MiniApps(l localization.Catalog) miniappprefs.Strings {
 			miniapp.PerApp:    l.T("miniapp.hint_per_app"),
 			miniapp.Shared:    l.T("miniapp.hint_shared"),
 		},
-		Browser:  l.T("miniapp.browser"),
-		NoneSeen: l.T("miniapp.none_seen"),
+		Browser:   l.T("miniapp.browser"),
+		NoneSeen:  l.T("miniapp.none_seen"),
+		Searching: l.T("program.searching"),
 	}
 }

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -29,7 +28,7 @@ func TestBuildSnapshot(t *testing.T) {
 	msgs := []model.Message{p.messages[1], p.messages[2]}
 	gtx := layout.Context{Ops: new(op.Ops), Constraints: layout.Exact(image.Pt(500, 700)), Values: map[string]any{}}
 	gtx.Metric.PxPerDp, gtx.Metric.PxPerSp = 1, 1
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	_, full, ok := p.buildSnapshot(gtx, localization.For("en"), msgs, shotOptions{date: true, reactions: true})
 	if !ok {
 		t.Fatal("two messages are too tall")
@@ -70,7 +69,7 @@ func TestRenderSnapshotDialog(t *testing.T) {
 		}
 		gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(600, 800)), Values: map[string]any{}}
 		gtx.Metric.PxPerDp, gtx.Metric.PxPerSp = 1, 1
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		p.shot.layout(gtx, p, l)
 		time.Sleep(10 * time.Millisecond)
 	}

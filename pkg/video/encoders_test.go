@@ -13,11 +13,14 @@ import (
 	"testing"
 
 	"komarugram/pkg/program"
+
+	"komarugram/internal/testenv"
 )
 
 // requireEncoder skips the test when the FFmpeg lacks the encoder.
 func requireEncoder(t testing.TB, ffmpeg, name string) {
 	t.Helper()
+	testenv.Integration(t, "runs FFmpeg")
 	if !HasEncoder(ffmpeg, name) {
 		t.Skipf("this FFmpeg has no %s encoder", name)
 	}
@@ -138,6 +141,7 @@ func TestParseFFmpeg(t *testing.T) {
 // The real FFmpeg tells its version and the same encoders as its own listing
 // does, from the one run.
 func TestProbeFFmpeg(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	path := ResolveFFmpeg("")
 	if path == "" {
 		t.Skip("no FFmpeg")

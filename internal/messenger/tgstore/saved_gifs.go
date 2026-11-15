@@ -36,6 +36,23 @@ func (s *Store) SavedGIF(id string) bool {
 	return false
 }
 
+// savedGIFMedia reports whether media id is a saved GIF's, or its
+// thumbnail's, which the picker shows.
+func (s *Store) savedGIFMedia(id string) bool {
+	if s.SavedGIF(id) {
+		return true
+	}
+	p := &s.picker
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, item := range p.pages[model.PickerGIF].Items {
+		if media := item.Media.Media; media != nil && media.Thumbnail != nil && media.Thumbnail.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // SaveGIF implements model.SavedGIFStore with messages.saveGif, as Telegram
 // Desktop's Api::ToggleSavedGif: the list kept changes at once, the saved
 // GIF first, and is asked for again the next time the tab opens. Local

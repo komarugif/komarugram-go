@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -43,6 +42,7 @@ type appForum struct {
 
 func newAppForum(t *testing.T) *appForum {
 	t.Helper()
+	skipFrames(t)
 	w := &appwindow.Window{Motion: motion.New(func() {})}
 	t.Cleanup(w.Motion.Close)
 	store := mockstore.New(time.Now(), 0)
@@ -62,7 +62,7 @@ func (h *appForum) frames(n int) {
 	l := localization.For("ru")
 	for range n {
 		gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(h.size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		if h.app.thread != nil {
 			h.app.layoutComments(gtx, l)
 		} else {
