@@ -996,7 +996,35 @@ func TestAnimationsShareTheFrameClock(t *testing.T) {
 				time.Sleep(200 * time.Microsecond)
 			}
 		}
+		// Each sticker wakes the window once, for its first picture: under
+		// load they may take more than the second to show one, and are
+		// waited for. The frame after the last is drawn, with its wake.
+		ready := func() bool {
+			for _, msg := range msgs {
+				e := m.entries[msg.Media.ID]
+				if e == nil {
+					return false
+				}
+				e.mu.Lock()
+				ok, err := e.frame != nil, e.err
+				e.mu.Unlock()
+				if err != nil {
+					t.Fatalf("%s: %v", msg.Media.ID, err)
+				}
+				if !ok {
+					return false
+				}
+			}
+			return true
+		}
 		run(time.Second, false)
+		for deadline := time.Now().Add(10 * time.Second); !ready(); {
+			if time.Now().After(deadline) {
+				t.Fatal("the stickers showed no first pictures")
+			}
+			run(100*time.Millisecond, false)
+		}
+		run(100*time.Millisecond, false)
 		before := wakes.Load()
 		run(2*time.Second, true)
 		return frames / 2, pictures / 2, wakes.Load() - before
