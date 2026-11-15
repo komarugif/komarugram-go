@@ -223,6 +223,17 @@ func (s *Store) refreshReference(ctx context.Context, m model.Message) error {
 	if !found && cache != nil {
 		_, _ = cache.Get(ctx, "ref/"+m.Media.ID, &ref)
 	}
+	if m.Key.MessageID == 0 && ref.StickerSet == 0 && !ref.SavedGIF {
+		// Media of no message: the picker's. A message with the same
+		// document keeps its reference under the same id, without what
+		// renews the picker's, which the item itself tells: its set, or
+		// the saved GIFs it, or the GIF it is the thumbnail of, is among.
+		if set := m.Media.StickerSet; set != nil && set.ID != 0 {
+			ref.StickerSet, ref.StickerSetHash = set.ID, set.AccessHash
+		} else if s.savedGIFMedia(m.Media.ID) {
+			ref.SavedGIF = true
+		}
+	}
 	if ref.WallpaperID != 0 {
 		wall, e := api.AccountGetWallPaper(ctx, &tg.InputWallPaper{ID: ref.WallpaperID, AccessHash: ref.WallpaperHash})
 		if e != nil {
