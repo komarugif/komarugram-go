@@ -259,14 +259,19 @@ func (p *chatInfo) layoutCover(gtx layout.Context, l localization.Catalog, anima
 	size := image.Pt(width, statusY+statusDims.Size.Y+gtx.Dp(16))
 	p.cover.nameBottom = statusY
 
+	// The background fades out under the first cards (profile_cover_edge.go).
+	// Without one of its own the cover is the info's color, with no edge.
 	if covered && shown > 0 {
 		opacity := paint.PushOpacity(gtx.Ops, shown)
-		p.layoutCoverBackground(gtx, size, avatarAt, avatar)
+		p.layoutCoverBackground(gtx, size, coverBackgroundHeight(gtx, size.Y), avatarAt, avatar)
 		opacity.Pop()
 	}
 	userpic := image.Rectangle{Min: avatarAt, Max: avatarAt.Add(image.Pt(avatar, avatar))}
 	if p.profile.Cover.Pattern != 0 {
 		p.layoutCoverPattern(gtx, userpic)
+	}
+	if covered && shown > 0 {
+		layoutCoverFade(gtx, width, size.Y, scheme(gtx).SurfaceContainerLow.AsNRGBA())
 	}
 	p.layoutCoverGifts(gtx, userpic, animate)
 	p.fades.primed = true
@@ -288,9 +293,12 @@ func centeredStatus(gtx layout.Context, text string, col token.MatColor) layout.
 	return label(gtx, text, token.TypestyleBodyMedium, col, 1)
 }
 
-// layoutCoverBackground fills size with the cover's background: solid, or
-// a radial gradient around the avatar, as Telegram Desktop's.
-func (p *chatInfo) layoutCoverBackground(gtx layout.Context, size, avatarAt image.Point, avatar int) {
+// layoutCoverBackground fills the cover of size with its background, down
+// to height: solid, or a radial gradient around the avatar, as Telegram
+// Desktop's, as wide as the cover is high.
+func (p *chatInfo) layoutCoverBackground(gtx layout.Context, size image.Point, height int, avatarAt image.Point, avatar int) {
+	radius := math.Max(float64(size.X)/2, float64(size.Y)) * 1.1 / 4
+	size.Y = height
 	c := p.profile.Cover
 	center, edge := uint32(0), uint32(0)
 	switch colors := p.coverColors(gtx); {
@@ -307,19 +315,18 @@ func (p *chatInfo) layoutCoverBackground(gtx layout.Context, size, avatarAt imag
 	// A quarter of the pixels is enough for a gradient, stretched smooth.
 	small := image.Pt(max(1, size.X/4), max(1, size.Y/4))
 	focus := image.Pt((avatarAt.X+avatar/2)/4, (avatarAt.Y+avatar/2)/4)
-	key := fmt.Sprintf("%x/%x/%v/%v", center, edge, small, focus)
+	key := fmt.Sprintf("%x/%x/%v/%v/%.1f", center, edge, small, focus, radius)
 	if p.cover.gradientKey != key {
 		p.cover.gradientKey = key
-		p.cover.gradient = coverGradient(small, focus, chattheme.RGB(center), chattheme.RGB(edge))
+		p.cover.gradient = coverGradient(small, focus, radius, chattheme.RGB(center), chattheme.RGB(edge))
 	}
 	widget.Image{Src: p.renderer.images.Op(p.cover.gradient), Fit: widget.Fill}.Layout(withSize(gtx, size))
 }
 
 // coverGradient is a radial gradient of size from center at focus to
-// edge, out to the farther side.
-func coverGradient(size, focus image.Point, center, edge color.NRGBA) image.Image {
+// edge at radius.
+func coverGradient(size, focus image.Point, radius float64, center, edge color.NRGBA) image.Image {
 	im := image.NewNRGBA(image.Rectangle{Max: size})
-	radius := math.Max(float64(size.X)/2, float64(size.Y)) * 1.1
 	for y := 0; y < size.Y; y++ {
 		for x := 0; x < size.X; x++ {
 			t := min(1, math.Hypot(float64(x-focus.X), float64(y-focus.Y))/radius)
