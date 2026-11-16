@@ -341,6 +341,9 @@
 "info.collectible_more" = "lng_collectible_learn_more";
 "info.collectible_title" = "lng_collectible_username_title";
 "info.description" = "lng_info_about_label";
+"info.qr" = "lng_group_invite_context_qr";
+"info.qr_copied" = "lng_group_invite_qr_copied";
+"info.qr_copy" = "lng_group_invite_context_copy";
 
 "links.channel_not_accessible" = "lng_channel_not_accessible";
 "links.group_not_accessible" = "lng_group_not_accessible";

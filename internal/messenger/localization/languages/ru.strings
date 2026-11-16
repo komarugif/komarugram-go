@@ -997,6 +997,10 @@
 "info.open_chat" = "Перейти в личный чат с пользователем";
 "info.open_chat_new" = "Вы ещё не переписывались";
 "info.phone" = "Телефон · нажмите, чтобы скопировать";
+"info.qr" = "Получить QR-код";
+"info.qr_background" = "Выберите фон";
+"info.qr_copied" = "QR-код скопирован в буфер обмена.";
+"info.qr_copy" = "Копировать";
 "info.registered_about" = "~ {date}";
 "info.registered_after" = "позже {date}";
 "info.registered_before" = "раньше {date}";

@@ -41,6 +41,7 @@ The Go modules linked into `messenger` and `kitchen`, as `go version -m` lists t
 | [OpenTelemetry Go](https://github.com/open-telemetry/opentelemetry-go) (`otel`, `otel/trace`) | Apache-2.0 |
 | `golang.org/x/crypto`, `exp`, `exp/shiny`, `image`, `net`, `sync`, `sys`, `text` | BSD-3-Clause |
 | [rsc.io/qr](https://github.com/rsc/qr) | BSD-3-Clause |
+| [Material Symbols](https://fonts.google.com/icons)' `qr_code`, drawn by `iconQRCode` (`internal/messenger/ui/icons.go`) | Apache-2.0 |
 | [Go fonts](https://go.dev/blog/go-fonts) (`gioui.org/font/gofont`) | BSD-3-Clause |
 
 ## Embedded and downloaded files

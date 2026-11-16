@@ -19,6 +19,7 @@ import (
 
 	"gio-mw/token"
 	"gio-mw/wdk"
+	"gio-mw/widget/button"
 	"gio-mw/widget/scroll"
 
 	"gioui.org/io/clipboard"
@@ -92,7 +93,9 @@ type chatInfo struct {
 	lookup                           model.MessageLookup
 	userID, registration, dataCenter settingsItem
 	themePage                        bool
-	themes                           *chatThemeController
+	// qr is the page of the chat's QR code, and the button that opens it.
+	qr     qrPage
+	themes *chatThemeController
 	// openChat, when set, goes to the chat shown, which is not open: the
 	// info of a group's member who has no chat with the account yet.
 	openChat func()
@@ -180,6 +183,7 @@ func newChatInfo(source model.ConversationStore, images *imageOps, invalidate fu
 	p.chips = map[string]*folderChip{}
 	p.plainNames = map[string]*widget.Clickable{}
 	p.musicResults = make(chan musicResult, 4)
+	p.qr.copy = button.Filled()
 	p.renderer = newChatPage(source, invalidate)
 	p.renderer.media.Close()
 	p.renderer.media = chatmedia.NewShared(source, invalidate)
@@ -200,7 +204,7 @@ func newChatInfo(source model.ConversationStore, images *imageOps, invalidate fu
 			p.renderer.clearSelection()
 			return true
 		}
-		if p.section == "" && !p.themePage {
+		if p.section == "" && !p.themePage && !p.qr.shown {
 			return false
 		}
 		p.goBack()
@@ -225,6 +229,7 @@ func (p *chatInfo) Open(c model.Chat) {
 	}
 	p.section = ""
 	p.themePage = false
+	p.qr.reset()
 	p.messages = nil
 	p.counts = nil
 	p.list = scroll.List{List: layout.List{Axis: layout.Vertical}}
@@ -293,6 +298,7 @@ func (p *chatInfo) Close() {
 	p.stop()
 	p.resetMessages()
 	p.visible = false
+	p.qr.reset()
 	p.modal.Hide()
 	p.renderer.media.Clear()
 	p.renderer.rows = map[model.MessageID]*messageRow{}
@@ -468,7 +474,7 @@ func (p *chatInfo) LayoutPage(gtx layout.Context, l localization.Catalog, animat
 	}
 	covered := p.update(gtx, l)
 	// Escape goes back from a section, as the dialog's does.
-	if !covered && (p.section != "" || p.themePage) {
+	if !covered && (p.section != "" || p.themePage || p.qr.shown) {
 		for {
 			ev, ok := gtx.Event(key.Filter{Name: key.NameEscape})
 			if !ok {
@@ -631,6 +637,7 @@ func (p *chatInfo) update(gtx layout.Context, l localization.Catalog) bool {
 		open()
 	}
 	p.updateArchive(gtx, l)
+	p.updateQR(gtx, l)
 	if p.themesButton.click.Clicked(gtx) {
 		p.OpenTheme()
 	}
@@ -648,7 +655,7 @@ func (p *chatInfo) layoutBody(gtx layout.Context, l localization.Catalog, animat
 	size := gtx.Constraints.Max
 	// The header has no color of its own: it is the body's.
 	fillRect(gtx, scheme(gtx).SurfaceContainerLow, size)
-	if p.section == "" && !p.themePage {
+	if p.section == "" && !p.themePage && !p.qr.shown {
 		// The info scrolls under the header, which shows the name
 		// only once the cover's has gone under it.
 		p.layoutInfo(gtx, l, animate && p.gift == nil)
@@ -663,6 +670,9 @@ func (p *chatInfo) layoutBody(gtx layout.Context, l localization.Catalog, animat
 			return p.inColumn(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutSectionHeader(gtx, l) })
 		}),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			if p.qr.shown {
+				return p.layoutQR(gtx, l)
+			}
 			if p.themePage && p.themes != nil {
 				return p.themes.LayoutChoices(gtx, l)
 			}
@@ -674,8 +684,8 @@ func (p *chatInfo) layoutBody(gtx layout.Context, l localization.Catalog, animat
 	)
 }
 
-// layoutSectionHeader is the header over a section or the theme's page,
-// or the selection's buttons in its place.
+// layoutSectionHeader is the header over a section, the theme's page or
+// the QR code's, or the selection's buttons in its place.
 func (p *chatInfo) layoutSectionHeader(gtx layout.Context, l localization.Catalog) layout.Dimensions {
 	title := p.sectionTitle(p.section, l)
 	if total, ok := p.counts[p.section]; ok {
@@ -683,6 +693,9 @@ func (p *chatInfo) layoutSectionHeader(gtx layout.Context, l localization.Catalo
 	}
 	if p.themePage {
 		title = l.T("chat_theme.title")
+	}
+	if p.qr.shown {
+		title = l.T("info.qr")
 	}
 	if p.selecting() && p.headerHeight > 0 {
 		// The selection's buttons, as over a chat, in the
@@ -730,7 +743,7 @@ func (p *chatInfo) layoutHeader(gtx layout.Context, l localization.Catalog, titl
 	return layout.UniformInset(12).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if p.section != "" || p.themePage {
+				if p.section != "" || p.themePage || p.qr.shown {
 					return navigationButton(gtx, &p.back, iconBack, l.T("settings.back"))
 				}
 				return layout.Dimensions{}
@@ -774,6 +787,7 @@ func (p *chatInfo) goBack() {
 	p.clearShared()
 	p.section = ""
 	p.themePage = false
+	p.qr.shown = false
 	p.problem = nil
 	p.list = scroll.List{List: layout.List{Axis: layout.Vertical}}
 	if p.counts == nil {

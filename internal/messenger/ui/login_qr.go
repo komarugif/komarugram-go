@@ -277,10 +277,15 @@ func rasterizeLogo(icon *oksvg.SvgIcon, px int) *image.RGBA {
 	return resample.Resize(src, px, px)
 }
 
-// drawQR fills the dark modules of code in c, px pixels each, from origin,
-// but those in hole, where the logo goes: one shape of the runs of them in
-// each row.
+// drawQR fills the dark modules of code in c: see qrShape.
 func drawQR(gtx layout.Context, code *qr.Code, origin image.Point, px int, hole image.Rectangle, c token.MatColor) {
+	paint.FillShape(gtx.Ops, c.AsNRGBA(), qrShape(gtx, code, origin, px, hole))
+}
+
+// qrShape is the dark modules of code, px pixels each, from origin, but
+// those in hole, where the logo goes: one shape of the runs of them in
+// each row.
+func qrShape(gtx layout.Context, code *qr.Code, origin image.Point, px int, hole image.Rectangle) clip.Op {
 	var path clip.Path
 	path.Begin(gtx.Ops)
 	rect := func(x0, y0, x1, y1 int) {
@@ -306,5 +311,5 @@ func drawQR(gtx layout.Context, code *qr.Code, origin image.Point, px int, hole 
 			rect(start*px, y*px, x*px, (y+1)*px)
 		}
 	}
-	paint.FillShape(gtx.Ops, c.AsNRGBA(), clip.Outline{Path: path.End()}.Op())
+	return clip.Outline{Path: path.End()}.Op()
 }

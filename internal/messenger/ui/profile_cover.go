@@ -621,8 +621,9 @@ const (
 // the header's corner, beside the name, where it stays; the header's
 // background and the name come in at the end of its way, once the cover's
 // name goes under the header. The ring in the corner opposite the close
-// button tells the info is loading, moving nothing when it goes; it gives
-// the corner up to the avatar.
+// button tells the info is loading, moving nothing when it goes; once it
+// has gone, the button of the chat's QR code is there, for a chat that has
+// one. Both give the corner up to the avatar.
 func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog, animate bool) {
 	sc := scheme(gtx)
 	width := gtx.Constraints.Max.X
@@ -646,6 +647,17 @@ func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog, 
 		opacity := paint.PushOpacity(gtx.Ops, 1-own)
 		offset(withSize(gtx, image.Pt(ringSize, ringSize)), image.Pt(pad+(slot-ringSize)/2, (header-ringSize)/2), func(gtx layout.Context) layout.Dimensions {
 			return p.loader.Layout(gtx, l)
+		})
+		opacity.Pop()
+	} else if own < 1 && p.qrLink() != "" && !p.editing() {
+		buttonGtx := gtx
+		if own > 0 {
+			// Fading out under the avatar, it takes no clicks.
+			buttonGtx = gtx.Disabled()
+		}
+		opacity := paint.PushOpacity(gtx.Ops, 1-own)
+		offset(buttonGtx, image.Pt(pad, (header-slot)/2), func(gtx layout.Context) layout.Dimensions {
+			return navigationButtonColor(gtx, &p.qr.open, iconQRCode, l.T("info.qr"), content)
 		})
 		opacity.Pop()
 	}

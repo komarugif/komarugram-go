@@ -944,6 +944,10 @@
 "info.open_chat" = "Go to private chat with user";
 "info.open_chat_new" = "You have no chat yet";
 "info.phone" = "Phone · click to copy";
+"info.qr" = "Get QR Code";
+"info.qr_background" = "Choose background";
+"info.qr_copied" = "QR Code copied to clipboard.";
+"info.qr_copy" = "Copy";
 "info.registered_about" = "~ {date}";
 "info.registered_after" = "after {date}";
 "info.registered_before" = "before {date}";
