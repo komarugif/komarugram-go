@@ -1206,6 +1206,8 @@
 "menu.forward_selected" = "Переслать выбранные";
 "menu.go_to_message" = "Перейти к сообщению";
 "menu.link_copied" = "Ссылка скопирована в буфер обмена.";
+"menu.music_removed" = "Аудио удалено из Вашего профиля.";
+"menu.music_saved" = "Аудио добавлено в Ваш профиль.";
 "menu.private_link" = "Эта ссылка будет работать только для участников чата.";
 "menu.reacted#few" = "{count} реакции";
 "menu.reacted#many" = "{count} реакций";
@@ -1217,6 +1219,7 @@
 "menu.save_album" = "Сохранить альбом";
 "menu.save_as" = "Сохранить как…";
 "menu.save_files" = "Файлы {ext}";
+"menu.save_music" = "Сохранить в профиль";
 "menu.save_to_pictures" = "Сохранить в изображения";
 "menu.saved" = "Сохранено: {path}";
 "menu.select" = "Выделить";
@@ -2021,6 +2024,8 @@
 "shared.photos" = "Фото";
 "shared.polls" = "Опросы";
 "shared.saved" = "Сохранённые сообщения";
+"shared.saved_music" = "Плейлист";
+"shared.saved_music_own" = "Ваш плейлист";
 "shared.select_cursor" = "Выборка вслед за курсором";
 "shared.select_range" = "Последовательная выборка";
 "shared.selection" = "Выборка";

@@ -81,6 +81,11 @@ func (s *Store) SharedCollection(ctx context.Context, chat int64, kind model.Sha
 		p.Messages, p.Total = stories, len(stories)
 		return p, nil
 	}
+	if kind == model.SharedSavedMusic {
+		p.Messages = s.playlist(chat)
+		p.Total = len(p.Messages)
+		return p, nil
+	}
 	if kind != model.SharedGifts {
 		return p, nil
 	}

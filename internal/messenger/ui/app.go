@@ -154,7 +154,10 @@ type App struct {
 	// of its files found to go to.
 	downloads        *downloadsPage
 	downloadMessages chan downloadMessage
-	thread           *commentsView
+	// playlists are the chats found of users whose playlist is to open:
+	// see openPlaylist.
+	playlists chan model.Chat
+	thread    *commentsView
 	// toast tells over the window what the chat list told, when no chat
 	// is open to tell it in: see relayListToast.
 	toast toast
@@ -710,6 +713,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.downloads.files = func() *attachmentFiles { return a.attachments }
 		a.downloads.media, a.downloads.images = chatmedia.New(source, w.Invalidate), &a.images
 		a.downloadMessages = make(chan downloadMessage, 1)
+		a.playlists = make(chan model.Chat, 1)
 		a.downloads.openMessage = a.openDownloaded
 		a.viewer.play = func(gtx layout.Context, m model.Message, start time.Duration, l localization.Catalog) {
 			a.history.playFrom(gtx, m, start, a.viewer.reportPlay, l)
@@ -841,6 +845,7 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 		a.openFromHere(chatPick{ID: m.Key.ChatID, Message: m.Key.MessageID})
 		a.window.Invalidate()
 	}
+	p.openPlaylist = a.openPlaylist
 	p.openPhoto = func(m model.Message) { a.viewer.Open(p.chat, m, p.viewerItems()) }
 	p.openVideo = func(m model.Message, at time.Duration) { a.viewer.OpenVideo(p.chat, m, p.viewerItems(), at) }
 	p.videoEngine = a.videoEngine
@@ -1151,6 +1156,13 @@ func (a *App) Update(gtx layout.Context) {
 	select {
 	case r := <-a.downloadMessages:
 		a.takeDownloadMessage(r)
+	default:
+	}
+	select {
+	case chat := <-a.playlists:
+		if a.info != nil {
+			a.openPlaylistOf(chat)
+		}
 	default:
 	}
 	a.updateReturn(gtx)
@@ -2099,4 +2111,64 @@ func (a *App) configureInfo(p *chatInfo, store model.Store) {
 	}
 	p.renderer.videoEngine = a.videoEngine
 	p.openAvatar = func(chat int64) { a.viewer.OpenProfile(chat) }
+}
+
+// openPlaylist opens the playlist of user's profile: the account's own on
+// its profile page, another's in the info, over what is open. The user's
+// chat is the list's, the info's shown last, or, for one of neither, as
+// someone with no dialog yet, asked for by its ID.
+func (a *App) openPlaylist(user int64) {
+	defer a.window.Invalidate()
+	if me := a.store.Me(); user == me.ID {
+		if a.profile.info == nil {
+			return
+		}
+		if a.section.kind != sectionProfile {
+			a.section = section{kind: sectionProfile}
+			a.profile.open(me)
+		}
+		showPlaylist(a.profile.info)
+		return
+	}
+	if a.info == nil {
+		return
+	}
+	chat, ok := chatByID(a.store.Chats(), user)
+	if !ok && a.info.chat.ID == user {
+		chat, ok = a.info.chat, true
+	}
+	if ok {
+		a.openPlaylistOf(chat)
+		return
+	}
+	results, invalidate, store := a.playlists, a.window.Invalidate, a.store
+	go func() {
+		defer crash.Recover("open playlist", nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		chat, err := findChat(ctx, store, user)
+		if err != nil {
+			return
+		}
+		select {
+		case results <- chat:
+			invalidate()
+		default:
+		}
+	}()
+}
+
+// openPlaylistOf shows the playlist of chat's profile in the info.
+func (a *App) openPlaylistOf(chat model.Chat) {
+	if !a.info.visible || a.info.chat.ID != chat.ID {
+		a.info.Open(chat)
+	}
+	showPlaylist(a.info)
+}
+
+// showPlaylist shows the playlist in info, as it is when it is shown already.
+func showPlaylist(info *chatInfo) {
+	if info.section != model.SharedSavedMusic {
+		info.selectSection(model.SharedSavedMusic)
+	}
 }

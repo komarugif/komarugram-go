@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"time"
 
@@ -182,12 +183,16 @@ func (p *chatPage) openForwardParts(gtx layout.Context, parts []model.Message, s
 	if f.busy {
 		return
 	}
-	f.ids = f.ids[:0]
+	f.ids, f.songs = f.ids[:0], nil
 	for _, m := range parts {
-		f.ids = append(f.ids, m.Key.MessageID)
+		if m.Playlist {
+			f.songs = append(f.songs, m)
+		} else {
+			f.ids = append(f.ids, m.Key.MessageID)
+		}
 	}
 	f.selection = selection
-	if len(f.ids) == 0 {
+	if len(f.ids) == 0 && len(f.songs) == 0 {
 		return
 	}
 	f.from = p.chat
@@ -217,15 +222,31 @@ func (p *chatPage) updateForward(l localization.Catalog) {
 
 func (p *chatPage) forward(target model.Chat) {
 	f := &p.forwarding
+	ctx := context.Background()
+	if p.composer != nil {
+		ctx = p.composer.ctx
+	}
+	if songs := slices.Clone(f.songs); len(songs) > 0 {
+		composer, ok := p.source.(model.ComposerStore)
+		if !ok {
+			return
+		}
+		f.send(ctx, target, func(ctx context.Context, to int64) error {
+			for _, song := range songs {
+				item := &model.PickerItem{ID: song.Media.ID, Media: song}
+				if err := composer.Send(ctx, to, model.OutgoingMessage{RandomID: randomMessageID(), Item: item}); err != nil {
+					return err
+				}
+			}
+			return nil
+		}, p.invalidate)
+		return
+	}
 	source, ok := p.source.(model.MessageForwarder)
 	if !ok {
 		return
 	}
 	from, ids := f.from, append([]model.MessageID(nil), f.ids...)
-	ctx := context.Background()
-	if p.composer != nil {
-		ctx = p.composer.ctx
-	}
 	f.send(ctx, target, func(ctx context.Context, to int64) error {
 		return source.ForwardMessages(ctx, from, ids, to)
 	}, p.invalidate)

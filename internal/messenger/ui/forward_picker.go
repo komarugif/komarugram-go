@@ -38,6 +38,10 @@ type forwardPicker struct {
 	from      int64
 	ids       []model.MessageID
 	selection bool
+	// songs, in place of ids, are songs of a profile's playlist: no
+	// messages, they are sent anew, as Telegram Desktop sends a saved
+	// music item (SendExistingDocument).
+	songs []model.Message
 }
 
 // open opens the picker, its search empty; the search takes the keyboard.

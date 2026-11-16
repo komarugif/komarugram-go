@@ -27,6 +27,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
+	"gioui.org/op/paint"
 	"gioui.org/widget"
 	"golang.org/x/exp/shiny/materialdesign/icons"
 )
@@ -39,7 +40,7 @@ type sharedResult struct {
 	err        error
 }
 type chatInfo struct {
-	cardHeights       [7]heightTransition
+	cardHeights       [8]heightTransition
 	loader            loadingIndicator
 	giftGeneration    uint64
 	drawAvatar        avatarLayout
@@ -114,9 +115,17 @@ type chatInfo struct {
 	motion        coverMotion
 	badges        badgesLayout
 	channel       settingsItem
-	chips         map[string]*folderChip
-	plainNames    map[string]*widget.Clickable
-	collectible   *collectibleDialog
+	// music is the card of the profile's song, which opens the playlist;
+	// musicCover keeps its cover. musicResults are what the changes of the
+	// account's playlist brought, and songs the drag that reorders it.
+	music        settingsItem
+	musicCover   audioRow
+	musicResults chan musicResult
+	songs        reorderRows
+	songHeight   int
+	chips        map[string]*folderChip
+	plainNames   map[string]*widget.Clickable
+	collectible  *collectibleDialog
 	// collectibleHint points to a lone collectible username.
 	collectibleHint collectibleHint
 	// own is the account's own profile, which shows the info as a page
@@ -170,6 +179,7 @@ func newChatInfo(source model.ConversationStore, images *imageOps, invalidate fu
 	p.profiles, _ = source.(model.PeerProfileSource)
 	p.chips = map[string]*folderChip{}
 	p.plainNames = map[string]*widget.Clickable{}
+	p.musicResults = make(chan musicResult, 4)
 	p.renderer = newChatPage(source, invalidate)
 	p.renderer.media.Close()
 	p.renderer.media = chatmedia.NewShared(source, invalidate)
@@ -181,7 +191,7 @@ func newChatInfo(source model.ConversationStore, images *imageOps, invalidate fu
 	p.gift = nil
 	p.cells = map[model.MessageKey]*sharedCell{}
 	p.renderer.deleted = p.dropDeleted
-	for _, k := range append(append([]model.SharedKind{}, model.SharedKinds...), model.SharedStories, model.SharedStoryArchive, model.SharedGifts, model.SharedGroups) {
+	for _, k := range append(append([]model.SharedKind{}, model.SharedKinds...), model.SharedStories, model.SharedStoryArchive, model.SharedSavedMusic, model.SharedGifts, model.SharedGroups) {
 		p.sections[k] = new(settingsItem)
 	}
 	// Escape goes back from a section before it closes the dialog.
@@ -515,6 +525,7 @@ func (p *chatInfo) update(gtx layout.Context, l localization.Catalog) bool {
 	p.drain()
 	p.drainProfile()
 	p.drainEmojiSet()
+	p.drainMusic()
 	if p.problem != nil && p.problem != p.told {
 		p.modal.Toast(mediaErrorText(p.problem))
 	}
@@ -596,6 +607,10 @@ func (p *chatInfo) update(gtx layout.Context, l localization.Catalog) bool {
 			p.modal.Toast(l.T("info.copied"))
 		}
 	}
+	if p.profile.Music != nil && p.collection != nil && p.music.click.Clicked(gtx) {
+		// The song opens the playlist it is the first of.
+		p.selectSection(model.SharedSavedMusic)
+	}
 	if ch := p.profile.Channel; ch != nil && p.channel.click.Clicked(gtx) && p.openChannel != nil {
 		open := p.openChannel
 		p.modal.Close()
@@ -662,7 +677,7 @@ func (p *chatInfo) layoutBody(gtx layout.Context, l localization.Catalog, animat
 // layoutSectionHeader is the header over a section or the theme's page,
 // or the selection's buttons in its place.
 func (p *chatInfo) layoutSectionHeader(gtx layout.Context, l localization.Catalog) layout.Dimensions {
-	title := l.T("shared." + string(p.section))
+	title := p.sectionTitle(p.section, l)
 	if total, ok := p.counts[p.section]; ok {
 		title += " · " + groupDigits(total)
 	}
@@ -809,6 +824,7 @@ func (p *chatInfo) layoutCards(gtx layout.Context, l localization.Catalog, anima
 					return p.own.form.Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.own.layoutForm(gtx, l) }, defaultCardPadding)
 				})
 			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutMusic(gtx, l) }),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutChannel(gtx, l, animate) }),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				if p.editing() {
@@ -933,6 +949,66 @@ func (p *chatInfo) layoutCards(gtx layout.Context, l localization.Catalog, anima
 	})
 }
 
+// layoutMusic is the card of the song a user put on the profile, over
+// their channel's, as Telegram Desktop has it: a click opens their
+// playlist, as the cards of the sections open theirs.
+func (p *chatInfo) layoutMusic(gtx layout.Context, l localization.Catalog) layout.Dimensions {
+	m := p.profile.Music
+	if m == nil || m.Media == nil {
+		return layout.Dimensions{}
+	}
+	title, subtitle := m.Media.Title, m.Media.Performer
+	if title == "" {
+		title = m.Media.FileName
+	}
+	if title == "" {
+		title = l.T("history.file")
+	}
+	if subtitle == "" {
+		subtitle = p.sectionTitle(model.SharedSavedMusic, l)
+	}
+	return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return p.cardHeights[7].Card(gtx, func(gtx layout.Context) layout.Dimensions {
+			size := gtx.Dp(cardAvatarSize)
+			return p.music.layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return p.layoutSongCover(gtx, *m, image.Pt(size, size))
+			}, size, title, subtitle)
+		}, 6)
+	})
+}
+
+// cardAvatarSize is the side of the picture at the start of a card of
+// the info: the avatar of a user's channel, the cover of their song.
+const cardAvatarSize = 40
+
+// layoutSongCover draws the cover of song m in a circle of size, as the
+// channel's avatar beside it is drawn; the note on the primary color while
+// it has none, or until it loads.
+func (p *chatInfo) layoutSongCover(gtx layout.Context, m model.Message, size image.Point) layout.Dimensions {
+	cover := p.renderer.songCover(&p.musicCover, m, size)
+	defer clip.Ellipse{Max: size}.Push(gtx.Ops).Pop()
+	gtx.Constraints = layout.Exact(size)
+	if cover != nil {
+		return widget.Image{Src: p.renderer.images.Op(cover), Fit: widget.Cover, Position: layout.Center}.Layout(gtx)
+	}
+	sc := scheme(gtx)
+	paint.Fill(gtx.Ops, sc.PrimaryContainer.Color.AsNRGBA())
+	icon := gtx.Dp(24)
+	offset(gtx, size.Sub(image.Pt(icon, icon)).Div(2), func(gtx layout.Context) layout.Dimensions {
+		return exact(gtx, image.Pt(icon, icon), func(gtx layout.Context) layout.Dimensions { return iconMusic(gtx, sc.PrimaryContainer.OnColor) })
+	})
+	return layout.Dimensions{Size: size}
+}
+
+// sectionTitle names the section of kind: the account's own playlist is
+// "Your playlist".
+func (p *chatInfo) sectionTitle(kind model.SharedKind, l localization.Catalog) string {
+	if kind == model.SharedSavedMusic && p.own != nil {
+		return l.T("shared.saved_music_own")
+	}
+	return l.T("shared." + string(kind))
+}
+
 // layoutChannel is the card of a user's channel, as the cards of the
 // sections: its avatar, its name, and its subscribers with its last post.
 func (p *chatInfo) layoutChannel(gtx layout.Context, l localization.Catalog, animate bool) layout.Dimensions {
@@ -945,12 +1021,12 @@ func (p *chatInfo) layoutChannel(gtx layout.Context, l localization.Catalog, ani
 		media: p.renderer.media, images: p.renderer.images, animate: animate}
 	return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return p.cardHeights[5].Card(gtx, func(gtx layout.Context) layout.Dimensions {
-			size := gtx.Dp(40)
+			size := gtx.Dp(cardAvatarSize)
 			return p.channel.layoutWith(gtx, func(gtx layout.Context) layout.Dimensions {
 				if p.drawAvatar == nil {
 					return layout.Dimensions{Size: gtx.Constraints.Max}
 				}
-				return p.drawAvatar(gtx, ch.Chat.ID, ch.Chat.Kind, ch.Chat.Title, 40)
+				return p.drawAvatar(gtx, ch.Chat.ID, ch.Chat.Kind, ch.Chat.Title, cardAvatarSize)
 			}, size, title, subtitle.Layout)
 		}, 6)
 	})
@@ -1139,6 +1215,9 @@ func (p *chatInfo) layoutMedia(gtx layout.Context, l localization.Catalog, anima
 	if p.section == model.SharedGifts {
 		return p.giftsGrid(gtx, l, animate)
 	}
+	if p.ownPlaylist() {
+		return p.layoutOwnPlaylist(gtx, l, animate)
+	}
 	if grid {
 		// The grid's sides are inside the list, whose scrollbar is at the edge.
 		margin := p.margin
@@ -1186,7 +1265,9 @@ func (p *chatInfo) layoutMediaRow(gtx layout.Context, l localization.Catalog, an
 		if p.section == model.SharedLinks {
 			dims = p.linkRow(gtx, m, l)
 		} else {
-			dims = p.renderer.row(gtx, m, i == 0 || !sameMessageDay(p.messages[i-1], m), 0, l, animate)
+			// A playlist's songs have no dates to tell.
+			date := p.section != model.SharedSavedMusic && (i == 0 || !sameMessageDay(p.messages[i-1], m))
+			dims = p.renderer.row(gtx, m, date, 0, l, animate)
 		}
 		p.cellInput(gtx, m, dims.Size)
 		p.placeRow(i, dims.Size.Y, sharedTile{index: i})
@@ -1255,7 +1336,7 @@ func (p *chatInfo) layoutMediaRow(gtx layout.Context, l localization.Catalog, an
 // collections, paged by a cursor of their own, rather than of messages.
 func collectionKind(kind model.SharedKind) bool {
 	switch kind {
-	case model.SharedStories, model.SharedStoryArchive, model.SharedGifts, model.SharedGroups:
+	case model.SharedStories, model.SharedStoryArchive, model.SharedSavedMusic, model.SharedGifts, model.SharedGroups:
 		return true
 	}
 	return false

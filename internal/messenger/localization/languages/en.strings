@@ -1149,6 +1149,8 @@
 "menu.forward_selected" = "Forward Selected";
 "menu.go_to_message" = "Go To Message";
 "menu.link_copied" = "Link copied to clipboard.";
+"menu.music_removed" = "Audio removed from your Profile.";
+"menu.music_saved" = "Audio added to your Profile.";
 "menu.private_link" = "This link will only work for members of this chat.";
 "menu.reacted#one" = "{count} Reacted";
 "menu.reacted#other" = "{count} Reacted";
@@ -1159,6 +1161,7 @@
 "menu.save_album" = "Save Album";
 "menu.save_as" = "Save As...";
 "menu.save_files" = "{ext} files";
+"menu.save_music" = "Save to Profile";
 "menu.save_to_pictures" = "Save to Pictures";
 "menu.saved" = "Saved: {path}";
 "menu.select" = "Select";
@@ -1929,6 +1932,8 @@
 "shared.photos" = "Photos";
 "shared.polls" = "Polls";
 "shared.saved" = "Saved messages";
+"shared.saved_music" = "Playlist";
+"shared.saved_music_own" = "Your playlist";
 "shared.select_cursor" = "Select after the Cursor";
 "shared.select_range" = "Select in Order";
 "shared.selection" = "Selection";

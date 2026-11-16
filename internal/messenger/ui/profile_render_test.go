@@ -21,6 +21,8 @@ import (
 	"gioui.org/gpu/headless"
 	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
 	"gioui.org/unit"
 )
 
@@ -58,17 +60,21 @@ func TestRenderProfiles(t *testing.T) {
 		}
 	}
 	// The account's own, as its page: as it is, in a dark theme, covered by
-	// visual privacy, and being edited, in a window as wide as the page
-	// right of the chat list.
+	// visual privacy, being edited, and its playlist, in a window as wide as
+	// the page right of the chat list.
 	for _, own := range []struct {
 		name                   string
 		dark, private, editing bool
-	}{{"own", false, false, false}, {"own-dark", true, false, false}, {"own-private", false, true, false}, {"own-edit", false, false, true}} {
-		renderOwnProfile(t, filepath.Join(dir, "profile-"+own.name+".png"), own.dark, own.private, own.editing)
+		section                model.SharedKind
+	}{
+		{"own", false, false, false, ""}, {"own-dark", true, false, false, ""}, {"own-private", false, true, false, ""},
+		{"own-edit", false, false, true, ""}, {"own-playlist", false, false, false, model.SharedSavedMusic},
+	} {
+		renderOwnProfile(t, filepath.Join(dir, "profile-"+own.name+".png"), own.dark, own.private, own.editing, own.section)
 	}
 }
 
-func renderOwnProfile(t *testing.T, path string, dark, private, editing bool) {
+func renderOwnProfile(t *testing.T, path string, dark, private, editing bool, section model.SharedKind) {
 	t.Helper()
 	store := mockstore.New(time.Now(), 0)
 	p := newOwnProfile(t, store, func() {})
@@ -79,6 +85,10 @@ func renderOwnProfile(t *testing.T, path string, dark, private, editing bool) {
 	for p.info.profileResult != nil && time.Now().Before(until) {
 		p.info.drainProfile()
 		time.Sleep(time.Millisecond)
+	}
+	if section != "" {
+		p.info.selectSection(section)
+		awaitShared(t, p.info)
 	}
 	if editing {
 		p.editing = true
@@ -100,6 +110,12 @@ func renderProfile(t *testing.T, path string, chat model.Chat, l localization.Ca
 	var images imageOps
 	p := newChatInfo(store, &images, func() {})
 	defer p.Destroy()
+	// Avatars are plain circles, to compare the pictures of the cards with.
+	p.drawAvatar = func(gtx layout.Context, _ int64, _ model.ChatKind, _ string, size unit.Dp) layout.Dimensions {
+		side := image.Pt(gtx.Dp(size), gtx.Dp(size))
+		paint.FillShape(gtx.Ops, scheme(gtx).Tertiary.Color.AsNRGBA(), clip.Ellipse{Max: side}.Op(gtx.Ops))
+		return layout.Dimensions{Size: side}
+	}
 	p.Open(chat)
 	awaitShared(t, p)
 	until := time.Now().Add(3 * time.Second)
@@ -140,6 +156,8 @@ func renderInfoFrames(t *testing.T, path string, size image.Point, dark bool, im
 		draw(gtx)
 		images.EndFrame()
 		now = now.Add(50 * time.Millisecond)
+		// What loads in the background, as a song's cover, comes.
+		time.Sleep(10 * time.Millisecond)
 	}
 	if err := win.Frame(ops); err != nil {
 		t.Fatal(err)

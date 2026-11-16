@@ -392,6 +392,8 @@
 "menu.forward_selected" = "lng_context_forward_selected";
 "menu.go_to_message" = "lng_context_to_msg";
 "menu.link_copied" = "lng_channel_public_link_copied";
+"menu.music_removed" = "lng_saved_music_removed";
+"menu.music_saved" = "lng_saved_music_added";
 "menu.private_link" = "lng_context_about_private_link";
 "menu.reacted" = "lng_context_seen_reacted";
 "menu.reply" = "lng_context_reply_msg";
@@ -716,6 +718,8 @@
 "shared.photos" = "lng_media_type_photos";
 "shared.polls" = "lng_media_type_polls";
 "shared.saved" = "lng_saved_messages";
+"shared.saved_music" = "lng_media_saved_music_title";
+"shared.saved_music_own" = "lng_media_saved_music_your";
 "shared.stories" = "lng_media_type_posts";
 "shared.story_archive" = "lng_stories_archive_title";
 "shared.videos" = "lng_media_type_videos";

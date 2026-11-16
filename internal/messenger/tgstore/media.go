@@ -280,6 +280,9 @@ func (s *Store) refreshReference(ctx context.Context, m model.Message) error {
 		}
 		return nil
 	}
+	if ref.SavedMusicUser != 0 {
+		return s.refreshSavedMusic(ctx, api, ref)
+	}
 	if ref.Gift {
 		chat := ref.GiftChat
 		if chat == 0 {

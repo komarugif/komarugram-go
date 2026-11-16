@@ -117,6 +117,12 @@ func (s *Store) fetchProfile(ctx context.Context, chat int64) (model.PeerProfile
 		}
 		channelID, channelMsg = full.FullUser.PersonalChannelID, full.FullUser.PersonalChannelMessage
 		out.About = full.FullUser.About
+		if doc, ok := full.FullUser.GetSavedMusic(); ok {
+			// The first of the playlist, under the key it has there.
+			if m, e := s.savedMusicMessage(ctx, peer, doc, 0); e == nil && m.Kind == model.MessageMusic {
+				out.Music = &m
+			}
+		}
 	case "channel":
 		full, e := api.ChannelsGetFullChannel(ctx, &tg.InputChannel{ChannelID: peer.ID, AccessHash: peer.Hash})
 		if e != nil {
