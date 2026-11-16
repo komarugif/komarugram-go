@@ -9,12 +9,14 @@ import (
 	"image"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"komarugram/internal/messenger/localization"
+	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 
 	"gio-mw/defaults/schemes"
@@ -606,4 +608,47 @@ func TestStickerWaitsForConfirmation(t *testing.T) {
 	}
 	c.chooseIn(gtx, model.PickerGIF, model.PickerItem{ID: "gif/1"})
 	wait(2)
+}
+
+// A song in a chat goes on the account's profile from its menu, first on
+// its playlist, as Telegram Desktop's Save to... Profile puts it; one
+// there already, and a voice message, have no such item.
+func TestMessageMenuSavesMusicToProfile(t *testing.T) {
+	store := mockstore.New(time.Now(), 0)
+	p := newChatPage(store, func() {})
+	t.Cleanup(p.Close)
+	var song, voice model.Message
+	for _, c := range store.Chats() {
+		for _, m := range store.History(c.ID).Messages {
+			switch {
+			case m.Kind == model.MessageMusic && song.Media == nil:
+				song = m
+			case m.Kind == model.MessageVoice && voice.Media == nil:
+				voice = m
+			}
+		}
+	}
+	if song.Media == nil || voice.Media == nil {
+		t.Fatal("the demo has no song or no voice message")
+	}
+	p.chat = song.Key.ChatID
+	offered := func(m model.Message) bool { return slices.Contains(p.menuActions(m), actionSaveMusic) }
+	if !offered(song) || offered(voice) {
+		t.Fatalf("offered for the song %v, for the voice message %v", offered(song), offered(voice))
+	}
+	l := localization.For("en")
+	p.menuDo(layout.Context{}, actionSaveMusic, song, l)
+	waitAudio(t, "the song was not saved", func() bool { return store.SavedMusic(song) })
+	waitAudio(t, "the save was not told", func() bool {
+		p.errorMu.Lock()
+		defer p.errorMu.Unlock()
+		return p.notice == l.T("menu.music_saved")
+	})
+	if offered(song) {
+		t.Fatal("a song on the profile is offered again")
+	}
+	playlist, err := store.SharedCollection(context.Background(), store.Me().ID, model.SharedSavedMusic, "", 10)
+	if err != nil || len(playlist.Messages) == 0 || playlist.Messages[0].Media.Title != song.Media.Title {
+		t.Fatalf("the playlist %v, %v", playlist.Messages, err)
+	}
 }

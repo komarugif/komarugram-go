@@ -54,10 +54,11 @@ func (a *App) badgeClickable(key badgeKey) *widget.Clickable {
 }
 
 // peerMarks are the marks of the forks of Telegram clients for the peer b
-// belongs to, in the order they are drawn: the Komaru faces and the emoji
-// status KomaruGram gives, then the arrow of exteraGram and AyuGram, or the
-// custom emoji it gives. A click on one tells what it means through tell,
-// nil for the chat list's toast.
+// belongs to, drawn after Telegram's own (the check and the Premium
+// status), in this order: the Komaru faces and the emoji status KomaruGram
+// gives, then the arrow of exteraGram and AyuGram, or the custom emoji it
+// gives. A click on one tells what it means through tell, nil for the chat
+// list's toast.
 func (a *App) peerMarks(b model.Badges, name string, size unit.Dp, tell func(text string)) []layout.Widget {
 	if a.peerBadges == nil {
 		return nil

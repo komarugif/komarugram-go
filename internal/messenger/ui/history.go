@@ -438,7 +438,16 @@ type chatPage struct {
 	// openChat opens a chat, at a message unless it is 0.
 	openChat  func(model.Chat, model.MessageID)
 	openAudio func(model.Message)
-	tgLinks   tgLinks
+	// openPlaylist opens the playlist of user's profile, where a song of
+	// it that plays is: the bar's click on one.
+	openPlaylist func(user int64)
+	// songHandle, when set, draws at the end of a song's bubble what the
+	// page has there, as the account's playlist the handle that drags it;
+	// lifted is the message a drag holds, whose bubble is of the color of
+	// what is taken.
+	songHandle func(layout.Context, model.Message) layout.Dimensions
+	lifted     model.MessageKey
+	tgLinks    tgLinks
 	// openComments shows the comments to a channel post; nil hides the
 	// comments bar. thread is set for the page that shows comments.
 	openComments func(model.Message)

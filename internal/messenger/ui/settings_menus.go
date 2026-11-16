@@ -7,17 +7,12 @@ import (
 	"fmt"
 	"image"
 	"komarugram/internal/messenger/shortcuts"
-	"math"
 	"runtime"
 	"slices"
 
 	"gio-mw/token"
 	"gio-mw/wdk"
-	"gioui.org/io/event"
-	"gioui.org/io/pointer"
 	"gioui.org/layout"
-	"gioui.org/op"
-	"gioui.org/op/clip"
 	"golang.org/x/exp/shiny/materialdesign/icons"
 
 	"komarugram/internal/messenger/localization"
@@ -41,15 +36,9 @@ type menuSettings struct {
 	toast   *toast
 }
 type menuSettingsCard struct {
-	reset        surface
-	rows         map[string]*surface
-	drag         byte
-	dragging     string
-	pointer      pointer.ID
-	order        []string
-	startY       int
-	grabY, dragY float32
-	positions    map[string]*menuRowMotion
+	reset   surface
+	rows    map[string]*surface
+	reorder reorderRows
 }
 
 func newMenuSettings(get menuPreferences, set func(preferences.Menus) error, catalog func(localization.Catalog) []menuCatalog, t *toast) *menuSettings {
@@ -58,7 +47,7 @@ func newMenuSettings(get menuPreferences, set func(preferences.Menus) error, cat
 func (s *menuSettings) state(id string) *menuSettingsCard {
 	c := s.cards[id]
 	if c == nil {
-		c = &menuSettingsCard{rows: map[string]*surface{}, positions: map[string]*menuRowMotion{}}
+		c = &menuSettingsCard{rows: map[string]*surface{}}
 		s.cards[id] = c
 	}
 	return c
@@ -90,14 +79,9 @@ func (s *menuSettings) Update(gtx layout.Context, l localization.Catalog) {
 		c := s.state(catalog.id)
 		value := s.get.layout(catalog.id)
 		ids := value.Arrange(catalogIDs(catalog), true)
-		if c.dragging != "" && !slices.Contains(ids, c.dragging) {
-			c.dragging = ""
-			c.order = nil
-		}
 		if c.reset.Clicked(gtx) {
 			s.save(catalog.id, preferences.MenuLayout{})
-			c.dragging = ""
-			c.order = nil
+			c.reorder.cancel()
 			continue
 		}
 		for _, id := range ids {
@@ -112,60 +96,8 @@ func (s *menuSettings) Update(gtx layout.Context, l localization.Catalog) {
 				s.save(catalog.id, value)
 			}
 		}
-		for {
-			ev, ok := gtx.Event(pointer.Filter{Target: &c.drag, Kinds: pointer.Press | pointer.Drag | pointer.Release | pointer.Cancel})
-			if !ok {
-				break
-			}
-			e, ok := ev.(pointer.Event)
-			if !ok {
-				continue
-			}
-			height := float32(gtx.Dp(menuSettingsRowHeight))
-			localY := e.Position.Y - float32(c.startY)
-			index := int(localY / height)
-			switch e.Kind {
-			case pointer.Press:
-				if (e.Source != pointer.Mouse || e.Buttons == pointer.ButtonPrimary) && index >= 0 && index < len(ids) {
-					// Rows may still be settling after the previous drop. Hit the
-					// visible row rather than interpreting its old slot as another item.
-					distance := float32(math.MaxFloat32)
-					for i, id := range ids {
-						if row := c.positions[id]; row != nil {
-							d := float32(math.Abs(float64(localY - row.value - height/2)))
-							if d < distance {
-								index = i
-								distance = d
-							}
-						}
-					}
-					c.dragging = ids[index]
-					c.pointer = e.PointerID
-					c.order = slices.Clone(ids)
-					c.dragY = float32(index) * height
-					if row := c.positions[c.dragging]; row != nil {
-						c.dragY = row.value
-					}
-					c.grabY = localY - c.dragY
-					gtx.Execute(pointer.GrabCmd{Tag: &c.drag, ID: e.PointerID})
-				}
-			case pointer.Drag:
-				if c.dragging != "" && e.PointerID == c.pointer {
-					c.dragY = max(0, min(localY-c.grabY, float32(len(c.order)-1)*height))
-					c.order = moveMenuItem(c.order, c.dragging, int((c.dragY+height/2)/height))
-					gtx.Execute(op.InvalidateCmd{})
-				}
-			case pointer.Release:
-				if c.dragging != "" && e.PointerID == c.pointer {
-					s.save(catalog.id, value.WithOrder(c.order))
-					c.dragging = ""
-					c.order = nil
-					gtx.Execute(op.InvalidateCmd{})
-				}
-			case pointer.Cancel:
-				c.dragging = ""
-				c.order = nil
-			}
+		if order, ok := c.reorder.update(gtx, ids, gtx.Dp(menuSettingsRowHeight)); ok {
+			s.save(catalog.id, value.WithOrder(order))
 		}
 	}
 }
@@ -218,10 +150,7 @@ func (s *menuSettings) layoutCard(gtx layout.Context, catalog menuCatalog, l loc
 	c := s.state(catalog.id)
 	sc := scheme(gtx)
 	value := s.get.layout(catalog.id)
-	ids := value.Arrange(catalogIDs(catalog), true)
-	if c.dragging != "" {
-		ids = c.order
-	}
+	ids := c.reorder.shown(value.Arrange(catalogIDs(catalog), true))
 	byID := map[string]menuChoice{}
 	for _, v := range catalog.items {
 		byID[v.id] = v
@@ -232,42 +161,25 @@ func (s *menuSettings) layoutCard(gtx layout.Context, catalog menuCatalog, l loc
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return textButton(gtx, &c.reset, l.T("menus.reset")) }),
 	)
-	c.startY = header.Size.Y + gtx.Dp(8)
+	c.reorder.top = header.Size.Y + gtx.Dp(8)
 	width := gtx.Constraints.Max.X
 	height := gtx.Dp(menuSettingsRowHeight)
-	drawIDs := slices.Clone(ids)
-	if c.dragging != "" {
-		drawIDs = slices.DeleteFunc(drawIDs, func(id string) bool { return id == c.dragging })
-		drawIDs = append(drawIDs, c.dragging)
-	}
-	for _, id := range drawIDs {
+	for _, id := range c.reorder.drawOrder(ids) {
 		i := slices.Index(ids, id)
 		choice, ok := byID[id]
 		if !ok {
 			continue
 		}
-		motion := c.positions[id]
-		if motion == nil {
-			motion = new(menuRowMotion)
-			c.positions[id] = motion
-		}
-		target := float32(i * height)
-		if c.dragging == id {
-			target = c.dragY
-		}
-		y := c.startY + int(math.Round(float64(motion.Position(gtx, target, c.dragging == id))))
+		y := c.reorder.top + c.reorder.rowY(gtx, id, i, height)
 		hidden := slices.Contains(value.Hidden, id)
-		if c.dragging == id {
+		if c.reorder.dragging == id {
 			offset(gtx, image.Pt(0, y), func(gtx layout.Context) layout.Dimensions {
 				fillRounded(gtx, sc.SecondaryContainer.Color, image.Pt(width, height), gtx.Dp(8))
 				return layout.Dimensions{}
 			})
 		}
 		handle := image.Rect(0, y, gtx.Dp(40), y+height)
-		area := clip.Rect(handle).Push(gtx.Ops)
-		pointer.CursorGrab.Add(gtx.Ops)
-		event.Op(gtx.Ops, &c.drag)
-		area.Pop()
+		c.reorder.handle(gtx, handle)
 		inRect(gtx, handle, func(gtx layout.Context) layout.Dimensions {
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return exact(gtx, image.Pt(gtx.Dp(20), gtx.Dp(20)), func(gtx layout.Context) layout.Dimensions { return iconMenuDrag(gtx, sc.SurfaceVariant.OnColor) })
@@ -313,14 +225,13 @@ func (s *menuSettings) layoutCard(gtx layout.Context, catalog menuCatalog, l loc
 			})
 		})
 	}
-	return layout.Dimensions{Size: image.Pt(width, c.startY+len(ids)*height)}
+	return layout.Dimensions{Size: image.Pt(width, c.reorder.top+len(ids)*height)}
 }
 
 // CancelDrag discards a preview when navigating away from the section.
 func (s *menuSettings) CancelDrag() {
 	for _, c := range s.cards {
-		c.dragging = ""
-		c.order = nil
+		c.reorder.cancel()
 	}
 }
 

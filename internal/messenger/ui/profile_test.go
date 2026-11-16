@@ -4,6 +4,7 @@ package ui
 
 import (
 	"errors"
+	"image"
 	"strings"
 	"testing"
 	"time"
@@ -17,23 +18,41 @@ import (
 	"komarugram/internal/messenger/model"
 )
 
+// newOwnProfile is the account's profile page on store as the client makes
+// it: the info of others' profiles, attached, drawing avatars as squares.
+func newOwnProfile(t *testing.T, store *mockstore.Store, invalidate func()) *profilePage {
+	t.Helper()
+	p := newProfilePage(store)
+	p.premium = store
+	info := newChatInfo(store, new(imageOps), invalidate)
+	info.drawAvatar = func(gtx layout.Context, _ int64, _ model.ChatKind, _ string, size unit.Dp) layout.Dimensions {
+		return layout.Dimensions{Size: image.Pt(gtx.Dp(size), gtx.Dp(size))}
+	}
+	p.attach(info)
+	t.Cleanup(info.Destroy)
+	return p
+}
+
 // editProfile opens the form, types into it with the keyboard and saves it
 // with Enter from the last field.
 func editProfile(t *testing.T, username string) (*profilePage, *mockstore.Store) {
 	t.Helper()
 	store := mockstore.New(time.Now(), 0)
-	p := newProfilePage(store)
 	changed := make(chan struct{}, 1)
+	p := newOwnProfile(t, store, func() {})
 	focusBio := false
 	h := &focusHarness{draw: func(gtx layout.Context) {
 		if focusBio {
 			p.bio.Focus(gtx)
 			focusBio = false
 		}
-		p.Update(gtx, store.Me(), func() { changed <- struct{}{} })
-		p.Layout(gtx, store.Me(), localization.For("ru"), func(gtx layout.Context, _ int64, _ model.ChatKind, _ string, _ unit.Dp) layout.Dimensions {
-			return layout.Dimensions{}
-		}, false, false)
+		p.Update(gtx, store.Me(), func() {
+			select {
+			case changed <- struct{}{}:
+			default:
+			}
+		})
+		p.Layout(gtx, store.Me(), localization.For("ru"), false, false)
 	}}
 	h.frame()
 	// What a click on the pencil does.

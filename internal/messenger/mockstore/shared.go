@@ -3,6 +3,7 @@ package mockstore
 import (
 	"context"
 	"komarugram/internal/messenger/model"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -17,6 +18,10 @@ func (s *Store) SharedCounts(ctx context.Context, chat int64) (map[model.SharedK
 	out[model.SharedGifts] = 9
 	out[model.SharedStories] = 0
 	out[model.SharedGroups] = 0
+	if chat == s.Me().ID {
+		stories, _ := s.PeerStories(ctx, chat)
+		out[model.SharedStoryArchive] = len(stories)
+	}
 	return out, nil
 }
 func (s *Store) SharedMedia(ctx context.Context, chat int64, kind model.SharedKind, before model.MessageID, limit int) (model.SharedPage, error) {
@@ -69,6 +74,18 @@ func (s *Store) SharedMedia(ctx context.Context, chat int64, kind model.SharedKi
 
 func (s *Store) SharedCollection(ctx context.Context, chat int64, kind model.SharedKind, cursor string, limit int) (model.SharedCollectionPage, error) {
 	p := model.SharedCollectionPage{}
+	if kind == model.SharedStoryArchive && chat == s.Me().ID {
+		// The account's stories are its archive, the newest first.
+		stories, _ := s.PeerStories(ctx, chat)
+		slices.Reverse(stories)
+		p.Messages, p.Total = stories, len(stories)
+		return p, nil
+	}
+	if kind == model.SharedSavedMusic {
+		p.Messages = s.playlist(chat)
+		p.Total = len(p.Messages)
+		return p, nil
+	}
 	if kind != model.SharedGifts {
 		return p, nil
 	}

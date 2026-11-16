@@ -4,11 +4,15 @@ package ui
 
 import (
 	"context"
+	"errors"
+	"image"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"komarugram/internal/messenger/localization"
+	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 
 	"gioui.org/f32"
@@ -130,4 +134,61 @@ func TestStickerSetHoldPreview(t *testing.T) {
 	if d.preview.Shown() || len(h.p.composer.recent[model.PickerStickers]) != 0 || d.modal.closing {
 		t.Fatalf("released: shown %v, sent %+v, closing %v", d.preview.Shown(), h.p.composer.recent[model.PickerStickers], d.modal.closing)
 	}
+}
+
+// installingStore is the demo's store that adds sticker sets, each once
+// the test lets it: what the dialog shows meanwhile can be looked at.
+type installingStore struct {
+	*mockstore.Store
+	asked   chan bool
+	release chan struct{}
+}
+
+func (s installingStore) StickerSet(context.Context, model.StickerSetRef) (model.StickerSet, error) {
+	return model.StickerSet{}, errors.New("not asked here")
+}
+
+func (s installingStore) SetStickerSetInstalled(_ context.Context, _ model.StickerSetRef, installed bool) error {
+	s.asked <- installed
+	<-s.release
+	return nil
+}
+
+// A set is added as it is shown: nothing is to be loaded, so it stays,
+// without the ring of a load, and its button turns into the one that
+// removes it once Telegram has it.
+func TestStickerSetAddsWithoutLoading(t *testing.T) {
+	skipFrames(t)
+	store := installingStore{Store: mockstore.New(time.Now(), 0), asked: make(chan bool, 1), release: make(chan struct{})}
+	p := newChatPage(store, func() {})
+	p.images = &imageOps{}
+	t.Cleanup(p.Close)
+	h := &composerHarness{p: p, now: time.Now(), size: image.Pt(680, 720), chat: 1}
+	h.frame()
+	openStickerSet(h, model.StickerSet{Title: "Cats", Count: 2, Items: []model.PickerItem{
+		{ID: "sticker/1", Emoji: "🐈"}, {ID: "sticker/2", Emoji: "🐕"},
+	}})
+	d := &h.p.stickers
+	d.action.click.Click()
+	h.frame()
+	select {
+	case installed := <-store.asked:
+		if !installed {
+			t.Fatal("the set was asked to be removed")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the set was not added")
+	}
+	for range 3 {
+		h.frame()
+		if d.busy || d.pack == nil {
+			t.Fatal("the set shown went for a load while it was added")
+		}
+	}
+	close(store.release)
+	l := localization.For("ru")
+	waitAudio(t, "the button did not turn", func() bool {
+		h.frame()
+		return d.pack.Installed && !d.working() && d.actionText(l) == l.T("stickers.remove")
+	})
 }

@@ -41,6 +41,8 @@ const (
 	sharedForwardSelected
 	sharedDeleteSelected
 	sharedClearSelection
+	// sharedRemoveMusic takes a song off the account's own playlist.
+	sharedRemoveMusic
 	sharedActions
 )
 
@@ -67,6 +69,12 @@ type sharedCell struct{ tag byte }
 // which may be selected: not a user's gifts, stories or groups.
 func (p *chatInfo) selectable() bool {
 	return !p.themePage && slices.Contains(model.SharedKinds, p.section)
+}
+
+// hasMenus tells whether the files of the section shown have menus: those
+// that may be selected, and the songs of a playlist.
+func (p *chatInfo) hasMenus() bool {
+	return p.selectable() || !p.themePage && p.section == model.SharedSavedMusic
 }
 
 // selecting tells whether some of the section's files are selected.
@@ -137,7 +145,7 @@ func (p *chatInfo) toggleSelected(m model.Message) {
 // call it after drawing m, for its area to be over it. While some are
 // selected it takes the clicks the file would.
 func (p *chatInfo) cellInput(gtx layout.Context, m model.Message, size image.Point) {
-	if !p.selectable() {
+	if !p.hasMenus() {
 		return
 	}
 	c := p.cells[m.Key]
@@ -208,6 +216,17 @@ func (p *chatInfo) selectedMark(gtx layout.Context, m model.Message, size image.
 func (p *chatInfo) sharedMenuActions(m model.Message) []sharedAction {
 	r := p.renderer
 	out := []sharedAction{}
+	if p.section == model.SharedSavedMusic {
+		// As Telegram Desktop's playlist: Forward, and on the account's
+		// own, Delete.
+		if _, ok := r.source.(model.ComposerStore); ok {
+			out = append(out, sharedForward)
+		}
+		if _, ok := r.source.(model.SavedMusicStore); ok && p.own != nil {
+			out = append(out, sharedRemoveMusic)
+		}
+		return out
+	}
 	if p.openMessage != nil {
 		out = append(out, sharedGoTo)
 	}
@@ -279,7 +298,7 @@ func (p *chatInfo) sharedMenuUpdate(gtx layout.Context, l localization.Catalog) 
 		m.open = false
 	}
 	msg, ok := p.sharedMenuMessage()
-	if !ok || !p.selectable() {
+	if !ok || !p.hasMenus() {
 		m.open = false
 		return
 	}
@@ -318,6 +337,8 @@ func (p *chatInfo) sharedDo(gtx layout.Context, a sharedAction, m model.Message,
 		r.openDelete(gtx, r.selectionRights())
 	case sharedClearSelection:
 		r.clearSelection()
+	case sharedRemoveMusic:
+		p.removeSong(m, l)
 	}
 }
 
@@ -345,6 +366,8 @@ func (a sharedAction) label(p *chatInfo, l localization.Catalog) string {
 		return l.T("menu.delete_selected")
 	case sharedClearSelection:
 		return l.T("menu.clear_selection")
+	case sharedRemoveMusic:
+		return l.T("menu.delete")
 	}
 	return ""
 }
@@ -357,7 +380,7 @@ func (a sharedAction) icon() wdk.IconWidget {
 		return iconDownload
 	case sharedForward, sharedForwardSelected:
 		return iconForward
-	case sharedDelete, sharedDeleteSelected:
+	case sharedDelete, sharedDeleteSelected, sharedRemoveMusic:
 		return iconDelete
 	}
 	return iconSelect

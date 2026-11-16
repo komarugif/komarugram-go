@@ -48,6 +48,10 @@ type fileLocation struct {
 	// keys the stories of a row apart.
 	StoryPeer int64 `json:",omitempty"`
 	Story     int   `json:",omitempty"`
+	// SavedMusicUser is the user whose profile's playlist has the song,
+	// whose users.getSavedMusicByID renews its file reference: the song
+	// is of no message.
+	SavedMusicUser int64 `json:",omitempty"`
 }
 
 func (l fileLocation) input() tg.InputFileLocationClass {

@@ -81,7 +81,9 @@ type Store struct {
 	reconnect     chan struct{}
 	search        searchState
 	profiles      profileColors
-	freeze        model.Freeze
+	// music is what the account keeps on its profile's playlist.
+	music  savedMusic
+	freeze model.Freeze
 	// freezeChecked is when a refused request last read the configuration
 	// again: see Middleware.
 	freezeChecked time.Time

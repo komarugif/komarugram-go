@@ -41,6 +41,7 @@ The Go modules linked into `messenger` and `kitchen`, as `go version -m` lists t
 | [OpenTelemetry Go](https://github.com/open-telemetry/opentelemetry-go) (`otel`, `otel/trace`) | Apache-2.0 |
 | `golang.org/x/crypto`, `exp`, `exp/shiny`, `image`, `net`, `sync`, `sys`, `text` | BSD-3-Clause |
 | [rsc.io/qr](https://github.com/rsc/qr) | BSD-3-Clause |
+| [Material Symbols](https://fonts.google.com/icons)' `qr_code`, drawn by `iconQRCode` (`internal/messenger/ui/icons.go`) | Apache-2.0 |
 | [Go fonts](https://go.dev/blog/go-fonts) (`gioui.org/font/gofont`) | BSD-3-Clause |
 
 ## Embedded and downloaded files
@@ -54,6 +55,7 @@ The Go modules linked into `messenger` and `kitchen`, as `go version -m` lists t
 | WASI libc and compiler-rt inside the modules above ([wasi-sdk](https://github.com/WebAssembly/wasi-sdk)) | MIT, Apache-2.0 WITH LLVM-exception |
 | `pkg/ratex/ratex.wasm.zst`: [RaTeX](https://github.com/erweixin/RaTeX), its Rust crates and the Rust standard library (built by `pkg/ratex/build`) | MIT; MIT OR Apache-2.0; Unlicense OR MIT; Zlib OR Apache-2.0 OR MIT |
 | `pkg/ratex/fonts`: [KaTeX](https://github.com/KaTeX/KaTeX)'s fonts (`pkg/ratex/fonts/OFL.txt`, `NOTICE`) | SIL OFL 1.1 |
+| `internal/messenger/ui/hints/*.png`: the handwritten hints, drawn by `cmd/hint-images`; their text in [Caveat](https://github.com/googlefonts/caveat) (the font itself is not in the repository nor the program), their arrow from `cmd/hint-images/arrow.png`, cut out of a screenshot of an image search and made thicker here | Caveat: SIL OFL 1.1; the arrow: no license stated (very like arrows elsewhere under CC0) |
 | `pkg/cmark/cmark.wasm.zst`: [cmark-gfm](https://github.com/desktop-app/cmark-gfm) (desktop-app's fork, built by `pkg/cmark/build`; `pkg/cmark/LICENSE.cmark-gfm`) | BSD-2-Clause, parts MIT |
 | `pkg/prism/grammars.dat.zst`: [Prism.js](https://prismjs.com) 1.29.0's grammars, with `pkg/prism`, a port of [libprisma](https://github.com/desktop-app/libprisma)'s tokenizer (`pkg/prism/LICENSE.prism`) | MIT |
 | `internal/messenger/passwordstrength/top1000.go`: the 1000 most common passwords, from [SecLists](https://github.com/danielmiessler/SecLists)'s `Pwdb_top-1000.txt`, made from many published leaks | MIT |

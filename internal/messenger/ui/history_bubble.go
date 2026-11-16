@@ -333,6 +333,10 @@ func (p *chatPage) bubble(gtx layout.Context, r *messageRow, m model.Message, jo
 			if m.Outgoing {
 				col = scheme(gtx).PrimaryContainer.Color
 			}
+			if p.lifted != (model.MessageKey{}) && m.Key == p.lifted {
+				// Taken by a drag, as a row of the settings' menus is.
+				col = scheme(gtx).SecondaryContainer.Color
+			}
 			paint.FillShape(gtx.Ops, col.AsNRGBA(), shape.rrect(size).Op(gtx.Ops))
 			if p.appearance != nil {
 				p.appearance.Bubble(gtx, m.Outgoing, animate, shape)
@@ -908,6 +912,10 @@ func (p *chatPage) mediaFooter(gtx layout.Context, r *messageRow, l localization
 // reads from the row, as bubbleContent does.
 func (p *chatPage) bubbleFooter(gtx layout.Context, r *messageRow, l localization.Catalog) layout.Dimensions {
 	msg := &r.shown
+	if msg.Playlist {
+		// A song of a profile's playlist was sent at no time.
+		return layout.Dimensions{}
+	}
 	if msg.Streaming {
 		// A draft a bot streams turns a ring before its time while the
 		// bot writes it.

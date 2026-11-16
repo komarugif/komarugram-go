@@ -10,6 +10,7 @@ import (
 	"image"
 	"image/color"
 	"io"
+	"slices"
 	"sync"
 	"time"
 
@@ -58,6 +59,11 @@ type audioPlayer struct {
 	page    *chatPage
 	list    int64
 	loading bool
+	// queue is the list of a page's own (chatPage.audioList, an info's
+	// section) that what plays was played from, which it goes on through:
+	// kept, as the page's goes when its dialog closes, and taken afresh
+	// while the page has it, which grows as it loads; nil for a history.
+	queue []model.Message
 	// stretch changes the speed of what plays. speed is the one chosen for
 	// what changes its speed, 1 when zero; saveSpeed keeps the choice.
 	stretch   *audio.Stretched
@@ -399,10 +405,21 @@ func (v *audioPlayer) start(p *chatPage, list int64, m model.Message, seek audio
 		}
 		return
 	}
+	queue := v.queue
+	v.mu.Unlock()
+	// Going on through the list kept, the player has it; what is played
+	// from a page takes the page's, a list of its own or none.
+	if !queued(queue, m.Key) {
+		queue = nil
+		if p.audioList != nil {
+			queue = p.audioList()
+		}
+	}
+	v.mu.Lock()
 	v.stopLocked()
 	ctx, cancel := context.WithCancel(context.Background())
 	v.key, v.loading, v.cancel, v.work = m.Key, true, cancel, new(sync.WaitGroup)
-	v.msg, v.page, v.list, v.externalAt = m, p, list, externalAt
+	v.msg, v.page, v.list, v.externalAt, v.queue = m, p, list, externalAt, queue
 	work := v.work
 	work.Add(1)
 	v.mu.Unlock()
@@ -421,6 +438,11 @@ func (v *audioPlayer) start(p *chatPage, list int64, m model.Message, seek audio
 		}
 		p.invalidate()
 	}()
+}
+
+// queued reports whether queue has the message of key.
+func queued(queue []model.Message, key model.MessageKey) bool {
+	return slices.ContainsFunc(queue, func(m model.Message) bool { return m.Key == key })
 }
 
 // streamPart is how far ahead of what plays the file is downloaded, a part
@@ -716,7 +738,7 @@ func (v *audioPlayer) stopLocked() {
 		}()
 	}
 	v.key, v.loading, v.playback, v.release, v.source, v.work, v.samples, v.cancel = model.MessageKey{}, false, nil, nil, nil, nil, 0, nil
-	v.msg, v.list, v.stretch, v.video = model.Message{}, 0, nil, nil
+	v.msg, v.list, v.stretch, v.video, v.queue = model.Message{}, 0, nil, nil, nil
 }
 
 // audioSource is the reader of a voice message, as the output reads it
@@ -1035,6 +1057,14 @@ func (p *chatPage) musicLayout(gtx layout.Context, r *messageRow, m model.Messag
 					return label(gtx, audioTime(state, m.Media.Duration), token.TypestyleBodySmall, sc.SurfaceVariant.OnColor, 1)
 				}),
 			)
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			// What the page puts at the end, as the account's playlist
+			// its handle.
+			if p.songHandle == nil {
+				return layout.Dimensions{}
+			}
+			return layout.Inset{Left: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions { return p.songHandle(gtx, m) })
 		}),
 	)
 }

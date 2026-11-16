@@ -221,18 +221,18 @@ func TestChatInfoAvatarOpensPhoto(t *testing.T) {
 // profile.
 func TestProfileAvatarOpensPhoto(t *testing.T) {
 	store := mockstore.New(time.Now(), 0)
-	p := newProfilePage(store)
+	p := newOwnProfile(t, store, func() {})
 	var asked int64
-	p.openAvatar = func(chat int64) { asked = chat }
+	p.info.openAvatar = func(chat int64) { asked = chat }
 	h := &focusHarness{draw: func(gtx layout.Context) {
 		p.Update(gtx, store.Me(), func() {})
-		p.Layout(gtx, store.Me(), localization.For("en"), func(gtx layout.Context, _ int64, _ model.ChatKind, _ string, size unit.Dp) layout.Dimensions {
-			return layout.Dimensions{Size: image.Pt(gtx.Dp(size), gtx.Dp(size))}
-		}, false, false)
+		p.Layout(gtx, store.Me(), localization.For("en"), false, false)
 	}}
 	h.frame()
-	// The avatar is 96 dp, centred, under the page's 24 dp of padding.
-	at := f32.Pt(450, 24+48)
+	h.frame()
+	// The avatar is where the cover put it.
+	at := layout.FPt(p.info.cover.avatar.Min.Add(p.info.cover.avatar.Max).Div(2))
+	at.X += float32(900-min(900, infoPageWidth)) / 2
 	h.router.Queue(pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: at}, pointer.Event{Kind: pointer.Release, Source: pointer.Mouse, Position: at})
 	h.frame()
 	h.frame()

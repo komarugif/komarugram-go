@@ -58,6 +58,7 @@ const (
 	actionSaveHTML
 	actionSave
 	actionSaveGIF
+	actionSaveMusic
 	actionRetryOutgoing
 	actionCancelOutgoing
 	menuActions
@@ -288,6 +289,9 @@ func (p *chatPage) menuActions(m model.Message) []menuAction {
 	if _, ok := p.source.(model.SavedGIFStore); ok && !selected && !protected && m.Kind == model.MessageGIF && m.Media != nil && len(m.Attachments) < 2 {
 		out = append(out, actionSaveGIF)
 	}
+	if _, ok := p.menuSong(m); ok && !selected && !protected {
+		out = append(out, actionSaveMusic)
+	}
 	if p.messageMenu.packs.id == m.Key.MessageID && len(p.messageMenu.packs.found.refs) > 0 {
 		out = append(out, actionEmojiPacks)
 	}
@@ -433,6 +437,10 @@ func (p *chatPage) menuDo(gtx layout.Context, a menuAction, m model.Message, l l
 		}
 	case actionSaveGIF:
 		p.saveGIF(m, l)
+	case actionSaveMusic:
+		if song, ok := p.menuSong(m); ok {
+			p.saveMusic(song, l)
+		}
 	case actionFilter:
 		// A filter of the words selected, in every chat, as AyuGram's
 		// quick filter.
@@ -454,6 +462,48 @@ func (p *chatPage) menuDo(gtx layout.Context, a menuAction, m model.Message, l l
 			p.emojiPacks.open(p, refs)
 		}
 	}
+}
+
+// menuSong is the song of m, or of the part of its album the menu is of,
+// that may go on the account's profile, as Telegram Desktop's Save to...
+// Profile offers it: one not on it yet.
+func (p *chatPage) menuSong(m model.Message) (model.Message, bool) {
+	store, ok := p.source.(model.SavedMusicStore)
+	if !ok || m.Sending || m.Playlist {
+		return model.Message{}, false
+	}
+	song := m
+	if part, ok := p.menuPart(m); ok {
+		song = part
+	} else if parts := messageParts(m); len(parts) == 1 {
+		song = parts[0]
+	} else {
+		return model.Message{}, false
+	}
+	if song.Kind != model.MessageMusic || song.Media == nil || song.NoForwards || store.SavedMusic(song) {
+		return model.Message{}, false
+	}
+	return song, true
+}
+
+// saveMusic puts song on the account's profile, first on its playlist, and
+// tells so as Telegram Desktop does.
+func (p *chatPage) saveMusic(song model.Message, l localization.Catalog) {
+	store, ok := p.source.(model.SavedMusicStore)
+	if !ok {
+		return
+	}
+	done := l.T("menu.music_saved")
+	go func() {
+		defer crash.Recover("save music", func(e *crash.Panic) { p.reportMedia(e) })
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := store.SaveMusic(ctx, song); err != nil {
+			p.reportMedia(err)
+			return
+		}
+		p.reportNotice(done)
+	}()
 }
 
 // menuLabel is the text of a, an action of m's menu.
@@ -504,6 +554,8 @@ func (p *chatPage) menuLabel(a menuAction, l localization.Catalog) string {
 		return l.T("rich.save_html")
 	case actionSaveGIF:
 		return l.T("composer.save_gif")
+	case actionSaveMusic:
+		return l.T("menu.save_music")
 	case actionSave:
 		if m, ok := p.menuMessage(); ok {
 			if _, ok := p.menuPart(m); ok {
@@ -578,6 +630,8 @@ func menuIcon(a menuAction) wdk.IconWidget {
 		return iconDownload
 	case actionSaveGIF:
 		return iconGIF
+	case actionSaveMusic:
+		return iconMusic
 	}
 	return iconEmoji
 }

@@ -154,7 +154,10 @@ type App struct {
 	// of its files found to go to.
 	downloads        *downloadsPage
 	downloadMessages chan downloadMessage
-	thread           *commentsView
+	// playlists are the chats found of users whose playlist is to open:
+	// see openPlaylist.
+	playlists chan model.Chat
+	thread    *commentsView
 	// toast tells over the window what the chat list told, when no chat
 	// is open to tell it in: see relayListToast.
 	toast toast
@@ -274,7 +277,6 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	editor, _ := store.(model.ProfileEditor)
 	a.profile = newProfilePage(editor)
 	a.profile.premium, _ = store.(model.PremiumSource)
-	a.profile.badges = a.badges
 	a.chats.badges = a.badges
 	a.chats.menu.store, _ = store.(model.ChatListActions)
 	a.chats.menu.premium, _ = store.(model.PremiumSource)
@@ -353,11 +355,6 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	}
 	a.frozen = newFrozenView(store)
 	a.profile.frozen = a.frozen
-	a.profile.openAvatar = func(chat int64) {
-		if a.viewer != nil {
-			a.viewer.OpenProfile(chat)
-		}
-	}
 	a.settings = newSettingsPage(w.Motion, services.MiniApps, services.Security, w.Invalidate, services.Accounts, currentAccount, themeMode(global.Theme), global.Language, a.setThemeMode, a.setLanguage)
 	a.proxies = newProxyView(services.Proxies, services.PingProxy, w.Invalidate)
 	a.settings.proxy = a.proxies
@@ -697,7 +694,8 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		chats.thumbs = newWallpaperThumbs(source, w.Invalidate)
 		a.info = newChatInfo(source, &a.images, w.Invalidate)
 		a.info.themes = a.themes
-		a.info.drawAvatar = a.layoutAvatar
+		// The account's own profile is the same info, drawn as a page.
+		a.profile.attach(newChatInfo(source, &a.images, w.Invalidate))
 		a.avatars = newAvatarImages(source, w.Invalidate)
 		a.chats.avatar = a.layoutAvatar
 		a.chats.previews = &previewMedia{media: chatmedia.NewPreviews(source, w.Invalidate), images: &a.images}
@@ -715,6 +713,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.downloads.files = func() *attachmentFiles { return a.attachments }
 		a.downloads.media, a.downloads.images = chatmedia.New(source, w.Invalidate), &a.images
 		a.downloadMessages = make(chan downloadMessage, 1)
+		a.playlists = make(chan model.Chat, 1)
 		a.downloads.openMessage = a.openDownloaded
 		a.viewer.play = func(gtx layout.Context, m model.Message, start time.Duration, l localization.Catalog) {
 			a.history.playFrom(gtx, m, start, a.viewer.reportPlay, l)
@@ -742,15 +741,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		if source, ok := store.(model.CommunitySource); ok {
 			a.history.communityOf = source.LinkedCommunity
 		}
-		// A user's channel in their info opens with a way back, as a
-		// channel's discussion does.
-		a.info.openChannel = a.history.openReturning
-		// What a click on a mark in the info tells shows under the dialog,
-		// not in the chat behind it.
-		a.info.badges = a.badgesTelling(func(text string) { a.info.modal.Toast(text) })
 		a.statusClicked = a.info.openEmojiSet
-		a.info.renderer.stickers.menus = a.menuPrefs
-		a.info.avatarSprite = a.avatarSprite
 		if _, ok := store.(model.CommentsStore); ok {
 			a.history.openComments = a.openComments
 			a.comments = a.newChatPage(source, store, w)
@@ -789,43 +780,8 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 				a.comments.openSender = func(m model.Message) { a.openSender(senders, m, a.thread) }
 			}
 		}
-		// The audio of the info's sections plays in the same player as the
-		// chat's, told in the chat's bar.
-		a.info.renderer.audio = a.history.audio
-		// The files of the sections are selected, forwarded and deleted as
-		// the chat's messages are, and a file goes to its message.
-		a.info.renderer.chats = store.Chats
-		a.info.renderer.avatar = a.layoutAvatar
-		a.info.renderer.menus = a.menuPrefs
-		a.info.renderer.frozen = a.frozen
-		a.info.renderer.files = a.attachments
-		a.info.selectionMode = func() string { return a.preferences.Global().SharedSelection }
-		a.info.setSelectionMode = a.preferences.SetSharedSelection
-		a.info.columns = func() int { return a.preferences.Global().SharedGridColumns() }
-		a.info.setColumns = a.preferences.SetSharedColumns
-		// A mention or a link in the info, as its bio has, opens its chat
-		// over the dialog, which closes, with the way back.
-		a.info.renderer.openChat = func(chat model.Chat, post model.MessageID) {
-			a.info.modal.Close()
-			a.history.openChat(chat, post)
-		}
-		a.info.openMessage = func(m model.Message) {
-			chat := a.info.chat
-			a.openFromHere(chatPick{ID: chat.ID, Chat: &chat, Message: m.Key.MessageID})
-			a.window.Invalidate()
-		}
-		// A section's photo or video goes through the section's kind alone.
-		a.info.renderer.openPhoto = func(m model.Message) {
-			a.viewer.OpenShared(m.Key.ChatID, m, a.info.messages, a.info.section, -1)
-		}
-		a.info.renderer.openGIF = func(m model.Message) { a.viewer.OpenGIF(m.Key.ChatID, m, a.info.messages) }
-		// A video of the section plays where one of the chat does: in the
-		// viewer, when the settings choose it.
-		a.info.renderer.openVideo = func(m model.Message, at time.Duration) {
-			a.viewer.OpenShared(m.Key.ChatID, m, a.info.messages, a.info.section, at)
-		}
-		a.info.renderer.videoEngine = a.videoEngine
-		a.info.openAvatar = func(chat int64) { a.viewer.OpenProfile(chat) }
+		a.configureInfo(a.info, store)
+		a.configureInfo(a.profile.info, store)
 		if services.OpenWindow != nil {
 			a.openWindow = services.OpenWindow
 			a.viewer.popout = a.openViewerWindow
@@ -889,6 +845,7 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 		a.openFromHere(chatPick{ID: m.Key.ChatID, Message: m.Key.MessageID})
 		a.window.Invalidate()
 	}
+	p.openPlaylist = a.openPlaylist
 	p.openPhoto = func(m model.Message) { a.viewer.Open(p.chat, m, p.viewerItems()) }
 	p.openVideo = func(m model.Message, at time.Duration) { a.viewer.OpenVideo(p.chat, m, p.viewerItems(), at) }
 	p.videoEngine = a.videoEngine
@@ -955,6 +912,9 @@ func (a *App) Close() {
 	}
 	if a.info != nil {
 		a.info.Destroy()
+	}
+	if a.profile != nil && a.profile.info != nil {
+		a.profile.info.Destroy()
 	}
 	if a.themes != nil {
 		a.themes.Close()
@@ -1198,6 +1158,13 @@ func (a *App) Update(gtx layout.Context) {
 		a.takeDownloadMessage(r)
 	default:
 	}
+	select {
+	case chat := <-a.playlists:
+		if a.info != nil {
+			a.openPlaylistOf(chat)
+		}
+	default:
+	}
 	a.updateReturn(gtx)
 	a.shownChat.Store(a.selected)
 	a.shortcutEvents(gtx)
@@ -1236,6 +1203,8 @@ func (a *App) Update(gtx layout.Context) {
 	}
 	if a.section.kind == sectionProfile {
 		a.profile.Update(gtx, a.store.Me(), a.window.Invalidate)
+	} else if a.profile != nil {
+		a.profile.close()
 	}
 	if a.section.kind == sectionSettings {
 		global := a.preferences.Global()
@@ -1299,7 +1268,7 @@ func (a *App) openSection(gtx layout.Context, sec section) {
 	case sectionSettings:
 		a.settings.open()
 	case sectionProfile:
-		a.profile.open()
+		a.profile.open(a.store.Me())
 	case sectionDownloads:
 		if a.downloads != nil {
 			a.downloads.open()
@@ -1431,6 +1400,9 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	}
 	if a.info != nil {
 		configureMedia(a.info.renderer.media)
+	}
+	if a.profile != nil && a.profile.info != nil {
+		configureMedia(a.profile.info.renderer.media)
 	}
 	a.images.BeginFrame()
 	defer a.images.EndFrame()
@@ -1736,7 +1708,7 @@ func (a *App) layoutPage(gtx layout.Context) layout.Dimensions {
 	return a.withAudioBar(gtx, l, func(gtx layout.Context) layout.Dimensions {
 		switch {
 		case a.section.kind == sectionProfile:
-			return a.profile.Layout(gtx, a.store.Me(), l, a.layoutAvatar, a.private(), a.window.Motion.AnimationsEnabled())
+			return a.profile.Layout(gtx, a.store.Me(), l, a.private(), a.window.Motion.AnimationsEnabled())
 		case a.section.kind == sectionSettings:
 			return a.settings.Layout(gtx, a.themeMode(), a.window.Appearance.Scheme(), a.dark(), l)
 		case a.section.kind == sectionDownloads && a.downloads != nil:
@@ -1842,6 +1814,9 @@ func (a *App) SetSuspended(hidden bool) {
 	}
 	if a.info != nil {
 		a.info.Release()
+	}
+	if a.profile != nil && a.profile.info != nil {
+		a.profile.info.Release()
 	}
 	if a.themes != nil {
 		a.themes.Release()
@@ -2086,3 +2061,114 @@ func (a *App) takeUsername(r usernameResult) {
 }
 
 func (a *App) menuPrefs() preferences.Menus { return a.preferences.Global().Menus }
+
+// configureInfo wires p, the info of a profile, to the window: the
+// dialog of a chat's, or the page of the account's own.
+func (a *App) configureInfo(p *chatInfo, store model.Store) {
+	p.drawAvatar = a.layoutAvatar
+	// A user's channel in their info opens with a way back, as a
+	// channel's discussion does.
+	p.openChannel = a.history.openReturning
+	// What a click on a mark in the info tells shows under the dialog,
+	// not in the chat behind it.
+	p.badges = a.badgesTelling(func(text string) { p.modal.Toast(text) })
+	p.renderer.stickers.menus = a.menuPrefs
+	p.avatarSprite = a.avatarSprite
+	// The audio of the info's sections plays in the same player as the
+	// chat's, told in the chat's bar.
+	p.renderer.audio = a.history.audio
+	// The files of the sections are selected, forwarded and deleted as
+	// the chat's messages are, and a file goes to its message.
+	p.renderer.chats = store.Chats
+	p.renderer.avatar = a.layoutAvatar
+	p.renderer.menus = a.menuPrefs
+	p.renderer.frozen = a.frozen
+	p.renderer.files = a.attachments
+	p.selectionMode = func() string { return a.preferences.Global().SharedSelection }
+	p.setSelectionMode = a.preferences.SetSharedSelection
+	p.columns = func() int { return a.preferences.Global().SharedGridColumns() }
+	p.setColumns = a.preferences.SetSharedColumns
+	// A mention or a link in the info, as its bio has, opens its chat
+	// over the dialog, which closes, with the way back.
+	p.renderer.openChat = func(chat model.Chat, post model.MessageID) {
+		p.modal.Close()
+		a.history.openChat(chat, post)
+	}
+	p.openMessage = func(m model.Message) {
+		chat := p.chat
+		a.openFromHere(chatPick{ID: chat.ID, Chat: &chat, Message: m.Key.MessageID})
+		a.window.Invalidate()
+	}
+	// A section's photo or video goes through the section's kind alone.
+	p.renderer.openPhoto = func(m model.Message) {
+		a.viewer.OpenShared(m.Key.ChatID, m, p.messages, p.section, -1)
+	}
+	p.renderer.openGIF = func(m model.Message) { a.viewer.OpenGIF(m.Key.ChatID, m, p.messages) }
+	// A video of the section plays where one of the chat does: in the
+	// viewer, when the settings choose it.
+	p.renderer.openVideo = func(m model.Message, at time.Duration) {
+		a.viewer.OpenShared(m.Key.ChatID, m, p.messages, p.section, at)
+	}
+	p.renderer.videoEngine = a.videoEngine
+	p.openAvatar = func(chat int64) { a.viewer.OpenProfile(chat) }
+}
+
+// openPlaylist opens the playlist of user's profile: the account's own on
+// its profile page, another's in the info, over what is open. The user's
+// chat is the list's, the info's shown last, or, for one of neither, as
+// someone with no dialog yet, asked for by its ID.
+func (a *App) openPlaylist(user int64) {
+	defer a.window.Invalidate()
+	if me := a.store.Me(); user == me.ID {
+		if a.profile.info == nil {
+			return
+		}
+		if a.section.kind != sectionProfile {
+			a.section = section{kind: sectionProfile}
+			a.profile.open(me)
+		}
+		showPlaylist(a.profile.info)
+		return
+	}
+	if a.info == nil {
+		return
+	}
+	chat, ok := chatByID(a.store.Chats(), user)
+	if !ok && a.info.chat.ID == user {
+		chat, ok = a.info.chat, true
+	}
+	if ok {
+		a.openPlaylistOf(chat)
+		return
+	}
+	results, invalidate, store := a.playlists, a.window.Invalidate, a.store
+	go func() {
+		defer crash.Recover("open playlist", nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		chat, err := findChat(ctx, store, user)
+		if err != nil {
+			return
+		}
+		select {
+		case results <- chat:
+			invalidate()
+		default:
+		}
+	}()
+}
+
+// openPlaylistOf shows the playlist of chat's profile in the info.
+func (a *App) openPlaylistOf(chat model.Chat) {
+	if !a.info.visible || a.info.chat.ID != chat.ID {
+		a.info.Open(chat)
+	}
+	showPlaylist(a.info)
+}
+
+// showPlaylist shows the playlist in info, as it is when it is shown already.
+func showPlaylist(info *chatInfo) {
+	if info.section != model.SharedSavedMusic {
+		info.selectSection(model.SharedSavedMusic)
+	}
+}

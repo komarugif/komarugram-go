@@ -97,6 +97,7 @@ func renders() []render {
 		render{"media-time", "TestRenderMediaTime", []string{"MEDIA_TIME_PNG={out}/media-time.png"}},
 		render{"chat-search", "TestRenderChatSearch", []string{"CHAT_SEARCH_PNG={out}/chat-search.png"}},
 		render{"snapshot", "TestRenderSnapshotDialog", []string{"SHOT_PNG={out}/snapshot.png"}},
+		render{"profiles", "TestRenderProfiles", []string{"PROFILE_PNG_DIR={out}"}},
 		render{"saved-empty", "TestRenderEmptySavedMessages", []string{"SAVED_EMPTY_PNG={out}/saved-empty.png"}},
 		render{"shared", "TestRenderSharedMediaAndThemes", []string{"SHARED_PNG={out}/shared"}},
 		render{"registration-offer", "TestRenderRegistrationOffer", []string{"REGISTRATION_OFFER_PNG={out}/registration-offer"}},

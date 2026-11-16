@@ -192,6 +192,10 @@ type Message struct {
 	Rich *RichPage `json:",omitempty"`
 	// Story is what a story has beyond a message: see StoryMessage.
 	Story *Story `json:",omitempty"`
+	// Playlist is set for a song of the playlist of a user's profile
+	// (SharedSavedMusic), no message of a chat: Key.ChatID is the user,
+	// Key.MessageID its place in the playlist, counted from -1 down.
+	Playlist bool `json:",omitempty"`
 	// StoryOf is the story a message of a chat carries, forwarded to it or
 	// one the account was mentioned in: its media is the story's, a photo
 	// or a video, its text the story's caption. ReplyToStory is the story

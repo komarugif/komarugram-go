@@ -1713,6 +1713,16 @@ func (it *settingsItem) layout(gtx layout.Context, leading layout.Widget, leadin
 // layoutWith is layout with a subtitle of its own, as a richLabel, in the
 // width it is given.
 func (it *settingsItem) layoutWith(gtx layout.Context, leading layout.Widget, leadingPx int, title string, subtitle layout.Widget) layout.Dimensions {
+	return it.layoutWidgets(gtx, leading, leadingPx, func(gtx layout.Context) layout.Dimensions {
+		return withBadges(gtx, nil, func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, title, token.TypestyleBodyLarge, scheme(gtx).Surface.OnColor, 1)
+		}, it.badge)
+	}, subtitle)
+}
+
+// layoutWidgets is layoutWith with a title of its own too, as one a
+// spoiler covers.
+func (it *settingsItem) layoutWidgets(gtx layout.Context, leading layout.Widget, leadingPx int, title, subtitle layout.Widget) layout.Dimensions {
 	sc := scheme(gtx)
 	size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(settingsItemHeight))
 	style := surfaceStyle{radius: gtx.Dp(12), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor}
@@ -1732,9 +1742,7 @@ func (it *settingsItem) layoutWith(gtx layout.Context, leading layout.Widget, le
 		textGtx := gtx
 		textGtx.Constraints = layout.Constraints{Max: image.Pt(max(size.X-textX-2*pad-iconPx, 0), size.Y)}
 		macro := op.Record(gtx.Ops)
-		titleDims := withBadges(textGtx, nil, func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, title, token.TypestyleBodyLarge, sc.Surface.OnColor, 1)
-		}, it.badge)
+		titleDims := title(textGtx)
 		titleCall := macro.Stop()
 		macro = op.Record(gtx.Ops)
 		subDims := subtitle(textGtx)

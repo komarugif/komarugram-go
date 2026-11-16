@@ -188,20 +188,25 @@ func (p *chatInfo) giftCard(gtx layout.Context, m model.Message, l localization.
 	})
 }
 func (p *chatInfo) giftsGrid(gtx layout.Context, l localization.Catalog, animate bool) layout.Dimensions {
-	return layout.Inset{Left: 16, Right: 16, Top: 4, Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	// The grid's sides are inside the list, whose scrollbar is at the edge.
+	side := p.margin + gtx.Dp(16)
+	return layout.Inset{Top: 4, Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		gap := gtx.Dp(12)
-		cols := max(1, gtx.Constraints.Max.X/max(1, gtx.Dp(170)))
+		width := max(0, gtx.Constraints.Max.X-2*side)
+		cols := max(1, width/max(1, gtx.Dp(170)))
 		rows := (len(p.messages) + cols - 1) / cols
-		w := max(1, (gtx.Constraints.Max.X-gap*(cols-1))/cols)
+		w := max(1, (width-gap*(cols-1))/cols)
 		h := w
 		dims := p.list.Layout(gtx, rows+1, func(gtx layout.Context, i int) layout.Dimensions {
 			if i == rows {
-				return layout.UniformInset(12).Layout(gtx, func(gtx layout.Context) layout.Dimensions { return p.status(gtx, l) })
+				return p.inColumn(gtx, func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{Top: 12, Bottom: 12, Left: 28, Right: 28}.Layout(gtx, func(gtx layout.Context) layout.Dimensions { return p.status(gtx, l) })
+				})
 			}
 			for j := 0; j < cols && i*cols+j < len(p.messages); j++ {
 				box := gtx
 				box.Constraints = layout.Exact(image.Pt(w, h))
-				offset(box, image.Pt(j*(w+gap), gap), func(gtx layout.Context) layout.Dimensions { return p.giftCard(gtx, p.messages[i*cols+j], l, animate) })
+				offset(box, image.Pt(side+j*(w+gap), gap), func(gtx layout.Context) layout.Dimensions { return p.giftCard(gtx, p.messages[i*cols+j], l, animate) })
 			}
 			return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, h+gap)}
 		})

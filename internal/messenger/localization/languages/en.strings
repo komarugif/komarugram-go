@@ -927,6 +927,7 @@
 "info.about" = "Bio";
 "info.collectible_copy" = "Copy Link";
 "info.collectible_info" = "This username was bought on **Fragment** on {date} for {price}";
+"info.collectible_hint" = "collectible username";
 "info.collectible_more" = "Learn More";
 "info.collectible_title" = "{username} is a collectible username that belongs to";
 "info.copied" = "Copied to clipboard.";
@@ -943,6 +944,10 @@
 "info.open_chat" = "Go to private chat with user";
 "info.open_chat_new" = "You have no chat yet";
 "info.phone" = "Phone · click to copy";
+"info.qr" = "Get QR Code";
+"info.qr_background" = "Choose background";
+"info.qr_copied" = "QR Code copied to clipboard.";
+"info.qr_copy" = "Copy";
 "info.registered_about" = "~ {date}";
 "info.registered_after" = "after {date}";
 "info.registered_before" = "before {date}";
@@ -1148,6 +1153,8 @@
 "menu.forward_selected" = "Forward Selected";
 "menu.go_to_message" = "Go To Message";
 "menu.link_copied" = "Link copied to clipboard.";
+"menu.music_removed" = "Audio removed from your Profile.";
+"menu.music_saved" = "Audio added to your Profile.";
 "menu.private_link" = "This link will only work for members of this chat.";
 "menu.reacted#one" = "{count} Reacted";
 "menu.reacted#other" = "{count} Reacted";
@@ -1158,6 +1165,7 @@
 "menu.save_album" = "Save Album";
 "menu.save_as" = "Save As...";
 "menu.save_files" = "{ext} files";
+"menu.save_music" = "Save to Profile";
 "menu.save_to_pictures" = "Save to Pictures";
 "menu.saved" = "Saved: {path}";
 "menu.select" = "Select";
@@ -1235,15 +1243,9 @@
 "number.decimal" = ".";
 
 "page.bio" = "Bio";
-"page.bio_empty" = "Empty";
 "page.cancel" = "Cancel";
 "page.choose_chat" = "Choose a chat to start messaging";
 "page.dc" = "Data center";
-"page.dc_1" = "Miami";
-"page.dc_2" = "Amsterdam";
-"page.dc_3" = "Miami";
-"page.dc_4" = "Amsterdam";
-"page.dc_5" = "Singapore";
 "page.edit" = "Edit profile";
 "page.err_bio" = "The bio is at most %d characters.";
 "page.err_failed" = "Could not save: %s";
@@ -1253,13 +1255,9 @@
 "page.err_username" = "A username has 5–32 Latin letters, digits and _, starts with a letter and does not end with _.";
 "page.first_name" = "First name";
 "page.history_later" = "Conversation history will appear in a future version";
-"page.id" = "ID";
 "page.last_name" = "Last name";
-"page.not_set" = "Not set";
-"page.phone" = "Phone";
 "page.save" = "Save";
 "page.saving" = "Saving…";
-"page.telegram_account" = "Telegram account";
 "page.username" = "Username";
 "page.username_hint" = "5–32 characters: Latin letters, digits and _. May be left empty.";
 
@@ -1915,6 +1913,8 @@
 "shared.count.polls" = "{count} · Polls";
 "shared.count.saved" = "{count} · Saved messages";
 "shared.count.stories" = "{count} · Stories";
+"shared.count.story_archive#one" = "{count} story";
+"shared.count.story_archive#other" = "{count} stories";
 "shared.count.videos" = "{count} · Videos";
 "shared.count.voice" = "{count} · Voice and video messages";
 "shared.empty" = "Nothing in this section yet";
@@ -1923,6 +1923,7 @@
 "shared.empty.links" = "Nothing in this section yet";
 "shared.empty.music" = "Nothing in this section yet";
 "shared.empty.photos" = "Nothing in this section yet";
+"shared.empty.story_archive" = "Only you can see archived stories unless you choose to post them to your profile.";
 "shared.empty.videos" = "Nothing in this section yet";
 "shared.empty.voice" = "Nothing in this section yet";
 "shared.files" = "Files";
@@ -1935,10 +1936,13 @@
 "shared.photos" = "Photos";
 "shared.polls" = "Polls";
 "shared.saved" = "Saved messages";
+"shared.saved_music" = "Playlist";
+"shared.saved_music_own" = "Your playlist";
 "shared.select_cursor" = "Select after the Cursor";
 "shared.select_range" = "Select in Order";
 "shared.selection" = "Selection";
 "shared.stories" = "Stories";
+"shared.story_archive" = "Story Archive";
 "shared.total" = "Total: %s";
 "shared.videos" = "Videos";
 "shared.voice" = "Voice and video messages";
@@ -2014,6 +2018,7 @@
 
 "stickers.action_failed" = "Could not change sticker set";
 "stickers.add" = "Add stickers";
+"stickers.add_emoji" = "Add emoji";
 "stickers.author" = "Sticker set creator";
 "stickers.author_copied" = "Author's ID copied: {id}";
 "stickers.close" = "Close";
@@ -2025,7 +2030,8 @@
 "stickers.failed" = "Could not load sticker set";
 "stickers.open" = "Open sticker set";
 "stickers.options" = "Sticker set options";
-"stickers.remove" = "Remove";
+"stickers.remove" = "Remove Stickers";
+"stickers.remove_emoji" = "Remove Emoji";
 "stickers.retry" = "Retry";
 "stickers.saved" = "Archive saved: {path}";
 "stickers.title" = "Sticker set";

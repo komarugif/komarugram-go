@@ -36,8 +36,14 @@ type SharedMediaSource interface {
 
 const (
 	SharedStories SharedKind = "stories"
-	SharedGifts   SharedKind = "gifts"
-	SharedGroups  SharedKind = "groups"
+	// SharedStoryArchive are the account's own stories, those its profile
+	// does not show too: only its own profile has them.
+	SharedStoryArchive SharedKind = "story_archive"
+	// SharedSavedMusic is the playlist of a user's profile: the songs they
+	// put on it, their profile's song (PeerProfile.Music) first.
+	SharedSavedMusic SharedKind = "saved_music"
+	SharedGifts      SharedKind = "gifts"
+	SharedGroups     SharedKind = "groups"
 )
 
 // Collections use opaque offsets because gift pagination is not a message ID.

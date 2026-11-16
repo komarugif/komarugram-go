@@ -140,9 +140,15 @@ func (v *audioPlayer) advance(m model.Message) {
 		v.mu.Unlock()
 		return
 	}
-	page, list := v.page, v.list
+	page, list, queue := v.page, v.list, v.queue
 	v.mu.Unlock()
-	if next, ok := nextAudio(page.audioMessages(list), m); ok {
+	// This runs on the player's goroutine: the page's own list is not
+	// read here, only the one kept.
+	messages := queue
+	if page.audioList == nil {
+		messages = page.audioMessages(list)
+	}
+	if next, ok := nextAudio(messages, m); ok {
 		v.toggleIn(page, list, next, -1)
 	} else {
 		v.mu.Lock()
@@ -190,12 +196,16 @@ func neighborAudio(messages []model.Message, m model.Message, delta int) (model.
 // it, where it is shown, as the bar's buttons ask.
 func (v *audioPlayer) skip(delta int) {
 	v.mu.Lock()
-	m, page, list := v.msg, v.page, v.list
+	m, page, list, queue := v.msg, v.page, v.list, v.queue
 	v.mu.Unlock()
 	if page == nil {
 		return
 	}
-	if to, ok := neighborAudio(page.audioMessages(list), m, delta); ok {
+	messages := queue
+	if page.audioList == nil {
+		messages = page.audioMessages(list)
+	}
+	if to, ok := neighborAudio(messages, m, delta); ok {
 		v.toggleIn(page, list, to, -1)
 	}
 }
@@ -218,11 +228,15 @@ func (v *audioPlayer) around() (before, after bool) {
 			return v.before, v.after
 		}
 		messages, v.aroundRev = history.Messages, history.Revision
-	} else {
-		history := model.History{Messages: v.page.audioMessages(v.list)}
-		if v.page.audioList == nil {
-			history = v.page.source.History(v.list)
+	} else if v.page.audioList != nil {
+		// The page's list while it has what plays, as it grows; the one
+		// kept once it has gone, as when its dialog closed.
+		if fresh := v.page.audioList(); queued(fresh, v.key) {
+			v.queue = fresh
 		}
+		messages = v.queue
+	} else {
+		history := v.page.source.History(v.list)
 		messages, v.aroundRev = history.Messages, history.Revision
 	}
 	v.aroundKey = v.key
@@ -412,6 +426,12 @@ func (p *chatPage) audioBarInput(gtx layout.Context, away bool) {
 		// Over the chat of what plays, the history goes to it; over
 		// another, or another page, that chat opens at it.
 		switch {
+		case m.Playlist:
+			// A song of a profile's playlist is in no chat: the
+			// playlist opens.
+			if p.openPlaylist != nil {
+				p.openPlaylist(m.Key.ChatID)
+			}
 		case !away && p.audio.shownIn() == p.chat:
 			p.jumpTo(m.Key.MessageID)
 		case p.openAudio != nil:
