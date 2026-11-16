@@ -110,13 +110,17 @@ func (a *App) clickedBadges(b model.Badges, name string, size unit.Dp, both bool
 			return a.layoutCustomEmoji(gtx, b.BotVerification, size)
 		}
 	}
-	marks := a.peerMarks(b, name, size, clicks.tell)
+	// Telegram's marks first, the check and the Premium status; then the
+	// KomaruGram faces, and exteraGram's or AyuGram's arrow last
+	// (peerMarks).
+	peer := a.peerMarks(b, name, size, clicks.tell)
 	switch {
 	case b.Scam:
-		return before, joinMarks(append(marks, func(gtx layout.Context) layout.Dimensions { return layoutTextBadge(gtx, "SCAM") }))
+		return before, joinMarks(append(peer, func(gtx layout.Context) layout.Dimensions { return layoutTextBadge(gtx, "SCAM") }))
 	case b.Fake:
-		return before, joinMarks(append(marks, func(gtx layout.Context) layout.Dimensions { return layoutTextBadge(gtx, "FAKE") }))
+		return before, joinMarks(append(peer, func(gtx layout.Context) layout.Dimensions { return layoutTextBadge(gtx, "FAKE") }))
 	}
+	var marks []layout.Widget
 	if b.Verified {
 		marks = append(marks, func(gtx layout.Context) layout.Dimensions { return layoutVerified(gtx, size) })
 	}
@@ -137,7 +141,7 @@ func (a *App) clickedBadges(b model.Badges, name string, size unit.Dp, both bool
 	} else if b.Premium && !b.Verified {
 		marks = append(marks, func(gtx layout.Context) layout.Dimensions { return a.layoutPremiumMark(gtx, size) })
 	}
-	return before, joinMarks(marks)
+	return before, joinMarks(append(marks, peer...))
 }
 
 // joinMarks puts marks in a row, nil for none.
