@@ -2114,6 +2114,7 @@
 
 "stickers.action_failed" = "Не удалось изменить набор";
 "stickers.add" = "Добавить стикеры";
+"stickers.add_emoji" = "Добавить эмодзи";
 "stickers.author" = "Автор набора";
 "stickers.author_copied" = "ID автора скопирован: {id}";
 "stickers.close" = "Закрыть";
@@ -2126,7 +2127,8 @@
 "stickers.failed" = "Не удалось загрузить набор";
 "stickers.open" = "Открыть набор стикеров";
 "stickers.options" = "Действия с набором";
-"stickers.remove" = "Удалить";
+"stickers.remove" = "Удалить стикеры";
+"stickers.remove_emoji" = "Удалить эмодзи";
 "stickers.retry" = "Повторить";
 "stickers.saved" = "Архив сохранён: {path}";
 "stickers.title" = "Набор стикеров";

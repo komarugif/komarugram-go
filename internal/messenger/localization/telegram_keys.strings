@@ -744,9 +744,11 @@
 "status.user_online" = "lng_status_online";
 
 "stickers.add" = "lng_stickers_add_pack";
+"stickers.add_emoji" = "lng_stickers_add_emoji";
 "stickers.count" = "lng_stickers_count";
 "stickers.emoji_count" = "lng_custom_emoji_count";
-"stickers.remove" = "lng_stickers_remove_pack_confirm";
+"stickers.remove" = "lng_stickers_remove_pack_button";
+"stickers.remove_emoji" = "lng_custom_emoji_remove_pack_button";
 
 "stories.my" = "lng_stories_my_name";
 

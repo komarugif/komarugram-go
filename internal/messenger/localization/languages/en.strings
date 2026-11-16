@@ -2014,6 +2014,7 @@
 
 "stickers.action_failed" = "Could not change sticker set";
 "stickers.add" = "Add stickers";
+"stickers.add_emoji" = "Add emoji";
 "stickers.author" = "Sticker set creator";
 "stickers.author_copied" = "Author's ID copied: {id}";
 "stickers.close" = "Close";
@@ -2025,7 +2026,8 @@
 "stickers.failed" = "Could not load sticker set";
 "stickers.open" = "Open sticker set";
 "stickers.options" = "Sticker set options";
-"stickers.remove" = "Remove";
+"stickers.remove" = "Remove Stickers";
+"stickers.remove_emoji" = "Remove Emoji";
 "stickers.retry" = "Retry";
 "stickers.saved" = "Archive saved: {path}";
 "stickers.title" = "Sticker set";

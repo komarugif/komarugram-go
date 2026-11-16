@@ -46,6 +46,21 @@ func TestRenderStickerSet(t *testing.T) {
 			p.media.EndFrame()
 			p.images.EndFrame()
 		})
+		// The other state of the set, whose button names what the set
+		// holds: the stickers added, and the emoji not added yet.
+		p.stickers.pack.Installed = !p.stickers.pack.Installed
+		state := "-stickers-add.png"
+		if p.stickers.pack.Installed {
+			state = "-stickers-added.png"
+		}
+		renderFrames(t, image.Pt(700, 620), filepath.Join(dir, lang+state), func(gtx layout.Context) {
+			p.images.BeginFrame()
+			p.media.BeginFrame()
+			p.stickers.layout(gtx, p, localization.For(lang))
+			p.media.EndFrame()
+			p.images.EndFrame()
+		})
+		p.stickers.pack.Installed = !p.stickers.pack.Installed
 		// What an action tells, at the dialog's bottom.
 		p.stickers.modal.Toast(localization.For(lang).Format("stickers.saved", map[string]string{"path": "/home/user/Cats.zip"}))
 		renderFrames(t, image.Pt(700, 620), filepath.Join(dir, lang+"-stickers-toast.png"), func(gtx layout.Context) {
