@@ -295,7 +295,9 @@ func (p *chatPage) buildSnapshot(gtx layout.Context, l localization.Catalog, msg
 		width = gtx.Dp(600)
 	}
 	ops = new(op.Ops)
-	sgtx := gtx.Disabled()
+	// Without the spoilers' dust, whose picture the window changes while
+	// the snapshot is drawn.
+	sgtx := withoutEffects(gtx.Disabled())
 	sgtx.Ops = ops
 	sgtx.Constraints = layout.Constraints{Min: image.Pt(width, 0), Max: image.Pt(width, snapshotMaxHeight)}
 	pad := gtx.Dp(8)

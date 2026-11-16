@@ -12,6 +12,51 @@ they behave — sizes, timings, colors, curves — to be implemented anew; its J
 and its GLSL shaders (`res/raw/spoiler_*.glsl`, `thanos_*.glsl`, not in the
 local clone, which keeps no `res/raw`) are not to be translated.
 
+## Done
+
+Both effects are in, as decided below; what this document says of our code
+before them, in "What we have", is how it was.
+
+- **Text** (`internal/messenger/ui/spoiler_dust.go`, `paintDust`): the dust
+  over our cover, in the text's color, wherever a text spoiler is covered —
+  messages, `richLabel`, the `spoiler` of a value, the chat list's previews.
+  One square of 150 dp a window, 10×10 cells of 45 points each, which live
+  1…3 s and die leaving their cell, three kinds of points (alpha 0.3, 0.6, 1;
+  1.4 and 1.2 dp across), moved every 32 ms on the CPU and drawn into one
+  picture, tinted once for each color in use. The points drift at 3…7 dp a
+  second: Android's 4…10 px in 500 ms are of a phone's pixels, about three to
+  a dp. Android's inset of 2.5 dp is not kept: in a square of cells it would
+  leave empty bands. The wave is ours; the dust thins out as it goes.
+- **Media** (`paintMediaDust`): white points 1.2 dp across in a square of
+  320 dp, as many as Android has for it (about 3700), carried by the curl of
+  a field of five waves that repeats over the square, charted on a grid of
+  32×32 for each step; speed capped at 6% of the side to a unit of the flow's
+  time, which runs at 0.65; cycles of 0.56…2.8 units, alpha `sin(π t)` times
+  0.6…1. Drawn over the blurred tiles of the box of files and the chat list's
+  thumbnails; the history still draws media under a spoiler plainly.
+- **Deletion** (`internal/messenger/ui/history_leave.go`): the store tells
+  the messages erased (`model.ErasedMessages`); the rows of those in view are
+  kept as they were drawn last and drawn over the history, the rows that stay
+  moving into their places in 250 ms on Android's curve, after a wait
+  (`leaveHold`): 1 s when the messages dissolve (the dust lasts about 1.5 s,
+  so only the last of it is left at the right edge when the rows move; about
+  1.5 s would leave none over the neighbours), 250 ms when they fade, till
+  they are gone. Android moves them at once; the wait is ours. They fade in
+  the same time, or dissolve: the bubbles are drawn off the frame by
+  `renderSnapshot`, and the picture cut into pieces of `max(0.4 dp, 1 px)`,
+  at most 100 000 for the messages that left together, coarser past that;
+  speeds, accelerations, lives and the sweep as below, the sweep across each
+  bubble with up to 0.08 of a unit of jitter. The pieces are drawn at their
+  cell's size: at rest they are the picture itself, without gaps. The choice
+  is `preferences.DeleteEffect`, "Deleting messages" in the chats' settings.
+- **Cost**, measured on an i5-12500H: a step of the text's dust 0.4 ms at one
+  pixel to a dp and 0.75 ms at two, of the media's 0.5 and 0.7 ms, 31 times a
+  second while a spoiler is in view, which also draws the window that often;
+  a frame of 100 000 pieces dissolving 1.8 and 3.3 ms, for a second and a
+  half.
+- **Renders**: `EFFECTS_PNG_DIR` saves frames of all three
+  (`effects_test.go`); checked by them on Linux with llvmpipe, not live.
+
 ## What we have
 
 - **Text spoilers** (`internal/messenger/ui/history_text.go`, `history.go`

@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"slices"
 	"sort"
+	"sync"
 	"time"
 
 	"gio-mw/token"
@@ -265,8 +266,15 @@ func (p *chatPage) forwardDialog(gtx layout.Context, l localization.Catalog) {
 // snapshotMaxHeight bounds a snapshot to what a GPU texture holds.
 const snapshotMaxHeight = 16384
 
+// snapshots lets one snapshot be drawn at a time: with EGL the headless
+// contexts are of one display, which the first of them released ends for
+// the others, in the middle of their frames.
+var snapshots sync.Mutex
+
 // renderSnapshot draws ops of size in a headless GPU context.
 func renderSnapshot(ops *op.Ops, size image.Point) (*image.RGBA, error) {
+	snapshots.Lock()
+	defer snapshots.Unlock()
 	// The context is current on this thread only.
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()

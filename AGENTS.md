@@ -90,6 +90,7 @@ otherwise, so `go test` never runs them: `COMPOSER_PNG` (with
 `VIEWER_ZOOM`, `VIEWER_PROFILE`, `VIEWER_GIFS`, `VIEWER_STORIES`, `VIEWER_SAVE_GIF`, `VIEWER_BOX`, `VIEWER_EDIT`, `VIEWER_TIP`, `VIEWER_AVATAR`, `VIEWER_DARK`, `VIEWER_BLUR`), `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`,
 `SERVICE_PNG`, `POLL_PNG`, `JUMP_PNG_DIR`, `RESERVE_PNG`, `SKELETON_PNG_DIR`, `TILE_FIT_PNG`, `PROFILER_PNG_DIR`, `PINNED_PNG`, `BUBBLE_FIT_PNG`, `MEDIA_INSET_PNG`, `MEDIA_TIME_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `PROFILE_PNG_DIR`,
 `SAVED_EMPTY_PNG`, `SHARED_PNG`, `REGISTRATION_OFFER_PNG`, `STORAGE_PNG_DIR`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`,
+`EFFECTS_PNG_DIR` (the spoilers' particles and a deleted message leaving, frame by frame),
 `FRAME_PNG_DIR` (the window's own frame, in `internal/appwindow`), `PANIC_PNG_DIR` (the window of a panic, there too) (see
 `docs/UI_COMPONENTS.md`). Run the one of the screen you changed, and look
 at the PNG. `KOMARUGRAM_FONT`, `KOMARUGRAM_FONT_EXTRA`,

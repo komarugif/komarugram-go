@@ -220,7 +220,8 @@ func (p *chatPage) stickyAvatars(gtx layout.Context, cover int) {
 	visible := max(0, gtx.Constraints.Max.Y-cover)
 	size := gtx.Dp(34)
 	top := func(i int) int {
-		return int(p.heights.Prefix(above+i)-p.heights.Prefix(p.list.Position.First)) - p.list.Position.Offset
+		// Where the row is drawn, on its way to its place or in it.
+		return int(p.heights.Prefix(above+i)-p.heights.Prefix(p.list.Position.First)) - p.list.Position.Offset + p.moveShift(gtx, p.messages[i].Key.MessageID)
 	}
 	joined := func(i int, flag bubbleJoin) bool { return i < len(p.joins) && p.joins[i]&flag != 0 }
 	for i := first; i < len(p.messages) && top(i) < gtx.Constraints.Max.Y; i++ {

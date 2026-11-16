@@ -877,6 +877,7 @@ func (c *messageComposer) layoutTile(gtx layout.Context, p *chatPage, f *boxFile
 		if f.spoiler {
 			// As Telegram Desktop shows media it will hide: blurred, darker.
 			fillRect(gtx, spoilerDim, size)
+			paintMediaDust(gtx, size, slices.Index(c.files.files, f))
 		}
 		return layout.Dimensions{Size: size}
 	})
