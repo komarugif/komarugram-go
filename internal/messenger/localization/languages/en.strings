@@ -927,6 +927,7 @@
 "info.about" = "Bio";
 "info.collectible_copy" = "Copy Link";
 "info.collectible_info" = "This username was bought on **Fragment** on {date} for {price}";
+"info.collectible_hint" = "collectible username";
 "info.collectible_more" = "Learn More";
 "info.collectible_title" = "{username} is a collectible username that belongs to";
 "info.copied" = "Copied to clipboard.";

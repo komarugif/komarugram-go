@@ -559,14 +559,14 @@ func TestOwnUsernameFollowsCollectibles(t *testing.T) {
 		t.Fatal("the card does not show the collectible username put first")
 	}
 	gtx := sharedContext(new(op.Ops), image.Pt(600, 200))
-	p.layoutCollectibles(gtx)
+	p.layoutCollectibles(gtx, localization.For("en"))
 	if p.chips["gonews"] == nil || p.plainNames["golang_news"] == nil {
 		t.Fatal("the own username is not shown after the collectible one")
 	}
 	p.plainNames = map[string]*widget.Clickable{}
 	p.chat.ID = 2
 	p.profile.Usernames = []model.Username{{Name: "anna_smirnova"}, {Name: "anna", Collectible: true}}
-	p.layoutCollectibles(gtx)
+	p.layoutCollectibles(gtx, localization.For("en"))
 	if p.plainNames["anna_smirnova"] != nil {
 		t.Fatal("the username of the card is shown again")
 	}

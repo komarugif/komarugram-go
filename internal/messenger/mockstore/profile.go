@@ -12,7 +12,7 @@ import (
 // PeerProfile implements model.PeerProfileSource: Анна Смирнова shows a
 // unique gift's cover with gifts around her avatar, collectible usernames
 // and her channel; Новости Go a profile color, and its own username after
-// the collectible one it put first.
+// the collectible one it put first; chat 8 has one collectible name alone.
 func (s *Store) PeerProfile(_ context.Context, chat int64) (model.PeerProfile, error) {
 	var out model.PeerProfile
 	if name := usernames[chat]; name != "" {
@@ -45,6 +45,9 @@ func (s *Store) PeerProfile(_ context.Context, chat int64) (model.PeerProfile, e
 		out.Cover.Colors = []uint32{0x5a8fd6, 0x82b4ee}
 		out.Cover.DarkColors = []uint32{0x2a4f80, 0x3f6aa3}
 		out.Cover.Pattern = 2
+	case 8:
+		// A lone collectible name, which a hint points to.
+		out.Usernames = []model.Username{{Name: "material_design", Collectible: true}}
 	}
 	return out, nil
 }

@@ -976,6 +976,7 @@
 "info.about" = "О себе";
 "info.collectible_copy" = "Копировать ссылку";
 "info.collectible_info" = "Это имя было куплено на **Fragment** {date} за {price}";
+"info.collectible_hint" = "коллекционное имя";
 "info.collectible_more" = "Подробнее";
 "info.collectible_title" = "{username} — коллекционное имя, которое принадлежит";
 "info.copied" = "Скопировано.";

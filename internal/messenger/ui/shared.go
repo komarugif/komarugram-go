@@ -116,6 +116,8 @@ type chatInfo struct {
 	chips         map[string]*folderChip
 	plainNames    map[string]*widget.Clickable
 	collectible   *collectibleDialog
+	// collectibleHint points to a lone collectible username.
+	collectibleHint collectibleHint
 	// openChannel opens the user's channel, with a way back.
 	openChannel func(model.Chat)
 	// avatarSprite is the chat's avatar as a picture of side px, which the
@@ -307,6 +309,7 @@ func (p *chatInfo) Release() {
 	p.cover.gradient, p.cover.gradientKey = nil, ""
 	p.cover.glows = nil
 	p.cover.patternSource, p.cover.patternTint = nil, nil
+	p.collectibleHint = collectibleHint{}
 }
 func (p *chatInfo) Destroy() { p.Close(); p.renderer.chat = 0; p.renderer.Close() }
 func (p *chatInfo) load(counts bool) {
@@ -728,7 +731,7 @@ func (p *chatInfo) layoutCards(gtx layout.Context, l localization.Catalog, anima
 					}, 6)
 				})
 			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutCollectibles(gtx) }),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutCollectibles(gtx, l) }),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				id := p.userIDText()
 				registration, dataCenter := p.detailTexts(l)
@@ -899,7 +902,7 @@ func channelLine(ch model.PersonalChannel, l localization.Catalog) []model.TextR
 // not collectible follow them as text, a click copying one, but the one the
 // card above shows: with a collectible username put first, the user's own
 // is shown here.
-func (p *chatInfo) layoutCollectibles(gtx layout.Context) layout.Dimensions {
+func (p *chatInfo) layoutCollectibles(gtx layout.Context, l localization.Catalog) layout.Dimensions {
 	var names, plain []string
 	main := p.chatUsername()
 	for _, u := range p.profile.Usernames {
@@ -957,6 +960,11 @@ func (p *chatInfo) layoutCollectibles(gtx layout.Context) layout.Dimensions {
 		})
 		x += dims.Size.X + gap
 		line = max(line, dims.Size.Y)
+	}
+	// A lone collectible name has the room beside it, where a hint
+	// written by hand points to it.
+	if len(names) == 1 && len(plain) == 0 {
+		p.layoutCollectibleHint(gtx, l, x-gap, line, width)
 	}
 	return layout.Dimensions{Size: image.Pt(width, y+line+gtx.Dp(12))}
 }
