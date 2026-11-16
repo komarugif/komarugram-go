@@ -23,6 +23,12 @@ func (a *App) RecoverFrame() bool {
 	if a.recoverSettings() {
 		return true
 	}
+	// The messages leaving a history go at once.
+	for _, p := range []*chatPage{a.history, a.comments} {
+		if p != nil && p.recoverLeaving() {
+			return true
+		}
+	}
 	a.panics++
 	switch a.panics {
 	case 1:

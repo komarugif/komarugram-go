@@ -55,6 +55,8 @@ type App struct {
 	images imageOps
 	// sprites are avatars as pictures, for motion blur.
 	sprites avatarSprites
+	// effects are the particles of the window's spoilers.
+	effects effects
 	window  *appwindow.Window
 	// currentAccount is the ID of the account the window shows.
 	currentAccount func() string
@@ -508,6 +510,12 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			log.Printf("save settings: %v", err)
 		}
 	}
+	a.settings.deleteEffect = func() preferences.DeleteEffect { return a.preferences.Global().DeleteEffect }
+	a.settings.setDeleteEffect = func(effect preferences.DeleteEffect) {
+		if err := services.Preferences.SetDeleteEffect(effect); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
 	a.settings.composerStyle = a.composerStyle
 	a.settings.setComposerStyle = func(style preferences.ComposerStyle) {
 		if err := services.Preferences.SetComposer(style); err != nil {
@@ -824,6 +832,7 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 	p.chats = store.Chats
 	p.images = &a.images
 	p.classic = func() bool { return a.composerStyle() == preferences.ComposerClassic }
+	p.deleteEffect = func() preferences.DeleteEffect { return a.preferences.Global().DeleteEffect }
 	p.blur = func() bool { return a.preferences.Global().ComposerBlur && w.Motion.AnimationsEnabled() }
 	p.overlays = a.overlayPrefs
 	p.player = a.settings.players.chosen
@@ -1394,6 +1403,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	}
 	decoderPrefs := a.preferences.Global()
 	paused := decoderPrefs.PauseInactive && !a.focused
+	withEffects(gtx, &a.effects, paused)
 	configureMedia := func(m *chatmedia.Manager) {
 		m.ConfigureDecoders(decoderPrefs.StickerPlayer == "wasm", decoderPrefs.AnimationPlayer == "wasm", decoderPrefs.FFmpegPath)
 		m.SetPaused(paused)
@@ -1834,6 +1844,7 @@ func (a *App) SetSuspended(hidden bool) {
 		a.downloads.media.Release()
 	}
 	a.images.Release()
+	a.effects = effects{}
 }
 
 // mediaFrame begins the frame of m on the frame's clock and returns what

@@ -263,10 +263,13 @@ func renderChatPreviews(t *testing.T, path string, size image.Point, scale float
 	}
 	ops := new(op.Ops)
 	// The pictures load meanwhile.
+	var fx effects
 	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		ops.Reset()
 		gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: scale, PxPerSp: scale}, Values: map[string]any{}}
 		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, sc))
+		// The spoilers' dust, as a window has it.
+		withEffects(gtx, &fx, false)
 		images.BeginFrame()
 		l.previews.media.BeginFrame()
 		l.Layout(gtx, section{kind: sectionAll}, nil, chats, 21, false, catalog)

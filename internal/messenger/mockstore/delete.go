@@ -18,9 +18,14 @@ func (s *Store) DeleteMessages(ctx context.Context, chat int64, ids []model.Mess
 	}
 	h := s.histories[chat]
 	messages := make([]model.Message, 0, len(h.Messages))
+	if s.erased == nil {
+		s.erased = map[model.MessageKey]bool{}
+	}
 	for _, m := range h.Messages {
 		if !remove[m.Key.MessageID] {
 			messages = append(messages, m)
+		} else {
+			s.erased[m.Key] = true
 		}
 	}
 	h.Messages = messages
@@ -37,4 +42,11 @@ func (s *Store) DeleteMessages(ctx context.Context, chat int64, ids []model.Mess
 		}
 	}
 	return nil
+}
+
+// MessageErased implements model.ErasedMessages.
+func (s *Store) MessageErased(key model.MessageKey) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.erased[key]
 }

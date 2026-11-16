@@ -104,6 +104,9 @@ func renders() []render {
 		render{"storage-offer", "TestRenderStorageOffer", []string{"STORAGE_PNG_DIR={out}"}},
 		render{"toasts", "TestRenderToasts", []string{"TOAST_PNG_DIR={out}"}},
 		render{"audio", "TestRenderAudio", []string{"AUDIO_PNG_DIR={out}"}},
+		render{"spoiler-dust", "TestRenderSpoilerDust", []string{"EFFECTS_PNG_DIR={out}"}},
+		render{"media-dust", "TestRenderMediaDust", []string{"EFFECTS_PNG_DIR={out}"}},
+		render{"message-leaves", "TestRenderMessageLeaves", []string{"EFFECTS_PNG_DIR={out}"}},
 	)
 }
 

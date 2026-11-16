@@ -67,6 +67,8 @@ type Store struct {
 
 	// stories are the demo's stories, by peer, made when first asked for.
 	stories map[int64]*demoStories
+	// erased are the messages deleted (delete.go).
+	erased map[model.MessageKey]bool
 
 	// gifs are the saved GIFs, once one was saved or deleted; recentGone,
 	// the recent stickers taken off the list (composer.go).

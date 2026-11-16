@@ -43,6 +43,31 @@ type menuStore struct {
 	forwarded []string
 	// sets maps a custom emoji to its set.
 	sets map[int64]int64
+	// erased are the messages deleted: see erase.
+	erased map[model.MessageKey]bool
+}
+
+// MessageErased implements model.ErasedMessages.
+func (s *menuStore) MessageErased(key model.MessageKey) bool { return s.erased[key] }
+
+// erase deletes the messages ids from the history, as Telegram does.
+func (s *menuStore) erase(ids ...model.MessageID) {
+	if s.erased == nil {
+		s.erased = map[model.MessageKey]bool{}
+	}
+	for _, m := range s.h.Messages {
+		if slices.Contains(ids, m.Key.MessageID) {
+			s.erased[m.Key] = true
+		}
+	}
+	s.unload(ids...)
+}
+
+// unload takes the messages ids out of what the history has loaded: they
+// are not deleted.
+func (s *menuStore) unload(ids ...model.MessageID) {
+	s.h.Messages = slices.DeleteFunc(slices.Clone(s.h.Messages), func(m model.Message) bool { return slices.Contains(ids, m.Key.MessageID) })
+	s.h.Revision++
 }
 
 func (s *menuStore) Picker(context.Context, model.PickerRequest) (model.PickerPage, error) {
@@ -90,6 +115,15 @@ type menuHarness struct {
 	// when it is 0.
 	still bool
 	width int
+	// fx are the particles of the harness's window, for a test that has
+	// them; scale is how many px a dp is, 1 when it is 0; dark draws in
+	// the dark theme; ops are those of the frame drawn last.
+	// animate lays the page out as a window with animations on does.
+	fx      *effects
+	scale   float32
+	dark    bool
+	animate bool
+	ops     *op.Ops
 }
 
 func newMenuHarness(t *testing.T, edit func(*menuStore, []model.Message)) *menuHarness {
@@ -129,14 +163,27 @@ func (h *menuHarness) frame() {
 	if width == 0 {
 		width = 500
 	}
-	gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(width, 700)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
+	scale := h.scale
+	if scale == 0 {
+		scale = 1
+	}
+	h.ops = new(op.Ops)
+	gtx := layout.Context{Ops: h.ops, Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(width, 700)), Metric: unit.Metric{PxPerDp: scale, PxPerSp: scale}, Values: map[string]any{}}
+	colors := schemes.SchemeBaselineLight()
+	if h.dark {
+		colors = schemes.SchemeBaselineDark()
+	}
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, colors))
 	if h.still {
 		wdk.SetAnimationsEnabled(gtx, false)
 	}
+	if h.fx != nil {
+		withEffects(gtx, h.fx, false)
+	}
+	fillRect(gtx, scheme(gtx).Surface.Color, gtx.Constraints.Max)
 	h.page.images.BeginFrame()
 	h.page.media.BeginFrame()
-	h.page.Layout(gtx, model.Chat{ID: 1, Title: "Chat", Kind: model.KindGroup}, localization.For("en"), false)
+	h.page.Layout(gtx, model.Chat{ID: 1, Title: "Chat", Kind: model.KindGroup}, localization.For("en"), h.animate)
 	h.page.layoutDialogs(gtx, localization.For("en"))
 	h.page.media.EndFrame()
 	h.page.images.EndFrame()

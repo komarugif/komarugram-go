@@ -216,6 +216,11 @@ type settingsPage struct {
 	silentAsVideo    func() bool
 	setSilentAsVideo func(bool)
 	silentVideo      *radio.Radios[bool]
+	// deleteEffect and setDeleteEffect read and choose how a deleted
+	// message leaves the history; deleteEffects are their radios.
+	deleteEffect    func() preferences.DeleteEffect
+	setDeleteEffect func(preferences.DeleteEffect)
+	deleteEffects   *radio.Radios[preferences.DeleteEffect]
 	// systemAccent and setSystemAccent read and switch whether the colors
 	// follow the system's accent color; systemAccentAvailable reports
 	// whether the system has one, and the checkbox is shown only then.
@@ -481,6 +486,11 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			p.setSilentAsVideo(asVideo)
 		}
 	})
+	p.deleteEffects = radio.NewRadios([]preferences.DeleteEffect{preferences.DeleteDissolve, preferences.DeleteFade}, preferences.DeleteDissolve, func(effect preferences.DeleteEffect) {
+		if p.setDeleteEffect != nil {
+			p.setDeleteEffect(effect)
+		}
+	})
 	p.confirmBoxes = checkbox.NewCheckboxes([]string{"sticker", "gif"}, nil, func(values []string) {
 		if p.setConfirmations != nil {
 			p.setConfirmations(slices.Contains(values, "sticker"), slices.Contains(values, "gif"))
@@ -680,6 +690,10 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 	if p.silentAsVideo != nil {
 		p.silentVideo.SetValue(p.silentAsVideo())
 		p.silentVideo.Update(gtx)
+	}
+	if p.deleteEffect != nil {
+		p.deleteEffects.SetValue(p.deleteEffect())
+		p.deleteEffects.Update(gtx)
 	}
 	if p.composerBlur != nil {
 		// What blurs may have changed in another window since the last frame.
@@ -1456,6 +1470,18 @@ func (p *settingsPage) layoutChats(gtx layout.Context, l localization.Catalog) l
 				return p.silentVideo.Layout(gtx, radio.LeadingKind, map[bool]string{
 					false: l.T("settings.silent_video_gif"),
 					true:  l.T("settings.silent_video_video"),
+				})
+			})
+		}))
+	}
+	if p.deleteEffect != nil {
+		// How a message deleted while in view leaves it, with animations
+		// on: without them it goes at once.
+		cards = append(cards, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return settingsChoiceCard(gtx, p.cardHeight("choice-delete-effect"), l.T("settings.delete_effect"), l.T("settings.delete_effect_hint"), func(gtx layout.Context) layout.Dimensions {
+				return p.deleteEffects.Layout(gtx, radio.LeadingKind, map[preferences.DeleteEffect]string{
+					preferences.DeleteDissolve: l.T("settings.delete_dissolve"),
+					preferences.DeleteFade:     l.T("settings.delete_fade"),
 				})
 			})
 		}))

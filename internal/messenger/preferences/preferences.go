@@ -44,6 +44,19 @@ const (
 	ComposerClassic
 )
 
+// DeleteEffect is how a message deleted while it is in view leaves the
+// history, while animations are on.
+type DeleteEffect int
+
+const (
+	// DeleteDissolve crumbles the message into dust that drifts away, as
+	// Telegram for Android's "Thanos" effect does.
+	DeleteDissolve DeleteEffect = iota
+	// DeleteFade fades the message out while the messages around it move
+	// into its place.
+	DeleteFade
+)
+
 // Global contains preferences which currently apply to every account and
 // every window.
 type Global struct {
@@ -97,6 +110,8 @@ type Global struct {
 	LockOnMinimize  bool          `json:"lock_on_minimize,omitempty"`
 	LockOnClose     bool          `json:"lock_on_close,omitempty"`
 	Composer        ComposerStyle `json:"composer,omitempty"`
+	// DeleteEffect is how a deleted message leaves the history.
+	DeleteEffect DeleteEffect `json:"delete_effect,omitempty"`
 	// SilentVideoAsVideo sends a video without sound as a video: left to itself,
 	// Telegram makes a GIF of one, as it does by default here.
 	SilentVideoAsVideo bool `json:"silent_video_as_video,omitempty"`
@@ -1301,6 +1316,11 @@ func (s *Store) SetConfirmations(sticker, gif bool) error {
 // SetComposer changes the message composer style for all windows.
 func (s *Store) SetComposer(value ComposerStyle) error {
 	return s.change(func(g *Global) { g.Composer = value })
+}
+
+// SetDeleteEffect chooses how a deleted message leaves the history.
+func (s *Store) SetDeleteEffect(value DeleteEffect) error {
+	return s.change(func(g *Global) { g.DeleteEffect = value })
 }
 
 // SetSilentVideoAsVideo chooses how a video without sound goes: as a video, or

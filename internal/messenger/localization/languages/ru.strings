@@ -1909,6 +1909,10 @@
 "settings.confirm" = "Подтверждать отправку";
 "settings.confirm_gif" = "GIF";
 "settings.confirm_sticker" = "Стикеров";
+"settings.delete_dissolve" = "Танос: рассыпается в пыль";
+"settings.delete_effect" = "Удаление сообщений";
+"settings.delete_effect_hint" = "Как исчезает удалённое сообщение, пока включены анимации.";
+"settings.delete_fade" = "Затухание и сдвиг";
 "settings.input" = "Ввод";
 "settings.input_manual_focus" = "Фокус поля ввода только по клику";
 "settings.input_picker_click" = "Открывать панель эмодзи только по клику";

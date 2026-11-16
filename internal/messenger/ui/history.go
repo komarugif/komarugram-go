@@ -488,6 +488,14 @@ type chatPage struct {
 	chats func() []model.Chat
 	// title is the open chat's, for the initials of its avatar.
 	title string
+	// leavings are the messages erased while in view, on their way out of
+	// it, and moves the rows around them on their way into their places;
+	// leavingOut is set while the leavings are laid out, and deleteEffect
+	// tells how a message leaves (history_leave.go).
+	leavings     []*leaving
+	moves        *rowMoves
+	leavingOut   bool
+	deleteEffect func() preferences.DeleteEffect
 	// snapshotting is set while the rows of a snapshot are laid out; shot
 	// is the dialog that makes one; historyWidth, how wide the history was
 	// in the last frame, which a snapshot is too.
@@ -815,6 +823,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.restored = false
 		p.jump = jumpNone
 		p.flights = nil
+		p.leavings, p.moves = nil, nil
 		p.link = ""
 		p.linkModal.Hide()
 	}
@@ -904,8 +913,12 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 			prev = p.messages
 		}
 		p.olderAbove, p.newerNow = history.HasOlder, history.HasNewer
+		// The messages erased while in view leave it, and the rows around
+		// them move into their places.
+		gone, tops, anchor := p.leavers(gtx, history.Messages, env)
 		p.rebuild(history.Messages, env)
 		p.startFlights(gtx, prev, animate)
+		p.startLeaving(gtx, gone, tops, anchor)
 	}
 	p.askShapes()
 	p.newerBelow = history.HasNewer
@@ -1043,9 +1056,18 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 			if row == rows-1 {
 				end = tail
 			}
+			// On its way to its place, after a message among the rows left.
+			shift := p.moveShift(gtx, msg.Key.MessageID)
+			var moved op.TransformStack
+			if shift != 0 {
+				moved = op.Offset(image.Pt(0, shift)).Push(gtx.Ops)
+			}
 			dims := p.flyingRow(gtx, i, p.viewHeight-tail+flightFrom, end, func(gtx layout.Context) layout.Dimensions {
 				return p.row(gtx, msg, date, p.joins[i], l, animate)
 			})
+			if shift != 0 {
+				moved.Pop()
+			}
 			// The room the composer takes under the last row is the list's,
 			// not the row's: the height kept is the row's alone, as high as
 			// it is once another message comes under it.
@@ -1061,6 +1083,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 			return dims
 		})
 		p.releaseMedia(gtx, gtx.Now)
+		p.layoutLeaving(gtx, l)
 		p.measureOffScreen(gtx, l)
 		p.stickyAvatars(gtx, cover)
 		p.stickyDate(gtx)
@@ -1624,7 +1647,7 @@ func (p *chatPage) textFlow(gtx layout.Context, r *messageRow, block *messageTex
 			if !r.text.reveal.started.IsZero() {
 				radius = r.text.reveal.radius(gtx.Now, r.text.size)
 			}
-			paintLineSpoiler(gtx, f, r.text.reveal.center, radius, scheme(gtx).OutlineVariant.AsNRGBA(), join, paintContent)
+			paintLineSpoiler(gtx, f, r.text.reveal.center, radius, scheme(gtx).OutlineVariant.AsNRGBA(), fg, join, paintContent)
 		} else {
 			paintContent()
 		}

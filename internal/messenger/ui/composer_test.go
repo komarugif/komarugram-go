@@ -55,6 +55,9 @@ type composerHarness struct {
 	// under the page, as the desktop behind a translucent window.
 	transparency int
 	under        func(gtx layout.Context)
+	// fx are the particles of the harness's window, for a view that
+	// shows them.
+	fx *effects
 }
 
 func newComposerHarness(t *testing.T) *composerHarness {
@@ -74,6 +77,9 @@ func (h *composerHarness) frame() *op.Ops {
 	wdk.SetAnimationsEnabled(gtx, !h.still)
 	if h.transparency > 0 {
 		withWindowSurfaceOpacity(gtx, h.transparency, true)
+	}
+	if h.fx != nil {
+		withEffects(gtx, h.fx, false)
 	}
 	if h.under != nil {
 		h.under(gtx)
@@ -449,6 +455,7 @@ func TestRenderComposer(t *testing.T) {
 			// The first and the last hidden under a spoiler; the pointer rests on
 			// the first's spoiler button below.
 			b.files[0].spoiler, b.files[2].spoiler = true, true
+			h.fx = new(effects)
 		case "files-drag":
 			// The first dragged over the third's place, the others making room.
 			b.drag = boxDrag{file: b.files[0], active: true, target: 2, at: f32.Pt(330, 70), grab: f32.Pt(60, 60)}
