@@ -73,7 +73,7 @@ type selectModeMenu struct {
 // gridSection tells whether the section shown is a grid of thumbnails.
 func (p *chatInfo) gridSection() bool {
 	switch p.section {
-	case model.SharedPhotos, model.SharedVideos, model.SharedGIFs, model.SharedStories:
+	case model.SharedPhotos, model.SharedVideos, model.SharedGIFs, model.SharedStories, model.SharedStoryArchive:
 		return !p.themePage
 	}
 	return false
@@ -278,11 +278,12 @@ func (p *chatInfo) placeFiles(width, height int) {
 			break
 		}
 		for _, t := range row.tiles {
-			x1 := t.x1
-			if x1 <= t.x0 {
-				x1 = width
+			// The tiles are placed in the column (inColumn).
+			x0, x1 := t.x0+p.margin, t.x1+p.margin
+			if t.x1 <= t.x0 {
+				x0, x1 = p.margin, width-p.margin
 			}
-			p.places = append(p.places, sharedPlace{index: t.index, rect: image.Rect(t.x0, y, x1, y+row.height)})
+			p.places = append(p.places, sharedPlace{index: t.index, rect: image.Rect(x0, y, x1, y+row.height)})
 		}
 		y += row.height
 	}

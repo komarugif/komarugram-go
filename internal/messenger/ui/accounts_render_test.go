@@ -157,7 +157,7 @@ func TestRenderAccountScreens(t *testing.T) {
 		"profile-private": {private: true},
 		"profile-edit":    {editing: true},
 	} {
-		page := newProfilePage(store)
+		page := newOwnProfile(t, store, func() {})
 		if state.editing {
 			me := store.Me()
 			page.editing = true
@@ -167,7 +167,8 @@ func TestRenderAccountScreens(t *testing.T) {
 			page.bio.editor.SetText(me.Bio)
 		}
 		renderPNG(t, filepath.Join(dir, name+".png"), size, 1, func(gtx layout.Context) {
-			page.Layout(gtx, store.Me(), l, avatar, state.private, false)
+			page.Update(gtx, store.Me(), func() {})
+			page.Layout(gtx, store.Me(), l, state.private, false)
 		})
 	}
 
@@ -197,16 +198,19 @@ func TestRenderAccountScreens(t *testing.T) {
 	renderPNG(t, filepath.Join(dir, "chats-premium.png"), image.Pt(420, 1100), 2, func(gtx layout.Context) {
 		list.Layout(gtx, section{kind: sectionAll}, store.Folders(), store.Chats(), 0, false, l)
 	})
-	profile := newProfilePage(store)
-	profile.badges = badges
+	profile := newOwnProfile(t, store, func() {})
+	profile.info.badges = badges
 	renderPNG(t, filepath.Join(dir, "profile-premium.png"), image.Pt(900, 320), 1, func(gtx layout.Context) {
-		profile.Layout(gtx, store.Me(), l, avatar, false, false)
+		profile.Update(gtx, store.Me(), func() {})
+		profile.Layout(gtx, store.Me(), l, false, false)
 	})
 
 	// The marks themselves, large, to compare with Telegram's; and each
 	// kind beside a name.
 	renderPNG(t, filepath.Join(dir, "badge-shapes.png"), image.Pt(480, 200), 1, func(gtx layout.Context) {
-		offset(gtx, image.Pt(20, 20), func(gtx layout.Context) layout.Dimensions { return premiumStarIcon(gtx, token.MatColor(telegramBlue), 128) })
+		offset(gtx, image.Pt(20, 20), func(gtx layout.Context) layout.Dimensions {
+			return premiumStarIcon(gtx, token.MatColor(telegramBlue), 128)
+		})
 		offset(gtx, image.Pt(220, 20), func(gtx layout.Context) layout.Dimensions { return layoutVerified(gtx, 128) })
 	})
 	renderPNG(t, filepath.Join(dir, "badge-names.png"), image.Pt(420, 220), 1, func(gtx layout.Context) {

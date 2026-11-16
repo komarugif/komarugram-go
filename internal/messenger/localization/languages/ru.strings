@@ -1294,15 +1294,9 @@
 "number.decimal" = ",";
 
 "page.bio" = "О себе";
-"page.bio_empty" = "Не заполнено";
 "page.cancel" = "Отмена";
 "page.choose_chat" = "Выберите чат, чтобы начать общение";
 "page.dc" = "Дата-центр";
-"page.dc_1" = "Майами";
-"page.dc_2" = "Амстердам";
-"page.dc_3" = "Майами";
-"page.dc_4" = "Амстердам";
-"page.dc_5" = "Сингапур";
 "page.edit" = "Изменить профиль";
 "page.err_bio" = "«О себе» — не длиннее %d символов.";
 "page.err_failed" = "Не удалось сохранить: %s";
@@ -1312,13 +1306,9 @@
 "page.err_username" = "Имя пользователя: 5–32 символа, латинские буквы, цифры и _, начинается с буквы и не заканчивается на _.";
 "page.first_name" = "Имя";
 "page.history_later" = "Переписка появится в следующих версиях";
-"page.id" = "ID";
 "page.last_name" = "Фамилия";
-"page.not_set" = "Не задано";
-"page.phone" = "Телефон";
 "page.save" = "Сохранить";
 "page.saving" = "Сохраняем…";
-"page.telegram_account" = "Аккаунт Telegram";
 "page.username" = "Имя пользователя";
 "page.username_hint" = "5–32 символа: латинские буквы, цифры и _. Можно оставить пустым.";
 
@@ -2006,6 +1996,10 @@
 "shared.count.polls" = "{count} · Опросы";
 "shared.count.saved" = "{count} · Сохранённые сообщения";
 "shared.count.stories" = "{count} · Публикации";
+"shared.count.story_archive#few" = "{count} истории";
+"shared.count.story_archive#many" = "{count} историй";
+"shared.count.story_archive#one" = "{count} история";
+"shared.count.story_archive#other" = "{count} истории";
 "shared.count.videos" = "{count} · Видео";
 "shared.count.voice" = "{count} · Голосовые и видеосообщения";
 "shared.empty" = "В этом разделе пока ничего нет";
@@ -2014,6 +2008,7 @@
 "shared.empty.links" = "В этом разделе пока ничего нет";
 "shared.empty.music" = "В этом разделе пока ничего нет";
 "shared.empty.photos" = "В этом разделе пока ничего нет";
+"shared.empty.story_archive" = "Архивные истории видите только Вы, если не решите опубликовать их в профиле.";
 "shared.empty.videos" = "В этом разделе пока ничего нет";
 "shared.empty.voice" = "В этом разделе пока ничего нет";
 "shared.files" = "Файлы";
@@ -2030,6 +2025,7 @@
 "shared.select_range" = "Последовательная выборка";
 "shared.selection" = "Выборка";
 "shared.stories" = "Публикации";
+"shared.story_archive" = "Архив историй";
 "shared.total" = "Всего: %s";
 "shared.videos" = "Видео";
 "shared.voice" = "Голосовые и видеосообщения";

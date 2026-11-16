@@ -57,6 +57,41 @@ func TestRenderProfiles(t *testing.T) {
 			renderProfile(t, filepath.Join(dir, "profile-"+name+".png"), c.chat, localization.For(c.lang), dark)
 		}
 	}
+	// The account's own, as its page: as it is, in a dark theme, covered by
+	// visual privacy, and being edited, in a window as wide as the page
+	// right of the chat list.
+	for _, own := range []struct {
+		name                   string
+		dark, private, editing bool
+	}{{"own", false, false, false}, {"own-dark", true, false, false}, {"own-private", false, true, false}, {"own-edit", false, false, true}} {
+		renderOwnProfile(t, filepath.Join(dir, "profile-"+own.name+".png"), own.dark, own.private, own.editing)
+	}
+}
+
+func renderOwnProfile(t *testing.T, path string, dark, private, editing bool) {
+	t.Helper()
+	store := mockstore.New(time.Now(), 0)
+	p := newOwnProfile(t, store, func() {})
+	me := store.Me()
+	p.open(me)
+	awaitShared(t, p.info)
+	until := time.Now().Add(3 * time.Second)
+	for p.info.profileResult != nil && time.Now().Before(until) {
+		p.info.drainProfile()
+		time.Sleep(time.Millisecond)
+	}
+	if editing {
+		p.editing = true
+		p.first.editor.SetText(me.FirstName)
+		p.last.editor.SetText(me.LastName)
+		p.username.editor.SetText(me.Username)
+		p.bio.editor.SetText(me.Bio)
+	}
+	l := localization.For("ru")
+	renderInfoFrames(t, path, image.Pt(1000, 1250), dark, p.info.renderer.images, func(gtx layout.Context) {
+		p.Update(gtx, me, func() {})
+		p.Layout(gtx, me, l, private, false)
+	})
 }
 
 func renderProfile(t *testing.T, path string, chat model.Chat, l localization.Catalog, dark bool) {
@@ -72,7 +107,16 @@ func renderProfile(t *testing.T, path string, chat model.Chat, l localization.Ca
 		p.drainProfile()
 		time.Sleep(time.Millisecond)
 	}
-	size := image.Pt(800, 1000)
+	renderInfoFrames(t, path, image.Pt(800, 1000), dark, &images, func(gtx layout.Context) {
+		fillRect(gtx, scheme(gtx).Surface.Color, gtx.Constraints.Max)
+		p.Layout(gtx, l, false)
+	})
+}
+
+// renderInfoFrames draws 30 frames of draw, 50 ms apart, and saves the last
+// at path.
+func renderInfoFrames(t *testing.T, path string, size image.Point, dark bool, images *imageOps, draw func(gtx layout.Context)) {
+	t.Helper()
 	win, err := headless.NewWindow(size.X, size.Y)
 	if err != nil {
 		t.Fatal(err)
@@ -92,9 +136,8 @@ func renderProfile(t *testing.T, path string, chat model.Chat, l localization.Ca
 			theme = testTheme(gtx, sc)
 		}
 		wdk.InitMaterialThemeInContext(gtx, theme)
-		fillRect(gtx, scheme(gtx).Surface.Color, size)
 		images.BeginFrame()
-		p.Layout(gtx, l, false)
+		draw(gtx)
 		images.EndFrame()
 		now = now.Add(50 * time.Millisecond)
 	}

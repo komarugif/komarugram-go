@@ -77,9 +77,15 @@ func (s *Store) SharedCollection(ctx context.Context, chat int64, kind model.Sha
 	out := model.SharedCollectionPage{}
 	limit = min(100, max(1, limit))
 	switch kind {
-	case model.SharedStories:
+	case model.SharedStories, model.SharedStoryArchive:
 		offset, _ := strconv.Atoi(cursor)
-		res, e := api.StoriesGetPinnedStories(ctx, &tg.StoriesGetPinnedStoriesRequest{Peer: peer.input(), OffsetID: offset, Limit: limit})
+		var res *tg.StoriesStories
+		var e error
+		if kind == model.SharedStoryArchive {
+			res, e = api.StoriesGetStoriesArchive(ctx, &tg.StoriesGetStoriesArchiveRequest{Peer: peer.input(), OffsetID: offset, Limit: limit})
+		} else {
+			res, e = api.StoriesGetPinnedStories(ctx, &tg.StoriesGetPinnedStoriesRequest{Peer: peer.input(), OffsetID: offset, Limit: limit})
+		}
 		if e != nil {
 			return out, e
 		}

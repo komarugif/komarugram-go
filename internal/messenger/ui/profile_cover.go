@@ -249,6 +249,10 @@ func (p *chatInfo) layoutCover(gtx layout.Context, l localization.Catalog, anima
 	name := macro.Stop()
 	macro = op.Record(gtx.Ops)
 	statusLine, _ := p.renderer.chatStatusLine(gtx, p.chat, true, l)
+	if p.own != nil {
+		// The account is online where it looks at its own profile.
+		statusLine = l.T("status.user_online")
+	}
 	statusDims := centeredStatus(textGtx, statusLine, textColor.SetOpacity(.75))
 	status := macro.Stop()
 
@@ -697,6 +701,13 @@ func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog, 
 		opacity.Pop()
 	}
 	offset(gtx, closeAt, func(gtx layout.Context) layout.Dimensions {
+		if p.own != nil {
+			// The account's own page has nothing to close: its pencil edits it.
+			if !p.own.canEdit() {
+				return layout.Dimensions{}
+			}
+			return navigationButtonColor(gtx, &p.own.edit, iconEdit, l.T("page.edit"), content)
+		}
 		return navigationButtonColor(gtx, &p.close, iconClear, l.T("viewer.close"), content)
 	})
 }

@@ -36,8 +36,11 @@ type SharedMediaSource interface {
 
 const (
 	SharedStories SharedKind = "stories"
-	SharedGifts   SharedKind = "gifts"
-	SharedGroups  SharedKind = "groups"
+	// SharedStoryArchive are the account's own stories, those its profile
+	// does not show too: only its own profile has them.
+	SharedStoryArchive SharedKind = "story_archive"
+	SharedGifts        SharedKind = "gifts"
+	SharedGroups       SharedKind = "groups"
 )
 
 // Collections use opaque offsets because gift pagination is not a message ID.

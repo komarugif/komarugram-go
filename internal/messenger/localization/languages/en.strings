@@ -1236,15 +1236,9 @@
 "number.decimal" = ".";
 
 "page.bio" = "Bio";
-"page.bio_empty" = "Empty";
 "page.cancel" = "Cancel";
 "page.choose_chat" = "Choose a chat to start messaging";
 "page.dc" = "Data center";
-"page.dc_1" = "Miami";
-"page.dc_2" = "Amsterdam";
-"page.dc_3" = "Miami";
-"page.dc_4" = "Amsterdam";
-"page.dc_5" = "Singapore";
 "page.edit" = "Edit profile";
 "page.err_bio" = "The bio is at most %d characters.";
 "page.err_failed" = "Could not save: %s";
@@ -1254,13 +1248,9 @@
 "page.err_username" = "A username has 5–32 Latin letters, digits and _, starts with a letter and does not end with _.";
 "page.first_name" = "First name";
 "page.history_later" = "Conversation history will appear in a future version";
-"page.id" = "ID";
 "page.last_name" = "Last name";
-"page.not_set" = "Not set";
-"page.phone" = "Phone";
 "page.save" = "Save";
 "page.saving" = "Saving…";
-"page.telegram_account" = "Telegram account";
 "page.username" = "Username";
 "page.username_hint" = "5–32 characters: Latin letters, digits and _. May be left empty.";
 
@@ -1916,6 +1906,8 @@
 "shared.count.polls" = "{count} · Polls";
 "shared.count.saved" = "{count} · Saved messages";
 "shared.count.stories" = "{count} · Stories";
+"shared.count.story_archive#one" = "{count} story";
+"shared.count.story_archive#other" = "{count} stories";
 "shared.count.videos" = "{count} · Videos";
 "shared.count.voice" = "{count} · Voice and video messages";
 "shared.empty" = "Nothing in this section yet";
@@ -1924,6 +1916,7 @@
 "shared.empty.links" = "Nothing in this section yet";
 "shared.empty.music" = "Nothing in this section yet";
 "shared.empty.photos" = "Nothing in this section yet";
+"shared.empty.story_archive" = "Only you can see archived stories unless you choose to post them to your profile.";
 "shared.empty.videos" = "Nothing in this section yet";
 "shared.empty.voice" = "Nothing in this section yet";
 "shared.files" = "Files";
@@ -1940,6 +1933,7 @@
 "shared.select_range" = "Select in Order";
 "shared.selection" = "Selection";
 "shared.stories" = "Stories";
+"shared.story_archive" = "Story Archive";
 "shared.total" = "Total: %s";
 "shared.videos" = "Videos";
 "shared.voice" = "Voice and video messages";

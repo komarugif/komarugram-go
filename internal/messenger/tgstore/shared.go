@@ -119,6 +119,15 @@ func (s *Store) SharedCounts(ctx context.Context, chat int64) (map[model.SharedK
 			return res.Count, nil
 		})
 	}
+	if peer.Rights.Self {
+		count(model.SharedStoryArchive, func() (int, error) {
+			res, e := api.StoriesGetStoriesArchive(ctx, &tg.StoriesGetStoriesArchiveRequest{Peer: peer.input(), Limit: 1})
+			if e != nil {
+				return 0, e
+			}
+			return res.Count, nil
+		})
+	}
 	if peer.Kind == "user" {
 		count(model.SharedGroups, func() (int, error) {
 			res, e := api.MessagesGetCommonChats(ctx, &tg.MessagesGetCommonChatsRequest{UserID: &tg.InputUser{UserID: peer.ID, AccessHash: peer.Hash}, Limit: 1})

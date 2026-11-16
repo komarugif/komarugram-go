@@ -703,6 +703,7 @@
 "shared.empty.links" = "lng_media_link_empty";
 "shared.empty.music" = "lng_media_song_empty";
 "shared.empty.photos" = "lng_media_photo_empty";
+"shared.empty.story_archive" = "lng_stories_archive_about";
 "shared.empty.videos" = "lng_media_video_empty";
 "shared.empty.voice" = "lng_media_audio_empty";
 "shared.files" = "lng_media_type_files";
@@ -716,6 +717,7 @@
 "shared.polls" = "lng_media_type_polls";
 "shared.saved" = "lng_saved_messages";
 "shared.stories" = "lng_media_type_posts";
+"shared.story_archive" = "lng_stories_archive_title";
 "shared.videos" = "lng_media_type_videos";
 "shared.voice" = "lng_media_type_audios";
 
