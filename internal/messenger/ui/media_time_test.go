@@ -272,9 +272,9 @@ func TestTimeUnderNarrowMedia(t *testing.T) {
 	}
 }
 
-// The time over the corner of a sticker the account sent fades out while
-// the pointer is on the sticker, for it to be seen whole.
-func TestStickerTimeHides(t *testing.T) {
+// The time over the corner of a sticker the account sent shows only while
+// the pointer is on the sticker.
+func TestStickerTimeOnHover(t *testing.T) {
 	h := newMenuHarness(t, func(_ *menuStore, m []model.Message) {
 		m[1].Text, m[1].Kind, m[1].Outgoing = "", model.MessageSticker, true
 		m[1].Media = &model.MessageMedia{ID: "document/4", MIMEType: "image/webp", Width: 512, Height: 512}
@@ -286,12 +286,16 @@ func TestStickerTimeHides(t *testing.T) {
 	if box.Dx() < 100 {
 		t.Fatalf("no sticker found: %v", box)
 	}
-	if !timeShown(img, box, tile, 4) {
-		t.Fatal("no time over the sticker")
+	if timeShown(img, box, tile, 4) {
+		t.Fatal("time over the sticker without hover")
 	}
 	h.hover(f32.Pt(float32(box.Min.X+box.Dx()/2), float32(box.Min.Y+box.Dy()/2)))
+	if img := drawHistory(t, h, image.Pt(500, 700)); !timeShown(img, box, tile, 4) {
+		t.Fatal("no time over the sticker under the pointer")
+	}
+	h.hover(f32.Pt(1, 1))
 	if img := drawHistory(t, h, image.Pt(500, 700)); timeShown(img, box, tile, 4) {
-		t.Fatal("the time stays over the sticker under the pointer")
+		t.Fatal("time stayed after the pointer left")
 	}
 }
 

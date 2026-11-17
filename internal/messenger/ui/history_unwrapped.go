@@ -11,6 +11,7 @@ import (
 	"gio-mw/wdk"
 
 	"gioui.org/font"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -142,11 +143,16 @@ func (p *chatPage) unwrappedBody(gtx layout.Context, r *messageRow, m model.Mess
 		if !msg.Outgoing && msg.Kind != model.MessageRound {
 			return dims
 		}
-		// Over a sticker it fades out while the pointer is on the sticker,
-		// for it to be seen whole, as the plates over a video do.
+		// Over a sticker or lone emoji the time shows only on hover, as
+		// over a GIF. Observe the picture without taking its clicks.
 		target := float32(1)
-		if msg.Kind == model.MessageSticker {
-			target = boolFloat(!r.sticker.click.Hovered() && !r.media.Hovered())
+		if msg.Kind != model.MessageRound {
+			target = boolFloat(r.timeHover.Update(gtx.Source))
+			pass := pointer.PassOp{}.Push(gtx.Ops)
+			area := clip.Rect{Max: dims.Size}.Push(gtx.Ops)
+			r.timeHover.Add(gtx.Ops)
+			area.Pop()
+			pass.Pop()
 		}
 		r.timeFade.Duration = token.DurationShort2
 		shown := r.timeFade.Animate(gtx, target)

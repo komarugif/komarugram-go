@@ -170,11 +170,12 @@ The history is drawn as materialgram draws it:
   video's own plate does; on a GIF that plays here it fades in, as the
   GIF's time does. A video's own plate, or a GIF's time, that does not go
   beside it moves to the top corner. The time over the corner of a
-  sticker the account sent fades out under the pointer too. A video
+  sticker or lone emoji the account sent shows only under the pointer.
+  Time beside them stays visible. A video
   message has the time it was sent inside, under the circle's right, for
   anyone's, as its duration is under its left (Telegram Desktop's).
   `TestTimeOnVideo`, `TestTimeOnGIF`, `TestTimeOnPhotoHides`,
-  `TestStickerTimeHides`, `TestRoundTimeInside`; `MEDIA_TIME_PNG` renders
+  `TestStickerTimeOnHover`, `TestRoundTimeInside`; `MEDIA_TIME_PNG` renders
   them.
 - `bubbleContent` lists what a bubble holds as `bubblePart`s, and
   `bubbleBody` lays them out itself, not in a `layout.Flex`: what takes

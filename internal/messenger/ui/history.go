@@ -102,6 +102,7 @@ type messageRow struct {
 	// in its corner, and timeFade how much of it shows.
 	time       timePlate
 	timeFade   wdk.FloatTween
+	timeHover  gesture.Hover
 	chipWidths []int
 	lastChips  image.Rectangle
 	// comments is the bar that opens a channel post's comments.
