@@ -169,6 +169,9 @@ Writing them:
 
 ## Rules
 
+- **OpenAI Codex must generate a description for each commit** and append
+  `Co-authored-by: codex <codex@openai.com>` as the final line of the commit
+  message, separated from the description by a blank line.
 - **The README files in the root (`README.md`, `README_RU.md`) change only
   with the maintainer's consent.** Propose the text instead; when a change
   is agreed, make it in both languages.
