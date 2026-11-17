@@ -41,7 +41,8 @@ type sharedResult struct {
 	err        error
 }
 type chatInfo struct {
-	cardHeights       [8]heightTransition
+	summaryHeight     heightTransition
+	cardHeights       [5]heightTransition
 	loader            loadingIndicator
 	giftGeneration    uint64
 	drawAvatar        avatarLayout
@@ -840,14 +841,7 @@ func (p *chatInfo) layoutCards(gtx layout.Context, l localization.Catalog, anima
 					return p.own.form.Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.own.layoutForm(gtx, l) }, defaultCardPadding)
 				})
 			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutMusic(gtx, l) }),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutChannel(gtx, l, animate) }),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if p.editing() {
-					return layout.Dimensions{}
-				}
-				return p.layoutAbout(gtx, l, animate)
-			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutSummary(gtx, l, animate) }),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				name, phone := p.chatUsername(), p.phoneText()
 				if name == "" && phone == "" || p.editing() {
@@ -965,9 +959,33 @@ func (p *chatInfo) layoutCards(gtx layout.Context, l localization.Catalog, anima
 	})
 }
 
-// layoutMusic is the card of the song a user put on the profile, over
-// their channel's, as Telegram Desktop has it: a click opens their
-// playlist, as the cards of the sections open theirs.
+// layoutSummary is the shared song, channel and bio card for both profile
+// dialogs and the account's profile page.
+func (p *chatInfo) layoutSummary(gtx layout.Context, l localization.Catalog, animate bool) layout.Dimensions {
+	music := p.profile.Music != nil && p.profile.Music.Media != nil
+	about := !p.editing() && p.aboutText() != ""
+	if !music && p.profile.Channel == nil && !about {
+		return layout.Dimensions{}
+	}
+	content := func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutMusic(gtx, l) }),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutChannel(gtx, l, animate) }),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if p.editing() {
+					return layout.Dimensions{}
+				}
+				return p.layoutAbout(gtx, l, animate)
+			}),
+		)
+	}
+	return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return p.summaryHeight.Card(gtx, content, 6)
+	})
+}
+
+// layoutMusic draws the song row of the summary card; a click opens the
+// profile's playlist, as the cards of the sections open theirs.
 func (p *chatInfo) layoutMusic(gtx layout.Context, l localization.Catalog) layout.Dimensions {
 	m := p.profile.Music
 	if m == nil || m.Media == nil {
@@ -983,14 +1001,10 @@ func (p *chatInfo) layoutMusic(gtx layout.Context, l localization.Catalog) layou
 	if subtitle == "" {
 		subtitle = p.sectionTitle(model.SharedSavedMusic, l)
 	}
-	return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return p.cardHeights[7].Card(gtx, func(gtx layout.Context) layout.Dimensions {
-			size := gtx.Dp(cardAvatarSize)
-			return p.music.layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return p.layoutSongCover(gtx, *m, image.Pt(size, size))
-			}, size, title, subtitle)
-		}, 6)
-	})
+	size := gtx.Dp(cardAvatarSize)
+	return p.music.layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return p.layoutSongCover(gtx, *m, image.Pt(size, size))
+	}, size, title, subtitle)
 }
 
 // cardAvatarSize is the side of the picture at the start of a card of
@@ -1025,8 +1039,8 @@ func (p *chatInfo) sectionTitle(kind model.SharedKind, l localization.Catalog) s
 	return l.T("shared." + string(kind))
 }
 
-// layoutChannel is the card of a user's channel, as the cards of the
-// sections: its avatar, its name, and its subscribers with its last post.
+// layoutChannel draws the summary's personal channel row: its avatar,
+// name, and subscribers with its last post.
 func (p *chatInfo) layoutChannel(gtx layout.Context, l localization.Catalog, animate bool) layout.Dimensions {
 	ch := p.profile.Channel
 	if ch == nil {
@@ -1035,28 +1049,27 @@ func (p *chatInfo) layoutChannel(gtx layout.Context, l localization.Catalog, ani
 	title := l.ChatTitle(ch.Chat)
 	subtitle := richLabel{runs: channelLine(*ch, l), style: token.TypestyleBodySmall, color: scheme(gtx).SurfaceVariant.OnColor, maxLines: 1,
 		media: p.renderer.media, images: p.renderer.images, animate: animate}
-	return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return p.cardHeights[5].Card(gtx, func(gtx layout.Context) layout.Dimensions {
-			size := gtx.Dp(cardAvatarSize)
-			return p.channel.layoutWith(gtx, func(gtx layout.Context) layout.Dimensions {
-				if p.drawAvatar == nil {
-					return layout.Dimensions{Size: gtx.Constraints.Max}
-				}
-				return p.drawAvatar(gtx, ch.Chat.ID, ch.Chat.Kind, ch.Chat.Title, cardAvatarSize)
-			}, size, title, subtitle.Layout)
-		}, 6)
-	})
+	size := gtx.Dp(cardAvatarSize)
+	return p.channel.layoutWith(gtx, func(gtx layout.Context) layout.Dimensions {
+		if p.drawAvatar == nil {
+			return layout.Dimensions{Size: gtx.Constraints.Max}
+		}
+		return p.drawAvatar(gtx, ch.Chat.ID, ch.Chat.Kind, ch.Chat.Title, cardAvatarSize)
+	}, size, title, subtitle.Layout)
 }
 
-// layoutAbout is the card of what a user tells of themselves, as Telegram
-// Desktop's info has it: the text, plain but for its links and mentions,
-// which open as a message's, and under it what it is.
-func (p *chatInfo) layoutAbout(gtx layout.Context, l localization.Catalog, animate bool) layout.Dimensions {
-	about := strings.TrimSpace(p.profile.About)
+func (p *chatInfo) aboutText() string {
 	if p.own != nil {
 		// What the account saved last, which its profile may not have yet.
-		about = strings.TrimSpace(p.own.me.Bio)
+		return strings.TrimSpace(p.own.me.Bio)
 	}
+	return strings.TrimSpace(p.profile.About)
+}
+
+// layoutAbout draws the summary's bio or description, with links and
+// mentions that open as a message's, and its caption underneath.
+func (p *chatInfo) layoutAbout(gtx layout.Context, l localization.Catalog, animate bool) layout.Dimensions {
+	about := p.aboutText()
 	if about == "" {
 		return layout.Dimensions{}
 	}
@@ -1065,19 +1078,15 @@ func (p *chatInfo) layoutAbout(gtx layout.Context, l localization.Catalog, anima
 		m := model.Message{Key: model.MessageKey{ChatID: p.chat.ID}, Text: about, Entities: model.PlainEntities(about)}
 		p.about = newMessageRow(m, l, gtx.Now)
 	}
-	return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return p.cardHeights[6].Card(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: 10, Bottom: 10, Left: 16, Right: 16}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.renderer.richText(gtx, p.about, l, animate) }),
-					vspace(2),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return label(gtx, caption, token.TypestyleBodySmall, scheme(gtx).SurfaceVariant.OnColor, 1)
-					}),
-				)
-			})
-		}, 6)
+	return layout.Inset{Top: 10, Bottom: 10, Left: 16, Right: 16}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.renderer.richText(gtx, p.about, l, animate) }),
+			vspace(2),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, caption, token.TypestyleBodySmall, scheme(gtx).SurfaceVariant.OnColor, 1)
+			}),
+		)
 	})
 }
 

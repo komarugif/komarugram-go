@@ -99,6 +99,12 @@ func renderOwnProfile(t *testing.T, path string, dark, private, editing bool, se
 	}
 	if cover {
 		p.info.profile.Cover = model.ProfileCover{Colors: []uint32{0x5a8fd6, 0x82b4ee}, DarkColors: []uint32{0x2a4f80, 0x3f6aa3}}
+		// Show all three rows of the account's summary card.
+		p.info.profile.Channel = &model.PersonalChannel{
+			Chat: model.Chat{ID: 4, Kind: model.KindChannel, Title: "Новости Go", Members: 48210},
+			Post: model.Preview{Text: "Новая версия Go"},
+		}
+		p.info.drawAvatar = avatar
 	}
 	if section != "" {
 		p.info.selectSection(section)

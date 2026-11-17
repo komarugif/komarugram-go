@@ -893,6 +893,10 @@ size-stability fixes remain in place.
   span the page's full width while the avatar and cards stay in their
   centered column. `PROFILE_PNG_DIR` includes light and dark own-cover
   variants for checking this on a wide page.
+  A profile's song, personal channel and bio share one reusable card
+  (`chatInfo.layoutSummary`) in both dialogs and the account's page, with
+  an animated height. Missing rows are omitted; editing replaces the bio
+  with the profile's form while the song and channel stay available.
 - **Forum page** (`forum.go`): the topics of a forum chat in place of its
   history, under the chat's header (which opens its info). A row is drawn as the
   chat list's: `surface`, icon plate (`fillRounded`, the topic's colour, a house
