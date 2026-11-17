@@ -55,6 +55,7 @@ type messageRow struct {
 	bodyLeft    int
 	bodySize    image.Point
 	bodyTop     int
+	resize      messageResize
 	album       map[model.MessageID]*messageRow
 	// albumSizes are the sizes of the pictures of the album the row shows,
 	// kept for its tiles to be placed by in the next frame.
@@ -1316,6 +1317,14 @@ func (p *chatPage) rebuild(messages []model.Message, env model.RenderEnvironment
 	}
 	for i, m := range messages {
 		alive[m.Key.MessageID] = true
+		if r := p.rows[m.Key.MessageID]; r != nil && r.resize.height.initialized {
+			if old, ok := p.measures[m.Key.MessageID]; ok && old.Environment == env && (r.revision != m.ContentRevision || r.resize.changing) {
+				// Keep the row at its last drawn height until its new content
+				// is laid out and starts the transition.
+				hs[i] = r.resize.rowHeight
+				continue
+			}
+		}
 		if l, ok := p.measures[m.Key.MessageID]; ok && l.ContentRevision == m.ContentRevision {
 			hs[i] = l.HeightPx
 			if p.trace != nil {
@@ -1401,6 +1410,10 @@ func (p *chatPage) rebuild(messages []model.Message, env model.RenderEnvironment
 // history alone: the cache is not told of it.
 func (p *chatPage) keepMeasure(msg model.Message, height int, env model.RenderEnvironment, keep bool) {
 	id := msg.Key.MessageID
+	if r := p.rows[id]; r != nil && r.resize.changing {
+		// Only the settled layout belongs in the persistent cache.
+		return
+	}
 	if !keep {
 		if p.unsaved == nil {
 			p.unsaved = map[model.MessageID]bool{}

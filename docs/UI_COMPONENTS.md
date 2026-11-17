@@ -103,6 +103,14 @@ put it next to these, and add it to this page.
 
 The history is drawn as materialgram draws it:
 
+- Edits and reaction changes animate the bubble's height through
+  `messageResize` (`history_resize.go`), whose state survives message
+  revisions. The list follows the visible height; only settled heights
+  enter the layout cache. Quotes and accordions keep their own transitions
+  without another animation around them. Initial layouts, width changes
+  and disabled motion use the final height immediately.
+  `MESSAGE_RESIZE_PNG_DIR` renders frames of edits, first reactions and
+  reaction wrapping, including messages without a bubble.
 - `messageJoins` groups a sender's messages in a row (same sender, same
   day, less than 15 minutes apart): the group shows the sender's name at
   its top and one avatar, which sticks to the bottom of the view while the

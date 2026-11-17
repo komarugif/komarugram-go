@@ -107,6 +107,7 @@ func renders() []render {
 		render{"spoiler-dust", "TestRenderSpoilerDust", []string{"EFFECTS_PNG_DIR={out}"}},
 		render{"media-dust", "TestRenderMediaDust", []string{"EFFECTS_PNG_DIR={out}"}},
 		render{"message-leaves", "TestRenderMessageLeaves", []string{"EFFECTS_PNG_DIR={out}"}},
+		render{"message-resize", "TestMessageRevisionAnimatesHeight", []string{"MESSAGE_RESIZE_PNG_DIR={out}/message-resize"}},
 	)
 }
 

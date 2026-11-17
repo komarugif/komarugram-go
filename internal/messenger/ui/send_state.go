@@ -109,10 +109,11 @@ func drawOnlineDot(gtx layout.Context, at image.Point, size int, ring token.MatC
 // a video message's circle had room around it (roundPad); 23 and 24,
 // before the time went off the reactions' row where it widened the bubble;
 // 25 and 26, before the layouts of the history were once more not to be
-// trusted by the heights kept.
+// trusted by the heights kept; 27 and 28, before revised messages kept
+// their final heights separately from their animated heights.
 func rendererRevision(gtx layout.Context) uint32 {
 	if calmOf(gtx)&calmRead != 0 {
-		return 27
+		return 29
 	}
-	return 28
+	return 30
 }
