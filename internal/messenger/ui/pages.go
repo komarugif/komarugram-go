@@ -122,6 +122,8 @@ func layoutChatPageHead(gtx layout.Context, c model.Chat, l localization.Catalog
 	textX := pad + imagePx + gtx.Dp(12)
 	if head == nil {
 		textX = avatarX + imagePx + gtx.Dp(12)
+	} else {
+		textX = gtx.Dp(headBackWidth)
 	}
 	textGtx := gtx
 	textGtx.Constraints = layout.Constraints{Max: image.Pt(max(size.X-textX-2*pad-infoPx, 0), header.Y)}
@@ -234,8 +236,9 @@ func (p *scrollPage) layout(gtx layout.Context, content layout.Widget) layout.Di
 }
 
 // headBackWidth is how much of a chat's header its back button takes
-// before the avatar: its 48 dp target and the space after it.
-const headBackWidth = unit.Dp(52)
+// before the avatar or title: the 4 dp leading inset, its 48 dp target,
+// and the same gap as a settings header.
+const headBackWidth = unit.Dp(4+48) + backButtonGap
 
 // layoutHeadBack lays out the back button of a page's header, its 48 dp
 // target x from the start, in a header height high.

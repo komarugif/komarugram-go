@@ -744,7 +744,9 @@ func (p *chatInfo) layoutHeader(gtx layout.Context, l localization.Catalog, titl
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				if p.section != "" || p.themePage || p.qr.shown {
-					return navigationButton(gtx, &p.back, iconBack, l.T("settings.back"))
+					return layout.Inset{Right: backButtonGap}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return navigationButton(gtx, &p.back, iconBack, l.T("settings.back"))
+					})
 				}
 				return layout.Dimensions{}
 			}),

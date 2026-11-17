@@ -31,6 +31,13 @@ func TestRenderCommentsHead(t *testing.T) {
 			return layout.Dimensions{Size: gtx.Constraints.Max}
 		}, nil)
 	})
+	// The same back button before a chat avatar keeps the comments' gap.
+	back := button.Text()
+	renderFrames(t, image.Pt(500, 200), path+".chat.png", func(gtx layout.Context) {
+		layoutChatPage(gtx, model.Chat{ID: 2, Title: "Анна Смирнова", Kind: model.KindUser}, l, avatar, nil, back, func(gtx layout.Context) layout.Dimensions {
+			return layout.Dimensions{Size: gtx.Constraints.Max}
+		}, nil)
+	})
 }
 
 // TestCommentsBarOpens clicks the comments bar of a channel post.

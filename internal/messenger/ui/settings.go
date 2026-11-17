@@ -902,7 +902,7 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return p.back.LayoutIconOnly(gtx, l.T("settings.back"), iconBack)
 				}),
-				layout.Rigid(layout.Spacer{Width: 8}.Layout),
+				layout.Rigid(layout.Spacer{Width: backButtonGap}.Layout),
 				layout.Rigid(title),
 			)
 		})
