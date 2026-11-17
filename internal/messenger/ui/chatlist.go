@@ -460,12 +460,15 @@ func (l *chatList) layoutResults(gtx layout.Context, selected int64, catalog loc
 		switch {
 		case it.recentHeading:
 			return recent.layoutHeading(gtx, catalog)
-		case it.recent:
-			dims := l.layoutRow(gtx, withMembersLine(*it.chat, catalog), it.chat.ID == selected, false, now, catalog)
-			recent.rowOp(gtx, it.chat.ID, dims.Size)
-			return dims
 		case it.chat != nil:
-			return l.layoutRow(gtx, withMembersLine(*it.chat, catalog), it.chat.ID == selected, false, now, catalog)
+			// Search rows have no community shortcut: the whole row opens
+			// the result, including the corner of its avatar.
+			row := l.row(it.chat.ID)
+			dims := l.layoutRowWith(gtx, &row.surface, &row.line, withMembersLine(*it.chat, catalog), it.chat.ID == selected, false, now, catalog)
+			if it.recent {
+				recent.rowOp(gtx, it.chat.ID, dims.Size)
+			}
+			return dims
 		case it.found != nil:
 			return l.layoutFound(gtx, l.panel, *it.found, false, now, catalog)
 		case it.heading != "":

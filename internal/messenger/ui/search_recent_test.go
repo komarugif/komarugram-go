@@ -20,6 +20,7 @@ import (
 
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
+	"komarugram/internal/messenger/model"
 )
 
 // searchHarness is the chat list searching, on the demo store.
@@ -71,6 +72,28 @@ func (h *searchHarness) press(button pointer.Buttons, pos f32.Point) {
 // and the capsules.
 func (h *searchHarness) resultsTop() float32 {
 	return float32(int(searchHeader) + int(searchTabsHeight) + int(searchChipsHeight))
+}
+
+// The avatar's corner in search opens the chat, including when it belongs
+// to a community; search has no shortcut to that community.
+func TestSearchCommunityAvatar(t *testing.T) {
+	h := newSearchHarness(t)
+	var chat model.Chat
+	for _, c := range h.store.Chats() {
+		if c.Community != 0 && c.Kind != model.KindCommunity {
+			chat = c
+			break
+		}
+	}
+	if chat.ID == 0 {
+		t.Fatal("demo has no chat belonging to a community")
+	}
+	h.list.search.SetText(chat.Title)
+	h.frames(10)
+	h.press(pointer.ButtonPrimary, f32.Pt(59, h.resultsTop()+51))
+	if len(h.picks) != 1 || h.picks[0].ID != chat.ID || h.picks[0].Community {
+		t.Fatalf("a click on the avatar's corner picked %+v, want chat %d", h.picks, chat.ID)
+	}
 }
 
 func TestSearchHistory(t *testing.T) {
