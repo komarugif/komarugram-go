@@ -135,7 +135,12 @@ func (s *Store) MessageLink(chat int64, id model.MessageID) (string, bool, bool)
 
 // ForwardMessages implements model.MessageForwarder.
 func (s *Store) ForwardMessages(ctx context.Context, from int64, ids []model.MessageID, to int64) error {
-	return s.queueForward(ctx, from, ids, to, false)
+	return s.queueForward(ctx, from, ids, to, false, model.ForwardOptions{})
+}
+
+// ForwardMessagesWithOptions queues a forward with its attribution and caption choices.
+func (s *Store) ForwardMessagesWithOptions(ctx context.Context, from int64, ids []model.MessageID, to int64, options model.ForwardOptions) error {
+	return s.queueForward(ctx, from, ids, to, false, options)
 }
 
 var (

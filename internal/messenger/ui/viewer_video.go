@@ -777,6 +777,7 @@ func (a *App) videoEngine(m model.Message) string {
 // configureViewer lets v play videos as the settings choose, at the volume
 // the client's sound has, pausing the window's audio player as one starts.
 func (a *App) configureViewer(v *mediaViewer) {
+	v.share.picker.navigate = a.openForwarded
 	v.videoEngine = a.videoEngine
 	// Its plates blur with the toasts.
 	v.overlays = a.overlayPrefs

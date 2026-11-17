@@ -841,6 +841,7 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 	p.audioExternal = func() bool { return a.preferences.Global().AudioPlayer == "external" }
 	p.appearance = a.themes
 	p.avatar = a.layoutAvatar
+	p.forwarding.navigate = a.openForwarded
 	if a.avatars != nil {
 		p.quietAvatars = a.avatars.media.SetQuiet
 	}
@@ -1328,6 +1329,15 @@ func (a *App) selectedChat() (model.Chat, bool) {
 // open opens the chat picked in the chat list, at the message picked when a
 // search found one.
 func (a *App) open(pick chatPick) {
+	if pick.End {
+		a.closeComments()
+		if a.info != nil {
+			a.info.Close()
+		}
+		if a.history != nil {
+			a.history.openEnd = pick.ID
+		}
+	}
 	if !a.section.showsChats() {
 		a.section = section{kind: sectionAll}
 	}
@@ -1348,6 +1358,13 @@ func (a *App) open(pick chatPick) {
 			a.history.forget()
 		}
 	}
+}
+
+// openForwarded may be called from another window's goroutine.
+func (a *App) openForwarded(chat model.Chat) {
+	a.openChat.Store(&chatPick{ID: chat.ID, Chat: &chat, End: true})
+	a.window.PerformLater(system.ActionRaise)
+	a.window.Invalidate()
 }
 
 // Layout implements appwindow.Content.
@@ -2091,6 +2108,10 @@ func (a *App) configureInfo(p *chatInfo, store model.Store) {
 	// The files of the sections are selected, forwarded and deleted as
 	// the chat's messages are, and a file goes to its message.
 	p.renderer.chats = store.Chats
+	p.renderer.forwarding.navigate = func(chat model.Chat) {
+		p.modal.Close()
+		a.openForwarded(chat)
+	}
 	p.renderer.avatar = a.layoutAvatar
 	p.renderer.menus = a.menuPrefs
 	p.renderer.frozen = a.frozen

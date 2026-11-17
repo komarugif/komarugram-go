@@ -121,6 +121,8 @@ type chatPick struct {
 	Chat *model.Chat
 	// Message is the message to open the chat at, 0 for none.
 	Message model.MessageID
+	// End opens the chat at its newest message, ignoring its saved position.
+	End bool
 	// Community is set for the community ID of a chat, picked by its badge.
 	Community bool
 }

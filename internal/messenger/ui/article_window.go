@@ -94,6 +94,7 @@ type articleWindowHost struct {
 	zoom      func() int
 	setZoom   func(int)
 	chats     func() []model.Chat
+	navigate  func(model.Chat)
 }
 
 func newArticleWindow(w *appwindow.Window, source model.ConversationStore, catalog localization.Catalog, host articleWindowHost, m model.Message, fragment string) *articleWindow {
@@ -101,6 +102,7 @@ func newArticleWindow(w *appwindow.Window, source model.ConversationStore, catal
 	a.w, a.mode = w, host.mode
 	a.tools.zoom, a.tools.setZoom = host.zoom, host.setZoom
 	a.page.chats = host.chats
+	a.page.forwarding.navigate = host.navigate
 	a.shortcuts = host.shortcuts
 	a.page.shortcuts = host.shortcuts
 	a.page.menus = host.menus
@@ -534,6 +536,7 @@ func (a *App) openArticleWindowOf(m model.Message, fragment, title string, src a
 				mode:      a.themeMode,
 				zoom:      func() int { return a.preferences.Global().ArticleZoom },
 				chats:     a.store.Chats,
+				navigate:  a.openForwarded,
 				setZoom: func(z int) {
 					if err := a.preferences.SetArticleZoom(z); err != nil {
 						log.Printf("save settings: %v", err)

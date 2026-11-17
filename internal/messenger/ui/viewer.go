@@ -865,6 +865,9 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	}
 	v.updateKept(gtx)
 	v.updateShare(gtx, items[indexOf(items, v.current)], l)
+	if !v.open {
+		return
+	}
 	v.updateGIF(gtx, items[indexOf(items, v.current)], l)
 	v.updateEditButton(gtx, items[indexOf(items, v.current)])
 	v.updateAvatar(gtx, items[indexOf(items, v.current)], l)

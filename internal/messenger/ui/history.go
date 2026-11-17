@@ -397,6 +397,8 @@ type chatPage struct {
 	link                                       string
 	// jump is a jump to an end of a thread, waiting for its load.
 	jump jump
+	// openEnd is a chat explicitly opened at its newest message.
+	openEnd int64
 	// flights are the messages that fly from the composer to their places.
 	flights map[model.MessageID]*sendFlight
 	// mediaError is a failure of a background task on the chat's media,
@@ -946,6 +948,10 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.restored = true
 	}
 	p.finishJump(history)
+	if p.openEnd == c.ID && len(p.messages) > 0 {
+		p.openEnd = 0
+		p.scrollToEnd(history)
+	}
 	p.askReserve(history)
 	if p.composer != nil && p.composer.takeSentJump(c.ID) {
 		// A message sent goes to the end of the history, wherever it was

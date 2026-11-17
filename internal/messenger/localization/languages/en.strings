@@ -887,6 +887,12 @@
 "history.file" = "File";
 "history.forward" = "Forwarded message";
 "history.forward_failed" = "Could not forward";
+"history.forward_back" = "Go back";
+"history.forward_confirm" = "Forward to “{chat}”?";
+"history.forward_go_to" = "Go to forwarded message";
+"history.forward_go_to_sent" = "Go to sent message";
+"history.forward_no_author" = "Without sender name";
+"history.forward_no_caption" = "Without caption";
 "history.forward_to" = "Forward to…";
 "history.forwarded" = "Forwarded to “{chat}”";
 "history.forwarded_from" = "Forwarded from {name}";

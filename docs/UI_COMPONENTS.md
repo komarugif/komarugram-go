@@ -431,6 +431,18 @@ size-stability fixes remain in place.
   Online users have the chat list's green dot on their avatars, respecting
   the setting that hides online status. `COMPOSER_VIEW=forward` with
   `COMPOSER_PNG` renders the dialog.
+  Choosing a recipient opens a confirmation step, without navigating to
+  their chat or showing a preview. Back (or Escape) restores the picker.
+  Message forwards can omit the author and, with that selected, media
+  captions; omitting the author changes Forward to Send. The choices are
+  kept in the outgoing queue across retries and restarts. Stories and
+  profile music ask for confirmation without message-forwarding options.
+  An optional Go to forwarded message checkbox opens the recipient at the
+  end of its history after success, ignoring the saved scroll position;
+  with the author hidden its label changes to Go to sent message. A media
+  viewer closes when making this transition, including its separate window.
+  `COMPOSER_VIEW=forward-confirm`, `forward-send` and `forward-text`
+  render the confirmation's default, selected and text-only states.
 - **Saving a video as a GIF** (`viewer_gif.go`): the viewer's GIF button,
   beside forwarding, on a video that does not protect its content, saves it
   among the saved GIFs (`model.GIFMaker`): `video.ConvertGIF` encodes it

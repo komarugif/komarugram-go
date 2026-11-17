@@ -284,10 +284,22 @@ func TestRenderComposer(t *testing.T) {
 	h := newComposerHarness(t)
 	h.p.composer.pickerOpen = true
 	switch os.Getenv("COMPOSER_VIEW") {
-	case "forward":
+	case "forward", "forward-confirm", "forward-send", "forward-text":
 		h.p.composer.pickerOpen = false
 		h.p.chats = h.p.source.(*mockstore.Store).Chats
 		h.p.forwarding.open(layout.Context{Ops: new(op.Ops)})
+		h.p.forwarding.navigate = func(model.Chat) {}
+		if os.Getenv("COMPOSER_VIEW") != "forward" {
+			f := &h.p.forwarding
+			f.confirming, f.allowOptions = true, true
+			f.target = model.Chat{ID: 2, Kind: model.KindUser, Title: "Анна Смирнова"}
+			f.hasMedia = os.Getenv("COMPOSER_VIEW") != "forward-text"
+			if os.Getenv("COMPOSER_VIEW") == "forward-send" {
+				f.options = model.ForwardOptions{DropAuthor: true, DropCaptions: true}
+				f.dropAuthor.SetValues([]string{"author"})
+				f.dropCaptions.SetValues([]string{"captions"})
+			}
+		}
 	case "channel-readonly", "channel-readonly-hover":
 		restrictComposer(h, model.SendPermissions{Unavailable: true, Broadcast: true, DiscussionID: 9, DirectMessagesID: 40})
 		h.p.composer.pickerOpen = false

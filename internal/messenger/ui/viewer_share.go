@@ -85,6 +85,9 @@ func (v *mediaViewer) storyNow(m model.Message) model.Message {
 func (v *mediaViewer) updateShare(gtx layout.Context, m model.Message, l localization.Catalog) {
 	s := &v.share
 	if s.forward.Clicked(gtx) && v.canForward(m) {
+		_, s.picker.allowOptions = s.forwarder.(model.MessageForwarderWithOptions)
+		s.picker.allowOptions = s.picker.allowOptions && !v.isStory(m)
+		s.picker.hasMedia = m.Media != nil
 		s.item, s.picking = m, true
 		s.picker.open(gtx)
 	}
@@ -98,6 +101,9 @@ func (v *mediaViewer) updateShare(gtx layout.Context, m model.Message, l localiz
 	}
 	if err, done := s.picker.result(l); done && err == nil {
 		v.toast.Show(l.Format("history.forwarded", map[string]string{"chat": l.ChatTitle(s.picker.target)}))
+		if s.picker.goToMessage && s.picker.navigate != nil {
+			v.Close()
+		}
 	}
 	if s.picking && !s.picker.modal.Shown() {
 		// Closed: the keys are the viewer's again.
@@ -141,11 +147,12 @@ func (v *mediaViewer) layoutShare(gtx layout.Context, l localization.Catalog) {
 		return
 	}
 	item, story, stories, forwarder := v.realStory(s.item), v.isStory(s.item), v.stories, s.forwarder
+	options := s.picker.options
 	s.picker.send(context.Background(), c, func(ctx context.Context, to int64) error {
 		if story {
 			return stories.ShareStory(ctx, item.Key.ChatID, item.Key.MessageID, to)
 		}
-		return forwarder.ForwardMessages(ctx, item.Key.ChatID, []model.MessageID{item.Key.MessageID}, to)
+		return forwardWithOptions(ctx, forwarder, item.Key.ChatID, []model.MessageID{item.Key.MessageID}, to, options)
 	}, v.invalidate)
 }
 

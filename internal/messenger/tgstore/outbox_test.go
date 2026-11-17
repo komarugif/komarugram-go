@@ -222,53 +222,64 @@ func TestOutgoingRetriesClosedTelegramConnection(t *testing.T) {
 }
 
 func TestOutgoingForwardSurvivesRestartAndRetry(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "history")
-	s := New(nil)
-	t.Cleanup(func() { s.Close() })
-	if err := s.Configure(ctx, "a", path, nil); err != nil {
-		t.Fatal(err)
-	}
-	s.history.peers[5] = peerRecord{Kind: "user", ID: 5, Hash: 55, Name: "Friend"}
-	s.history.peers[6] = peerRecord{Kind: "user", ID: 6, Hash: 66}
-	s.history.histories[5] = &model.History{Messages: []model.Message{{Key: model.MessageKey{AccountID: "a", ChatID: 5, MessageID: 10}, Text: "forward me", SenderName: "Friend"}}}
-	if err := s.ForwardMessages(ctx, 5, []model.MessageID{10}, 6); err != nil {
-		t.Fatal(err)
-	}
-	s.outbox.mu.Lock()
-	identity := s.outbox.entries[0].Request.RandomID
-	s.outbox.mu.Unlock()
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-	s = New(nil)
-	if err := s.Configure(ctx, "a", path, nil); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { s.Close() })
-	s.history.histories[6] = &model.History{}
-	if got := s.History(6).Messages; len(got) != 1 || !got[0].Sending || got[0].Text != "forward me" {
-		t.Fatalf("forward not restored: %+v", got)
-	}
-	calls := 0
-	s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
-		r, ok := in.(*tg.MessagesForwardMessagesRequest)
-		if !ok {
-			return nil, fmt.Errorf("unexpected %T", in)
-		}
-		if len(r.RandomID) != 1 || r.RandomID[0] != identity || len(r.ID) != 1 || r.ID[0] != 10 {
-			return nil, fmt.Errorf("forward identity changed: %+v", r)
-		}
-		calls++
-		if calls == 1 {
-			return nil, io.EOF
-		}
-		return &tg.Updates{}, nil
-	})
-	s.startOutgoing()
-	waitOutgoing(t, s, 0)
-	if calls != 2 {
-		t.Fatalf("forward had %d attempts", calls)
+	for _, options := range []model.ForwardOptions{{}, {DropAuthor: true}, {DropAuthor: true, DropCaptions: true}} {
+		t.Run(fmt.Sprint(options), func(t *testing.T) {
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "history")
+			s := New(nil)
+			t.Cleanup(func() { s.Close() })
+			if err := s.Configure(ctx, "a", path, nil); err != nil {
+				t.Fatal(err)
+			}
+			s.history.peers[5] = peerRecord{Kind: "user", ID: 5, Hash: 55, Name: "Friend"}
+			s.history.peers[6] = peerRecord{Kind: "user", ID: 6, Hash: 66}
+			s.history.histories[5] = &model.History{Messages: []model.Message{{Key: model.MessageKey{AccountID: "a", ChatID: 5, MessageID: 10}, Kind: model.MessagePhoto, Media: &model.MessageMedia{ID: "photo"}, Text: "forward me", SenderName: "Friend"}}}
+			if err := s.ForwardMessagesWithOptions(ctx, 5, []model.MessageID{10}, 6, options); err != nil {
+				t.Fatal(err)
+			}
+			s.outbox.mu.Lock()
+			identity := s.outbox.entries[0].Request.RandomID
+			s.outbox.mu.Unlock()
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			s = New(nil)
+			if err := s.Configure(ctx, "a", path, nil); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { s.Close() })
+			s.history.histories[6] = &model.History{}
+			wantText := "forward me"
+			if options.DropCaptions {
+				wantText = ""
+			}
+			if got := s.History(6).Messages; len(got) != 1 || !got[0].Sending || got[0].Text != wantText || (got[0].ForwardName == "") != options.DropAuthor {
+				t.Fatalf("forward not restored: %+v", got)
+			}
+			calls := 0
+			s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
+				r, ok := in.(*tg.MessagesForwardMessagesRequest)
+				if !ok {
+					return nil, fmt.Errorf("unexpected %T", in)
+				}
+				if len(r.RandomID) != 1 || r.RandomID[0] != identity || len(r.ID) != 1 || r.ID[0] != 10 {
+					return nil, fmt.Errorf("forward identity changed: %+v", r)
+				}
+				if r.DropAuthor != options.DropAuthor || r.DropMediaCaptions != options.DropCaptions {
+					return nil, fmt.Errorf("forward options lost: %+v", r)
+				}
+				calls++
+				if calls == 1 {
+					return nil, io.EOF
+				}
+				return &tg.Updates{}, nil
+			})
+			s.startOutgoing()
+			waitOutgoing(t, s, 0)
+			if calls != 2 {
+				t.Fatalf("forward had %d attempts", calls)
+			}
+		})
 	}
 }
 
