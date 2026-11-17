@@ -101,3 +101,5 @@ There are two exceptions, both kept out of this repository and out of the binary
 - The AAC decoder is the Fraunhofer FDK AAC Codec Library, under Fraunhofer's own license: free to copy and distribute, with its source, but granting no patent rights. AAC is covered by patents licensed through [Via LA](https://www.via-la.com): using the decoder may need such a license, in particular for commercial use. Debian counts it as non-free for this reason. It is in [fdk-aac-wasm](https://github.com/komarugif/fdk-aac-wasm).
 
 Branding is provided free of charge by the [t.me/komarugram](https://t.me/komarugram) community. If you plan to distribute your modification of this project, we recommend using your own logo to avoid confusion with [komarugif/komarugram-go](https://github.com/komarugif/komarugram-go).
+
+This project is not affiliated with Telegram FZ-LLC or Radolyn Labs. Use features that violate [Telegram's ToS](https://telegram.org/tos/eu) at your own risk.
