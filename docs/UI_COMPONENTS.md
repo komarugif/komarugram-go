@@ -889,6 +889,10 @@ size-stability fixes remain in place.
   click opens their Fragment dialog (a `modal` of its own,
   `filledButton`), the details, the theme and the sections.
   `model.PeerProfileSource` gives the profile; `SHARED_PNG` saves it.
+  On the account's own profile page, the cover background and its fade
+  span the page's full width while the avatar and cards stay in their
+  centered column. `PROFILE_PNG_DIR` includes light and dark own-cover
+  variants for checking this on a wide page.
 - **Forum page** (`forum.go`): the topics of a forum chat in place of its
   history, under the chat's header (which opens its info). A row is drawn as the
   chat list's: `surface`, icon plate (`fillRounded`, the topic's colour, a house
