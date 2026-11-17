@@ -341,6 +341,7 @@ func newMediaViewer(source model.ConversationStore, images *imageOps, invalidate
 	v.shared, _ = source.(model.SharedMediaSource)
 	v.share.forwarder, _ = source.(model.MessageForwarder)
 	v.share.rights, _ = source.(model.RightsSource)
+	v.share.picker.presence, _ = source.(model.PresenceSource)
 	v.gif.maker, _ = source.(model.GIFMaker)
 	v.full = chatmedia.NewSized(source, invalidate, viewerFullLimit, 4096)
 	// Until it is told otherwise, GIFs play in the sandbox: see configureViewer.

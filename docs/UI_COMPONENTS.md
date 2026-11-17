@@ -428,6 +428,9 @@ size-stability fixes remain in place.
   the media viewer, whose button beside copy forwards what it shows, a
   message or a story (`viewer_share.go`), unless it protects its content;
   a story has its heart there too, red once put, with how many put theirs.
+  Online users have the chat list's green dot on their avatars, respecting
+  the setting that hides online status. `COMPOSER_VIEW=forward` with
+  `COMPOSER_PNG` renders the dialog.
 - **Saving a video as a GIF** (`viewer_gif.go`): the viewer's GIF button,
   beside forwarding, on a video that does not protect its content, saves it
   among the saved GIFs (`model.GIFMaker`): `video.ConvertGIF` encodes it

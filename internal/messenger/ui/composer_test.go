@@ -284,6 +284,10 @@ func TestRenderComposer(t *testing.T) {
 	h := newComposerHarness(t)
 	h.p.composer.pickerOpen = true
 	switch os.Getenv("COMPOSER_VIEW") {
+	case "forward":
+		h.p.composer.pickerOpen = false
+		h.p.chats = h.p.source.(*mockstore.Store).Chats
+		h.p.forwarding.open(layout.Context{Ops: new(op.Ops)})
 	case "channel-readonly", "channel-readonly-hover":
 		restrictComposer(h, model.SendPermissions{Unavailable: true, Broadcast: true, DiscussionID: 9, DirectMessagesID: 40})
 		h.p.composer.pickerOpen = false

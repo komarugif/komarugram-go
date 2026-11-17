@@ -533,7 +533,7 @@ func (l *chatList) layoutRowWith(gtx layout.Context, r *surface, line *previewLi
 			}
 			return avatar(gtx, c.ID, c.Kind, catalog.ChatTitle(c), chatAvatarSize)
 		})
-		if l.online(gtx, c) {
+		if chatOnline(gtx, c, l.presence) {
 			ring := sc.Surface.Color
 			if selected {
 				ring = sc.Primary.Color
@@ -695,13 +695,13 @@ func privateChat(c model.Chat) bool {
 	return c.Kind == model.KindUser || c.Kind == model.KindBot || c.Kind == model.KindSaved
 }
 
-// online reports whether the row of c marks its user online, and has the
+// chatOnline reports whether c marks its user online, and has the
 // window drawn again when that changes.
-func (l *chatList) online(gtx layout.Context, c model.Chat) bool {
-	if l.presence == nil || c.Kind != model.KindUser || calmOf(gtx)&calmOnline != 0 {
+func chatOnline(gtx layout.Context, c model.Chat, presence model.PresenceSource) bool {
+	if presence == nil || c.Kind != model.KindUser || calmOf(gtx)&calmOnline != 0 {
 		return false
 	}
-	p, ok := l.presence.Presence(c.ID)
+	p, ok := presence.Presence(c.ID)
 	if !ok || !p.Online(gtx.Now) {
 		return false
 	}

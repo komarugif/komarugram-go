@@ -565,6 +565,7 @@ func (p *chatPage) blurComposer() bool {
 
 func newChatPage(source model.ConversationStore, changed func()) *chatPage {
 	p := &chatPage{composer: newMessageComposer(source, changed), source: source, media: chatmedia.New(source, changed), invalidate: changed, audio: newAudioPlayer()}
+	p.forwarding.presence, _ = source.(model.PresenceSource)
 	p.stories, _ = source.(model.PeerStoryRing)
 	return p
 }

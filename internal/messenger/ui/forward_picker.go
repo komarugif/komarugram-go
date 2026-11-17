@@ -23,15 +23,16 @@ import (
 // forwardPicker is the dialog that picks the chat to forward to: what the
 // history forwards, and what the media viewer shows. Who opens it sends.
 type forwardPicker struct {
-	modal   modal
-	search  widget.Editor
-	list    scroll.List
-	rows    map[int64]*surface
-	cancel  surface
-	busy    bool
-	results chan error
-	target  model.Chat
-	loader  loadingIndicator
+	presence model.PresenceSource
+	modal    modal
+	search   widget.Editor
+	list     scroll.List
+	rows     map[int64]*surface
+	cancel   surface
+	busy     bool
+	results  chan error
+	target   model.Chat
+	loader   loadingIndicator
 	// from, ids and selection are what the history forwards: messages of
 	// chat from, the selected ones when selection is set, which are
 	// unselected once they are.
@@ -198,12 +199,16 @@ func (f *forwardPicker) row(gtx layout.Context, c model.Chat, l localization.Cat
 	style := surfaceStyle{radius: gtx.Dp(10), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor}
 	return r.Layout(gtx, size, style, func(gtx layout.Context) layout.Dimensions {
 		avatarPx := gtx.Dp(40)
-		offset(gtx, image.Pt(gtx.Dp(6), (size.Y-avatarPx)/2), func(gtx layout.Context) layout.Dimensions {
+		avatarAt := image.Pt(gtx.Dp(6), (size.Y-avatarPx)/2)
+		offset(gtx, avatarAt, func(gtx layout.Context) layout.Dimensions {
 			if avatarOf != nil {
 				return avatarOf(gtx, c.ID, c.Kind, l.ChatTitle(c), 40)
 			}
 			return avatar(gtx, c.ID, c.Kind, l.ChatTitle(c), 40)
 		})
+		if chatOnline(gtx, c, f.presence) {
+			drawOnlineDot(gtx, avatarAt, avatarPx, dialogSurface(gtx))
+		}
 		textX := gtx.Dp(6) + avatarPx + gtx.Dp(12)
 		text := gtx
 		text.Constraints = layout.Constraints{Max: image.Pt(max(size.X-textX-gtx.Dp(6), 0), size.Y)}
