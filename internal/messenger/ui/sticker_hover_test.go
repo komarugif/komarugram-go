@@ -173,6 +173,15 @@ func TestStickerHoverSurfaces(t *testing.T) {
 				}
 				h.point(f32.Pt(500, 500))
 				h.frame()
+				if codec == "tgs" {
+					// The picker can draw another copy in its pack strip.
+					// Sample more than one frame so the still copy cannot
+					// hide the moving one in the texture map.
+					if !h.moves(still, 250*time.Millisecond) {
+						t.Fatal("leaving hover cut the Lottie loop short")
+					}
+					return
+				}
 				time.Sleep(60 * time.Millisecond)
 				if im := h.frame(); im != still {
 					t.Fatal("leaving hover did not restore the still frame")
@@ -209,8 +218,11 @@ func TestMediaHoverWithAutoplayOff(t *testing.T) {
 				}
 				h.point(f32.Pt(500, 500))
 				h.frame()
-				if im := h.frame(); im != still {
-					t.Fatal("leaving hover did not restore the still frame")
+				if media.codec == "tgs" && !h.moves(still, 250*time.Millisecond) {
+					t.Fatal("leaving hover cut the Lottie loop short")
+				}
+				if media.codec == "gif" && h.frame() != still {
+					t.Fatal("leaving hover did not restore the still GIF frame")
 				}
 			})
 		}

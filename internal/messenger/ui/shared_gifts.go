@@ -85,14 +85,15 @@ func tintGiftPattern(im image.Image, rgb uint32) image.Image {
 	}
 	return out
 }
-func (p *chatInfo) drawGiftArt(gtx layout.Context, m model.Message, animate, hovered bool) chatmedia.Status {
+func (p *chatInfo) drawGiftArt(gtx layout.Context, m model.Message, target any, animate, hovered bool) chatmedia.Status {
 	size := gtx.Constraints.Max
 	if m.Media == nil {
 		return chatmedia.Status{}
 	}
 	// As Telegram Desktop plays gifts: up to 60 pictures a second.
-	play := animate && wdk.AnimationAllowed(gtx, wdk.AnimationGift) || gtx.Enabled() && hovered
-	st := p.renderer.media.StatusFullRate(m, play, size, false)
+	hover := mediaHover(gtx, target, animate && wdk.AnimationAllowed(gtx, wdk.AnimationGift), hovered)
+	hover.FullRate, hover.VideoLoop = true, true
+	st := p.renderer.media.StatusHover(m, size, false, hover)
 	im := st.Frame
 	if im == nil {
 		im = st.Preview
@@ -173,7 +174,7 @@ func (p *chatInfo) giftCard(gtx layout.Context, m model.Message, l localization.
 		box := gtx
 		box.Constraints = layout.Exact(image.Pt(art, art))
 		offset(box, image.Pt((size.X-art)/2, (size.Y-art)/2+gtx.Dp(4)), func(gtx layout.Context) layout.Dimensions {
-			p.drawGiftArt(gtx, m, animate, r.click.Hovered())
+			p.drawGiftArt(gtx, m, r, animate, r.click.Hovered())
 			return layout.Dimensions{Size: gtx.Constraints.Max}
 		})
 		if g.Unique {
@@ -352,7 +353,7 @@ func (p *chatInfo) giftDetails(gtx layout.Context, d *giftDialog, l localization
 				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 				defer pointer.PassOp{}.Push(gtx.Ops).Pop()
 				d.artHover.Add(gtx.Ops)
-				art = p.drawGiftArt(gtx, m, animate, hovered)
+				art = p.drawGiftArt(gtx, m, d, animate, hovered)
 				if art.PlayingFullRate {
 					// Keep the display's frame loop running during fast
 					// playback. Waiting for the media tick before requesting

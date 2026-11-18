@@ -138,13 +138,12 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	if !useLocal && target.Media != nil {
 		// An inline GIF may fetch frames for playback. Keep the local still
 		// visible while those frames start arriving.
-		fit := p.media.StatusFit
-		if m.Kind == model.MessageSticker {
-			// As Telegram Desktop plays stickers in messages: up to 60
-			// pictures a second.
-			fit = p.media.StatusFullRate
-		}
-		status = fit(target, play, size, crop)
+		autoplay := mediaAutoplays(gtx, m, animate)
+		hover := mediaHover(gtx, r, autoplay, play && !autoplay)
+		// As Telegram Desktop plays stickers in messages: up to 60
+		// pictures a second.
+		hover.FullRate = m.Kind == model.MessageSticker
+		status = p.media.StatusHover(target, size, crop, hover)
 		if inline && local != nil {
 			status.Preview = local
 		}

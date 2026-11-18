@@ -102,7 +102,16 @@ func TestGiftCardPlaysOnHoverWithoutAutoplay(t *testing.T) {
 			router.Queue(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: layout.FPt(size.Div(2))})
 			waitFor(t, "the gift to animate on hover", frame, func() bool { return art != nil && art != still })
 			router.Queue(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: layout.FPt(size.Mul(2))})
-			waitFor(t, "the gift to return to its still image", frame, func() bool { return art == still })
+			frame()
+			if art == still || p.renderer.media.NextFrame().IsZero() {
+				t.Fatal("leaving hover stopped the gift mid-loop")
+			}
+			waitFor(t, "the gift to finish its loop", frame, func() bool { return p.renderer.media.NextFrame().IsZero() })
+			last := art
+			frame()
+			if last == nil || last == still || art != last || !p.renderer.media.NextFrame().IsZero() {
+				t.Fatal("the gift did not stay on its last frame")
+			}
 		})
 	}
 }
