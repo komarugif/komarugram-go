@@ -187,10 +187,26 @@ func TestRenderViewerOpening(t *testing.T) {
 	frame(now.Add(viewerOpenMove + viewerOpenFade))
 	save("06-open")
 
+	// Closing: the controls fade out, then the picture shrinks and fades where
+	// it is, with the backdrop.
 	router.Queue(key.Event{Name: key.NameEscape, State: key.Press})
-	frame(now.Add(time.Second))
+	closeAt := now.Add(time.Second)
+	frame(closeAt)
+	if !v.open || !v.closing.requested {
+		t.Fatal("Escape did not start closing the viewer")
+	}
+	save("07-close-start")
+	frame(closeAt.Add(viewerOpenFade / 2))
+	save("07-close-controls")
+	frame(closeAt.Add(viewerOpenFade))
+	save("07-close-picture")
+	frame(closeAt.Add(viewerOpenFade + viewerOpenMove/2))
+	save("07-close-shrink")
+	frame(closeAt.Add(viewerOpenFade + viewerOpenMove*3/4))
+	save("07-close-late")
+	frame(closeAt.Add(viewerOpenFade + viewerOpenMove))
 	if v.open {
-		t.Fatal("Escape did not close the viewer immediately")
+		t.Fatal("the viewer stayed open after it closed")
 	}
 	save("07-closed")
 

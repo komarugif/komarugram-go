@@ -184,6 +184,7 @@ type mediaViewer struct {
 	drawn       model.MessageID
 	openPointer viewerOpenPointer
 	opening     viewerOpening
+	closing     viewerClosing
 	// stories are the stories galleryStories shows; seen is the story told
 	// to it as seen last. storyRows are the peers of the row it goes
 	// through, storyLoaded the first and the last of them whose stories
@@ -433,6 +434,7 @@ func (v *mediaViewer) openList(chat int64, m model.Message, list mediaList) {
 func (v *mediaViewer) showList(chat int64, current model.MessageID) {
 	v.open, v.focus, v.center, v.alone, v.seen, v.storyGone = true, true, true, false, 0, false
 	v.opening = viewerOpening{}
+	v.closing = viewerClosing{}
 	v.since = time.Time{}
 	// A GIF plays by itself: its controls show for a moment, as a video's do.
 	v.controls.wake(time.Now())
@@ -521,6 +523,7 @@ func (v *mediaViewer) closeViewer(interrupted bool) {
 	}
 	v.open = false
 	v.opening = viewerOpening{}
+	v.closing = viewerClosing{}
 	v.tips = tooltips{}
 	v.avatar.reset()
 	v.video.stop()
@@ -840,7 +843,7 @@ func (v *mediaViewer) Layout(gtx layout.Context, l localization.Catalog, animate
 		return
 	}
 	v.layingOut = true
-	if v.opening.returning() {
+	if v.opening.returning() || v.closing.requested {
 		gtx = gtx.Disabled()
 	}
 	// What its buttons do shows over all of it, the dialogs too.
@@ -929,8 +932,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 		}
 	}
 	if !editing && (v.backdrop.Clicked(gtx) && !v.standalone || v.close.Clicked(gtx)) {
-		v.Close()
-		return
+		v.dismiss()
 	}
 	v.updateKept(gtx)
 	v.updateShare(gtx, items[indexOf(items, v.current)], l)
@@ -1004,6 +1006,13 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	photo := native(items[i])
 	fit := fitScale(photo, stage.Size())
 	travel, opened := v.opening.step(gtx, animate)
+	closeChrome, closeGone, closed := v.closing.step(gtx, animate)
+	if closed {
+		v.closeViewer(false)
+		return
+	}
+	opened *= closeChrome
+	closeFade := 1 - closeGone
 	if v.zoom.step(gtx.Now, animate, fit, photo, view.Size()) {
 		gtx.Execute(op.InvalidateCmd{})
 	}
@@ -1017,7 +1026,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	// Everything under the viewer is covered and gets no input.
 	v.backdrop.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		fill := v.backdropColor
-		fill.A = uint8(float32(fill.A) * travel)
+		fill.A = uint8(float32(fill.A) * travel * closeFade)
 		paint.Fill(gtx.Ops, fill)
 		return layout.Dimensions{Size: size}
 	})
@@ -1026,15 +1035,24 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 		v.edit.placeStage(gtx, size)
 	}
 	v.behind = nil
-	if v.overlays != nil && v.overlays().toasts {
-		recording := op.Record(gtx.Ops)
-		v.layoutCurrent(gtx, items[i], stage, view, fit, travel, opened, l, animate)
-		call := recording.Stop()
-		call.Add(gtx.Ops)
-		v.behind = &call
-	} else {
-		v.layoutCurrent(gtx, items[i], stage, view, fit, travel, opened, l, animate)
-	}
+	func() {
+		// A picture that is closing shrinks and fades where it is.
+		if closeGone > 0 {
+			center := layout.FPt(view.Min.Add(view.Max)).Mul(.5)
+			scale := 1 - viewerCloseShrink*closeGone
+			defer op.Affine(f32.Affine2D{}.Scale(center, f32.Pt(scale, scale))).Push(gtx.Ops).Pop()
+			defer paint.PushOpacity(gtx.Ops, closeFade).Pop()
+		}
+		if v.overlays != nil && v.overlays().toasts {
+			recording := op.Record(gtx.Ops)
+			v.layoutCurrent(gtx, items[i], stage, view, fit, travel, opened, l, animate)
+			call := recording.Stop()
+			call.Add(gtx.Ops)
+			v.behind = &call
+		} else {
+			v.layoutCurrent(gtx, items[i], stage, view, fit, travel, opened, l, animate)
+		}
+	}()
 	captionTop := math.MaxInt
 	// What the editor puts away fades out, and takes no input from then on.
 	chrome := v.edit.chromeAlpha() * opened
@@ -1059,14 +1077,16 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 		v.layoutBar(chromeGtx, items, i, l)
 		fading.Pop()
 	}
+	// The strip goes down out of the window, and comes back up: for the editor,
+	// and as the viewer opens and closes, when it comes up from below the
+	// window instead of fading in.
+	if down := int(max(v.edit.stripShift(), 1-opened) * float32(strip)); down < strip {
+		v.layoutStrip(chromeGtx, items, i, image.Rect(0, size.Y-strip+down, size.X, size.Y+down))
+	}
 	if opened > 0 {
 		func() {
 			if opened < 1 {
 				defer paint.PushOpacity(gtx.Ops, opened).Pop()
-			}
-			// The strip goes down out of the window, and comes back up.
-			if down := int(v.edit.stripShift() * float32(strip)); down < strip {
-				v.layoutStrip(chromeGtx, items, i, image.Rect(0, size.Y-strip+down, size.X, size.Y+down))
 			}
 			v.toast.Layout(gtx, image.Rect(0, bar, size.X, min(size.Y-strip, captionTop)))
 		}()
@@ -1127,7 +1147,7 @@ func (v *mediaViewer) keyEvents(gtx layout.Context, items []model.Message, i int
 		case "viewer.last":
 			v.show(items, len(items)-1, true)
 		case "viewer.close":
-			v.Close()
+			v.dismiss()
 			gtx.Execute(key.FocusCmd{})
 			return
 		case "viewer.zoom_in":
