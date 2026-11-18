@@ -12,6 +12,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"gio-mw/wdk"
+
 	"gioui.org/gesture"
 	"github.com/go-text/typesetting/segmenter"
 
@@ -208,7 +210,7 @@ func (p *chatPage) textEvents(gtx layout.Context, r *messageRow, animate bool) {
 				if s.reveal.started.IsZero() {
 					s.reveal = spoilerReveal{started: gtx.Now, center: s.origin, pxPerDp: gtx.Metric.PxPerDp}
 				}
-				if !animate {
+				if !animate || !wdk.AnimationAllowed(gtx, wdk.AnimationMessage) {
 					r.revealed = true
 				}
 			} else if run.URL != "" || run.Action != "" {
@@ -218,7 +220,7 @@ func (p *chatPage) textEvents(gtx layout.Context, r *messageRow, animate bool) {
 	}
 
 	if !s.reveal.started.IsZero() && !r.revealed {
-		if !animate || s.reveal.done(gtx.Now, s.size) {
+		if !animate || !wdk.AnimationAllowed(gtx, wdk.AnimationMessage) || s.reveal.done(gtx.Now, s.size) {
 			r.revealed = true
 		} else {
 			gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 60)})

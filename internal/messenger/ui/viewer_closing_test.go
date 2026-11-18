@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"gio-mw/wdk"
+
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
 
@@ -57,6 +59,31 @@ func TestViewerClosesWithAnimation(t *testing.T) {
 			t.Fatal("a closed viewer is still closing")
 		}
 		v.Destroy()
+	}
+}
+
+func TestViewerClosingAnimationKinds(t *testing.T) {
+	gtx := sharedContext(new(op.Ops), image.Pt(800, 600))
+	gtx.Now = time.Unix(0, 0)
+
+	wdk.SetDisabledAnimations(gtx, wdk.AnimationViewerAttachment)
+	chromeOnly := viewerClosing{requested: true}
+	if chrome, gone, done := chromeOnly.step(gtx, true); chrome != 1 || gone != 0 || done {
+		t.Fatalf("controls should start fading before the viewer closes: %v, %v, %v", chrome, gone, done)
+	}
+	gtx.Now = gtx.Now.Add(viewerOpenFade)
+	if _, _, done := chromeOnly.step(gtx, true); !done {
+		t.Fatal("the viewer stayed open after the fade with attachment motion disabled")
+	}
+
+	wdk.SetDisabledAnimations(gtx, wdk.AnimationViewer)
+	attachmentOnly := viewerClosing{requested: true}
+	if chrome, _, done := attachmentOnly.step(gtx, true); chrome != 0 || done {
+		t.Fatalf("controls should disappear immediately while the attachment animates: %v, %v", chrome, done)
+	}
+	gtx.Now = gtx.Now.Add(viewerOpenMove / 2)
+	if _, gone, done := attachmentOnly.step(gtx, true); gone <= 0 || gone >= 1 || done {
+		t.Fatalf("attachment should be animating without waiting for the controls: %v, %v", gone, done)
 	}
 }
 

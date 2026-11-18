@@ -1247,7 +1247,8 @@ new piece sits next to its neighbours.
   `wallpapers`, the gallery of wallpapers over it. `SHARED_PNG` saves the
   page of a chat's theme (`-themes`) and the chat in the theme (`-chat`).
   `SETTINGS_SECTION=power` with `SETTINGS_PNG` shows Power Saving: the
-  animations, and the switch that pauses them in an inactive window.
+  animation mode, the switch that pauses media in an inactive window, and
+  the card that enables or disables individual effects.
   `SETTINGS_SECTION=integrations` with `SETTINGS_PNG` shows the choice of the
   external player; `PLAYER_PNG`, the dialog that asks for it. `MENU_PNG` also
   saves the menu with reactions (`-reactions*.png`), and the menu of a

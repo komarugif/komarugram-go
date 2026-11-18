@@ -143,10 +143,11 @@ type settingsPage struct {
 	theme    *radio.Radios[themeMode]
 	language *radio.Radios[string]
 	// worded is the catalog animations and privacy took their texts from.
-	worded     localization.Catalog
-	animations *motion.View
-	privacy    *miniappprefs.View
-	security   *securityView
+	worded           localization.Catalog
+	animations       *motion.View
+	animationOptions *animationOptions
+	privacy          *miniappprefs.View
+	security         *securityView
 	// proxy is the proxies; nil hides their section.
 	proxy       *proxyView
 	accounts    model.Accounts
@@ -818,6 +819,9 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		p.inputBoxes.Update(gtx)
 	}
 	p.animations.Update(gtx)
+	if p.section == settingsPower && p.animationOptions != nil {
+		p.animationOptions.Update(gtx)
+	}
 	if p.pauseInactive != nil {
 		// Another window may have changed the shared preference.
 		var want []string
@@ -1015,6 +1019,16 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 						}
 						return layout.Inset{Top: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return p.cardHeight("Layout-9").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutPauseInactive(gtx, l) }, defaultCardPadding)
+						})
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						if p.animationOptions == nil {
+							return layout.Dimensions{}
+						}
+						return layout.Inset{Top: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return card(gtx, func(gtx layout.Context) layout.Dimensions {
+								return p.animationOptions.Layout(gtx, l)
+							}, defaultCardPadding)
 						})
 					}),
 				)

@@ -1891,14 +1891,6 @@ func NewPreviews(source Source, changed func()) *Manager {
 	return m
 }
 
-func (m *Manager) PauseAnimations() {
-	for _, e := range m.entries {
-		e.mu.Lock()
-		e.animate = false
-		e.mu.Unlock()
-	}
-}
-
 // Stats runs on the owning UI goroutine. Bytes estimates decoded pixel storage,
 // excluding codec runtimes, texture copies and shared frame deduplication.
 func (m *Manager) Stats() (entries int, bytes int64) {

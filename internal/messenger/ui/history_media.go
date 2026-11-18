@@ -16,6 +16,7 @@ import (
 	"komarugram/pkg/mp4"
 
 	"gio-mw/token"
+	"gio-mw/wdk"
 
 	"gioui.org/f32"
 	"gioui.org/io/pointer"
@@ -65,15 +66,14 @@ func mediaBox(m unit.Metric, kind model.MessageKind, w, h, maxX int) image.Point
 	return fitMediaSize(w, h, maxW, maxH)
 }
 
-// tileAnimates tells whether a tile of kind plays: as animations do, and,
-// with them off, a sticker or a GIF while the pointer is on it, as Telegram
-// Desktop's do with autoplay off.
-func tileAnimates(kind model.MessageKind, animate, hovered bool) bool {
-	switch kind {
+// tileAnimates allows stickers and GIFs to play on hover with autoplay off.
+func tileAnimates(gtx layout.Context, m model.Message, animate, hovered bool) bool {
+	autoplay := mediaAutoplays(gtx, m, animate)
+	switch m.Kind {
 	case model.MessageSticker, model.MessageGIF:
-		return animate || hovered
+		return autoplay || hovered
 	}
-	return animate
+	return autoplay
 }
 
 func mediaErrorText(err error) string {
@@ -93,7 +93,8 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	viewer := p.tileViewer
 	var tileAt image.Point
 	var tileKnown bool
-	observe := viewer != nil && animate && gtx.Enabled() &&
+	viewerTravel := animate && wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment)
+	observe := viewer != nil && viewerTravel && gtx.Enabled() &&
 		(m.Kind == model.MessagePhoto || m.Kind == model.MessageVideo || m.Kind == model.MessageGIF)
 	if observe {
 		tileAt, tileKnown = viewer.openPointer.origin(gtx, &r.viewerRelease, 1)
@@ -102,7 +103,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	if stickerSet {
 		clicked = r.sticker.Clicked(gtx)
 	}
-	animate = tileAnimates(m.Kind, animate, r.media.Hovered() || r.sticker.click.Hovered())
+	play := tileAnimates(gtx, m, animate, r.media.Hovered() || r.sticker.click.Hovered())
 	target := m
 	// A GIF too large to be read whole plays as a video does, streamed in
 	// the player.
@@ -143,7 +144,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			// pictures a second.
 			fit = p.media.StatusFullRate
 		}
-		status = fit(target, animate, size, crop)
+		status = fit(target, play, size, crop)
 		if inline && local != nil {
 			status.Preview = local
 		}
@@ -215,7 +216,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	}
 	if viewer != nil && opened && viewer.open && viewer.chat == p.chat && viewer.current == m.Key.MessageID {
 		viewer.opening.tile.picture = im
-		if observe {
+		if animate && (observe || wdk.AnimationAllowed(gtx, wdk.AnimationViewer)) {
 			viewer.opening.start = gtx.Now
 		}
 		if tileKnown && im != nil && !im.Bounds().Empty() {
@@ -243,7 +244,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			paint.FillShape(gtx.Ops, scheme(gtx).SurfaceContainerHigh.AsNRGBA(), shape.Op(gtx.Ops))
 		}
 		if observe {
-			opacity := viewer.opening.sourceOpacity(gtx, &r.media, animate)
+			opacity := viewer.opening.sourceOpacity(gtx, &r.media, viewerTravel)
 			if opacity <= 0 {
 				return layout.Dimensions{Size: size}
 			}
@@ -318,7 +319,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 				target = boolFloat(r.media.Hovered() || r.gif.seeking)
 			}
 			r.timeFade.Duration = token.DurationShort2
-			if shown := r.timeFade.Animate(gtx, target); shown > 0 {
+			if shown := r.timeFade.AnimateFor(gtx, wdk.AnimationMessage, target); shown > 0 {
 				func() {
 					defer paint.PushOpacity(gtx.Ops, shown).Pop()
 					offset(gtx, image.Pt(size.X-inset-t.size.X, size.Y-inset-lift-t.size.Y), func(gtx layout.Context) layout.Dimensions {
@@ -337,7 +338,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 				shown = 0
 			}
 			r.plate.Duration = token.DurationShort2
-			shown = r.plate.Animate(gtx, shown)
+			shown = r.plate.AnimateFor(gtx, wdk.AnimationMessage, shown)
 		}
 		if shown > 0 {
 			defer paint.PushOpacity(gtx.Ops, shown).Pop()
@@ -429,11 +430,11 @@ func (r *messageRow) tileMedia(m model.Message, size image.Point) model.Message 
 	}
 	return r.tile
 }
-func ring(gtx layout.Context, diameter int, progress float32, animate bool) {
+func ring(gtx layout.Context, diameter int, progress float32, animate bool, kind wdk.AnimationKind) {
 	start := -math.Pi / 2
 	if progress <= 0 {
 		progress = .28
-		if animate {
+		if animate && wdk.AnimationEnabled(gtx, kind) {
 			start += float64(gtx.Now.UnixMilli()%1400) * 2 * math.Pi / 1400
 			gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
 		}

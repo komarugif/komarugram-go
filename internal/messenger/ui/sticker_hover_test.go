@@ -30,6 +30,8 @@ type stickerHover struct {
 	view   string
 	msg    model.Message
 	row    messageRow
+	// A nonzero mask keeps global animations on and disables only autoplay.
+	disabledAutoplay wdk.AnimationKind
 	// scroll, if set, runs before each frame.
 	scroll func()
 }
@@ -84,16 +86,19 @@ func (h *stickerHover) frame() image.Image {
 	ops := new(op.Ops)
 	gtx := layout.Context{Ops: ops, Source: h.router.Source(), Now: time.Now(), Constraints: layout.Exact(image.Pt(220, 260)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
 	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
-	wdk.SetAnimationsEnabled(gtx, false)
+	animate := h.disabledAutoplay != 0
+	wdk.SetAnimationsEnabled(gtx, animate)
+	wdk.SetDisabledAnimations(gtx, h.disabledAutoplay)
+	p.animate = animate
 	p.images.BeginFrame()
 	p.media.BeginFrame()
 	switch h.view {
 	case "chat":
-		p.mediaTile(gtx, &h.row, h.msg, image.Pt(64, 64), false, localization.For("ru"), false)
+		p.mediaTile(gtx, &h.row, h.msg, image.Pt(64, 64), false, localization.For("ru"), animate)
 	case "pack", "readonly-pack":
 		p.stickers.grid(gtx, p)
 	default:
-		p.composer.pickerLayout(gtx, localization.For("ru"), p, false, image.Point{})
+		p.composer.pickerLayout(gtx, localization.For("ru"), p, animate, image.Point{})
 	}
 	p.media.EndFrame()
 	p.images.EndFrame()
@@ -169,6 +174,41 @@ func TestStickerHoverSurfaces(t *testing.T) {
 				h.point(f32.Pt(500, 500))
 				h.frame()
 				time.Sleep(60 * time.Millisecond)
+				if im := h.frame(); im != still {
+					t.Fatal("leaving hover did not restore the still frame")
+				}
+			})
+		}
+	}
+}
+
+func TestMediaHoverWithAutoplayOff(t *testing.T) {
+	t.Chdir("../../..")
+	for _, media := range []struct {
+		codec string
+		kind  wdk.AnimationKind
+		views []string
+	}{
+		{"tgs", wdk.AnimationSticker, []string{"chat", "pack", "picker"}},
+		{"gif", wdk.AnimationGIF, []string{"chat", "picker"}},
+	} {
+		for _, view := range media.views {
+			t.Run(media.codec+"/"+view, func(t *testing.T) {
+				if media.codec == "gif" && video.ResolveFFmpeg("") == "" {
+					t.Skip("no FFmpeg")
+				}
+				h := newStickerHover(t, media.codec, view, 1)
+				h.disabledAutoplay = media.kind
+				still := h.still(t)
+				if h.moves(still, 300*time.Millisecond) {
+					t.Fatal("media started without hovering while autoplay was off")
+				}
+				h.point(stickerAt(view))
+				if !h.moves(still, 3*time.Second) {
+					t.Fatal("media stayed static on hover while autoplay was off")
+				}
+				h.point(f32.Pt(500, 500))
+				h.frame()
 				if im := h.frame(); im != still {
 					t.Fatal("leaving hover did not restore the still frame")
 				}

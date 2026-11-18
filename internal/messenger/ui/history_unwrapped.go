@@ -155,7 +155,7 @@ func (p *chatPage) unwrappedBody(gtx layout.Context, r *messageRow, m model.Mess
 			pass.Pop()
 		}
 		r.timeFade.Duration = token.DurationShort2
-		shown := r.timeFade.Animate(gtx, target)
+		shown := r.timeFade.AnimateFor(gtx, wdk.AnimationMessage, target)
 		if shown <= 0 {
 			return dims
 		}
@@ -291,7 +291,7 @@ func (p *chatPage) largeEmoji(gtx layout.Context, m model.Message, animate bool)
 	side := gtx.Dp(largeEmojiSize)
 	size := image.Pt(side, side)
 	if doc != 0 {
-		if frame := customEmoji(p.media, p.images, doc, side, animate, scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
+		if frame := customEmoji(p.media, p.images, doc, side, animate && wdk.AnimationAllowed(gtx, wdk.AnimationEmoji), scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
 			return drawImage(gtx, p.images, frame, size)
 		}
 		return layout.Dimensions{Size: size}

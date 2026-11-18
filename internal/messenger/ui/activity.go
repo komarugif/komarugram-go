@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gio-mw/token"
+	"gio-mw/wdk"
 
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -98,7 +99,7 @@ func (a *activityLine) layout(gtx layout.Context, style token.Typestyle, col tok
 // next picture; still, it is its first.
 func drawActivityMark(gtx layout.Context, action model.ChatAction, size image.Point, col color.NRGBA, animate bool) {
 	step := int64(0)
-	if animate {
+	if animate && wdk.AnimationAllowed(gtx, wdk.AnimationChatAction) {
 		step = gtx.Now.UnixNano() / int64(activityStep)
 		gtx.Execute(op.InvalidateCmd{At: time.Unix(0, (step+1)*int64(activityStep))})
 	}

@@ -676,7 +676,7 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 				}
 				theme = content.Theme(gtx)
 				wdk.InitMaterialThemeInContext(gtx, theme)
-				wdk.SetAnimationsEnabled(gtx, w.Motion.AnimationsEnabled())
+				w.Motion.Frame(gtx)
 
 				area = clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
 				event.Op(gtx.Ops, w.Window)

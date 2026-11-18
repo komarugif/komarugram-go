@@ -16,6 +16,7 @@ import (
 	"komarugram/internal/messenger/model"
 
 	"gio-mw/token"
+	"gio-mw/wdk"
 
 	"gioui.org/io/clipboard"
 	"gioui.org/io/pointer"
@@ -154,7 +155,7 @@ func (p *chatInfo) collectibleContent(gtx layout.Context, d *collectibleDialog, 
 					return centeredLabel(gtx, mediaErrorText(d.err), token.TypestyleBodyMedium, sc.Error.Color, 0)
 				}
 				return exact(gtx, image.Pt(gtx.Dp(32), gtx.Dp(32)), func(gtx layout.Context) layout.Dimensions {
-					ring(gtx, gtx.Dp(32), 0, true)
+					ring(gtx, gtx.Dp(32), 0, true, wdk.AnimationLoading)
 					return layout.Dimensions{Size: gtx.Constraints.Max}
 				})
 			}), vspace(20),

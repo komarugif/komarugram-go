@@ -15,9 +15,11 @@ import (
 	"komarugram/pkg/resample"
 
 	"gio-mw/token"
+	"gio-mw/wdk"
 	"gio-mw/widget/scroll"
 
 	"gioui.org/f32"
+	"gioui.org/gesture"
 	"gioui.org/io/pointer"
 	"gioui.org/io/semantic"
 	"gioui.org/layout"
@@ -34,12 +36,13 @@ type giftRow struct {
 	patternSource, patternTint image.Image
 }
 type giftDialog struct {
-	message model.Message
-	list    scroll.List
-	close   surface
-	retry   surface
-	terms   widget.Clickable
-	modal   modal
+	message  model.Message
+	list     scroll.List
+	close    surface
+	retry    surface
+	terms    widget.Clickable
+	artHover gesture.Hover
+	modal    modal
 	// told is the failure to load the gift told in the toast last.
 	told error
 }
@@ -81,13 +84,14 @@ func tintGiftPattern(im image.Image, rgb uint32) image.Image {
 	}
 	return out
 }
-func (p *chatInfo) giftArt(gtx layout.Context, m model.Message, animate bool) layout.Dimensions {
+func (p *chatInfo) giftArt(gtx layout.Context, m model.Message, animate, hovered bool) layout.Dimensions {
 	size := gtx.Constraints.Max
 	if m.Media == nil {
 		return layout.Dimensions{Size: size}
 	}
 	// As Telegram Desktop plays gifts: up to 60 pictures a second.
-	st := p.renderer.media.StatusFullRate(m, animate, size, false)
+	play := animate && wdk.AnimationAllowed(gtx, wdk.AnimationGift) || gtx.Enabled() && hovered
+	st := p.renderer.media.StatusFullRate(m, play, size, false)
 	im := st.Frame
 	if im == nil {
 		im = st.Preview
@@ -97,7 +101,7 @@ func (p *chatInfo) giftArt(gtx layout.Context, m model.Message, animate bool) la
 	} else if st.Loading {
 		diameter := min(gtx.Dp(36), min(size.X, size.Y))
 		offset(gtx, image.Pt((size.X-diameter)/2, (size.Y-diameter)/2), func(gtx layout.Context) layout.Dimensions {
-			ring(gtx, diameter, 0, animate)
+			ring(gtx, diameter, 0, animate, wdk.AnimationAttachmentLoading)
 			return layout.Dimensions{}
 		})
 	}
@@ -154,7 +158,9 @@ func (p *chatInfo) giftCard(gtx layout.Context, m model.Message, l localization.
 		art := max(1, min(size.X, size.Y)*65/100)
 		box := gtx
 		box.Constraints = layout.Exact(image.Pt(art, art))
-		offset(box, image.Pt((size.X-art)/2, (size.Y-art)/2+gtx.Dp(4)), func(gtx layout.Context) layout.Dimensions { return p.giftArt(gtx, m, animate) })
+		offset(box, image.Pt((size.X-art)/2, (size.Y-art)/2+gtx.Dp(4)), func(gtx layout.Context) layout.Dimensions {
+			return p.giftArt(gtx, m, animate, r.click.Hovered())
+		})
 		if g.Unique {
 			ribbon := image.Pt(gtx.Dp(76), gtx.Dp(18))
 			rgtx := gtx
@@ -270,7 +276,11 @@ func (p *chatInfo) giftDetails(gtx layout.Context, d *giftDialog, l localization
 			return layout.N.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				n := min(gtx.Constraints.Max.X, gtx.Dp(224))
 				gtx.Constraints = layout.Exact(image.Pt(n, n))
-				return p.giftArt(gtx, m, animate)
+				hovered := d.artHover.Update(gtx.Source)
+				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+				defer pointer.PassOp{}.Push(gtx.Ops).Pop()
+				d.artHover.Add(gtx.Ops)
+				return p.giftArt(gtx, m, animate, hovered)
 			})
 		}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -322,7 +332,7 @@ func (p *chatInfo) giftDetails(gtx layout.Context, d *giftDialog, l localization
 			})
 		}), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			if m.Media != nil {
-				st := p.renderer.media.StatusFullRate(m, animate, image.Pt(gtx.Dp(224), gtx.Dp(224)), false)
+				st := p.renderer.media.StatusFullRate(m, animate && wdk.AnimationAllowed(gtx, wdk.AnimationGift), image.Pt(gtx.Dp(224), gtx.Dp(224)), false)
 				if st.Err != nil && st.Err != d.told {
 					d.modal.Toast(mediaErrorText(st.Err))
 				}

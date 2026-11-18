@@ -10,6 +10,7 @@ import (
 	"slices"
 
 	"gio-mw/token"
+	"gio-mw/wdk"
 
 	"gioui.org/f32"
 	"gioui.org/layout"
@@ -182,7 +183,7 @@ func (a *App) layoutTintedEmoji(gtx layout.Context, id int64, size unit.Dp, tint
 	// is a media of its own, "emoji/id@pixels", resampled by no one.
 	px := gtx.Dp(size)
 	// One of the text's color is in the tint, as a status is.
-	frame := customEmoji(a.avatars.media, &a.images, id, px, a.window.Motion.AnimationsEnabled(), tint)
+	frame := customEmoji(a.avatars.media, &a.images, id, px, a.window.Motion.AnimationEnabled(wdk.AnimationBadge), tint)
 	if frame == nil {
 		return layout.Dimensions{}
 	}

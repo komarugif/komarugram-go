@@ -45,6 +45,67 @@ func awaitShared(t *testing.T, p *chatInfo) {
 		t.Fatalf("shared load: %v", p.problem)
 	}
 }
+
+func TestGiftCardPlaysOnHoverWithoutAutoplay(t *testing.T) {
+	skipFrames(t)
+	t.Chdir("../../..")
+	for _, global := range []bool{false, true} {
+		name := "global-off"
+		if global {
+			name = "gift-autoplay-off"
+		}
+		t.Run(name, func(t *testing.T) {
+			now := time.Now()
+			store := mockstore.New(now, 0)
+			page, err := store.SharedCollection(t.Context(), 2, model.SharedGifts, "", 1)
+			if err != nil || len(page.Messages) != 1 {
+				t.Fatalf("load demo gift: %v, %d gifts", err, len(page.Messages))
+			}
+			var images imageOps
+			var router input.Router
+			var ops op.Ops
+			p := newChatInfo(store, &images, func() {})
+			defer p.Destroy()
+			l := localization.For("en")
+			size := image.Pt(160, 160)
+			var art image.Image
+			frame := func() {
+				now = now.Add(time.Second / 60)
+				ops.Reset()
+				gtx := sharedContext(&ops, size)
+				gtx.Now, gtx.Source = now, router.Source()
+				wdk.SetAnimationsEnabled(gtx, global)
+				if global {
+					wdk.SetDisabledAnimations(gtx, wdk.AnimationGift)
+				}
+				images.BeginFrame()
+				end := mediaFrame(gtx, p.renderer.media)
+				p.giftCard(gtx, page.Messages[0], l, global)
+				end()
+				images.EndFrame()
+				router.Frame(&ops)
+				art = nil
+				for im, texture := range images.entries {
+					if texture.seen == images.generation {
+						art = im
+					}
+				}
+			}
+			waitFor(t, "the still gift", frame, func() bool { return art != nil })
+			still := art
+			for until := now.Add(time.Second / 2); now.Before(until); {
+				frame()
+				if art != still {
+					t.Fatal("the gift animated before hover")
+				}
+			}
+			router.Queue(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: layout.FPt(size.Div(2))})
+			waitFor(t, "the gift to animate on hover", frame, func() bool { return art != nil && art != still })
+			router.Queue(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: layout.FPt(size.Mul(2))})
+			waitFor(t, "the gift to return to its still image", frame, func() bool { return art == still })
+		})
+	}
+}
 func TestSharedPageIgnoresLateResultsAndKeepsNextOffset(t *testing.T) {
 	store := mockstore.New(time.Now(), 0)
 	var images imageOps

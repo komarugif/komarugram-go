@@ -133,7 +133,7 @@ const (
 func (i *Item) animateVisibility(gtx layout.Context) float32 {
 	if i.visibility.Duration == 0 {
 		// Start hidden, so the item animates in on its first frame.
-		i.visibility.Animate(gtx, 0)
+		i.visibility.AnimateFor(gtx, wdk.AnimationMenu, 0)
 	}
 	target := float32(1)
 	i.visibility.Duration = enterDuration
@@ -143,7 +143,7 @@ func (i *Item) animateVisibility(gtx layout.Context) float32 {
 		i.visibility.Duration = exitDuration
 		i.visibility.Easing = &token.EasingEmphasizedAccelerate
 	}
-	v := i.visibility.Animate(gtx, target)
+	v := i.visibility.AnimateFor(gtx, wdk.AnimationMenu, target)
 	if i.closed && v == 0 {
 		i.removed = true
 	}

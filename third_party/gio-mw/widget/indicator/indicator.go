@@ -38,7 +38,7 @@ func (i *Indicator) Layout(gtx layout.Context) layout.Dimensions {
 	if i.progress.Duration == 0 {
 		i.progress.Duration = token.DurationMedium1
 	}
-	progress := i.progress.Animate(gtx, i.Progress)
+	progress := i.progress.AnimateFor(gtx, wdk.AnimationProgress, i.Progress)
 	if progress < 0.001 {
 		// Avoid bug: gioui.org/issue/655
 		progress = 0

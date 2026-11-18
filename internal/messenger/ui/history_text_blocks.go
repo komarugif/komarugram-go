@@ -305,7 +305,7 @@ func (p *chatPage) quoteBlock(gtx layout.Context, r *messageRow, b *messageTextB
 	b.foldLines = limit
 	call, dims := draw(limit)
 	target := dims.Size.Y + 2*top
-	size := image.Pt(gtx.Constraints.Max.X, b.height.Value(gtx, target, animate))
+	size := image.Pt(gtx.Constraints.Max.X, b.height.Value(gtx, target, animate && wdk.AnimationAllowed(gtx, wdk.AnimationMessage)))
 	if size.Y > target && limit > 0 {
 		call, _ = draw(0)
 	}

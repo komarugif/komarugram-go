@@ -126,7 +126,7 @@ func (p *chatPage) resolveShape(gtx layout.Context, s skeletonRow) skeletonRow {
 	if s.bubble.X > 0 {
 		return s
 	}
-	if c, ok := p.shapeOf(s, wdk.AnimationsEnabled(gtx)); ok {
+	if c, ok := p.shapeOf(s, wdk.AnimationEnabled(gtx, wdk.AnimationLoading)); ok {
 		s.bubble, s.slot, s.shape = c.bubble, c.slot, shapeProfile
 	}
 	return s
@@ -135,7 +135,7 @@ func (p *chatPage) resolveShape(gtx layout.Context, s skeletonRow) skeletonRow {
 // drawBars draws in bubble, the skeleton of s, what it shows, in a tone of
 // col, while animations are on.
 func (p *chatPage) drawBars(gtx layout.Context, s skeletonRow, bubble image.Rectangle, col token.MatColor) {
-	if !wdk.AnimationsEnabled(gtx) {
+	if !wdk.AnimationEnabled(gtx, wdk.AnimationLoading) {
 		return
 	}
 	bars := p.skeletonBars(s)

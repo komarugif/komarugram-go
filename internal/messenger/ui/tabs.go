@@ -110,7 +110,7 @@ func (r *tabRow) LayoutWith(gtx layout.Context, n, active int, title func(gtx la
 	// The indicator moves to the tab switched to.
 	r.indicator.Duration = tabSwitchDuration
 	r.indicator.Easing = &token.EasingStandard
-	at := r.indicator.Animate(gtx, float32(active))
+	at := r.indicator.AnimateFor(gtx, wdk.AnimationMenu, float32(active))
 	width := float32(size.X) / float32(n)
 	indicator := image.Rect(int(at*width)+gtx.Dp(16), max(0, size.Y-gtx.Dp(3)), int((at+1)*width)-gtx.Dp(16), size.Y)
 	inRect(gtx, indicator, func(gtx layout.Context) layout.Dimensions {
@@ -130,7 +130,7 @@ func (r *tabRow) Slide(gtx layout.Context, area image.Rectangle, w layout.Widget
 	}
 	r.slide.Duration = tabSwitchDuration
 	r.slide.Easing = &token.EasingEmphasizedDecelerate
-	slide := r.slide.Animate(gtx, 1)
+	slide := r.slide.AnimateFor(gtx, wdk.AnimationMenu, 1)
 	if slide == 1 {
 		inRect(gtx, area, w)
 		return

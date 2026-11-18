@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"gio-mw/token"
+	"gio-mw/wdk"
 
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -51,14 +52,21 @@ func (c *viewerClosing) step(gtx layout.Context, animate bool) (chrome, gone flo
 		c.start = gtx.Now
 	}
 	elapsed := gtx.Now.Sub(c.start)
+	var fade, move time.Duration
+	if wdk.AnimationAllowed(gtx, wdk.AnimationViewer) {
+		fade = viewerOpenFade
+	}
+	if wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment) {
+		move = viewerOpenMove
+	}
 	switch {
-	case elapsed >= viewerOpenFade+viewerOpenMove:
+	case elapsed >= fade+move:
 		return 0, 1, true
-	case elapsed < viewerOpenFade:
-		chrome = viewerOpenFadeAt(viewerOpenFade - elapsed)
+	case elapsed < fade:
+		chrome = viewerOpenFadeAt(fade - elapsed)
 	default:
 		// The opening's travel run backwards.
-		gone = 1 - float32(token.EasingStandard.Ease(1-float64(elapsed-viewerOpenFade)/float64(viewerOpenMove)))
+		gone = 1 - float32(token.EasingStandard.Ease(1-float64(elapsed-fade)/float64(move)))
 	}
 	gtx.Execute(op.InvalidateCmd{})
 	return chrome, gone, false

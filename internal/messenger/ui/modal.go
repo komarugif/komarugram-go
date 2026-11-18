@@ -187,7 +187,7 @@ func (m *modal) layoutToast(gtx layout.Context, area, dialog image.Point) {
 func (m *modal) animate(gtx layout.Context) float32 {
 	if m.visibility.Duration == 0 {
 		// Start hidden, so that the dialog animates in on its first frame.
-		m.visibility.Animate(gtx, 0)
+		m.visibility.AnimateFor(gtx, wdk.AnimationDialog, 0)
 	}
 	target := float32(1)
 	m.visibility.Duration = modalEnterDuration
@@ -197,7 +197,7 @@ func (m *modal) animate(gtx layout.Context) float32 {
 		m.visibility.Duration = modalExitDuration
 		m.visibility.Easing = &token.EasingEmphasizedAccelerate
 	}
-	return m.visibility.Animate(gtx, target)
+	return m.visibility.AnimateFor(gtx, wdk.AnimationDialog, target)
 }
 
 // Card animates content-driven changes independently of the dialog's entrance.

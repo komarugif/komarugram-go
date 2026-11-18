@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gio-mw/token"
+	"gio-mw/wdk"
 
 	"gioui.org/io/event"
 	"gioui.org/io/key"
@@ -106,7 +107,7 @@ func (o *viewerOpening) elapsed(now time.Time) time.Duration {
 
 // The source comes back as the viewer controls fade in.
 func (o *viewerOpening) sourceOpacity(gtx layout.Context, source *widget.Clickable, animate bool) float32 {
-	if !animate || o.source != source {
+	if !animate || !wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment) || o.source != source {
 		return 1
 	}
 	opacity := viewerOpenFadeAt(o.elapsed(gtx.Now) - viewerOpenMove)
@@ -125,7 +126,7 @@ func (v *mediaViewer) updateOpening(gtx layout.Context, animate bool) {
 		return
 	}
 	if o.returning() {
-		if !animate || o.elapsed(gtx.Now) <= 0 {
+		if !animate || !wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment) || o.elapsed(gtx.Now) <= 0 {
 			v.closeViewer(true)
 		} else {
 			gtx.Execute(op.InvalidateCmd{})
@@ -143,7 +144,7 @@ func (v *mediaViewer) updateOpening(gtx layout.Context, animate bool) {
 		}
 	}
 	gtx.Execute(key.FocusCmd{})
-	if !animate || o.source == nil || o.drawn <= 0 {
+	if !animate || !wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment) || o.source == nil || o.drawn <= 0 {
 		v.closeViewer(true)
 		return
 	}
@@ -158,6 +159,8 @@ func (v *mediaViewer) updateOpening(gtx layout.Context, animate bool) {
 func (o *viewerOpening) step(gtx layout.Context, animate bool) (travel, chrome float32) {
 	if !animate {
 		o.start, o.source = time.Time{}, nil
+	} else if o.source != nil && !wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment) {
+		o.start, o.source = gtx.Now, nil
 	}
 	if o.start.IsZero() {
 		return 1, 1
@@ -167,7 +170,11 @@ func (o *viewerOpening) step(gtx layout.Context, animate bool) (travel, chrome f
 	if o.source != nil {
 		move = viewerOpenMove
 	}
-	if elapsed >= move+viewerOpenFade {
+	fade := time.Duration(0)
+	if wdk.AnimationAllowed(gtx, wdk.AnimationViewer) {
+		fade = viewerOpenFade
+	}
+	if elapsed >= move+fade {
 		o.start, o.source = time.Time{}, nil
 		return 1, 1
 	}

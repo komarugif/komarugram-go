@@ -43,7 +43,7 @@ func (s *loadingIndicator) Layout(gtx layout.Context, l localization.Catalog) la
 	size := image.Pt(d, d)
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 	semantic.LabelOp(l.T("history.loading")).Add(gtx.Ops)
-	if !wdk.AnimationsEnabled(gtx) || gtx.Now.IsZero() {
+	if !wdk.AnimationEnabled(gtx, wdk.AnimationLoading) || gtx.Now.IsZero() {
 		s.started = time.Time{}
 		if s.classic == nil {
 			s.classic = indicator.CircularIndeterminate()

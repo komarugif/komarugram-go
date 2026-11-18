@@ -29,6 +29,11 @@ To compare again: clone the repository, check out `be0445f`, replace
 
 ## Motion
 
+- The frame can disable individual animation kinds. Overlay visibility,
+  press ripples, loading indicators, progress interpolation, scrollbar
+  appearance and smooth list scrolling each follow their own kind.
+  Checkbox and slider transitions share a kind.
+
 Upstream animated only an indicator's progress (with the easing functions
 of `wdk/easing.go`, still there); widgets here
 animate as Material 3 describes, and every animation can be turned off.

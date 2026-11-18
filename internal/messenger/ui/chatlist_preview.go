@@ -386,7 +386,7 @@ func (p *previewLine) layoutText(gtx layout.Context, pm *previewMedia, fg, accen
 			// Drawn in place of its fallback emoji, which shows until it
 			// has loaded.
 			px := p.emojiPx
-			if frame := pm.media.StatusFit(msg, animate, image.Pt(px, px), false).Frame; frame != nil {
+			if frame := pm.media.StatusFit(msg, animate && wdk.AnimationAllowed(gtx, wdk.AnimationEmoji), image.Pt(px, px), false).Frame; frame != nil {
 				if px > room {
 					x += p.ellipsis(gtx, x, f, ty, col)
 					break

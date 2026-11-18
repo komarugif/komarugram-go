@@ -312,7 +312,7 @@ func (d *textDust) tile(gtx layout.Context, col color.NRGBA, still bool) paint.I
 // in a window without particles.
 func paintDust(gtx layout.Context, size, origin image.Point, col color.NRGBA, opacity float32) {
 	e := effectsOf(gtx)
-	if e == nil || col.A == 0 || opacity <= 0 || size.X <= 0 || size.Y <= 0 || !wdk.AnimationsEnabled(gtx) {
+	if e == nil || col.A == 0 || opacity <= 0 || size.X <= 0 || size.Y <= 0 || !wdk.AnimationEnabled(gtx, wdk.AnimationMessage) {
 		return
 	}
 	tile := e.text.tile(gtx, col, e.still)
@@ -524,7 +524,7 @@ func paintMediaDust(gtx layout.Context, size image.Point, index int) {
 		d.init(gtx)
 	}
 	d.used = gtx.Now
-	if !e.still && wdk.AnimationsEnabled(gtx) {
+	if !e.still && wdk.AnimationEnabled(gtx, wdk.AnimationMessage) {
 		if advance(gtx.Now, &d.stepped, d.step) {
 			d.draw()
 		}

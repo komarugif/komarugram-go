@@ -6,6 +6,7 @@ import (
 	"image"
 	"slices"
 	"testing"
+	"time"
 
 	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
@@ -47,5 +48,27 @@ func TestClickWithoutOnChange(t *testing.T) {
 	frame()
 	if got := boxes.GetValues(); !slices.Equal(got, []string{"a"}) {
 		t.Errorf("values %q, want [a]", got)
+	}
+}
+
+func TestCheckMarkSkipsTransitionWhenDisabled(t *testing.T) {
+	boxes := NewCheckboxes([]string{"a"}, nil, nil)
+	gtx := layout.Context{
+		Ops:         new(op.Ops),
+		Now:         time.Unix(1000, 0),
+		Constraints: layout.Exact(image.Pt(400, 100)),
+		Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},
+		Values:      map[string]any{},
+	}
+	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	labels := map[string]string{"a": "Option A"}
+	boxes.Update(gtx)
+	boxes.Layout(gtx, labels)
+	boxes.SetValues([]string{"a"})
+	wdk.SetDisabledAnimations(gtx, wdk.AnimationCheckboxSlider)
+	boxes.Update(gtx)
+	boxes.Layout(gtx, labels)
+	if got := boxes.getAnimation("a").check.Animate(gtx, 1); got != 1 {
+		t.Errorf("check mark = %v, want fully drawn immediately", got)
 	}
 }

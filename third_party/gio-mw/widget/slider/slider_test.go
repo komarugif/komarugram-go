@@ -19,7 +19,10 @@ import (
 // TestHandleSlides verifies that the handle slides to a value set from
 // outside, and jumps there with animations off.
 func TestHandleSlides(t *testing.T) {
-	for _, animate := range []bool{true, false} {
+	for _, mode := range []struct {
+		global, smooth bool
+	}{{true, true}, {false, true}, {true, false}} {
+		animate := mode.global && mode.smooth
 		s := StandardSlider([]int{0, 1, 2, 3}, 0, func(int) {})
 		start := time.Unix(1000, 0)
 		frame := func(now time.Time) float32 {
@@ -30,7 +33,10 @@ func TestHandleSlides(t *testing.T) {
 				Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},
 				Values:      map[string]any{},
 			}
-			wdk.SetAnimationsEnabled(gtx, animate)
+			wdk.SetAnimationsEnabled(gtx, mode.global)
+			if !mode.smooth {
+				wdk.SetDisabledAnimations(gtx, wdk.AnimationCheckboxSlider)
+			}
 			wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
 			s.Layout(gtx)
 			// The tween already holds this frame's value: asking for the

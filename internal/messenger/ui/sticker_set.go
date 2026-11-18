@@ -576,7 +576,8 @@ func (d *stickerSetDialog) gridRow(gtx layout.Context, p *chatPage, row, columns
 				return layout.UniformInset(4).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					hovered := d.cells[index].click.Hovered()
 					cheap := hovered && p.media.CheapToPlay(item.Media, gtx.Constraints.Max, false)
-					return d.item(gtx, p, item, p.animate || d.hover.Play(gtx, index, hovered, cheap))
+					play := mediaAutoplays(gtx, item.Media, p.animate) || d.hover.Play(gtx, index, hovered, cheap)
+					return d.item(gtx, p, item, play)
 				})
 			}
 			if index >= len(d.cells) {

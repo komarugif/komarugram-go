@@ -157,8 +157,8 @@ func (c *gifControls) layout(gtx layout.Context, size image.Point, paused, hover
 		shown = time.Duration(float64(c.at) * float64(long))
 	}
 	c.time.Duration, c.track.Duration = token.DurationShort2, token.DurationShort2
-	timeShown := c.time.Animate(gtx, boolFloat(hovered || c.seeking))
-	trackShown := c.track.Animate(gtx, boolFloat(c.over || c.seeking))
+	timeShown := c.time.AnimateFor(gtx, wdk.AnimationMessage, boolFloat(hovered || c.seeking))
+	trackShown := c.track.AnimateFor(gtx, wdk.AnimationMessage, boolFloat(c.over || c.seeking))
 	// Over the bar while it shows.
 	lift = int(trackShown * float32(gtx.Dp(6)))
 	if timeShown > 0 {

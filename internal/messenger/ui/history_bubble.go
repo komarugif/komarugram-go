@@ -1374,7 +1374,7 @@ func reactionChipColors(sc *token.Scheme, chosen, outgoing bool) (background, co
 func (p *chatPage) reactionIcon(gtx layout.Context, reaction model.Reaction, animate bool) layout.Dimensions {
 	size := gtx.Dp(18)
 	if reaction.DocumentID != 0 && p.media != nil {
-		if frame := customEmoji(p.media, p.images, reaction.DocumentID, size, animate, scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
+		if frame := customEmoji(p.media, p.images, reaction.DocumentID, size, animate && wdk.AnimationAllowed(gtx, wdk.AnimationEmoji), scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
 			return drawImage(gtx, p.images, frame, image.Pt(size, size))
 		}
 		return layout.Dimensions{Size: image.Pt(size, size)}

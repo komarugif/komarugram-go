@@ -527,7 +527,7 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 		if i >= len(statuses) {
 			break
 		}
-		statuses[i] = p.renderer.media.StatusFullRate(m, animate, image.Pt(art, art), false)
+		statuses[i] = p.renderer.media.StatusFullRate(m, animate && wdk.AnimationAllowed(gtx, wdk.AnimationGift), image.Pt(art, art), false)
 		shown = i + 1
 	}
 	if p.fades.primed && p.modal.Entered() && coverGiftsLoaded(statuses[:shown]) {
@@ -549,7 +549,7 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 		if p.fades.launched && (st.Frame != nil || st.Preview != nil) {
 			target = 1
 		}
-		progress := flight.Animate(gtx, target)
+		progress := flight.AnimateFor(gtx, wdk.AnimationGift, target)
 		if progress <= 0 {
 			continue
 		}
@@ -558,7 +558,7 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 		// Its flight streaks it; the cover's scrolling, which moves all of
 		// the info, does not.
 		streak := p.motion.gifts[i].Streak(gtx, layout.FPt(at))
-		blurred := animate && moving(streak)
+		blurred := animate && wdk.AnimationAllowed(gtx, wdk.AnimationGift) && moving(streak)
 		p.motion.giftStreaks = p.motion.giftStreaks || blurred
 		opacity := paint.PushOpacity(gtx.Ops, progress)
 		if g := m.Gift; g != nil && g.HasBackdrop && m.Media != nil {
@@ -590,7 +590,7 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 				if blurred && frame != nil {
 					return layout.Dimensions{Size: gtx.Constraints.Max}
 				}
-				return p.giftArt(gtx, m, animate)
+				return p.giftArt(gtx, m, animate, p.cover.gifts[i].Hovered())
 			})
 		})
 		opacity.Pop()
@@ -687,7 +687,7 @@ func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog, 
 	// Moving, it streaks: as a picture of its own, when there is one.
 	streak := p.motion.avatar.Streak(gtx, at)
 	var sprite image.Image
-	if animate && moving(streak) && p.avatarSprite != nil && p.avatar.opacity(gtx, animate) == 1 {
+	if animate && wdk.AnimationAllowed(gtx, wdk.AnimationAvatar) && moving(streak) && p.avatarSprite != nil && p.avatar.opacity(gtx, animate) == 1 {
 		sprite = p.avatarSprite(gtx, p.chat.ID, p.chat.Kind, p.chat.Title, int(side+.5))
 	}
 	p.motion.avatarStreak = sprite != nil

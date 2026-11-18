@@ -894,7 +894,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	// the input is its own meanwhile: Escape closes it, not the viewer.
 	editing := v.edit.opened()
 	if editing {
-		v.updateEdit(gtx, l, animate)
+		v.updateEdit(gtx, l, animate && wdk.AnimationAllowed(gtx, wdk.AnimationViewer))
 		editing = v.edit.opened()
 	}
 	size := gtx.Constraints.Max
@@ -1013,7 +1013,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	}
 	opened *= closeChrome
 	closeFade := 1 - closeGone
-	if v.zoom.step(gtx.Now, animate, fit, photo, view.Size()) {
+	if v.zoom.step(gtx.Now, animate && wdk.AnimationAllowed(gtx, wdk.AnimationViewer), fit, photo, view.Size()) {
 		gtx.Execute(op.InvalidateCmd{})
 	}
 
@@ -1356,13 +1356,13 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 					paint.FillShape(gtx.Ops, color.NRGBA{A: 150}, clip.Ellipse{Max: image.Pt(diameter, diameter)}.Op(gtx.Ops))
 					switch {
 					case vs.loading:
-						ring(gtx, diameter, 0, animate)
+						ring(gtx, diameter, 0, animate, wdk.AnimationAttachmentLoading)
 					case status.Loading:
 						progress := float32(0)
 						if status.Total > 0 {
 							progress = min(1, float32(status.Downloaded)/float32(status.Total))
 						}
-						ring(gtx, diameter, progress, animate)
+						ring(gtx, diameter, progress, animate, wdk.AnimationAttachmentLoading)
 					}
 					return layout.Dimensions{Size: image.Pt(diameter, diameter)}
 				})

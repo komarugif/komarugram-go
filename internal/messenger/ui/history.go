@@ -1043,7 +1043,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.selectionEvents(gtx)
 		p.viewHeight = gtx.Constraints.Max.Y
 		p.viewerBounds = image.Rectangle{}
-		if p.tileViewer != nil && animate {
+		if p.tileViewer != nil && animate && wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment) {
 			if at, ok := p.tileViewer.openPointer.origin(gtx, &p.viewerArea, 1); ok {
 				p.viewerBounds = image.Rectangle{Min: at, Max: at.Add(gtx.Constraints.Max)}
 			}
@@ -1119,7 +1119,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 			p.keepMeasure(msg, height, env, !p.edgeRow(i))
 			return dims
 		})
-		if p.tileViewer != nil && animate {
+		if p.tileViewer != nil && animate && wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment) {
 			trackViewerRelease(gtx, &p.viewerArea, gtx.Constraints.Max)
 		}
 		p.releaseMedia(gtx, gtx.Now)
@@ -1574,7 +1574,7 @@ func (p *chatPage) textFlow(gtx layout.Context, r *messageRow, block *messageTex
 			// emojiBox.
 			st.Box = emojiBox(gtx, st.Size)
 			if !run.Spoiler || r.revealed || !r.text.reveal.started.IsZero() {
-				frames[i] = customEmoji(p.media, p.images, run.Emoji, st.Box.Size.X, animate, st.Color)
+				frames[i] = customEmoji(p.media, p.images, run.Emoji, st.Box.Size.X, animate && wdk.AnimationAllowed(gtx, wdk.AnimationEmoji), st.Color)
 			}
 		}
 		if run.Math {

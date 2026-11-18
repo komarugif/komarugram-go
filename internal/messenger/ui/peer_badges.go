@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"gio-mw/wdk"
+
 	"gioui.org/f32"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -314,7 +316,7 @@ func (a *App) layoutKomaruMark(gtx layout.Context, size unit.Dp, developer bool,
 	a.layoutTintedEmoji(faceGtx, id, inner, faceColor(face.Color, face.Theme))
 	t.Pop()
 	var now time.Duration
-	if a.window != nil && a.window.Motion.AnimationsEnabled() {
+	if a.window != nil && a.window.Motion.AnimationEnabled(wdk.AnimationBadge) {
 		now = time.Duration(gtx.Now.UnixNano())
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(komaruFrame)})
 	}

@@ -553,7 +553,8 @@ func (c *messageComposer) pickerRow(gtx layout.Context, n int, rows []pickerRow,
 			return click.Layout(gtx, gtx.Constraints.Max, style, func(gtx layout.Context) layout.Dimensions {
 				hovered := click.click.Hovered()
 				cheap := hovered && p.media.CheapToPlay(item.Media, gtx.Constraints.Max, c.tab == model.PickerGIF)
-				return c.drawItem(gtx, item, p, animate || c.hover.Play(gtx, key, hovered, cheap))
+				play := mediaAutoplays(gtx, item.Media, animate) || c.hover.Play(gtx, key, hovered, cheap)
+				return c.drawItem(gtx, item, p, play)
 			})
 		})
 		x += widths[i]
@@ -679,7 +680,8 @@ func (c *messageComposer) pickerFooter(gtx layout.Context, rows []pickerRow, siz
 				return layout.UniformInset(6).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					hovered := click.click.Hovered()
 					cheap := hovered && p.media.CheapToPlay(e.item.Media, gtx.Constraints.Max, c.tab == model.PickerGIF)
-					return c.drawItem(gtx, e.item, p, animate || c.hover.Play(gtx, pickerStripKey(e.id), hovered, cheap))
+					play := mediaAutoplays(gtx, e.item.Media, animate) || c.hover.Play(gtx, pickerStripKey(e.id), hovered, cheap)
+					return c.drawItem(gtx, e.item, p, play)
 				})
 			})
 		})
@@ -724,6 +726,24 @@ func (c *messageComposer) pickerShows(id string) bool {
 
 // pickerStripKey is the hover key of a pack in the picker's strip.
 type pickerStripKey int64
+
+// mediaAutoplays applies the media preferences to automatic playback.
+func mediaAutoplays(gtx layout.Context, m model.Message, animate bool) bool {
+	return animate && wdk.AnimationAllowed(gtx, mediaAnimationKind(m))
+}
+
+func mediaAnimationKind(m model.Message) wdk.AnimationKind {
+	switch {
+	case m.Kind == model.MessageGIF:
+		return wdk.AnimationGIF
+	case m.Media != nil && m.Media.MIMEType == "application/x-custom-emoji":
+		return wdk.AnimationEmoji
+	case m.Kind == model.MessageSticker:
+		return wdk.AnimationSticker
+	default:
+		return 0
+	}
+}
 
 func (c *messageComposer) drawItem(gtx layout.Context, item model.PickerItem, p *chatPage, animate bool) layout.Dimensions {
 	size := gtx.Constraints.Max
