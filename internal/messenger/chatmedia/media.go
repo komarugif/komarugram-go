@@ -1188,22 +1188,22 @@ func (m *Manager) load(ctx context.Context, e *entry, msg model.Message) {
 	m.playAnimation(ctx, e, frame, period, publish)
 }
 
-// gifThumbnail is Telegram's thumbnail of a GIF, decoded in the process, or
-// nil when there is none.
+// gifThumbnail decodes the first picture of a GIF while its frames load.
 func (m *Manager) gifThumbnail(ctx context.Context, msg model.Message) image.Image {
-	thumb := msg.Media.Thumbnail
-	if thumb == nil || thumb.Width <= 0 || thumb.Height <= 0 {
-		return nil
+	for _, thumb := range []*model.MessageMedia{msg.Media.LocalPreview, msg.Media.Thumbnail} {
+		if thumb == nil || thumb.Width <= 0 || thumb.Height <= 0 {
+			continue
+		}
+		target := msg.WithMedia(thumb)
+		target.Kind = model.MessagePhoto
+		data, err := m.source.Media(ctx, target)
+		if err == nil {
+			if im, _, err := image.Decode(bytes.NewReader(data)); err == nil {
+				return toRGBA(im)
+			}
+		}
 	}
-	data, err := m.source.Media(ctx, model.Message{Kind: model.MessagePhoto, Media: thumb})
-	if err != nil {
-		return nil
-	}
-	im, _, err := image.Decode(bytes.NewReader(data))
-	if err != nil {
-		return nil
-	}
-	return toRGBA(im)
+	return nil
 }
 
 // toRGBA copies im into an RGBA image at the origin.

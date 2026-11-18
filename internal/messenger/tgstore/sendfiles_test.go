@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"image/png"
 	"os"
 	"os/exec"
@@ -134,6 +135,219 @@ func TestSendFilesAsAnAlbum(t *testing.T) {
 		if item.RandomID != album.MultiMedia[i].RandomID {
 			t.Fatalf("the second try has other identities: %d, %d", item.RandomID, album.MultiMedia[i].RandomID)
 		}
+	}
+}
+
+// An acknowledgement replaces each album item with its own server message
+// while the still already read by the history keeps the same cache key.
+func TestSentAlbumKeepsLocalPreviews(t *testing.T) {
+	s, server := filesStore(t)
+	ctx := context.Background()
+	s.history.histories[5] = &model.History{}
+	var pending []model.Message
+	var accepted []*tg.Message
+	s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
+		r, ok := in.(*tg.MessagesSendMultiMediaRequest)
+		if !ok {
+			return server.handle(in)
+		}
+		pending = s.History(5).Messages
+		res := &tg.Updates{}
+		for i, item := range r.MultiMedia {
+			id := i + 20
+			local := pending[i].Media
+			photo := &tg.Photo{ID: item.Media.(*tg.InputMediaPhoto).ID.(*tg.InputPhoto).ID, AccessHash: 7, DCID: 2,
+				Sizes: []tg.PhotoSizeClass{&tg.PhotoSize{Type: "m", W: local.Width, H: local.Height, Size: 123}}}
+			m := &tg.Message{ID: id, PeerID: &tg.PeerUser{UserID: 5}, Out: true, Date: 100, GroupedID: 10, Media: &tg.MessageMediaPhoto{Photo: photo}}
+			accepted = append(accepted, m)
+			res.Updates = append(res.Updates, &tg.UpdateMessageID{ID: id, RandomID: item.RandomID}, &tg.UpdateNewMessage{Message: m})
+		}
+		return res, nil
+	})
+	dir := t.TempDir()
+	paths := []string{picture(t, dir, "first.png", 30, 20), picture(t, dir, "second.png", 50, 40)}
+	if err := s.Send(ctx, 5, model.OutgoingMessage{RandomID: 120, Files: &model.OutgoingFiles{Paths: paths, Group: true}}); err != nil {
+		t.Fatal(err)
+	}
+	sent := s.History(5).Messages
+	if len(pending) != 2 || len(sent) != 2 {
+		t.Fatalf("before and after: %d and %d messages", len(pending), len(sent))
+	}
+	for i, m := range sent {
+		before, after := pending[i].Media.LocalPreview, m.Media.LocalPreview
+		if m.Sending || before == nil || after == nil || after.ID != before.ID {
+			t.Fatalf("item %d changed preview: %+v -> %+v", i, before, after)
+		}
+		data, err := s.Media(ctx, m.WithMedia(after))
+		if err != nil {
+			t.Fatalf("item %d: %v", i, err)
+		}
+		cfg, err := jpeg.DecodeConfig(bytes.NewReader(data))
+		if err != nil || cfg.Width != m.Media.Width || cfg.Height != m.Media.Height {
+			t.Fatalf("item %d got a different preview: %+v, %v", i, cfg, err)
+		}
+		cached, ok, err := s.Cache().Message(ctx, 5, int(m.Key.MessageID))
+		if err != nil || !ok || cached.Media.LocalPreview == nil || cached.Media.LocalPreview.ID != before.ID {
+			t.Fatalf("item %d lost its preview on disk: %v", i, err)
+		}
+	}
+	accepted[0].Message = "caption edit"
+	if err := s.Handle(ctx, &tg.UpdateShort{Update: &tg.UpdateEditMessage{Message: accepted[0]}}); err != nil {
+		t.Fatal(err)
+	}
+	if m := s.History(5).Messages[0]; m.Media.LocalPreview == nil || m.Media.LocalPreview.ID != sent[0].Media.LocalPreview.ID {
+		t.Fatal("caption edit lost the local preview")
+	}
+	accepted[0].Media.(*tg.MessageMediaPhoto).Photo.(*tg.Photo).ID += 100
+	if err := s.Handle(ctx, &tg.UpdateShort{Update: &tg.UpdateEditMessage{Message: accepted[0]}}); err != nil {
+		t.Fatal(err)
+	}
+	if s.History(5).Messages[0].Media.LocalPreview != nil {
+		t.Fatal("replaced photo kept the old photo's preview")
+	}
+}
+
+// A frame may read the history while the updates for an album are being
+// handled. By the first notice, every member of that album must be visible.
+func TestAlbumAppearsInHistoryTogether(t *testing.T) {
+	s := testStore(t)
+	const chat = 5
+	s.history.histories[chat] = &model.History{}
+	notices := 0
+	s.SetNotices(func(model.MessageNotice) {
+		notices++
+		h, _ := s.HistorySince(chat, 0)
+		rows := model.GroupAlbums(h.Messages)
+		if len(rows) != 1 || len(rows[0].Attachments) != 2 {
+			t.Errorf("notice %d exposed a partial album with %d of 2 attachments", notices, len(h.Messages))
+		}
+	})
+	res := &tg.Updates{}
+	for i := range 2 {
+		id := 20 + i
+		msg := &tg.Message{ID: id, PeerID: &tg.PeerUser{UserID: chat}, Date: int(time.Now().Unix()), GroupedID: 42,
+			Media: &tg.MessageMediaPhoto{Photo: &tg.Photo{ID: int64(id)}}}
+		res.Updates = append(res.Updates, &tg.UpdateMessageID{ID: id, RandomID: int64(100 + i)}, &tg.UpdateNewMessage{Message: msg})
+	}
+	if err := s.Handle(context.Background(), res); err != nil {
+		t.Fatal(err)
+	}
+	if notices != 2 {
+		t.Fatalf("got %d notices, want 2", notices)
+	}
+}
+
+// Live updates can deliver the photo and video separately while the send
+// RPC is still running. Every snapshot used by the history must show one
+// complete album, including the one taken between those updates.
+func TestSentAlbumStaysTogetherAcrossLiveUpdates(t *testing.T) {
+	t.Run("photo first", func(t *testing.T) {
+		checkSentAlbumLiveUpdates(t, [2]int{0, 1})
+	})
+	t.Run("video first", func(t *testing.T) {
+		checkSentAlbumLiveUpdates(t, [2]int{1, 0})
+	})
+}
+
+func checkSentAlbumLiveUpdates(t *testing.T, order [2]int) {
+	t.Helper()
+	s, server := filesStore(t)
+	ctx := context.Background()
+	const chat = 5
+	s.me.ID = chat
+	s.history.histories[chat] = &model.History{}
+	check := func(phase string, sending bool) {
+		t.Helper()
+		h, _ := s.HistorySince(chat, 0)
+		rows := model.GroupAlbums(h.Messages)
+		if len(rows) != 1 || len(rows[0].Attachments) != 2 {
+			t.Errorf("%s: got %d rows for %d attachments, want one complete album", phase, len(rows), len(h.Messages))
+			return
+		}
+		for i, part := range rows[0].Attachments {
+			if part.Sending != sending {
+				t.Errorf("%s: attachment %d sending = %t, want %t", phase, i, part.Sending, sending)
+			}
+		}
+		if rows[0].Attachments[0].Kind != model.MessagePhoto || rows[0].Attachments[1].Kind != model.MessageVideo {
+			t.Errorf("%s: photo and video shown in a different order", phase)
+		}
+	}
+	s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
+		r, ok := in.(*tg.MessagesSendMultiMediaRequest)
+		if !ok {
+			return server.handle(in)
+		}
+		check("before live updates", true)
+		photo := r.MultiMedia[0].Media.(*tg.InputMediaPhoto).ID.(*tg.InputPhoto)
+		video := r.MultiMedia[1].Media.(*tg.InputMediaDocument).ID.(*tg.InputDocument)
+		media := []tg.MessageMediaClass{
+			&tg.MessageMediaPhoto{Photo: &tg.Photo{ID: photo.ID}},
+			&tg.MessageMediaDocument{Document: &tg.Document{ID: video.ID, MimeType: "video/mp4",
+				Attributes: []tg.DocumentAttributeClass{&tg.DocumentAttributeVideo{W: 640, H: 360, Duration: 20}}}},
+		}
+		res := &tg.Updates{}
+		for step, i := range order {
+			id := 20 + i
+			raw := &tg.Message{ID: id, PeerID: &tg.PeerUser{UserID: chat}, Date: int(time.Now().Unix()), GroupedID: 42, Media: media[i]}
+			update := &tg.UpdateNewMessage{Message: raw}
+			if err := s.Handle(ctx, &tg.UpdateShort{Update: update}); err != nil {
+				return nil, err
+			}
+			if step == 0 {
+				check("between the photo and video updates", true)
+			}
+			res.Updates = append(res.Updates, &tg.UpdateMessageID{ID: id, RandomID: r.MultiMedia[i].RandomID}, update)
+		}
+		check("after both live updates", false)
+		return res, nil
+	})
+	paths := []string{picture(t, t.TempDir(), "first.png", 30, 20), filepath.Join("..", "..", "..", "assets", "video.mp4")}
+	if err := s.Send(ctx, chat, model.OutgoingMessage{RandomID: 140, Files: &model.OutgoingFiles{Paths: paths, Group: true}}); err != nil {
+		t.Fatal(err)
+	}
+	check("after confirmation", false)
+}
+
+// A short acknowledgement can contain a video with no Telegram thumbnail.
+// Its first frame remains readable under the key used during the upload.
+func TestShortSentVideoKeepsLocalPreview(t *testing.T) {
+	s, _ := filesStore(t)
+	ctx := context.Background()
+	s.history.histories[5] = &model.History{}
+	var jpegData bytes.Buffer
+	if err := jpeg.Encode(&jpegData, image.NewRGBA(image.Rect(0, 0, 32, 18)), nil); err != nil {
+		t.Fatal(err)
+	}
+	preview := s.saveOutgoingPreview(ctx, "outbox/130/0", jpegData.Bytes())
+	if preview == nil {
+		t.Fatal("missing first frame")
+	}
+	pending := &pendingMessage{chat: 5, msg: model.Message{
+		Key: model.MessageKey{ChatID: 5, MessageID: -pendingIDBase}, Kind: model.MessageVideo, Sending: true,
+		Media: &model.MessageMedia{ID: "outbox/130/0", LocalPreview: preview, Thumbnail: preview},
+	}}
+	s.history.pending.list = append(s.history.pending.list, pending)
+	e := &outgoingEntry{Chat: 5, Peer: s.history.peers[5], Request: model.OutgoingMessage{RandomID: 130},
+		Done: map[int64]int{}, pending: []*pendingMessage{pending}}
+	res := &tg.UpdateShortSentMessage{ID: 20, Out: true, Date: 100, Media: &tg.MessageMediaDocument{
+		Document: &tg.Document{ID: 300, MimeType: "video/mp4", Size: 8000,
+			Attributes: []tg.DocumentAttributeClass{&tg.DocumentAttributeVideo{W: 640, H: 360, Duration: 3}}},
+	}}
+	if err := s.acceptOutgoing(ctx, e, res, []int64{130}); err != nil {
+		t.Fatal(err)
+	}
+	s.handleOutgoingMedia(ctx, e, res, 130, "")
+	sent := s.History(5).Messages
+	if len(sent) != 1 || sent[0].Sending || sent[0].Media.ID != "document/300" || sent[0].Media.LocalPreview == nil {
+		t.Fatalf("sent video: %+v", sent)
+	}
+	if got := sent[0].Media.LocalPreview.ID; got != preview.ID {
+		t.Fatalf("first frame changed key from %s to %s", preview.ID, got)
+	}
+	data, err := s.Media(ctx, sent[0].WithMedia(sent[0].Media.LocalPreview))
+	if err != nil || !bytes.Equal(data, jpegData.Bytes()) {
+		t.Fatalf("first frame did not survive confirmation: %v", err)
 	}
 }
 
@@ -340,11 +554,16 @@ func TestSendingMusicShowsItsCover(t *testing.T) {
 	if len(pending) != 2 {
 		t.Fatalf("%d messages", len(pending))
 	}
-	cfg, format, err := image.DecodeConfig(bytes.NewReader(pending[0].msg.Media.Preview))
+	coverMedia := pending[0].msg.WithMedia(pending[0].msg.Media.LocalPreview)
+	data, err := s.Media(context.Background(), coverMedia)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil || format != "jpeg" || cfg.Width != 320 || cfg.Height != 320 {
 		t.Fatalf("the cover is %s %dx%d: %v", format, cfg.Width, cfg.Height, err)
 	}
-	if pending[1].msg.Media.Preview != nil {
+	if pending[1].msg.Media.LocalPreview != nil {
 		t.Fatal("a track without a cover shows one")
 	}
 }

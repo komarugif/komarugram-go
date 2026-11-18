@@ -226,8 +226,8 @@ func (s *Store) dropOutgoing(e *outgoingEntry) {
 	}
 	for _, p := range e.pending {
 		q.uploads.remove(p.msg.Key)
-		s.dropPending(p)
 	}
+	s.dropPending(e.pending...)
 	if !e.result.finished {
 		e.result.finished = true
 		e.result.err = errOutgoingCancelled

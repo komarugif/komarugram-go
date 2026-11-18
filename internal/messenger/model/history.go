@@ -59,6 +59,9 @@ func (m *MessageMedia) Whole() bool {
 type MessageMedia struct {
 	Preview   []byte
 	Thumbnail *MessageMedia
+	// LocalPreview is a cached still made before upload. It keeps its ID
+	// when Telegram gives the attachment its own media and thumbnail IDs.
+	LocalPreview *MessageMedia `json:",omitempty"`
 	// StickerSet identifies the pack of a sticker or custom emoji. It is nil
 	// for documents without a usable pack reference.
 	StickerSet *StickerSetRef `json:",omitempty"`

@@ -1584,6 +1584,7 @@ func addMediaRefs(refs map[string]fileLocation, media *model.MessageMedia, ref f
 // than start, are left out. The caller holds c.apply.
 func (s *Store) convert(ctx context.Context, raw []tg.MessageClass, live bool, start uint64) ([]model.Message, error) {
 	c := s.history
+	self := s.Me().ID
 	c.mu.Lock()
 	account, cache := c.account, c.cache
 	names := make(map[int64]string, len(c.peers))
@@ -1614,6 +1615,8 @@ func (s *Store) convert(ctx context.Context, raw []tg.MessageClass, live bool, s
 			c.generation++
 			c.touched[m.Key] = c.generation
 		}
+		own := m.Outgoing || m.Post || m.Key.ChatID == self
+		c.notePendingAlbumPart(m, ref, own)
 		media := m.Media
 		if media == nil && m.WebPage != nil {
 			media = m.WebPage.Photo
@@ -1650,6 +1653,7 @@ func (s *Store) convert(ctx context.Context, raw []tg.MessageClass, live bool, s
 			}
 		}
 		m = s.applyLocalEmoji(ctx, m)
+		s.keepOutgoingPreview(ctx, cache, m, own)
 		m.ContentRevision = model.Revision(m)
 		msgs = append(msgs, m)
 	}
@@ -1675,7 +1679,8 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 	default:
 		return nil
 	}
-	for _, u := range all {
+	for i := 0; i < len(all); i++ {
+		u := all[i]
 		var msg tg.MessageClass
 		var ids []int
 		var chat int64
@@ -1790,37 +1795,12 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			s.noteAction(&tg.PeerChannel{ChannelID: u.ChannelID}, u.TopMsgID, u.FromID, u.Action)
 		}
 		if msg != nil {
-			if service, ok := msg.(*tg.MessageService); ok {
-				switch service.Action.(type) {
-				case *tg.MessageActionSetChatTheme, *tg.MessageActionSetChatWallPaper:
-					s.invalidateChatTheme(peerID(service.PeerID))
-				}
-			}
-			ms, e := s.ingest(ctx, []tg.MessageClass{msg}, true, 0)
-			if e != nil {
-				return e
-			}
+			raw := []tg.MessageClass{msg}
 			if fresh {
-				if e = s.extendLive(ctx, ms); e != nil {
-					return e
-				}
+				raw, i = albumUpdates(raw, all, i)
 			}
-			for _, m := range ms {
-				s.watch.deliver(m)
-				if fresh {
-					s.adoptDraft(m)
-					if !m.Outgoing {
-						// Their message ends what they did to write it.
-						sender := m.SenderID
-						if sender == 0 {
-							sender = m.Key.ChatID
-						}
-						s.endActivity(m.Key.ChatID, sender)
-					}
-				}
-				if chat, isNew := s.mergeUpdate(m); fresh && isNew {
-					s.notice(m, chat, msg)
-				}
+			if e := s.applyMessageUpdates(ctx, raw, fresh); e != nil {
+				return e
 			}
 		}
 		if len(ids) > 0 {
@@ -1835,13 +1815,112 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 	return s.persistDialogs(ctx)
 }
 
+// albumUpdates gathers the consecutive members of an album in one envelope.
+// A send response can put random ID mappings between their message updates.
+func albumUpdates(raw []tg.MessageClass, all []tg.UpdateClass, at int) ([]tg.MessageClass, int) {
+	first, ok := raw[0].(*tg.Message)
+	if !ok || first.GroupedID == 0 {
+		return raw, at
+	}
+	chat := peerID(first.PeerID)
+	for i := at + 1; i < len(all); i++ {
+		var part tg.MessageClass
+		switch u := all[i].(type) {
+		case *tg.UpdateMessageID:
+			continue
+		case *tg.UpdateNewMessage:
+			part = u.Message
+		case *tg.UpdateNewChannelMessage:
+			part = u.Message
+		}
+		m, ok := part.(*tg.Message)
+		if !ok || m.GroupedID != first.GroupedID || peerID(m.PeerID) != chat {
+			break
+		}
+		raw = append(raw, m)
+		at = i
+	}
+	return raw, at
+}
+
+func (s *Store) applyMessageUpdates(ctx context.Context, raw []tg.MessageClass, fresh bool) error {
+	if service, ok := raw[0].(*tg.MessageService); ok {
+		switch service.Action.(type) {
+		case *tg.MessageActionSetChatTheme, *tg.MessageActionSetChatWallPaper:
+			s.invalidateChatTheme(peerID(service.PeerID))
+		}
+	}
+	ms, err := s.ingest(ctx, raw, true, 0)
+	if err != nil {
+		return err
+	}
+	if fresh {
+		if err := s.extendLive(ctx, ms); err != nil {
+			return err
+		}
+	}
+	for _, m := range ms {
+		s.watch.deliver(m)
+		if fresh {
+			s.adoptDraft(m)
+			if !m.Outgoing {
+				// Their message ends what they did to write it.
+				sender := m.SenderID
+				if sender == 0 {
+					sender = m.Key.ChatID
+				}
+				s.endActivity(m.Key.ChatID, sender)
+			}
+		}
+	}
+	// A frame can read History between update callbacks. Publish the whole
+	// album under one lock so it replaces its pending rows together.
+	var one [1]messageMerge
+	merged := one[:]
+	if len(ms) > 1 {
+		merged = make([]messageMerge, len(ms))
+	}
+	s.history.mergeHistoryUpdates(ms, merged)
+	for i, m := range ms {
+		chat := s.mergeDialogUpdate(m, merged[i])
+		if fresh && merged[i].isNew {
+			for _, r := range raw {
+				if r.GetID() == int(m.Key.MessageID) {
+					s.notice(m, chat, r)
+					break
+				}
+			}
+		}
+	}
+	return nil
+}
+
+type messageMerge struct {
+	peer          peerRecord
+	isNew         bool
+	refreshTopics bool
+}
+
 // mergeUpdate applies a new or edited message. It returns the chat it is
 // in, and whether it is newer than every message the chat had; chat is
 // zero for a channel the account is not in.
-func (s *Store) mergeUpdate(m model.Message) (chat model.Chat, isNew bool) {
-	c := s.history
+func (s *Store) mergeUpdate(m model.Message) (model.Chat, bool) {
+	var merged [1]messageMerge
+	s.history.mergeHistoryUpdates([]model.Message{m}, merged[:])
+	return s.mergeDialogUpdate(m, merged[0]), merged[0].isNew
+}
+
+func (c *conversation) mergeHistoryUpdates(ms []model.Message, merged []messageMerge) {
 	c.mu.Lock()
-	isNew = int(m.Key.MessageID) > c.top[m.Key.ChatID]
+	defer c.mu.Unlock()
+	for i, m := range ms {
+		merged[i] = c.mergeHistoryUpdate(m)
+	}
+}
+
+// mergeHistoryUpdate applies a message to its chat and threads under c.mu.
+func (c *conversation) mergeHistoryUpdate(m model.Message) messageMerge {
+	isNew := int(m.Key.MessageID) > c.top[m.Key.ChatID]
 	c.top[m.Key.ChatID] = max(c.top[m.Key.ChatID], int(m.Key.MessageID))
 	if l := c.lookups[m.Key]; l != nil {
 		// An edit of a message looked up, as the one a reply quotes.
@@ -1860,7 +1939,9 @@ func (s *Store) mergeUpdate(m model.Message) (chat model.Chat, isNew bool) {
 		// An edit of a message the history has not loaded is not added:
 		// it is from another part of the history.
 		newest := len(h.Messages) == 0 || m.Key.MessageID > h.Messages[len(h.Messages)-1].Key.MessageID
-		added := !found && !h.HasNewer && newest
+		// The update for an earlier tile can follow another tile of this
+		// send. Insert it at the tail's proper ID instead of dropping it.
+		added := !found && !h.HasNewer && (newest || c.pendingAlbumContains(m))
 		if added {
 			h.Messages = append(h.Messages, m)
 			sort.Slice(h.Messages, func(i, j int) bool { return h.Messages[i].Key.MessageID < h.Messages[j].Key.MessageID })
@@ -1868,13 +1949,16 @@ func (s *Store) mergeUpdate(m model.Message) (chat model.Chat, isNew bool) {
 		historylog.Printf("update chat=%d message=%d edit=%t added=%t newest=%t; %s", m.Key.ChatID, m.Key.MessageID, found, added, newest, historyState(h))
 	}
 	c.mergeThreads(m, isNew)
-	refreshTopics := c.noteTopic(m, isNew)
-	p := c.peers[m.Key.ChatID]
-	c.mu.Unlock()
-	if refreshTopics {
+	return messageMerge{peer: c.peers[m.Key.ChatID], isNew: isNew, refreshTopics: c.noteTopic(m, isNew)}
+}
+
+func (s *Store) mergeDialogUpdate(m model.Message, merged messageMerge) (chat model.Chat) {
+	if merged.refreshTopics {
 		s.readTopics(m.Key.ChatID, false)
 	}
+	p := merged.peer
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	chats := append([]model.Chat(nil), s.chats...)
 	found := false
 	for i := range chats {
@@ -1883,7 +1967,7 @@ func (s *Store) mergeUpdate(m model.Message) (chat model.Chat, isNew bool) {
 			// A message the history showed and marked read in the meantime,
 			// between the newest message and its count here, is read: it is
 			// looked up under s.mu, which MarkRead takes after it marks.
-			if isNew && !m.Outgoing && m.Key.MessageID > s.readUpTo(m.Key.ChatID) {
+			if merged.isNew && !m.Outgoing && m.Key.MessageID > s.readUpTo(m.Key.ChatID) {
 				chats[i].Unread++
 			}
 			if !m.Date.Before(chats[i].LastTime) {
@@ -1903,8 +1987,7 @@ func (s *Store) mergeUpdate(m model.Message) (chat model.Chat, isNew bool) {
 	}
 	model.SortChats(chats)
 	s.chats = chats
-	s.mu.Unlock()
-	return chat, isNew
+	return chat
 }
 
 // deleteMessages removes messages from histories and the cache. It returns

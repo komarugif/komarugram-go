@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/mp4"
@@ -111,24 +112,39 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	} else if m.Kind == model.MessagePhoto {
 		target = r.tileMedia(m, size)
 	}
-	var frame, preview image.Image
-	var err error
-	loading, cancelled := false, false
-	// progress is below 0 while the size is not known.
-	progress := float32(-1)
-	if target.Media != nil {
+	var status chatmedia.Status
+	useLocal := false
+	var local image.Image
+	if thumb := m.Media.LocalPreview; thumb != nil {
+		still := m.WithMedia(thumb)
+		still.Kind = model.MessagePhoto
+		preview := p.media.StatusFit(still, false, size, crop)
+		local = preview.Frame
+		useLocal = !inline && preview.Err == nil && !preview.Cancelled
+		if useLocal {
+			target, status = still, preview
+		}
+	}
+	if !useLocal && target.Media != nil {
+		// An inline GIF may fetch frames for playback. Keep the local still
+		// visible while those frames start arriving.
 		fit := p.media.StatusFit
 		if m.Kind == model.MessageSticker {
 			// As Telegram Desktop plays stickers in messages: up to 60
 			// pictures a second.
 			fit = p.media.StatusFullRate
 		}
-		status := fit(target, animate, size, crop)
-		frame, preview, err = status.Frame, status.Preview, status.Err
-		loading, cancelled = status.Loading, status.Cancelled
-		if status.Total > 0 {
-			progress = min(1, float32(status.Downloaded)/float32(status.Total))
+		status = fit(target, animate, size, crop)
+		if inline && local != nil {
+			status.Preview = local
 		}
+	}
+	frame, preview, err := status.Frame, status.Preview, status.Err
+	loading, cancelled := status.Loading, status.Cancelled
+	// progress is below 0 while the size is not known.
+	progress := float32(-1)
+	if status.Total > 0 {
+		progress = min(1, float32(status.Downloaded)/float32(status.Total))
 	}
 	// A file on its way draws the ring of a download, of how far it went up,
 	// whatever reads its picture meanwhile; a click cancels it.
@@ -197,7 +213,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			fit := tileFit(im.Bounds().Size(), size, crop || frame == nil)
 			widget.Image{Src: p.images.Op(im), Fit: fit, Position: layout.Center}.Layout(gtx)
 		}
-		if video || loading || cancelled || err != nil {
+		if video || uploading || loading && (!inline || local == nil) || cancelled || err != nil {
 			diameter := min(gtx.Dp(48), min(size.X, size.Y))
 			origin := image.Pt((size.X-diameter)/2, (size.Y-diameter)/2)
 			offset(gtx, origin, func(gtx layout.Context) layout.Dimensions {

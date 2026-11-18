@@ -51,7 +51,7 @@ func (s *Store) ReplaceMedia(ctx context.Context, m model.Message, path, ffmpeg 
 			progress(done, total)
 		}
 	}})
-	media, err := s.uploadMedia(ctx, api, f, way, ffmpeg, up)
+	media, err := s.uploadMedia(ctx, api, f, way, ffmpeg, up, nil)
 	if err != nil {
 		return model.Message{}, err
 	}
