@@ -2065,6 +2065,7 @@
 "size.megabytes" = "МБ";
 
 "status.bot" = "бот";
+"status.channel" = "канал";
 "status.last_month" = "был(а) в этом месяце";
 "status.last_week" = "был(а) на этой неделе";
 "status.lastseen_date" = "был(а) {date}";

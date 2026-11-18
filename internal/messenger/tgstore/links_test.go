@@ -19,17 +19,26 @@ func TestResolveUsername(t *testing.T) {
 	s := testStore(t)
 	calls := 0
 	s.history.api = tg.NewClient(telegram.InvokeFunc(func(_ context.Context, in bin.Encoder, out bin.Decoder) error {
-		req, ok := in.(*tg.ContactsResolveUsernameRequest)
-		if !ok {
-			return nil
-		}
-		calls++
-		if req.Username != "gochannel" {
-			return &tgerr.Error{Code: 400, Type: "USERNAME_NOT_OCCUPIED"}
-		}
-		*out.(*tg.ContactsResolvedPeer) = tg.ContactsResolvedPeer{
-			Peer:  &tg.PeerChannel{ChannelID: 9},
-			Chats: []tg.ChatClass{&tg.Channel{ID: 9, AccessHash: 3, Title: "Go", Username: "gochannel", Broadcast: true}},
+		switch req := in.(type) {
+		case *tg.ContactsResolveUsernameRequest:
+			calls++
+			if req.Username != "gochannel" {
+				return &tgerr.Error{Code: 400, Type: "USERNAME_NOT_OCCUPIED"}
+			}
+			*out.(*tg.ContactsResolvedPeer) = tg.ContactsResolvedPeer{
+				Peer:  &tg.PeerChannel{ChannelID: 9},
+				Chats: []tg.ChatClass{&tg.Channel{ID: 9, AccessHash: 3, Title: "Go", Username: "gochannel", Broadcast: true, Left: true}},
+			}
+		case *tg.ChannelsGetFullChannelRequest:
+			input, ok := req.Channel.(*tg.InputChannel)
+			if !ok || input.ChannelID != 9 || input.AccessHash != 3 {
+				t.Fatalf("unexpected channel: %+v", req.Channel)
+			}
+			full := &tg.ChannelFull{ID: 9}
+			full.SetParticipantsCount(12345)
+			*out.(*tg.MessagesChatFull) = tg.MessagesChatFull{FullChat: full}
+		default:
+			t.Fatalf("unexpected RPC %T", in)
 		}
 		return nil
 	}))
@@ -38,9 +47,20 @@ func TestResolveUsername(t *testing.T) {
 	if err != nil || chat.ID != peerID(&tg.PeerChannel{ChannelID: 9}) {
 		t.Fatalf("chat %+v, %v", chat, err)
 	}
-	// Known now: no second request.
-	if _, err := s.ResolveUsername(ctx, "GoChannel"); err != nil || calls != 1 {
-		t.Fatalf("%v, %d calls", err, calls)
+	if got := s.ChatDetails(chat.ID); got.MembersKnown {
+		t.Fatalf("username resolution reported a count before receiving it: %+v", got)
+	}
+	// The permissions refresh on opening the channel brings its count,
+	// even when the channel has no row in the dialog list.
+	if err := s.RefreshSendPermissions(ctx, chat.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.ChatDetails(chat.ID); !got.MembersKnown || got.Members != 12345 || len(s.Chats()) != 0 {
+		t.Fatalf("off-list channel details: %+v, dialogs: %v", got, s.Chats())
+	}
+	// Known now: no second username request.
+	if got, err := s.ResolveUsername(ctx, "GoChannel"); err != nil || calls != 1 || got.Members != 12345 {
+		t.Fatalf("cached channel %+v, %v, %d username calls", got, err, calls)
 	}
 	if _, err := s.ResolveUsername(ctx, "nobody"); !errors.Is(err, model.ErrLinkNotFound) {
 		t.Fatalf("unknown name: %v", err)

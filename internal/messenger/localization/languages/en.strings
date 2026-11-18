@@ -1973,6 +1973,7 @@
 "size.megabytes" = "MB";
 
 "status.bot" = "bot";
+"status.channel" = "channel";
 "status.last_month" = "last seen within a month";
 "status.last_week" = "last seen within a week";
 "status.lastseen_date" = "last seen {date}";
