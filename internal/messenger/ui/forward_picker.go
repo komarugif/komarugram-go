@@ -4,15 +4,18 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"image"
 	"strings"
 	"time"
 
 	"gio-mw/token"
+	"gio-mw/widget/checkbox"
 	"gio-mw/widget/scroll"
 
 	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/paint"
 	"gioui.org/widget"
 
 	"komarugram/internal/crash"
@@ -23,15 +26,25 @@ import (
 // forwardPicker is the dialog that picks the chat to forward to: what the
 // history forwards, and what the media viewer shows. Who opens it sends.
 type forwardPicker struct {
-	modal   modal
-	search  widget.Editor
-	list    scroll.List
-	rows    map[int64]*surface
-	cancel  surface
-	busy    bool
-	results chan error
-	target  model.Chat
-	loader  loadingIndicator
+	goToMessage              bool
+	goTo                     *checkbox.Checkboxes[string]
+	navigate                 func(model.Chat)
+	confirming               bool
+	hasMedia                 bool
+	allowOptions             bool
+	options                  model.ForwardOptions
+	dropAuthor, dropCaptions *checkbox.Checkboxes[string]
+	back, confirm            surface
+	presence                 model.PresenceSource
+	modal                    modal
+	search                   widget.Editor
+	list                     scroll.List
+	rows                     map[int64]*surface
+	cancel                   surface
+	busy                     bool
+	results                  chan error
+	target                   model.Chat
+	loader                   loadingIndicator
 	// from, ids and selection are what the history forwards: messages of
 	// chat from, the selected ones when selection is set, which are
 	// unselected once they are.
@@ -46,6 +59,31 @@ type forwardPicker struct {
 
 // open opens the picker, its search empty; the search takes the keyboard.
 func (f *forwardPicker) open(gtx layout.Context) {
+	f.goToMessage = false
+	f.goTo = checkbox.NewCheckboxes([]string{"go"}, nil, func(values []string) {
+		f.goToMessage = len(values) > 0
+	})
+	f.confirming = false
+	f.options = model.ForwardOptions{}
+	f.dropAuthor = checkbox.NewCheckboxes([]string{"author"}, nil, func(values []string) {
+		f.options.DropAuthor = len(values) > 0
+		if !f.options.DropAuthor {
+			f.options.DropCaptions = false
+			f.dropCaptions.SetValues(nil)
+		}
+	})
+	f.dropCaptions = checkbox.NewCheckboxes([]string{"captions"}, nil, func(values []string) {
+		f.options.DropCaptions = f.options.DropAuthor && f.hasMedia && len(values) > 0
+	})
+	f.modal.back = func() bool {
+		if f.confirming {
+			f.confirming = false
+			f.modal.field = &f.search
+			f.modal.focus = true
+			return true
+		}
+		return false
+	}
 	f.search.SingleLine = true
 	f.search.SetText("")
 	f.list = scroll.List{List: layout.List{Axis: layout.Vertical}}
@@ -109,6 +147,9 @@ func (f *forwardPicker) result(l localization.Catalog) (err error, done bool) {
 			f.modal.Toast(l.T("history.forward_failed") + ": " + mediaErrorText(err))
 		} else {
 			f.modal.Close()
+			if f.goToMessage && f.navigate != nil {
+				f.navigate(f.target)
+			}
 		}
 		return err, true
 	default:
@@ -122,17 +163,22 @@ func (f *forwardPicker) layout(gtx layout.Context, l localization.Catalog, targe
 	if !f.modal.Shown() {
 		return model.Chat{}, false
 	}
-	var picked model.Chat
-	clicked := false
+	if f.confirming {
+		return f.layoutConfirmation(gtx, l)
+	}
 	if !f.busy {
 		if f.cancel.Clicked(gtx) {
 			f.modal.Close()
 		}
 		for _, c := range targets {
 			if r := f.rows[c.ID]; r != nil && r.Clicked(gtx) {
-				picked, clicked = c, true
+				f.target, f.confirming = c, true
+				f.modal.field, f.modal.focus = nil, true
 			}
 		}
+	}
+	if f.confirming {
+		return f.layoutConfirmation(gtx, l)
 	}
 	sc := scheme(gtx)
 	f.modal.Layout(gtx, f.busy, func(gtx layout.Context) layout.Dimensions {
@@ -183,7 +229,103 @@ func (f *forwardPicker) layout(gtx layout.Context, l localization.Catalog, targe
 			)
 		}, defaultCardPadding)
 	})
-	return picked, clicked
+	return model.Chat{}, false
+}
+
+// layoutConfirmation asks before sending, keeping the picker and its search.
+func (f *forwardPicker) layoutConfirmation(gtx layout.Context, l localization.Catalog) (model.Chat, bool) {
+	input := gtx
+	if f.busy {
+		input = input.Disabled()
+	}
+	f.dropAuthor.Update(input)
+	if f.allowOptions && f.hasMedia && f.options.DropAuthor {
+		f.dropCaptions.Enable()
+	} else {
+		f.dropCaptions.Disable()
+	}
+	f.dropCaptions.Update(input)
+	f.goTo.Update(input)
+	if !f.busy {
+		if f.back.Clicked(gtx) {
+			f.modal.back()
+		}
+		if f.confirm.Clicked(gtx) && f.confirming {
+			return f.target, true
+		}
+	}
+	sc := scheme(gtx)
+	f.modal.Layout(gtx, f.busy, func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(420))
+		return f.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return label(gtx, l.Format("history.forward_confirm", map[string]string{"chat": l.ChatTitle(f.target)}), token.TypestyleTitleMedium, sc.Surface.OnColor, 0)
+				}),
+				vspace(16),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					if !f.allowOptions {
+						return layout.Dimensions{}
+					}
+					if f.busy {
+						gtx = gtx.Disabled()
+					}
+					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return f.dropAuthor.Layout(gtx, map[string]string{"author": l.T("history.forward_no_author")})
+						}),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							if !f.hasMedia || !f.options.DropAuthor {
+								defer paint.PushOpacity(gtx.Ops, .38).Pop()
+							}
+							return f.dropCaptions.Layout(gtx, map[string]string{"captions": l.T("history.forward_no_caption")})
+						}),
+					)
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					if f.navigate == nil {
+						return layout.Dimensions{}
+					}
+					if f.busy {
+						gtx = gtx.Disabled()
+					}
+					key := "history.forward_go_to"
+					if f.options.DropAuthor {
+						key = "history.forward_go_to_sent"
+					}
+					return f.goTo.Layout(gtx, map[string]string{"go": l.T(key)})
+				}),
+				vspace(16),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					if f.busy {
+						return f.loader.centered(gtx, l, 24)
+					}
+					text := l.T("history.select_forward")
+					if f.options.DropAuthor {
+						text = l.T("composer.send")
+					}
+					gtx.Constraints.Min.X = gtx.Constraints.Max.X
+					return layout.Flex{Spacing: layout.SpaceStart, Alignment: layout.Middle}.Layout(gtx,
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return textButton(gtx, &f.back, l.T("history.forward_back"))
+						}),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions { return textButton(gtx, &f.confirm, text) }),
+					)
+				}),
+			)
+		}, defaultCardPadding)
+	})
+	return model.Chat{}, false
+}
+
+func forwardWithOptions(ctx context.Context, source model.MessageForwarder, from int64, ids []model.MessageID, to int64, options model.ForwardOptions) error {
+	if s, ok := source.(model.MessageForwarderWithOptions); ok {
+		return s.ForwardMessagesWithOptions(ctx, from, ids, to, options)
+	}
+	if options.DropAuthor || options.DropCaptions {
+		return errors.New("forwarding options are not supported")
+	}
+	return source.ForwardMessages(ctx, from, ids, to)
 }
 
 // row draws a chat of the picker: its avatar and title.
@@ -198,12 +340,16 @@ func (f *forwardPicker) row(gtx layout.Context, c model.Chat, l localization.Cat
 	style := surfaceStyle{radius: gtx.Dp(10), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor}
 	return r.Layout(gtx, size, style, func(gtx layout.Context) layout.Dimensions {
 		avatarPx := gtx.Dp(40)
-		offset(gtx, image.Pt(gtx.Dp(6), (size.Y-avatarPx)/2), func(gtx layout.Context) layout.Dimensions {
+		avatarAt := image.Pt(gtx.Dp(6), (size.Y-avatarPx)/2)
+		offset(gtx, avatarAt, func(gtx layout.Context) layout.Dimensions {
 			if avatarOf != nil {
 				return avatarOf(gtx, c.ID, c.Kind, l.ChatTitle(c), 40)
 			}
 			return avatar(gtx, c.ID, c.Kind, l.ChatTitle(c), 40)
 		})
+		if chatOnline(gtx, c, f.presence) {
+			drawOnlineDot(gtx, avatarAt, avatarPx, dialogSurface(gtx))
+		}
 		textX := gtx.Dp(6) + avatarPx + gtx.Dp(12)
 		text := gtx
 		text.Constraints = layout.Constraints{Max: image.Pt(max(size.X-textX-gtx.Dp(6), 0), size.Y)}

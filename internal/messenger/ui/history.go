@@ -55,6 +55,7 @@ type messageRow struct {
 	bodyLeft    int
 	bodySize    image.Point
 	bodyTop     int
+	resize      messageResize
 	album       map[model.MessageID]*messageRow
 	// albumSizes are the sizes of the pictures of the album the row shows,
 	// kept for its tiles to be placed by in the next frame.
@@ -101,6 +102,7 @@ type messageRow struct {
 	// in its corner, and timeFade how much of it shows.
 	time       timePlate
 	timeFade   wdk.FloatTween
+	timeHover  gesture.Hover
 	chipWidths []int
 	lastChips  image.Rectangle
 	// comments is the bar that opens a channel post's comments.
@@ -118,6 +120,8 @@ type messageRow struct {
 	// quick takes double clicks on the bubble, which react to it.
 	quick gesture.Click
 	media widget.Clickable
+	// A separate tag observes the click position without taking the click.
+	viewerRelease byte
 	// ring shows how far the row's media or file downloaded; plate is
 	// how much the plate over its video shows, which hovering hides.
 	ring  downloadRing
@@ -252,7 +256,7 @@ type chatPage struct {
 	entityMenu entityMenu
 	composer   *messageComposer
 	header     widget.Clickable
-	headAvatar widget.Clickable
+	headAvatar avatarViewerTarget
 	// stories tells the stories of the chat's peer now, whose ring the
 	// header's avatar is drawn in and which a click on it opens; nil for a
 	// store without them.
@@ -385,8 +389,8 @@ type chatPage struct {
 	profiled     map[model.MessageID]uint64
 	profileEnv   model.RenderEnvironment
 	profileStats profileStats
-	// tail is the room under the last row of the history, the composer's,
-	// as the last frame left it: the heights kept are the rows' alone.
+	// tail is the room under the last row, for the composer and any
+	// discussion notice. The heights kept are the messages' alone.
 	tail                                       int
 	measures                                   map[model.MessageID]model.MessageLayout
 	dirty                                      map[model.MessageID]model.MessageLayout
@@ -397,6 +401,8 @@ type chatPage struct {
 	link                                       string
 	// jump is a jump to an end of a thread, waiting for its load.
 	jump jump
+	// openEnd is a chat explicitly opened at its newest message.
+	openEnd int64
 	// flights are the messages that fly from the composer to their places.
 	flights map[model.MessageID]*sendFlight
 	// mediaError is a failure of a background task on the chat's media,
@@ -421,8 +427,11 @@ type chatPage struct {
 	// them: the plate of a video tells its time, not that it is one.
 	videoTimeOnly bool
 	// openPhoto shows a photo in the viewer; nil leaves photos inline.
-	openPhoto func(model.Message)
-	openAlone func(model.Message)
+	openPhoto    func(model.Message)
+	openAlone    func(model.Message)
+	tileViewer   *mediaViewer
+	viewerArea   byte
+	viewerBounds image.Rectangle
 	// openStory opens the story a message of the chat carries, among the
 	// others the history does; openStoryOf, a story a message replies to.
 	openStory   func(model.Message)
@@ -565,6 +574,7 @@ func (p *chatPage) blurComposer() bool {
 
 func newChatPage(source model.ConversationStore, changed func()) *chatPage {
 	p := &chatPage{composer: newMessageComposer(source, changed), source: source, media: chatmedia.New(source, changed), invalidate: changed, audio: newAudioPlayer()}
+	p.forwarding.presence, _ = source.(model.PresenceSource)
 	p.stories, _ = source.(model.PeerStoryRing)
 	return p
 }
@@ -945,6 +955,10 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.restored = true
 	}
 	p.finishJump(history)
+	if p.openEnd == c.ID && len(p.messages) > 0 {
+		p.openEnd = 0
+		p.scrollToEnd(history)
+	}
 	p.askReserve(history)
 	if p.composer != nil && p.composer.takeSentJump(c.ID) {
 		// A message sent goes to the end of the history, wherever it was
@@ -975,7 +989,6 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	}
 	// The composer's middle is below the row's: a floating one is over the
 	// tail of the history, a classic one under it.
-	p.tail = tail
 	flightFrom := tail / 2
 	if classic {
 		flightFrom = tail + bottom/2
@@ -999,6 +1012,20 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		// Dates and service messages lie on the wallpaper.
 		body = p.appearance.historyContext(body)
 	}
+	var commentsNotice op.CallOp
+	noticeHeight := 0
+	if len(p.below) == 0 && p.emptyComments(history) {
+		record := op.Record(gtx.Ops)
+		notice := body
+		notice.Constraints.Min.Y = 0
+		noticeHeight = layout.Inset{Top: 4, Bottom: 4, Left: rowInsetLeft, Right: rowInsetRight}.Layout(notice, func(gtx layout.Context) layout.Dimensions {
+			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return servicePlate(gtx, l.T("comments.empty"), nil)
+			})
+		}).Size.Y
+		commentsNotice = record.Stop()
+	}
+	p.tail = tail + noticeHeight
 	offset(body, image.Pt(0, top), func(gtx layout.Context) layout.Dimensions {
 		if len(p.messages) == 0 {
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1015,6 +1042,12 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		}
 		p.selectionEvents(gtx)
 		p.viewHeight = gtx.Constraints.Max.Y
+		p.viewerBounds = image.Rectangle{}
+		if p.tileViewer != nil && animate {
+			if at, ok := p.tileViewer.openPointer.origin(gtx, &p.viewerArea, 1); ok {
+				p.viewerBounds = image.Rectangle{Min: at, Max: at.Add(gtx.Constraints.Max)}
+			}
+		}
 		defer func() { p.rowTopKnown = false }()
 		above := len(p.above)
 		rows := above + len(p.messages) + len(p.below)
@@ -1030,7 +1063,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 				p.seenSkeleton(s)
 				dims := p.skeleton(gtx, s)
 				if row == rows-1 {
-					dims.Size.Y += tail
+					dims.Size.Y += p.tail
 				}
 				p.heights.Set(row, dims.Size.Y)
 				return dims
@@ -1054,7 +1087,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 			rowEnd := p.trace.Begin("history.rows")
 			end := 0
 			if row == rows-1 {
-				end = tail
+				end = p.tail
 			}
 			// On its way to its place, after a message among the rows left.
 			shift := p.moveShift(gtx, msg.Key.MessageID)
@@ -1068,12 +1101,16 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 			if shift != 0 {
 				moved.Pop()
 			}
-			// The room the composer takes under the last row is the list's,
-			// not the row's: the height kept is the row's alone, as high as
-			// it is once another message comes under it.
+			// Keep only the message's own height in the layout cache. The
+			// notice and composer room belong to the list's tail.
 			height := dims.Size.Y
 			if row == rows-1 {
-				dims.Size.Y += tail
+				if noticeHeight > 0 {
+					at := op.Offset(image.Pt(0, height)).Push(gtx.Ops)
+					commentsNotice.Add(gtx.Ops)
+					at.Pop()
+				}
+				dims.Size.Y += p.tail
 			}
 			rowEnd()
 			p.heights.Set(row, dims.Size.Y)
@@ -1082,6 +1119,9 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 			p.keepMeasure(msg, height, env, !p.edgeRow(i))
 			return dims
 		})
+		if p.tileViewer != nil && animate {
+			trackViewerRelease(gtx, &p.viewerArea, gtx.Constraints.Max)
+		}
 		p.releaseMedia(gtx, gtx.Now)
 		p.layoutLeaving(gtx, l)
 		p.measureOffScreen(gtx, l)
@@ -1309,6 +1349,14 @@ func (p *chatPage) rebuild(messages []model.Message, env model.RenderEnvironment
 	}
 	for i, m := range messages {
 		alive[m.Key.MessageID] = true
+		if r := p.rows[m.Key.MessageID]; r != nil && r.resize.height.initialized {
+			if old, ok := p.measures[m.Key.MessageID]; ok && old.Environment == env && (r.revision != m.ContentRevision || r.resize.changing) {
+				// Keep the row at its last drawn height until its new content
+				// is laid out and starts the transition.
+				hs[i] = r.resize.rowHeight
+				continue
+			}
+		}
 		if l, ok := p.measures[m.Key.MessageID]; ok && l.ContentRevision == m.ContentRevision {
 			hs[i] = l.HeightPx
 			if p.trace != nil {
@@ -1394,6 +1442,10 @@ func (p *chatPage) rebuild(messages []model.Message, env model.RenderEnvironment
 // history alone: the cache is not told of it.
 func (p *chatPage) keepMeasure(msg model.Message, height int, env model.RenderEnvironment, keep bool) {
 	id := msg.Key.MessageID
+	if r := p.rows[id]; r != nil && r.resize.changing {
+		// Only the settled layout belongs in the persistent cache.
+		return
+	}
 	if !keep {
 		if p.unsaved == nil {
 			p.unsaved = map[model.MessageID]bool{}

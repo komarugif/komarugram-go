@@ -176,7 +176,7 @@ func TestFilesBoxSendsWhatWasChosen(t *testing.T) {
 	}
 	// The caption may be changed, and the way too.
 	c.files.caption.SetText(" Holiday in Sochi ")
-	c.files.way.HighQuality = true
+	c.files.quality.SetValues([]string{"quality"})
 	c.files.send.click.Click()
 	sent := waitSent(t, h, 1)
 	m := sent[0]
@@ -189,6 +189,51 @@ func TestFilesBoxSendsWhatWasChosen(t *testing.T) {
 	}
 	if c.draft(1).editor.Text() != " Holiday in Sochi " && c.draft(1).editor.Text() != "Holiday" {
 		t.Fatalf("composer text %q", c.draft(1).editor.Text())
+	}
+}
+
+func TestFilesBoxTabsSwitchPreviewAndDelivery(t *testing.T) {
+	h := newMenuHarness(t, nil)
+	c := h.page.composer
+	b := &c.files
+	paths := boxPaths(t, "photo", "file")
+	b.addPaths(c, paths, false)
+	settleBox(t, h)
+	if len(b.mode.tabs) != 2 || !b.isMediaTile(b.files[0]) || b.isMediaTile(b.files[1]) {
+		t.Fatal("the attachment tab did not show the photo as media and the file as a row")
+	}
+	b.caption.SetText("Keep this caption")
+	b.files[0].spoiler = true
+	for _, tab := range []int{filesDocumentTab, filesAttachmentTab, filesDocumentTab} {
+		b.mode.tabs[tab].click.Click()
+		h.frame()
+		documents := tab == filesDocumentTab
+		if b.way.Documents != documents || b.isMediaTile(b.files[0]) == documents || b.isMediaTile(b.files[1]) {
+			t.Fatalf("tab %d did not change the preview to the selected mode", tab)
+		}
+	}
+	b.send.click.Click()
+	sent := waitSent(t, h, 1)[0]
+	if sent.Files == nil || !sent.Files.Documents || !slices.Equal(sent.Files.Paths, paths) ||
+		len(sent.Files.Spoilers) != 0 || sent.Text != "Keep this caption" {
+		t.Fatalf("file tab sent %+v with caption %q", sent.Files, sent.Text)
+	}
+}
+
+func TestFilesBoxPlainFilesKeepTheirDialog(t *testing.T) {
+	h := newMenuHarness(t, nil)
+	c := h.page.composer
+	b := &c.files
+	paths := boxPaths(t, "file")
+	b.addPaths(c, paths, true)
+	settleBox(t, h)
+	if len(b.mode.tabs) != 0 || b.isMediaTile(b.files[0]) || b.title(english()) != "Send as a file" {
+		t.Fatal("a plain file did not keep the original preview")
+	}
+	b.send.click.Click()
+	sent := waitSent(t, h, 1)[0]
+	if sent.Files == nil || !sent.Files.Documents || !slices.Equal(sent.Files.Paths, paths) {
+		t.Fatalf("plain file sent %+v", sent.Files)
 	}
 }
 

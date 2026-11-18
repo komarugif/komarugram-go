@@ -42,6 +42,10 @@ func TestDroppedFilesGoToTheBox(t *testing.T) {
 		if d.active || !box.Shown() || len(box.files) != 2 || box.way.Documents != c.documents {
 			t.Fatalf("%s: drag active %v, box shown %v with %d files, as documents %v", c.name, d.active, box.Shown(), len(box.files), box.way.Documents)
 		}
+		waitFor(t, "files to be read", func() { h.frame() }, box.ready)
+		if len(box.mode.tabs) != 2 || box.isMediaTile(box.files[0]) == c.documents {
+			t.Fatalf("%s: the preview did not open on the tab for the drop area", c.name)
+		}
 	}
 
 	h := newComposerHarness(t)

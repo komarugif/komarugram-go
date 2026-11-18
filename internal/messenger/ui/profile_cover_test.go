@@ -19,6 +19,7 @@ import (
 	"gioui.org/f32"
 	"gioui.org/io/input"
 	"gioui.org/io/pointer"
+	"gioui.org/layout"
 	"gioui.org/op"
 )
 
@@ -266,7 +267,7 @@ func TestInfoHeaderAvatar(t *testing.T) {
 	defer p.Destroy()
 	p.drawAvatar = avatar
 	opened := 0
-	p.openAvatar = func(int64) { opened++ }
+	p.openAvatar = func(layout.Context, model.Chat) { opened++ }
 	var router input.Router
 	size := image.Pt(700, 700)
 	frame := func() {

@@ -112,11 +112,15 @@ type mediaViewer struct {
 
 	mu        sync.Mutex
 	session   int
-	ctx       context.Context // ends when the viewer closes
+	ctx       context.Context // ends when the gallery is discarded
 	cancel    context.CancelFunc
 	items     []model.Message // sorted by message ID
 	loading   [2]bool         // older, newer
 	exhausted [2]bool         // nothing more is asked for on that side
+	// fails counts the pages of a profile that failed in a row on a side,
+	// and retryAt is when it is asked again: see profileRetry.
+	fails   [2]int
+	retryAt [2]time.Time
 	// ended tells the sides the gallery is known to end at, which, with
 	// total, the count of all its items, places the items shown in it.
 	ended [2]bool
@@ -177,7 +181,10 @@ type mediaViewer struct {
 	externalNext *externalVideo
 	// drawn is the item the last frame drew, for tests to compare with
 	// current.
-	drawn model.MessageID
+	drawn       model.MessageID
+	openPointer viewerOpenPointer
+	opening     viewerOpening
+	closing     viewerClosing
 	// stories are the stories galleryStories shows; seen is the story told
 	// to it as seen last. storyRows are the peers of the row it goes
 	// through, storyLoaded the first and the last of them whose stories
@@ -341,6 +348,7 @@ func newMediaViewer(source model.ConversationStore, images *imageOps, invalidate
 	v.shared, _ = source.(model.SharedMediaSource)
 	v.share.forwarder, _ = source.(model.MessageForwarder)
 	v.share.rights, _ = source.(model.RightsSource)
+	v.share.picker.presence, _ = source.(model.PresenceSource)
 	v.gif.maker, _ = source.(model.GIFMaker)
 	v.full = chatmedia.NewSized(source, invalidate, viewerFullLimit, 4096)
 	// Until it is told otherwise, GIFs play in the sandbox: see configureViewer.
@@ -411,22 +419,30 @@ func (v *mediaViewer) openList(chat int64, m model.Message, list mediaList) {
 			pageless = pageless || m.Key.MessageID < 0
 		}
 		v.loading, v.exhausted = [2]bool{}, [2]bool{pageless || v.ended[0], pageless || v.ended[1]}
+		v.fails, v.retryAt = [2]int{}, [2]time.Time{}
 		v.ctx, v.cancel = context.WithCancel(context.Background())
 		ctx, session = v.ctx, v.session
 		if len(v.items) > 0 {
 			first, last = v.items[0].Key.MessageID, v.items[len(v.items)-1].Key.MessageID
 		}
 	}()
+	v.showList(chat, m.Key.MessageID)
+	v.fetch(ctx, session, -1, first)
+	v.fetch(ctx, session, 1, last)
+}
+
+func (v *mediaViewer) showList(chat int64, current model.MessageID) {
 	v.open, v.focus, v.center, v.alone, v.seen, v.storyGone = true, true, true, false, 0, false
+	v.opening = viewerOpening{}
+	v.closing = viewerClosing{}
+	v.since = time.Time{}
 	// A GIF plays by itself: its controls show for a moment, as a video's do.
 	v.controls.wake(time.Now())
 	v.zoom.reset()
-	v.chat, v.current = chat, m.Key.MessageID
+	v.chat, v.current = chat, current
 	v.strip.Position = layout.Position{}
 	clear(v.thumbState)
 	clear(v.targets)
-	v.fetch(ctx, session, -1, first)
-	v.fetch(ctx, session, 1, last)
 }
 
 // OpenVideo shows video m of chat among known, as Open does, and plays it
@@ -461,22 +477,53 @@ func (v *mediaViewer) OpenProfile(chat int64) bool {
 	if !ok {
 		return false
 	}
+	if id := v.interruptedProfilePhoto(chat, current.Media); id != 0 {
+		v.showList(chat, id)
+		return true
+	}
 	// The photo shown stays as it is, already decoded: the first page's
 	// photo of the same place is not merged.
 	v.openList(chat, current, mediaList{gallery: galleryProfile})
 	return true
 }
 
-func (v *mediaViewer) Close() {
-	v.mu.Lock()
-	if v.cancel != nil {
-		v.cancel()
-		v.cancel = nil
+// A reversed entrance keeps its gallery, including any page still on the
+// way. Reuse it only if the profile still shows the same photo.
+func (v *mediaViewer) interruptedProfilePhoto(chat int64, photo *model.MessageMedia) model.MessageID {
+	if v.open || v.chat != chat || photo == nil {
+		return 0
 	}
-	v.session++
-	v.items, v.total, v.offset, v.moveTo = nil, 0, "", 0
-	v.mu.Unlock()
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.gallery != galleryProfile || v.cancel == nil || (v.exhausted[1] && !v.ended[1]) {
+		return 0
+	}
+	for _, m := range v.items {
+		if m.Media != nil && m.Media.ID == photo.ID {
+			return m.Key.MessageID
+		}
+	}
+	return 0
+}
+
+func (v *mediaViewer) Close() {
+	v.closeViewer(false)
+}
+
+func (v *mediaViewer) closeViewer(interrupted bool) {
+	if !interrupted || v.gallery != galleryProfile {
+		v.mu.Lock()
+		if v.cancel != nil {
+			v.cancel()
+			v.cancel = nil
+		}
+		v.session++
+		v.items, v.total, v.offset, v.moveTo = nil, 0, "", 0
+		v.mu.Unlock()
+	}
 	v.open = false
+	v.opening = viewerOpening{}
+	v.closing = viewerClosing{}
 	v.tips = tooltips{}
 	v.avatar.reset()
 	v.video.stop()
@@ -503,6 +550,7 @@ func (v *mediaViewer) Destroy() {
 // Release drops the decoded pictures of a hidden window; the open item and
 // its strip are decoded again when the window is shown.
 func (v *mediaViewer) Release() {
+	v.opening = viewerOpening{}
 	v.full.Release()
 	v.mid.Release()
 	v.thumbs.Release()
@@ -514,7 +562,7 @@ func (v *mediaViewer) Release() {
 func (v *mediaViewer) fetch(ctx context.Context, session, dir int, anchor model.MessageID) {
 	side := (dir + 1) / 2
 	v.mu.Lock()
-	if v.session != session || v.loading[side] || v.exhausted[side] {
+	if v.session != session || v.loading[side] || v.exhausted[side] || time.Now().Before(v.retryAt[side]) {
 		v.mu.Unlock()
 		return
 	}
@@ -582,10 +630,20 @@ func (v *mediaViewer) fetch(ctx context.Context, session, dir int, anchor model.
 			return
 		}
 		if err != nil {
+			if gallery == galleryProfile {
+				// Telegram limits what a profile asks (FLOOD_WAIT): the other
+				// photos come later, not never. The one shown stays meanwhile.
+				v.fails[side]++
+				wait := profileRetry(v.fails[side])
+				v.retryAt[side] = time.Now().Add(wait)
+				time.AfterFunc(wait, v.invalidate)
+				return
+			}
 			// A failed page ends the strip there; items already known stay available.
 			v.exhausted[side] = true
 			return
 		}
+		v.fails[side] = 0
 		v.ended[side] = !page.More
 		v.exhausted[side] = v.ended[side]
 		if page.Total > 0 {
@@ -599,6 +657,15 @@ func (v *mediaViewer) fetch(ctx context.Context, session, dir int, anchor model.
 		}
 		v.items = v.sharedOnly(mergeMedia(gallery, v.items, page.Messages))
 	}()
+}
+
+// profileRetryStep is the wait after the first failure; a test shortens it.
+var profileRetryStep = 2 * time.Second
+
+// profileRetry is how long to wait to ask for a profile's photos again after
+// the n-th failure in a row: 2 s, doubling, up to 30 s.
+func profileRetry(n int) time.Duration {
+	return min(profileRetryStep<<min(max(n, 1)-1, 4), 15*profileRetryStep)
 }
 
 // viewerTarget is what the viewer decodes for m: a video's thumbnail, in the
@@ -759,6 +826,7 @@ func (v *mediaViewer) show(items []model.Message, i int, center bool) {
 	if i >= 0 && i < len(items) && items[i].Key.MessageID != v.current {
 		// What plays stops with another item.
 		v.video.stop()
+		v.opening = viewerOpening{}
 		v.previous, v.current = v.current, items[i].Key.MessageID
 		v.since = time.Time{}
 		v.zoom.reset()
@@ -775,6 +843,9 @@ func (v *mediaViewer) Layout(gtx layout.Context, l localization.Catalog, animate
 		return
 	}
 	v.layingOut = true
+	if v.opening.returning() || v.closing.requested {
+		gtx = gtx.Disabled()
+	}
 	// What its buttons do shows over all of it, the dialogs too.
 	tips := v.tips.begin(gtx)
 	v.layout(gtx, l, animate)
@@ -841,7 +912,9 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 			return
 		}
 		i = indexOf(items, v.current)
-		v.zoomEvents(gtx, items, i, view, native(items[i]), fitScale(native(items[i]), stage.Size()))
+		if v.opening.start.IsZero() {
+			v.zoomEvents(gtx, items, i, view, native(items[i]), fitScale(native(items[i]), stage.Size()))
+		}
 		i = indexOf(items, v.current)
 	}
 	if v.prev.Clicked(gtx) {
@@ -859,11 +932,13 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 		}
 	}
 	if !editing && (v.backdrop.Clicked(gtx) && !v.standalone || v.close.Clicked(gtx)) {
-		v.Close()
-		return
+		v.dismiss()
 	}
 	v.updateKept(gtx)
 	v.updateShare(gtx, items[indexOf(items, v.current)], l)
+	if !v.open {
+		return
+	}
 	v.updateGIF(gtx, items[indexOf(items, v.current)], l)
 	v.updateEditButton(gtx, items[indexOf(items, v.current)])
 	v.updateAvatar(gtx, items[indexOf(items, v.current)], l)
@@ -930,6 +1005,14 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 
 	photo := native(items[i])
 	fit := fitScale(photo, stage.Size())
+	travel, opened := v.opening.step(gtx, animate)
+	closeChrome, closeGone, closed := v.closing.step(gtx, animate)
+	if closed {
+		v.closeViewer(false)
+		return
+	}
+	opened *= closeChrome
+	closeFade := 1 - closeGone
 	if v.zoom.step(gtx.Now, animate, fit, photo, view.Size()) {
 		gtx.Execute(op.InvalidateCmd{})
 	}
@@ -942,7 +1025,9 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	event.Op(gtx.Ops, &v.controls.moves)
 	// Everything under the viewer is covered and gets no input.
 	v.backdrop.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		paint.Fill(gtx.Ops, v.backdropColor)
+		fill := v.backdropColor
+		fill.A = uint8(float32(fill.A) * travel * closeFade)
+		paint.Fill(gtx.Ops, fill)
 		return layout.Dimensions{Size: size}
 	})
 
@@ -950,20 +1035,29 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 		v.edit.placeStage(gtx, size)
 	}
 	v.behind = nil
-	if v.overlays != nil && v.overlays().toasts {
-		recording := op.Record(gtx.Ops)
-		v.layoutCurrent(gtx, items[i], stage, view, fit, l, animate)
-		call := recording.Stop()
-		call.Add(gtx.Ops)
-		v.behind = &call
-	} else {
-		v.layoutCurrent(gtx, items[i], stage, view, fit, l, animate)
-	}
+	func() {
+		// A picture that is closing shrinks and fades where it is.
+		if closeGone > 0 {
+			center := layout.FPt(view.Min.Add(view.Max)).Mul(.5)
+			scale := 1 - viewerCloseShrink*closeGone
+			defer op.Affine(f32.Affine2D{}.Scale(center, f32.Pt(scale, scale))).Push(gtx.Ops).Pop()
+			defer paint.PushOpacity(gtx.Ops, closeFade).Pop()
+		}
+		if v.overlays != nil && v.overlays().toasts {
+			recording := op.Record(gtx.Ops)
+			v.layoutCurrent(gtx, items[i], stage, view, fit, travel, opened, l, animate)
+			call := recording.Stop()
+			call.Add(gtx.Ops)
+			v.behind = &call
+		} else {
+			v.layoutCurrent(gtx, items[i], stage, view, fit, travel, opened, l, animate)
+		}
+	}()
 	captionTop := math.MaxInt
 	// What the editor puts away fades out, and takes no input from then on.
-	chrome := v.edit.chromeAlpha()
+	chrome := v.edit.chromeAlpha() * opened
 	chromeGtx := gtx
-	if editing {
+	if editing || opened < 1 {
 		chromeGtx = gtx.Disabled()
 	}
 	if chrome > 0 {
@@ -975,7 +1069,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 		}
 		captionTop = v.layoutCaption(chromeGtx, items[i], captionStage, l, animate)
 		v.layoutSides(chromeGtx, view, i > 0, i < len(items)-1, l)
-		if !editing {
+		if !editing && opened == 1 {
 			// Over the side zones, so that the wheel works there too; it passes
 			// clicks on to them.
 			v.zoomArea(gtx, view, photo)
@@ -983,11 +1077,20 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 		v.layoutBar(chromeGtx, items, i, l)
 		fading.Pop()
 	}
-	// The strip goes down out of the window, and comes back up.
-	if down := int(v.edit.stripShift() * float32(strip)); down < strip {
+	// The strip goes down out of the window, and comes back up: for the editor,
+	// and as the viewer opens and closes, when it comes up from below the
+	// window instead of fading in.
+	if down := int(max(v.edit.stripShift(), 1-opened) * float32(strip)); down < strip {
 		v.layoutStrip(chromeGtx, items, i, image.Rect(0, size.Y-strip+down, size.X, size.Y+down))
 	}
-	v.toast.Layout(gtx, image.Rect(0, bar, size.X, min(size.Y-strip, captionTop)))
+	if opened > 0 {
+		func() {
+			if opened < 1 {
+				defer paint.PushOpacity(gtx.Ops, opened).Pop()
+			}
+			v.toast.Layout(gtx, image.Rect(0, bar, size.X, min(size.Y-strip, captionTop)))
+		}()
+	}
 	if editing {
 		v.layoutEdit(gtx, l, animate)
 		return
@@ -1044,7 +1147,7 @@ func (v *mediaViewer) keyEvents(gtx layout.Context, items []model.Message, i int
 		case "viewer.last":
 			v.show(items, len(items)-1, true)
 		case "viewer.close":
-			v.Close()
+			v.dismiss()
 			gtx.Execute(key.FocusCmd{})
 			return
 		case "viewer.zoom_in":
@@ -1071,7 +1174,7 @@ func (v *mediaViewer) keyEvents(gtx layout.Context, items []model.Message, i int
 // layoutCurrent draws the current item centered in stage, never larger than
 // its own pixels. Until it is decoded, its thumbnail or blurred preview is
 // stretched to the same place.
-func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stage, view image.Rectangle, fit float32, l localization.Catalog, animate bool) {
+func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stage, view image.Rectangle, fit, travel, opened float32, l localization.Catalog, animate bool) {
 	v.drawn = item.Key.MessageID
 	video := item.Kind == model.MessageVideo
 	gif := item.Kind == model.MessageGIF
@@ -1115,6 +1218,10 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 		center := layout.FPt(view.Min.Add(view.Max)).Mul(.5).Add(v.zoom.offset)
 		origin = image.Pt(int(math.Round(float64(center.X)-float64(shown.X)/2)), int(math.Round(float64(center.Y)-float64(shown.Y)/2)))
 	}
+	if travel < 1 {
+		v.opening.tile.layout(gtx, v.images, image.Rectangle{Min: origin, Max: origin.Add(shown)}, travel)
+		return
+	}
 	editing := v.edit.opened()
 	if editing {
 		// It moves over where the bar is, and takes no click.
@@ -1129,6 +1236,14 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 			r.picture = nil
 		} else {
 			im, holding = r.picture, true
+		}
+	}
+	if tile := &v.opening.tile; tile.picture != nil {
+		if im == nil {
+			im = tile.picture
+		}
+		if opened == 1 && (status.Frame != nil || status.Err != nil || !decodable) {
+			*tile = viewerOpenTile{}
 		}
 	}
 	if im == nil && decodable {
@@ -1160,7 +1275,7 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 			showRing = true
 		}
 	}
-	if v.picture.Clicked(gtx) {
+	if v.picture.Clicked(gtx) && opened == 1 {
 		switch {
 		case video && v.video.state(item).active:
 			v.video.toggle()
@@ -1215,6 +1330,12 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 				fillRect(gtx, token.NewMatColorFromHexRGB(0x1d2127), shown)
 			} else {
 				widget.Image{Src: v.images.Op(im), Fit: widget.Fill}.Layout(gtx)
+			}
+			if opened <= 0 {
+				return layout.Dimensions{Size: shown}
+			}
+			if opened < 1 {
+				defer paint.PushOpacity(gtx.Ops, opened).Pop()
 			}
 			if (video && !showRing && !vs.playing || gif && v.full.GIFPaused(item) || motionFrame != nil && v.full.GIFPaused(motion)) && playMark > 0 {
 				d := min(gtx.Dp(64), shown.X, shown.Y)

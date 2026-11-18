@@ -75,15 +75,17 @@ func TestRenderProfiles(t *testing.T) {
 		name                   string
 		dark, private, editing bool
 		section                model.SharedKind
+		cover                  bool
 	}{
-		{"own", false, false, false, ""}, {"own-dark", true, false, false, ""}, {"own-private", false, true, false, ""},
-		{"own-edit", false, false, true, ""}, {"own-playlist", false, false, false, model.SharedSavedMusic},
+		{"own", false, false, false, "", false}, {"own-dark", true, false, false, "", false}, {"own-private", false, true, false, "", false},
+		{"own-edit", false, false, true, "", false}, {"own-playlist", false, false, false, model.SharedSavedMusic, false},
+		{"own-cover", false, false, false, "", true}, {"own-cover-dark", true, false, false, "", true},
 	} {
-		renderOwnProfile(t, filepath.Join(dir, "profile-"+own.name+".png"), own.dark, own.private, own.editing, own.section)
+		renderOwnProfile(t, filepath.Join(dir, "profile-"+own.name+".png"), own.dark, own.private, own.editing, own.section, own.cover)
 	}
 }
 
-func renderOwnProfile(t *testing.T, path string, dark, private, editing bool, section model.SharedKind) {
+func renderOwnProfile(t *testing.T, path string, dark, private, editing bool, section model.SharedKind, cover bool) {
 	t.Helper()
 	store := mockstore.New(time.Now(), 0)
 	p := newOwnProfile(t, store, func() {})
@@ -94,6 +96,15 @@ func renderOwnProfile(t *testing.T, path string, dark, private, editing bool, se
 	for p.info.profileResult != nil && time.Now().Before(until) {
 		p.info.drainProfile()
 		time.Sleep(time.Millisecond)
+	}
+	if cover {
+		p.info.profile.Cover = model.ProfileCover{Colors: []uint32{0x5a8fd6, 0x82b4ee}, DarkColors: []uint32{0x2a4f80, 0x3f6aa3}}
+		// Show all three rows of the account's summary card.
+		p.info.profile.Channel = &model.PersonalChannel{
+			Chat: model.Chat{ID: 4, Kind: model.KindChannel, Title: "Новости Go", Members: 48210},
+			Post: model.Preview{Text: "Новая версия Go"},
+		}
+		p.info.drawAvatar = avatar
 	}
 	if section != "" {
 		p.info.selectSection(section)

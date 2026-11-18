@@ -729,6 +729,7 @@
 "shared.voice" = "lng_media_type_audios";
 
 "status.bot" = "lng_status_bot";
+"status.channel" = "lng_channel_status";
 "status.last_month" = "lng_status_last_month";
 "status.last_week" = "lng_status_last_week";
 "status.lastseen_date" = "lng_status_lastseen_date";

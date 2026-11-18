@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"gio-mw/defaults"
-	"gio-mw/defaults/schemes"
 	"gio-mw/exp/appearance"
 	"gio-mw/token"
 	"gio-mw/wdk"
@@ -94,6 +93,7 @@ type articleWindowHost struct {
 	zoom      func() int
 	setZoom   func(int)
 	chats     func() []model.Chat
+	navigate  func(model.Chat)
 }
 
 func newArticleWindow(w *appwindow.Window, source model.ConversationStore, catalog localization.Catalog, host articleWindowHost, m model.Message, fragment string) *articleWindow {
@@ -101,6 +101,7 @@ func newArticleWindow(w *appwindow.Window, source model.ConversationStore, catal
 	a.w, a.mode = w, host.mode
 	a.tools.zoom, a.tools.setZoom = host.zoom, host.setZoom
 	a.page.chats = host.chats
+	a.page.forwarding.navigate = host.navigate
 	a.shortcuts = host.shortcuts
 	a.page.shortcuts = host.shortcuts
 	a.page.menus = host.menus
@@ -156,11 +157,7 @@ func (a *articleWindow) Theme(gtx layout.Context) *token.Theme {
 	dark := mode == themeDark || mode == themeAuto && a.w.Appearance.Scheme() == appearance.Dark
 	if v := defaults.FontsVersion(); a.theme == nil || v != a.themeFonts || dark != a.dark {
 		a.themeFonts, a.dark = v, dark
-		scheme := schemes.SchemeBaselineLight()
-		if dark {
-			scheme = schemes.SchemeBaselineDark()
-		}
-		a.theme = defaults.NewTheme(gtx, scheme)
+		a.theme = defaults.NewTheme(gtx, appColors{}.scheme(dark))
 	}
 	a.w.SetFrameDark(dark)
 	a.w.SetFrameColor(a.theme.Scheme.Surface.Color.AsNRGBA())
@@ -534,6 +531,7 @@ func (a *App) openArticleWindowOf(m model.Message, fragment, title string, src a
 				mode:      a.themeMode,
 				zoom:      func() int { return a.preferences.Global().ArticleZoom },
 				chats:     a.store.Chats,
+				navigate:  a.openForwarded,
 				setZoom: func(z int) {
 					if err := a.preferences.SetArticleZoom(z); err != nil {
 						log.Printf("save settings: %v", err)

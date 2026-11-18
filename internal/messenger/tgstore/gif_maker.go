@@ -137,7 +137,7 @@ func (s *Store) ConvertGIFByBot(ctx context.Context, m model.Message, progress f
 	}
 	// Watched before it is forwarded, which brings the forward itself.
 	messages, stop := s.watch.add(bot.ID)
-	if err := s.queueForward(ctx, m.Key.ChatID, []model.MessageID{m.Key.MessageID}, bot.ID, true); err != nil {
+	if err := s.queueForward(ctx, m.Key.ChatID, []model.MessageID{m.Key.MessageID}, bot.ID, true, model.ForwardOptions{}); err != nil {
 		stop()
 		return model.Message{}, err
 	}

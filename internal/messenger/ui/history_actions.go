@@ -185,7 +185,10 @@ func (p *chatPage) openForwardParts(gtx layout.Context, parts []model.Message, s
 		return
 	}
 	f.ids, f.songs = f.ids[:0], nil
+	f.hasMedia = false
+	_, f.allowOptions = p.source.(model.MessageForwarderWithOptions)
 	for _, m := range parts {
+		f.hasMedia = f.hasMedia || m.Media != nil
 		if m.Playlist {
 			f.songs = append(f.songs, m)
 		} else {
@@ -197,6 +200,7 @@ func (p *chatPage) openForwardParts(gtx layout.Context, parts []model.Message, s
 		return
 	}
 	f.from = p.chat
+	f.allowOptions = f.allowOptions && len(f.songs) == 0
 	f.open(gtx)
 }
 
@@ -248,8 +252,9 @@ func (p *chatPage) forward(target model.Chat) {
 		return
 	}
 	from, ids := f.from, append([]model.MessageID(nil), f.ids...)
+	options := f.options
 	f.send(ctx, target, func(ctx context.Context, to int64) error {
-		return source.ForwardMessages(ctx, from, ids, to)
+		return forwardWithOptions(ctx, source, from, ids, to, options)
 	}, p.invalidate)
 }
 

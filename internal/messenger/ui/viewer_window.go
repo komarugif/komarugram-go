@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 
 	"gio-mw/defaults"
-	"gio-mw/defaults/schemes"
 	"gio-mw/token"
 
 	"gioui.org/io/system"
@@ -64,7 +63,7 @@ func newViewerWindow(w *appwindow.Window, prefs *preferences.Store, source model
 func (p *viewerWindow) Theme(gtx layout.Context) *token.Theme {
 	if v := defaults.FontsVersion(); p.theme == nil || v != p.themeFonts {
 		p.themeFonts = v
-		p.theme = defaults.NewTheme(gtx, schemes.SchemeBaselineDark())
+		p.theme = defaults.NewTheme(gtx, appColors{}.scheme(true))
 	}
 	return p.theme
 }

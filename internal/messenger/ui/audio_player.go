@@ -895,14 +895,19 @@ func (p *chatPage) songCover(vr *audioRow, m model.Message, size image.Point) im
 	if m.Kind != model.MessageMusic || m.Media == nil || p.media == nil || p.images == nil {
 		return nil
 	}
-	if thumb := m.Media.Thumbnail; thumb != nil {
+	for _, thumb := range []*model.MessageMedia{m.Media.LocalPreview, m.Media.Thumbnail} {
+		if thumb == nil {
+			continue
+		}
 		target := m
 		target.Kind, target.Media = model.MessagePhoto, thumb
 		status := p.media.StatusFit(target, false, size, true)
 		if status.Frame != nil {
 			return status.Frame
 		}
-		return status.Preview
+		if status.Err == nil && !status.Cancelled {
+			return status.Preview
+		}
 	}
 	if len(m.Media.Preview) == 0 {
 		return nil

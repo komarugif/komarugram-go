@@ -40,10 +40,11 @@ type filesBox struct {
 	files []*boxFile
 	way   sendfiles.Way
 	// caption is the text of the message the files go with.
-	caption                   widget.Editor
-	list                      scroll.List
-	add, cancel, send         surface
-	group, documents, quality *checkbox.Checkboxes[string]
+	caption           widget.Editor
+	list              scroll.List
+	add, cancel, send surface
+	mode              tabRow
+	group, quality    *checkbox.Checkboxes[string]
 	// viewing is set while the viewer shows the files.
 	viewing bool
 	// convert asks what to do with videos Telegram would not show as videos.
@@ -100,6 +101,7 @@ type boxResult struct {
 	thumb      *image.RGBA
 	shown      image.Point
 	long       time.Duration
+	loading    bool
 	err        error
 }
 
@@ -113,13 +115,16 @@ const (
 	boxMaxFiles = 100
 )
 
+const (
+	filesAttachmentTab = iota
+	filesDocumentTab
+)
+
 func newFilesBox() filesBox {
 	b := filesBox{results: make(chan boxResult, 32)}
 	b.caption.Submit = true
-	b.group = checkbox.NewCheckboxes([]string{"group"}, nil, func(values []string) { b.way.Group = len(values) == 1 })
-	b.documents = checkbox.NewCheckboxes([]string{"documents"}, nil, func(values []string) { b.way.Documents = len(values) == 1 })
-	b.quality = checkbox.NewCheckboxes([]string{"quality"}, nil, func(values []string) { b.way.HighQuality = len(values) == 1 })
-	b.list.Axis = layout.Vertical
+	b.group = checkbox.NewCheckboxes([]string{"group"}, nil, nil)
+	b.quality = checkbox.NewCheckboxes([]string{"quality"}, nil, nil)
 	return b
 }
 
@@ -135,16 +140,15 @@ func (b *filesBox) addPaths(c *messageComposer, paths []string, documents bool) 
 		b.generation++
 		b.files = nil
 		b.way = sendfiles.Way{Group: true, Documents: documents}
+		b.mode = tabRow{}
+		b.drag = boxDrag{}
+		b.list = scroll.List{List: layout.List{Axis: layout.Vertical}}
+		b.group.SetValues([]string{"group"})
+		b.quality.SetValues(nil)
 		b.caption.SetText(c.draft(c.chat).editor.Text())
 		// What is typed goes on after it.
 		end := b.caption.Len()
 		b.caption.SetCaret(end, end)
-		b.group.SetValues([]string{"group"})
-		b.documents.SetValues(nil)
-		if documents {
-			b.documents.SetValues([]string{"documents"})
-		}
-		b.quality.SetValues(nil)
 		// The caption takes the keyboard from the message field.
 		b.modal.field = &b.caption
 		b.modal.Open()
@@ -160,18 +164,36 @@ func (b *filesBox) addPaths(c *messageComposer, paths []string, documents bool) 
 	ctx, generation, ffmpeg := c.ctx, b.generation, video.ResolveFFmpeg(c.ffmpegPath())
 	results, invalidate := b.results, c.invalidate
 	go func() {
+		publish := func(res boxResult) bool {
+			select {
+			case results <- res:
+				invalidate()
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
 		for _, f := range added {
 			res := boxResult{generation: generation, file: f}
 			func() {
 				// A file is anything the user picked: one that panics is
 				// told as one that failed, and the others go on.
 				defer crash.Recover("inspect file", func(e *crash.Panic) { res.err = e })
-				res.info, res.thumb, res.shown, res.long, res.err = readBoxFile(ctx, ffmpeg, f.Path)
+				res.info, res.err = sendfiles.Inspect(f.Path)
+				if res.err != nil {
+					return
+				}
+				// Show the selected tab as soon as the file type is known.
+				if sendfiles.HasDocumentsOption([]sendfiles.File{res.info}) {
+					loading := res
+					loading.loading = true
+					if !publish(loading) {
+						return
+					}
+				}
+				res.thumb, res.shown, res.long = readBoxPreview(ctx, ffmpeg, res.info)
 			}()
-			select {
-			case results <- res:
-				invalidate()
-			case <-ctx.Done():
+			if ctx.Err() != nil || !publish(res) {
 				return
 			}
 		}
@@ -185,6 +207,11 @@ func readBoxFile(ctx context.Context, ffmpeg, path string) (info sendfiles.File,
 	if err != nil {
 		return info, nil, image.Point{}, 0, err
 	}
+	picture, shown, long = readBoxPreview(ctx, ffmpeg, info)
+	return info, picture, shown, long, nil
+}
+
+func readBoxPreview(ctx context.Context, ffmpeg string, info sendfiles.File) (picture *image.RGBA, shown image.Point, long time.Duration) {
 	picture = boxThumbnail(ctx, ffmpeg, info)
 	if info.Kind == sendfiles.KindVideo || info.Kind == sendfiles.KindAnimation {
 		if c, err := video.ReadContainer(info.Path); err == nil {
@@ -193,7 +220,7 @@ func readBoxFile(ctx context.Context, ffmpeg, path string) (info sendfiles.File,
 			shown, long = image.Pt(m.Width, m.Height), m.Duration
 		}
 	}
-	return info, picture, shown, long, nil
+	return picture, shown, long
 }
 
 // baseName is the last element of a path of any system.
@@ -254,7 +281,7 @@ func (b *filesBox) take(l localization.Catalog) {
 				}
 				continue
 			}
-			r.file.File, r.file.thumb, r.file.shown, r.file.long, r.file.ready = r.info, r.thumb, r.shown, r.long, true
+			r.file.File, r.file.thumb, r.file.shown, r.file.long, r.file.ready = r.info, r.thumb, r.shown, r.long, !r.loading
 		default:
 			return
 		}
@@ -387,6 +414,26 @@ func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l loca
 	}
 	b.take(l)
 	c.takeConverted(l)
+	if !b.modal.Shown() {
+		if len(c.pasted) > len(c.uploading) {
+			c.forgetPasted(nil)
+		}
+		b.tips = tooltips{}
+		return
+	}
+	files := b.fileInfo()
+	tabbed := sendfiles.HasDocumentsOption(files)
+	active := filesAttachmentTab
+	if b.way.Documents {
+		active = filesDocumentTab
+	}
+	if tabbed && !b.modal.closing {
+		if next, ok := b.mode.Clicked(gtx, active, 2); ok {
+			active, b.way.Documents = next, next == filesDocumentTab
+			b.drag = boxDrag{}
+			b.list = scroll.List{List: layout.List{Axis: layout.Vertical}}
+		}
+	}
 	for _, f := range b.files {
 		if f.ready {
 			if err := c.permissions(c.chat).Check(sendfiles.Permission(f.File, b.way.Documents)); err != nil {
@@ -399,13 +446,6 @@ func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l loca
 			}
 		}
 	}
-	if !b.modal.Shown() {
-		if len(c.pasted) > len(c.uploading) {
-			c.forgetPasted(nil)
-		}
-		b.tips = tooltips{}
-		return
-	}
 	// What the buttons over the files do shows over all of the box.
 	tipArea := b.tips.begin(top)
 	defer func() {
@@ -416,8 +456,9 @@ func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l loca
 	}()
 	// The checkboxes follow the way; a click on one changes it.
 	b.group.Update(gtx)
-	b.documents.Update(gtx)
 	b.quality.Update(gtx)
+	b.way.Group = len(b.group.GetValues()) == 1
+	b.way.HighQuality = len(b.quality.GetValues()) == 1
 	if !b.modal.closing {
 		for {
 			ev, ok := b.caption.Update(gtx)
@@ -447,6 +488,8 @@ func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l loca
 		for i, f := range b.files {
 			if f.remove.Clicked(gtx) && !dragged {
 				b.files = slices.Delete(b.files, i, i+1)
+				files = slices.Delete(files, i, i+1)
+				tabbed = sendfiles.HasDocumentsOption(files)
 				if len(b.files) == 0 {
 					b.modal.Close()
 				}
@@ -466,7 +509,23 @@ func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l loca
 	shown := b.modal.Layout(gtx, false, func(gtx layout.Context) layout.Dimensions {
 		width := min(gtx.Constraints.Max.X-2*gtx.Dp(16), gtx.Dp(filesBoxWidth))
 		gtx.Constraints.Min.X, gtx.Constraints.Max.X = width, width
-		return b.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions { return c.layoutFilesContent(gtx, p, l) }, defaultCardPadding)
+		content := func(gtx layout.Context) layout.Dimensions {
+			return c.layoutFilesContent(gtx, p, l, files, !tabbed)
+		}
+		if !tabbed {
+			return b.modal.Card(gtx, content, defaultCardPadding)
+		}
+		return b.modal.Card(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X, gtx.Dp(44)))
+					return b.mode.Layout(gtx, []string{l.T("preview.attachment"), l.T("preview.file")}, active)
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{Left: defaultCardPadding, Right: defaultCardPadding, Bottom: defaultCardPadding}.Layout(gtx, content)
+				}),
+			)
+		}, 0)
 	})
 	if !shown {
 		b.close()
@@ -532,12 +591,17 @@ func (c *messageComposer) chooseMore() {
 	}()
 }
 
-// title says what is being sent.
-func (b *filesBox) title(l localization.Catalog) string {
+func (b *filesBox) fileInfo() []sendfiles.File {
 	files := make([]sendfiles.File, len(b.files))
 	for i, f := range b.files {
 		files[i] = f.File
 	}
+	return files
+}
+
+// title says what is being sent.
+func (b *filesBox) title(l localization.Catalog) string {
+	files := b.fileInfo()
 	switch sendfiles.TitleOf(files, b.way) {
 	case sendfiles.TitleImage:
 		return l.T("files.image")
@@ -551,13 +615,9 @@ func (b *filesBox) title(l localization.Catalog) string {
 	return l.T("files.file")
 }
 
-func (c *messageComposer) layoutFilesContent(gtx layout.Context, p *chatPage, l localization.Catalog) layout.Dimensions {
+func (c *messageComposer) layoutFilesContent(gtx layout.Context, p *chatPage, l localization.Catalog, all []sendfiles.File, titled bool) layout.Dimensions {
 	b := &c.files
 	sc := scheme(gtx)
-	all := make([]sendfiles.File, len(b.files))
-	for i, f := range b.files {
-		all[i] = f.File
-	}
 	limit := c.captionLimit()
 	length := captionLength(strings.TrimSpace(b.caption.Text()))
 	options := []layout.FlexChild{}
@@ -569,19 +629,15 @@ func (c *messageComposer) layoutFilesContent(gtx layout.Context, p *chatPage, l 
 	if sendfiles.HasGroupOption(all) {
 		option(b.group, "group", l.T("files.group"))
 	}
-	if sendfiles.HasDocumentsOption(all) {
-		text := l.T("files.documents")
-		if len(all) == 1 {
-			text = l.T("files.document")
-		}
-		option(b.documents, "documents", text)
-	}
 	if sendfiles.HasHighQualityOption(all, b.way) {
 		option(b.quality, "quality", l.T("files.quality"))
 	}
 	preview := min(gtx.Dp(filesBoxPreview), gtx.Constraints.Max.Y/2)
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			if !titled {
+				return layout.Dimensions{}
+			}
 			return label(gtx, b.title(l), token.TypestyleTitleMedium, sc.Surface.OnColor, 1)
 		}),
 		vspace(12),
@@ -660,7 +716,7 @@ func (b *filesBox) isMediaTile(f *boxFile) bool {
 	}
 	switch f.Kind {
 	case sendfiles.KindPhoto, sendfiles.KindVideo, sendfiles.KindAnimation:
-		return f.ready
+		return true
 	}
 	return false
 }

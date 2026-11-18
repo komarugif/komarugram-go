@@ -105,6 +105,28 @@ func TestJumpButtonsScroll(t *testing.T) {
 	}
 }
 
+func TestOpenAtEndIgnoresPreviousPosition(t *testing.T) {
+	for _, hasNewer := range []bool{false, true} {
+		t.Run(fmt.Sprint(hasNewer), func(t *testing.T) {
+			var calls []string
+			h := newChatInputHarnessOf(t, 100, func(m model.History) model.ConversationStore {
+				m.HasNewer = hasNewer
+				return jumpSource{benchmarkHistory{h: m}, &calls, nil}
+			})
+			h.seek(10, 0)
+			h.page.openEnd = 1
+			h.frame()
+			if hasNewer {
+				if len(calls) != 1 || calls[0] != "last" {
+					t.Fatalf("did not load newest history: %v", calls)
+				}
+			} else if h.page.list.Position.BeforeEnd {
+				t.Fatal("left the chat at its previous position")
+			}
+		})
+	}
+}
+
 // The history is at its end, for the buttons, up to a reserve above it, as in
 // Telegram Desktop; and at its start, up to the same below it.
 func TestJumpReserve(t *testing.T) {

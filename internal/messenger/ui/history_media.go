@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/mp4"
@@ -89,6 +90,14 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	end := p.trace.Begin("history.media")
 	defer end()
 	stickerSet := m.Kind == model.MessageSticker && m.Media.StickerSet != nil
+	viewer := p.tileViewer
+	var tileAt image.Point
+	var tileKnown bool
+	observe := viewer != nil && animate && gtx.Enabled() &&
+		(m.Kind == model.MessagePhoto || m.Kind == model.MessageVideo || m.Kind == model.MessageGIF)
+	if observe {
+		tileAt, tileKnown = viewer.openPointer.origin(gtx, &r.viewerRelease, 1)
+	}
 	clicked := r.media.Clicked(gtx)
 	if stickerSet {
 		clicked = r.sticker.Clicked(gtx)
@@ -102,7 +111,8 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	// One that plays here pauses on a click, and opens in the viewer on
 	// one of the middle button.
 	inline := m.Kind == model.MessageGIF && !gif
-	if inline && r.gif.update(gtx, p, m) && p.openGIF != nil {
+	opened := inline && r.gif.update(gtx, p, m) && p.openGIF != nil
+	if opened {
 		p.openGIF(m)
 	}
 	if video {
@@ -111,24 +121,39 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	} else if m.Kind == model.MessagePhoto {
 		target = r.tileMedia(m, size)
 	}
-	var frame, preview image.Image
-	var err error
-	loading, cancelled := false, false
-	// progress is below 0 while the size is not known.
-	progress := float32(-1)
-	if target.Media != nil {
+	var status chatmedia.Status
+	useLocal := false
+	var local image.Image
+	if thumb := m.Media.LocalPreview; thumb != nil {
+		still := m.WithMedia(thumb)
+		still.Kind = model.MessagePhoto
+		preview := p.media.StatusFit(still, false, size, crop)
+		local = preview.Frame
+		useLocal = !inline && preview.Err == nil && !preview.Cancelled
+		if useLocal {
+			target, status = still, preview
+		}
+	}
+	if !useLocal && target.Media != nil {
+		// An inline GIF may fetch frames for playback. Keep the local still
+		// visible while those frames start arriving.
 		fit := p.media.StatusFit
 		if m.Kind == model.MessageSticker {
 			// As Telegram Desktop plays stickers in messages: up to 60
 			// pictures a second.
 			fit = p.media.StatusFullRate
 		}
-		status := fit(target, animate, size, crop)
-		frame, preview, err = status.Frame, status.Preview, status.Err
-		loading, cancelled = status.Loading, status.Cancelled
-		if status.Total > 0 {
-			progress = min(1, float32(status.Downloaded)/float32(status.Total))
+		status = fit(target, animate, size, crop)
+		if inline && local != nil {
+			status.Preview = local
 		}
+	}
+	frame, preview, err := status.Frame, status.Preview, status.Err
+	loading, cancelled := status.Loading, status.Cancelled
+	// progress is below 0 while the size is not known.
+	progress := float32(-1)
+	if status.Total > 0 {
+		progress = min(1, float32(status.Downloaded)/float32(status.Total))
 	}
 	// A file on its way draws the ring of a download, of how far it went up,
 	// whatever reads its picture meanwhile; a click cancels it.
@@ -152,11 +177,13 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			// The stories of the history go through the viewer apart.
 			p.openStory(m)
 		} else if video {
-			p.playVideo(gtx, m, -1, l)
+			opened = p.playVideo(gtx, m, -1, l)
 		} else if m.Kind == model.MessagePhoto && r.alone && p.openAlone != nil {
 			p.openAlone(m)
+			opened = true
 		} else if m.Kind == model.MessagePhoto && p.openPhoto != nil {
 			p.openPhoto(m)
+			opened = true
 		} else if unplayable {
 			p.gifUnplayable(m, l)
 		} else if inline && err == nil && !cancelled && !loading {
@@ -170,34 +197,64 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			p.media.Cancel(target)
 		}
 	}
+	im := frame
+	if im == nil {
+		im = preview
+	}
+	inset := gtx.Dp(8)
+	t := &r.time
+	t.drawn = timeFits(*t, size, inset)
+	corners := r.corners
+	if t.size.X > 0 && !t.drawn {
+		corners.se, corners.sw = 0, 0
+	}
+	shape := corners.rrect(gtx, size)
+	fit := widget.Cover
+	if im != nil {
+		fit = tileFit(im.Bounds().Size(), size, crop || frame == nil)
+	}
+	if viewer != nil && opened && viewer.open && viewer.chat == p.chat && viewer.current == m.Key.MessageID {
+		viewer.opening.tile.picture = im
+		if observe {
+			viewer.opening.start = gtx.Now
+		}
+		if tileKnown && im != nil && !im.Bounds().Empty() {
+			shapeAt := shape
+			shapeAt.Rect = shape.Rect.Add(tileAt)
+			visible := shapeAt.Rect
+			if !p.viewerBounds.Empty() {
+				visible = visible.Intersect(p.viewerBounds)
+			}
+			if !visible.Empty() {
+				viewer.opening.source = &r.media
+				viewer.opening.tile = viewerOpenTile{picture: im, shape: shapeAt, visible: visible, fit: fit, position: layout.Center}
+			}
+		}
+	}
 	draw := func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints = layout.Exact(size)
 		// The time of the message, where its bubble asked for it on the
 		// tile and the tile has room for it; the tile then ends the bubble,
 		// and its bottom corners are round as the bubble's.
-		inset := gtx.Dp(8)
-		t := &r.time
-		t.drawn = timeFits(*t, size, inset)
-		corners := r.corners
-		if t.size.X > 0 && !t.drawn {
-			corners.se, corners.sw = 0, 0
-		}
-		shape := corners.rrect(gtx, size)
 		defer shape.Push(gtx.Ops).Pop()
 		// A sticker lies on the chat's background once it is drawn; the
 		// plate only shows where it is going to be.
 		if m.Kind != model.MessageSticker || (frame == nil && preview == nil) {
 			paint.FillShape(gtx.Ops, scheme(gtx).SurfaceContainerHigh.AsNRGBA(), shape.Op(gtx.Ops))
 		}
-		im := frame
-		if im == nil {
-			im = preview
+		if observe {
+			opacity := viewer.opening.sourceOpacity(gtx, &r.media, animate)
+			if opacity <= 0 {
+				return layout.Dimensions{Size: size}
+			}
+			if opacity < 1 {
+				defer paint.PushOpacity(gtx.Ops, opacity).Pop()
+			}
 		}
 		if im != nil {
-			fit := tileFit(im.Bounds().Size(), size, crop || frame == nil)
 			widget.Image{Src: p.images.Op(im), Fit: fit, Position: layout.Center}.Layout(gtx)
 		}
-		if video || loading || cancelled || err != nil {
+		if video || uploading || loading && (!inline || local == nil) || cancelled || err != nil {
 			diameter := min(gtx.Dp(48), min(size.X, size.Y))
 			origin := image.Pt((size.X-diameter)/2, (size.Y-diameter)/2)
 			offset(gtx, origin, func(gtx layout.Context) layout.Dimensions {
@@ -315,11 +372,15 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 		style := surfaceStyle{radius: gtx.Dp(8), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor, button: l.T("stickers.open")}
 		return r.sticker.Layout(gtx, size, style, draw)
 	}
-	return r.media.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	dims := r.media.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		// A press opens or plays it, as a button.
 		pointer.CursorPointer.Add(gtx.Ops)
 		return draw(gtx)
 	})
+	if observe {
+		trackViewerRelease(gtx, &r.viewerRelease, dims.Size)
+	}
+	return dims
 }
 
 // videoPlateText is what the plate of m, a video or a GIF played as one,

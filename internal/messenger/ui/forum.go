@@ -39,7 +39,7 @@ type forumPage struct {
 	// header takes a click on the forum's header, which opens its info.
 	header widget.Clickable
 	// avatar takes a click on the avatar in it, which shows its photo.
-	avatar widget.Clickable
+	avatar avatarViewerTarget
 	rows   map[int]*surface
 	retry  surface
 	// spinner is the indicator of the first page on its way.
@@ -116,7 +116,7 @@ func (a *App) layoutForum(gtx layout.Context, c model.Chat, l localization.Catal
 	}
 	searching := canSearch && f.search.open
 	back := a.returnButton()
-	dims := layoutChatPage(gtx, c, l, a.layoutAvatar, a.badges, back, func(gtx layout.Context) layout.Dimensions {
+	dims := layoutChatPage(gtx, c, l, a.viewerAvatar(&f.avatar), a.badges, back, func(gtx layout.Context) layout.Dimensions {
 		if searching {
 			return f.layoutResults(gtx, c, searcher, invalidate, l)
 		}

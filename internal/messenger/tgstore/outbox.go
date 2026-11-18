@@ -122,6 +122,11 @@ func (s *Store) restoreOutgoing(ctx context.Context) error {
 		if e.Done == nil {
 			e.Done = map[int64]int{}
 		}
+		for index, msg := range e.Messages {
+			if !e.Cancelled[index] {
+				s.restoreOutgoingPreview(ctx, msg.Media)
+			}
+		}
 		s.history.mu.Lock()
 		if _, ok := s.history.peers[e.Peer.key()]; !ok {
 			s.history.peers[e.Peer.key()] = e.Peer
@@ -565,8 +570,8 @@ func (s *Store) finishOutgoing(e *outgoingEntry, err error) {
 		}
 		for _, p := range e.pending {
 			q.uploads.remove(p.msg.Key)
-			s.dropPending(p)
 		}
+		s.dropPending(e.pending...)
 	} else {
 		e.Attempts++
 		if delay, retry := outgoingRetry(err, e.Attempts); retry {

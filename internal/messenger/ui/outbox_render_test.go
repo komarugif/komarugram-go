@@ -66,7 +66,7 @@ func TestRenderOutgoingDelivery(t *testing.T) {
 		}
 		if kind == model.MessageVideo {
 			media.MIMEType, media.Width, media.Height, media.Duration = "video/mp4", 480, 200, 95*time.Second
-			media.Thumbnail = &model.MessageMedia{ID: "pending/thumb", MIMEType: "image/png", Width: 240, Height: 100}
+			media.LocalPreview = &model.MessageMedia{ID: "outbox-thumb/1/0", MIMEType: "image/png", Width: 240, Height: 100}
 		}
 		if kind == model.MessageVoice {
 			media.MIMEType = "audio/ogg"
@@ -79,12 +79,20 @@ func TestRenderOutgoingDelivery(t *testing.T) {
 		}
 		messages = append(messages, m)
 	}
+	confirmed := messages[1]
+	confirmed.Key.MessageID, confirmed.Sending = 1, false
+	media := *confirmed.Media
+	media.ID = "document/1"
+	confirmed.Media = &media
+	pendingVideo := messages[1]
+	messages = append(messages[:1], messages[2:]...)
 	// An album on its way, each file with its own ring, and music.
 	for i, id := range []int{1073741950, 1073741951, 1073741952} {
 		media := &model.MessageMedia{ID: fmt.Sprintf("pending/%d", i), MIMEType: "image/png", Preview: encoded.Bytes(), Width: 240, Height: 100}
 		messages = append(messages, model.Message{Key: model.MessageKey{ChatID: 1, MessageID: model.MessageID(-id)}, Date: time.Now(), Kind: model.MessagePhoto, Media: media, Outgoing: true, SenderID: 1, Sending: true, GroupedID: 9, ContentRevision: 1})
 	}
 	messages = append(messages, model.Message{Key: model.MessageKey{ChatID: 1, MessageID: -1073741963}, Date: time.Now(), Kind: model.MessageMusic, Media: &model.MessageMedia{ID: "pending/music", MIMEType: "audio/mpeg", Title: "Night Tram", Performer: "Band", Duration: 95 * time.Second, Size: 900000}, Outgoing: true, SenderID: 1, Sending: true, ContentRevision: 1})
+	messages = append(messages, confirmed, pendingVideo)
 	h.store.benchmarkHistory.h = model.History{Revision: 2, Messages: model.GroupAlbums(messages)}
 	h.page.list.Position = layout.Position{}
 	renderFrames(t, image.Pt(700, 800), path, func(gtx layout.Context) {

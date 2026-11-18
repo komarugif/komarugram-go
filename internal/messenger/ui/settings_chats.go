@@ -640,7 +640,7 @@ func (g *wallpaperGallery) header(gtx layout.Context, title string, back bool, l
 				return navigationButton(gtx, &g.back, iconBack, l.T("settings.back"))
 			}),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				return layout.Inset{Left: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Left: backButtonGap}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return label(gtx, title, token.TypestyleTitleLarge, scheme(gtx).Surface.OnColor, 1)
 				})
 			}),

@@ -13,8 +13,9 @@ func (s *Store) ChatDetails(chat int64) model.ChatDetails {
 	c := s.history
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	var d model.ChatDetails
-	if photo := c.peers[chat].Photo; photo != nil {
+	peer := c.peers[chat]
+	d := model.ChatDetails{Members: peer.Metadata.Members, MembersKnown: peer.Metadata.MembersKnown}
+	if photo := peer.Photo; photo != nil {
 		d.PhotoDC = photo.DC
 	}
 	return d

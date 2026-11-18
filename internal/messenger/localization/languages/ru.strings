@@ -936,6 +936,12 @@
 "history.file" = "Файл";
 "history.forward" = "Пересланное сообщение";
 "history.forward_failed" = "Не удалось переслать";
+"history.forward_back" = "Вернуться";
+"history.forward_confirm" = "Переслать в «{chat}»?";
+"history.forward_go_to" = "Перейти к пересланному сообщению";
+"history.forward_go_to_sent" = "Перейти к отправленному сообщению";
+"history.forward_no_author" = "Без имени отправителя";
+"history.forward_no_caption" = "Без описания";
 "history.forward_to" = "Переслать в…";
 "history.forwarded" = "Переслано в «{chat}»";
 "history.forwarded_from" = "Переслано от {name}";
@@ -2059,6 +2065,7 @@
 "size.megabytes" = "МБ";
 
 "status.bot" = "бот";
+"status.channel" = "канал";
 "status.last_month" = "был(а) в этом месяце";
 "status.last_week" = "был(а) на этой неделе";
 "status.lastseen_date" = "был(а) {date}";

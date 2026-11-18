@@ -6,7 +6,50 @@ import (
 	"testing"
 
 	"gioui.org/io/key"
+	"gioui.org/layout"
+	"gioui.org/op"
+	"komarugram/internal/messenger/model"
 )
+
+func TestForwardRequiresConfirmation(t *testing.T) {
+	h := newMenuHarness(t, nil)
+	h.still = true
+	h.page.chats = func() []model.Chat { return []model.Chat{{ID: 9, Kind: model.KindUser, Title: "Friend"}} }
+	h.page.openForwardParts(layout.Context{Ops: new(op.Ops)}, h.page.messages[:1], false)
+	f := &h.page.forwarding
+	var navigated int64
+	f.navigate = func(chat model.Chat) { navigated = chat.ID }
+	h.frames(3)
+	f.search.SetText("Friend")
+	h.frame()
+	f.rows[9].click.Click()
+	h.frame()
+	if !f.confirming || f.busy {
+		t.Fatal("choosing a chat did not wait for confirmation")
+	}
+	f.back.click.Click()
+	h.frames(3)
+	if f.confirming || !f.modal.Shown() || f.search.Text() != "Friend" {
+		t.Fatal("back did not restore the picker")
+	}
+	h.store.mu.Lock()
+	sent := len(h.store.forwarded)
+	h.store.mu.Unlock()
+	if sent != 0 {
+		t.Fatal("forwarded before confirmation")
+	}
+	f.rows[9].click.Click()
+	h.frames(2)
+	f.goToMessage = true
+	f.confirm.click.Click()
+	h.frame()
+	waitFor(t, "forward confirmed", h.frame, func() bool {
+		h.store.mu.Lock()
+		defer h.store.mu.Unlock()
+		return len(h.store.forwarded) == 1
+	})
+	waitFor(t, "open forwarded chat", h.frame, func() bool { return navigated == 9 })
+}
 
 // The search of the dialog that forwards takes the keyboard when the
 // dialog opens, from the message field under it: what is typed searches

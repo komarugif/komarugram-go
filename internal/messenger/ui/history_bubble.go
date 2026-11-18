@@ -159,7 +159,15 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 		if p.activeText == r {
 			p.activeText = nil
 		}
+		var resize messageResize
+		if r != nil && r.key == m.Key {
+			resize = r.resize
+			// A streaming draft (and the message it becomes) already grows
+			// through the typing caret's own height transition.
+			resize.changing = resize.height.initialized && !r.streaming && !m.Streaming && p.typing[m.Key.MessageID] == nil
+		}
 		r = newMessageRow(m, l, gtx.Now)
+		r.resize = resize
 		for _, row := range m.Buttons {
 			r.buttons = append(r.buttons, make([]surface, len(row)))
 		}
@@ -243,7 +251,9 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 					gtx.Constraints.Min = image.Point{}
 					bodyDims := p.withSenderAvatar(gtx, m, func(gtx layout.Context) layout.Dimensions {
 						if p.unwrapped(m) {
-							return p.unwrappedBody(gtx, r, m, join, l, animate)
+							return r.resize.layout(gtx, animate && !p.snapshotting, func(gtx layout.Context) layout.Dimensions {
+								return p.unwrappedBody(gtx, r, m, join, l, animate)
+							})
 						}
 						if len(m.Buttons) > 0 {
 							return p.withKeyboard(gtx, r, m, join, l, func(gtx layout.Context) layout.Dimensions {
@@ -283,6 +293,7 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 	if r.capture.on {
 		r.capture.rest = dims.Size.Y - r.bodySize.Y
 	}
+	r.resize.rowHeight = dims.Size.Y
 	return dims
 }
 
@@ -349,28 +360,30 @@ func (p *chatPage) bubble(gtx layout.Context, r *messageRow, m model.Message, jo
 			return layout.Dimensions{Size: size}
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-			content := func(gtx layout.Context) layout.Dimensions {
-				return layout.Inset{Top: bubblePadTop, Bottom: bubblePadBottom, Left: bubblePadSide, Right: bubblePadSide}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return p.bubbleBody(gtx, r, m, join, l, animate)
+			return r.resize.layout(gtx, animate && !p.snapshotting, func(gtx layout.Context) layout.Dimensions {
+				content := func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{Top: bubblePadTop, Bottom: bubblePadBottom, Left: bubblePadSide, Right: bubblePadSide}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return p.bubbleBody(gtx, r, m, join, l, animate)
+					})
+				}
+				if !p.showsComments(m) {
+					return content(gtx)
+				}
+				// The comments bar spans the bubble under what it holds.
+				dims := content(gtx)
+				natural := commentsNatural(gtx, m, l)
+				width := max(dims.Size.X, min(gtx.Constraints.Max.X, natural))
+				bar := gtx.Dp(commentsBarHeight)
+				if r.capture.on {
+					r.capture.bar, r.capture.barNatural = bar, natural
+				}
+				size := image.Pt(width, dims.Size.Y+bar)
+				defer shape.rrect(size).Push(gtx.Ops).Pop()
+				offset(gtx, image.Pt(0, dims.Size.Y), func(gtx layout.Context) layout.Dimensions {
+					return p.commentsBar(gtx, r, m, width, l)
 				})
-			}
-			if !p.showsComments(m) {
-				return content(gtx)
-			}
-			// The comments bar spans the bubble under what it holds.
-			dims := content(gtx)
-			natural := commentsNatural(gtx, m, l)
-			width := max(dims.Size.X, min(gtx.Constraints.Max.X, natural))
-			bar := gtx.Dp(commentsBarHeight)
-			if r.capture.on {
-				r.capture.bar, r.capture.barNatural = bar, natural
-			}
-			size := image.Pt(width, dims.Size.Y+bar)
-			defer shape.rrect(size).Push(gtx.Ops).Pop()
-			offset(gtx, image.Pt(0, dims.Size.Y), func(gtx layout.Context) layout.Dimensions {
-				return p.commentsBar(gtx, r, m, width, l)
+				return layout.Dimensions{Size: size}
 			})
-			return layout.Dimensions{Size: size}
 		}),
 	)
 }

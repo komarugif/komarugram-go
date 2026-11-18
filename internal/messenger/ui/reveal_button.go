@@ -34,7 +34,8 @@ const (
 type revealButton struct {
 	surface surface
 	open    wdk.FloatTween
-	// leftAt is when the pointer was last on the button.
+	active  bool
+	// leftAt is when the pointer or keyboard focus left the button.
 	leftAt time.Time
 }
 
@@ -51,13 +52,21 @@ func (b *revealButton) Layout(gtx layout.Context, icon wdk.IconWidget, text stri
 	textCall := macro.Stop()
 
 	target := float32(0)
-	if b.surface.click.Hovered() || gtx.Focused(&b.surface.click) {
+	active := b.surface.click.Hovered() || gtx.Focused(&b.surface.click)
+	if active {
 		target = 1
-		b.leftAt = gtx.Now
-	} else if left := gtx.Now.Sub(b.leftAt); !b.leftAt.IsZero() && left < revealButtonHold {
-		target = 1
-		gtx.Execute(op.InvalidateCmd{At: b.leftAt.Add(revealButtonHold)})
+	} else {
+		if b.active {
+			// An idle hover may have drawn no frames for a long time,
+			// especially with animations off. Start the hold on leaving.
+			b.leftAt = gtx.Now
+		}
+		if !b.leftAt.IsZero() && gtx.Now.Before(b.leftAt.Add(revealButtonHold)) {
+			target = 1
+			gtx.Execute(op.InvalidateCmd{At: b.leftAt.Add(revealButtonHold)})
+		}
 	}
+	b.active = active
 	b.open.Duration, b.open.Easing = token.DurationMedium2, &token.EasingEmphasizedDecelerate
 	t := b.open.Animate(gtx, target)
 

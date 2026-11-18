@@ -267,7 +267,12 @@ func (p *chatInfo) layoutCover(gtx layout.Context, l localization.Catalog, anima
 	// Without one of its own the cover is the info's color, with no edge.
 	if covered && shown > 0 {
 		opacity := paint.PushOpacity(gtx.Ops, shown)
-		p.layoutCoverBackground(gtx, size, coverBackgroundHeight(gtx, size.Y), avatarAt, avatar)
+		// The page keeps its cards in a column, but the cover's background
+		// reaches both page edges. The avatar remains at the column's center.
+		backgroundSize := image.Pt(width+2*p.margin, size.Y)
+		background := op.Offset(image.Pt(-p.margin, 0)).Push(gtx.Ops)
+		p.layoutCoverBackground(gtx, backgroundSize, coverBackgroundHeight(gtx, size.Y), avatarAt.Add(image.Pt(p.margin, 0)), avatar)
+		background.Pop()
 		opacity.Pop()
 	}
 	userpic := image.Rectangle{Min: avatarAt, Max: avatarAt.Add(image.Pt(avatar, avatar))}
@@ -275,7 +280,9 @@ func (p *chatInfo) layoutCover(gtx layout.Context, l localization.Catalog, anima
 		p.layoutCoverPattern(gtx, userpic)
 	}
 	if covered && shown > 0 {
-		layoutCoverFade(gtx, width, size.Y, scheme(gtx).SurfaceContainerLow.AsNRGBA())
+		background := op.Offset(image.Pt(-p.margin, 0)).Push(gtx.Ops)
+		layoutCoverFade(gtx, width+2*p.margin, size.Y, scheme(gtx).SurfaceContainerLow.AsNRGBA())
+		background.Pop()
 	}
 	p.layoutCoverGifts(gtx, userpic, animate)
 	p.fades.primed = true
@@ -637,7 +644,9 @@ func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog, 
 	own := max(0, min(1, (t-.7)/.3))
 	if own > 0 {
 		opacity := paint.PushOpacity(gtx.Ops, own)
-		fillRect(gtx, sc.SurfaceContainerLow, image.Pt(width, header))
+		background := op.Offset(image.Pt(-p.margin, 0)).Push(gtx.Ops)
+		fillRect(gtx, sc.SurfaceContainerLow, image.Pt(width+2*p.margin, header))
+		background.Pop()
 		opacity.Pop()
 	}
 	content := lerpColor(p.cover.text, sc.Surface.OnColor, own)
@@ -678,7 +687,7 @@ func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog, 
 	// Moving, it streaks: as a picture of its own, when there is one.
 	streak := p.motion.avatar.Streak(gtx, at)
 	var sprite image.Image
-	if animate && moving(streak) && p.avatarSprite != nil {
+	if animate && moving(streak) && p.avatarSprite != nil && p.avatar.opacity(gtx, animate) == 1 {
 		sprite = p.avatarSprite(gtx, p.chat.ID, p.chat.Kind, p.chat.Title, int(side+.5))
 	}
 	p.motion.avatarStreak = sprite != nil
@@ -688,12 +697,12 @@ func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog, 
 	stack := op.Affine(f32.Affine2D{}.Scale(f32.Point{}, f32.Pt(scale, scale)).Offset(at)).Push(gtx.Ops)
 	if sprite != nil {
 		// Where it is, it still takes the clicks.
-		p.avatar.Layout(withSize(gtx, image.Pt(full, full)), func(gtx layout.Context) layout.Dimensions {
+		p.avatar.layout(withSize(gtx, image.Pt(full, full)), scale, func(gtx layout.Context) layout.Dimensions {
 			pointer.CursorPointer.Add(gtx.Ops)
 			return layout.Dimensions{Size: gtx.Constraints.Max}
 		})
 	} else {
-		p.layoutAvatar(withSize(gtx, image.Pt(full, full)))
+		p.layoutAvatar(withSize(gtx, image.Pt(full, full)), scale)
 	}
 	stack.Pop()
 

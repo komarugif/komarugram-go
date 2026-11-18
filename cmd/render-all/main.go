@@ -34,7 +34,7 @@ type render struct {
 
 func renders() []render {
 	var all []render
-	for _, view := range []string{"channel-readonly", "channel-readonly-hover", "restricted-text", "restricted-media", "emoji", "stickers", "gif", "featured-stickers", "featured-emoji", "emoji-search", "floating", "classic", "text", "text-classic", "floating-translucent", "classic-translucent", "blur", "avatars", "voice", "files", "files-one", "files-documents", "files-many", "files-convert", "files-caption", "files-music", "files-spoiler", "files-drag", "drop-photos", "drop-media", "drop-files", "tasks", "toast", "toast-classic", "bot-keyboard", "bot-keyboard-hidden", "edit", "edit-classic", "edit-menu"} {
+	for _, view := range []string{"forward", "forward-confirm", "forward-send", "forward-text", "channel-readonly", "channel-readonly-hover", "restricted-text", "restricted-media", "emoji", "stickers", "gif", "featured-stickers", "featured-emoji", "emoji-search", "floating", "classic", "text", "text-classic", "floating-translucent", "classic-translucent", "blur", "avatars", "voice", "files", "files-one", "files-documents", "files-many", "files-convert", "files-caption", "files-music", "files-spoiler", "files-drag", "drop-photos", "drop-media", "drop-files", "tasks", "toast", "toast-classic", "bot-keyboard", "bot-keyboard-hidden", "edit", "edit-classic", "edit-menu"} {
 		all = append(all, render{"composer-" + view, "TestRenderComposer", []string{"COMPOSER_VIEW=" + view, "COMPOSER_PNG={out}/composer-" + view + ".png"}})
 	}
 	all = append(all, render{"composer-motion", "TestRenderComposerMotion", []string{"COMPOSER_MOTION_PNG={out}/composer-motion"}})
@@ -59,6 +59,8 @@ func renders() []render {
 		render{"picker-menu", "TestRenderPickerMenu", []string{"MENU_PNG={out}/menu.png"}},
 		render{"reacted", "TestRenderReacted", []string{"REACTED_PNG={out}/reacted.png"}},
 		render{"viewer", "TestRenderMediaViewer", []string{"VIEWER_PNG={out}/viewer.png"}},
+		render{"viewer-open", "TestRenderViewerOpening", []string{"VIEWER_OPEN_PNG_DIR={out}/viewer-open"}},
+		render{"viewer-open-avatar", "TestRenderViewerOpening", []string{"VIEWER_OPEN_AVATAR=header", "VIEWER_OPEN_PNG_DIR={out}/viewer-open-avatar"}},
 		render{"viewer-zoom", "TestRenderMediaViewer", []string{"VIEWER_ZOOM=2", "VIEWER_PNG={out}/viewer-zoom.png"}},
 		render{"viewer-profile-plays", "TestRenderMediaViewer", []string{"VIEWER_PROFILE=plays", "VIEWER_PNG={out}/viewer-profile-plays.png"}},
 		render{"viewer-gifs", "TestRenderMediaViewer", []string{"VIEWER_GIFS=1", "VIEWER_PNG={out}/viewer-gifs.png"}},
@@ -81,6 +83,8 @@ func renders() []render {
 		render{"viewer-edit-discard", "TestRenderMediaViewer", []string{"VIEWER_EDIT=discard", "VIEWER_PNG={out}/viewer-edit-discard.png"}},
 		render{"player", "TestRenderPlayerChoice", []string{"PLAYER_PNG={out}/player.png"}},
 		render{"comments", "TestRenderCommentsHead", []string{"COMMENTS_PNG={out}/comments.png"}},
+		render{"channel-header", "TestRenderChannelHeader", []string{"CHANNEL_HEADER_PNG={out}/channel-header.png"}},
+		render{"loading", "TestRenderLoadingIndicator", []string{"LOADING_PNG={out}/loading.png"}},
 		render{"forum", "TestRenderForum", []string{"FORUM_PNG={out}/forum.png"}},
 		render{"community", "TestRenderCommunity", []string{"COMMUNITY_PNG={out}/community.png"}},
 		render{"chat-previews", "TestRenderChatPreviews", []string{"CHAT_PREVIEW_PNG={out}/chat-previews.png"}},
@@ -107,6 +111,7 @@ func renders() []render {
 		render{"spoiler-dust", "TestRenderSpoilerDust", []string{"EFFECTS_PNG_DIR={out}"}},
 		render{"media-dust", "TestRenderMediaDust", []string{"EFFECTS_PNG_DIR={out}"}},
 		render{"message-leaves", "TestRenderMessageLeaves", []string{"EFFECTS_PNG_DIR={out}"}},
+		render{"message-resize", "TestMessageRevisionAnimatesHeight", []string{"MESSAGE_RESIZE_PNG_DIR={out}/message-resize"}},
 	)
 }
 

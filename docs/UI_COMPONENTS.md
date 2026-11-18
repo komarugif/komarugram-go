@@ -18,7 +18,10 @@ put it next to these, and add it to this page.
   active tab of a `tabRow`, the section of the chat list or the text of a
   message come from the caller or the `Store`.
 - **Colors and type come from the theme.** `scheme(gtx)` returns the MD3
-  color scheme; text uses `token.Typestyle…`. No literal colors.
+  color scheme. The messenger derives its light and dark palettes from
+  `#3DAEE9` by default. The system accent preference can supply the seed
+  for the main window. Components draw with scheme colors and use
+  `token.Typestyle…` for text.
 - **Text comes from the catalog.** Every string is a key of
   `localization.Catalog` (`l.T`, `l.Format`, `l.Count`), with a value in
   each file of `localization/languages`. When Telegram Desktop shows the
@@ -43,7 +46,7 @@ put it next to these, and add it to this page.
 | `surface` + `surfaceStyle` | Anything clickable: background of the selected state, hover and press state layer, ripple, pointer cursor, accessibility label. Rows, chips, tabs and text buttons all embed it. |
 | `textButton(gtx, *surface, text)` | A text-only button in the primary color, as in dialogs and status lines. |
 | `tonalButton(gtx, *surface, text, count)` | A filled button in the secondary container color with an optional count, as the actions over selected messages. |
-| `navigationButton` | Icon and title with a 48 dp target, for navigation controls. |
+| `navigationButton` | Icon and title with a 48 dp target, for navigation controls. Header back buttons keep `backButtonGap` (8 dp) before the following title or avatar, as settings and comments do. |
 | `revealButton` (`reveal_button.go`) | An icon whose text shows beside it, in the same line, while the pointer is on it or it has the focus: the button widens to the text and the text fades in (`token.DurationMedium2`, at once without animations). The actions of a channel's bottom bar, where the account does not post (direct messages, discussion, notifications, a gift), are these; `COMPOSER_VIEW=channel-readonly-hover` renders one open. |
 | `button.Filled()` / `button.Text()` (gio-mw) | The main and the secondary action of a dialog or a card, side by side with a `layout.Spacer{Width: 8}`. |
 | `label`, `centeredLabel` | Text in a typestyle and color, limited to a number of lines (0 is unlimited). |
@@ -92,7 +95,7 @@ put it next to these, and add it to this page.
 | `paintSpoiler`, `paintLineSpoiler` (`history_text.go`) | The cover of a text under a spoiler, in a message, a `richLabel` or the `spoiler` above: a rounded plate, the dust of `paintDust` drifting over it in the text's color, cut by the circle of the wave that uncovers it. The chat list's previews draw the same plate and dust. |
 | `effects`, `paintDust`, `paintMediaDust` (`spoiler_dust.go`) | The particles of spoilers, as Telegram for Android's (`docs/PORT_ANDROID_EFFECTS.md`): a dust of points over text, one square of 150 dp that repeats, drawn in the color asked; and white points a slow flow carries over media, one square of 320 dp drawn over each media, larger over a larger one, turned or mirrored by its index. Both are moved and drawn by the CPU about 30 times a second into one picture a window, kept in its `effects` (`withEffects` puts them in the frame's `Values`; a window without them shows plain covers) and let go of five seconds after the last spoiler drew them. With animations off the text has no dust and the media's stands still; in a window paused while inactive both stand still. What is drawn off the frame (a snapshot) takes `withoutEffects`. `paintMediaDust` goes inside the clip of the media, over its blurred picture: the tiles of the box of files and the chat list's thumbnails have it. `EFFECTS_PNG_DIR` saves frames of both. |
 | `leaving`, `rowMoves`, `dissolve` (`history_leave.go`) | A message erased while in view leaving the history, as in Telegram for Android: `leavers` finds the rows gone from the snapshot whose messages the store says were erased (`model.ErasedMessages`; all the parts of an album), before `rebuild` forgets them, and `startLeaving` sets them leaving and the rows that stay moving from where they were into their places (250 ms, Android's curve, after a wait: `leaveHold`, 1 s, while a message dissolves, so its dust is seen over the place it left and not over the rows that take it, and 250 ms while one fades, until it is gone; `moveShift` is how far a row is from its place, which the list's rows and the sticky avatars are drawn by). The rows that left are drawn over the history where their bubbles were, following it as it scrolls: fading out in the same 250 ms, or, by the chats' setting (`preferences.DeleteEffect`), dissolving: the GPU draws their bubbles off the frame (`askPicture`, `renderSnapshot`), and once the picture comes `dissolve` cuts it into pieces of about a pixel, at most 100 000 for the messages that left together, which fly off from the left edge of each bubble to its right, rise and fade, moved and drawn by the CPU into one picture; until then, and if the picture does not come in half a second, the rows stand, then fade. Not for a message on its way, one kept deleted, one younger than 2 s in a group or a bot's chat, or with animations off: those go at once. A panic in their layout drops them (`recoverLeaving`). `EFFECTS_PNG_DIR` saves the frames. |
-| `loadingIndicator` | The circular progress indicator, labeled for accessibility: `page` fills a page, `sized` draws it d wide, `centered` in the middle of a line. Each place that loads keeps its own. |
+| `loadingIndicator` | The [Material 3 Expressive loading indicator](https://m3.material.io/components/loading-indicator/specs), labeled for accessibility. Seven shapes morph as they rotate. The classic ring stands still with animations off. `page` fills a page, `sized` draws it d wide, and `centered` puts it in the middle of a line. `LOADING_PNG` renders both modes. |
 | `selectionMark` (`common.go`) | The round mark of a thing that can be picked: a check on the primary color when picked, an outline when not. A row that has one draws it, and its buttons, over the row's `surface`, not in it: the row's area would take their clicks. The Downloads section's rows pick files with it. |
 | `downloadsPage` (`downloads_page.go`) | The Downloads section of the sidebar and the drawer, as Telegram Desktop's: the files on their way (the window's `attachmentFiles`, which its pages share, so a download goes on in another chat), each with its `downloadRing`, a click cancelling; then the files downloaded, newest or largest first (two `folderChip`s), with their size, date and what became of them (deleted or moved, changed since), the count and size of those there above. A row opens its file and its button goes to the message; the header's button shows the folder they are all downloaded into (made if it is not there yet); marks pick files, which "Delete from disk" deletes after a dialog, as Telegram Desktop asks. A file is the user's: nothing else deletes it. `DOWNLOADS_PNG` renders it, sorted and picked, the dialog and empty. |
 | `downloadRing` | A download in a circle (`download_ring.go`): an arc as long as the part received over a faint track, turning while the size is not known, around the mark of what a click does (cancel, load again). The media tiles and the file rows draw theirs in their own circle; each row keeps its own, for the arc to grow smoothly. |
@@ -103,6 +106,14 @@ put it next to these, and add it to this page.
 
 The history is drawn as materialgram draws it:
 
+- Edits and reaction changes animate the bubble's height through
+  `messageResize` (`history_resize.go`), whose state survives message
+  revisions. The list follows the visible height; only settled heights
+  enter the layout cache. Quotes and accordions keep their own transitions
+  without another animation around them. Initial layouts, width changes
+  and disabled motion use the final height immediately.
+  `MESSAGE_RESIZE_PNG_DIR` renders frames of edits, first reactions and
+  reaction wrapping, including messages without a bubble.
 - `messageJoins` groups a sender's messages in a row (same sender, same
   day, less than 15 minutes apart): the group shows the sender's name at
   its top and one avatar, which sticks to the bottom of the view while the
@@ -162,11 +173,12 @@ The history is drawn as materialgram draws it:
   video's own plate does; on a GIF that plays here it fades in, as the
   GIF's time does. A video's own plate, or a GIF's time, that does not go
   beside it moves to the top corner. The time over the corner of a
-  sticker the account sent fades out under the pointer too. A video
+  sticker or lone emoji the account sent shows only under the pointer.
+  Time beside them stays visible. A video
   message has the time it was sent inside, under the circle's right, for
   anyone's, as its duration is under its left (Telegram Desktop's).
   `TestTimeOnVideo`, `TestTimeOnGIF`, `TestTimeOnPhotoHides`,
-  `TestStickerTimeHides`, `TestRoundTimeInside`; `MEDIA_TIME_PNG` renders
+  `TestStickerTimeOnHover`, `TestRoundTimeInside`; `MEDIA_TIME_PNG` renders
   them.
 - `bubbleContent` lists what a bubble holds as `bubblePart`s, and
   `bubbleBody` lays them out itself, not in a `layout.Flex`: what takes
@@ -404,6 +416,20 @@ size-stability fixes remain in place.
   (`model.ChatStoryGallery`), not the profile's; a reply's opens the story
   alone (`OpenStory`). The store asks for those Telegram left out of the
   messages once, a peer's together (`tgstore/chat_stories.go`).
+- **Opening the media viewer from a chat** (`viewer_opening.go`): a photo,
+  video preview or GIF moves from the clicked tile to the viewer's stage, and
+  the controls and the source tile in the chat fade in once it arrives. The
+  same thumbnail covers the stage while the full picture loads. With
+  animations off the viewer opens at once. Dismissing it during the
+  entrance plays the transition back to the tile from the last drawn
+  frame. Once open, it closes immediately. `VIEWER_OPEN_PNG_DIR` renders
+  an album's opening and interrupted transitions frame by frame.
+  Avatars use the same transition from the chat or forum header, the info
+  dialog and the account's profile. Their mask opens from the avatar's
+  configured roundness to square corners. Set `VIEWER_OPEN_AVATAR` to
+  `header`, `forum`, `info` or `profile` to render those sources.
+  Reopening the same avatar after an interrupted entrance resumes its
+  gallery, including any page still loading.
 - **Held preview** (`hold_preview.go`): an emoji, a sticker or a GIF of the
   composer's panel or of the box of a set, held half a second, shows large
   over the whole window on the viewer's backdrop, as Telegram Desktop's
@@ -428,6 +454,21 @@ size-stability fixes remain in place.
   the media viewer, whose button beside copy forwards what it shows, a
   message or a story (`viewer_share.go`), unless it protects its content;
   a story has its heart there too, red once put, with how many put theirs.
+  Online users have the chat list's green dot on their avatars, respecting
+  the setting that hides online status. `COMPOSER_VIEW=forward` with
+  `COMPOSER_PNG` renders the dialog.
+  Choosing a recipient opens a confirmation step, without navigating to
+  their chat or showing a preview. Back (or Escape) restores the picker.
+  Message forwards can omit the author and, with that selected, media
+  captions; omitting the author changes Forward to Send. The choices are
+  kept in the outgoing queue across retries and restarts. Stories and
+  profile music ask for confirmation without message-forwarding options.
+  An optional Go to forwarded message checkbox opens the recipient at the
+  end of its history after success, ignoring the saved scroll position;
+  with the author hidden its label changes to Go to sent message. A media
+  viewer closes when making this transition, including its separate window.
+  `COMPOSER_VIEW=forward-confirm`, `forward-send` and `forward-text`
+  render the confirmation's default, selected and text-only states.
 - **Saving a video as a GIF** (`viewer_gif.go`): the viewer's GIF button,
   beside forwarding, on a video that does not protect its content, saves it
   among the saved GIFs (`model.GIFMaker`): `video.ConvertGIF` encodes it
@@ -526,12 +567,13 @@ size-stability fixes remain in place.
   history while nothing is typed, with a menu on a right click that takes
   the keyboard for its Escape (`key.FocusFilter`, then `key.FocusCmd`).
 - **Box for sending files** (`composer_send_files.go`): a `modal` of what was
-  chosen in the attachment menu, as Telegram Desktop's: media as a grid of
-  squares (one picture alone keeps its shape), other files and, with "Send as
-  documents", everything as rows with a thumbnail, a caption editor that takes
-  the composer's text and Enter to send, and the checkboxes that
-  `sendfiles` says apply (`HasGroupOption`, `HasDocumentsOption`,
-  `HasHighQualityOption`). Files are looked at in the background
+  chosen in the attachment menu. Photos and videos offer Attachment and File
+  tabs along the card's top edge, like the reactions dialog. The selected tab
+  determines how the files are sent and how they are shown: media as a grid
+  (one picture alone keeps its shape), documents as rows with a thumbnail.
+  Ordinary files keep the title and rows. The caption takes the composer's
+  text and Enter to send. The group and quality checkboxes depend on what
+  `sendfiles` says applies. Files are looked at in the background
   (`sendfiles.Inspect`, `Thumbnail`; a click on a photo, a video or a GIF
   opens them in a viewer of their own, which reads them from the disk and
   knows no chat, with nothing to forward or save: `viewer_box.go`; music as
@@ -546,8 +588,9 @@ size-stability fixes remain in place.
   page of the open chat when it takes files (`chatPage.takesFiles`): one
   for documents, and one for photos or media when `sendfiles.DropStateOf`
   says the files are pictures, or pictures and videos. A drop goes to the
-  box above, as documents or not by the area; over an open box the files
-  join it. Where the page is comes from the last frame.
+  box above with the Attachment or File tab selected by the drop area. Files
+  dropped over an open box join it in its current mode. Where the page is
+  comes from the last frame.
 - **Editing a message** (`composer_edit.go`): "Edit" in the message menu, or
   the Up arrow in an empty field (the last message `model.Editable` allows),
   puts the message in the field as Telegram Desktop does: the reply strip
@@ -865,6 +908,14 @@ size-stability fixes remain in place.
   click opens their Fragment dialog (a `modal` of its own,
   `filledButton`), the details, the theme and the sections.
   `model.PeerProfileSource` gives the profile; `SHARED_PNG` saves it.
+  On the account's own profile page, the cover background and its fade
+  span the page's full width while the avatar and cards stay in their
+  centered column. `PROFILE_PNG_DIR` includes light and dark own-cover
+  variants for checking this on a wide page.
+  A profile's song, personal channel and bio share one reusable card
+  (`chatInfo.layoutSummary`) in both dialogs and the account's page, with
+  an animated height. Missing rows are omitted; editing replaces the bio
+  with the profile's form while the song and channel stay available.
 - **Forum page** (`forum.go`): the topics of a forum chat in place of its
   history, under the chat's header (which opens its info). A row is drawn as the
   chat list's: `surface`, icon plate (`fillRounded`, the topic's colour, a house
@@ -1101,7 +1152,8 @@ size-stability fixes remain in place.
 - **Comments** (`comments.go`): `commentsBar` ends a channel post's bubble,
   clipped to its shape; the comments open in a second `chatPage` under a
   `chatHead` — `layoutChatPageHead` with a back button in place of the
-  avatar — over their channel.
+  avatar — over their channel. An empty discussion shows a service plate
+  under the post, within the scrolling history.
 - **Service messages** (`history_service.go`): an action, as a user added or
   a message pinned, is its words on a plate across the middle of the
   history (`servicePill`), worded in the UI's language by
@@ -1200,7 +1252,7 @@ new piece sits next to its neighbours.
   external player; `PLAYER_PNG`, the dialog that asks for it. `MENU_PNG` also
   saves the menu with reactions (`-reactions*.png`), and the menu of a
   recent sticker and of a saved GIF over the picker (`-picker*.png`); `COMMENTS_PNG`, the
-  header of the comments page; `UNWRAPPED_PNG`, stickers and lone emoji; `SERVICE_PNG`, service messages
+  header and an empty discussion; `UNWRAPPED_PNG`, stickers and lone emoji; `SERVICE_PNG`, service messages
   and calls; `POLL_PNG`, polls, a quiz and checklists in their states (and
   `.2.png`, the rest of them; `.reveal.png`, a poll a moment after a vote, its
   results coming in; `.votes.png`, the dialog of who voted).

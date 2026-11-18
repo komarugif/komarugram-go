@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gio-mw/defaults"
+	"gio-mw/defaults/schemes"
 	"gio-mw/token"
 
 	"gioui.org/layout"
@@ -23,6 +24,12 @@ type testThemeKey struct {
 var (
 	testThemesMu sync.Mutex
 	testThemes   = map[testThemeKey]*token.Theme{}
+	// The harnesses specify light and dark with the library's baseline.
+	// Draw those frames in the messenger's corresponding default scheme.
+	testBaselineLight = *schemes.SchemeBaselineLight()
+	testBaselineDark  = *schemes.SchemeBaselineDark()
+	testDefaultLight  = appColors{}.scheme(false)
+	testDefaultDark   = appColors{}.scheme(true)
 )
 
 // testTheme is defaults.NewTheme made once for a scheme and the fonts of
@@ -32,6 +39,12 @@ var (
 // the shaper, which is not for two goroutines at once; a test that changes
 // the fonts (defaults.SetFonts) gets a theme of its own.
 func testTheme(gtx layout.Context, scheme *token.Scheme) *token.Theme {
+	switch *scheme {
+	case testBaselineLight:
+		scheme = testDefaultLight
+	case testBaselineDark:
+		scheme = testDefaultDark
+	}
 	key := testThemeKey{scheme: *scheme, fonts: defaults.FontsVersion()}
 	testThemesMu.Lock()
 	defer testThemesMu.Unlock()

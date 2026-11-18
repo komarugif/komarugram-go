@@ -841,6 +841,7 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 	p.audioExternal = func() bool { return a.preferences.Global().AudioPlayer == "external" }
 	p.appearance = a.themes
 	p.avatar = a.layoutAvatar
+	p.forwarding.navigate = a.openForwarded
 	if a.avatars != nil {
 		p.quietAvatars = a.avatars.media.SetQuiet
 	}
@@ -855,6 +856,7 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 		a.window.Invalidate()
 	}
 	p.openPlaylist = a.openPlaylist
+	p.tileViewer = a.viewer
 	p.openPhoto = func(m model.Message) { a.viewer.Open(p.chat, m, p.viewerItems()) }
 	p.openVideo = func(m model.Message, at time.Duration) { a.viewer.OpenVideo(p.chat, m, p.viewerItems(), at) }
 	p.videoEngine = a.videoEngine
@@ -1073,30 +1075,25 @@ func (a *App) accent() color.NRGBA {
 	return c
 }
 
-// appColors is what the application's colors are made of: the system's
-// accent color, transparent for the baseline's, and whether the surfaces
-// are gray.
+// defaultAppAccent is the seed for the messenger's light and dark schemes.
+var defaultAppAccent = color.NRGBA{R: 61, G: 174, B: 233, A: 255}
+
+// appColors holds the optional system accent and neutral surfaces preference.
 type appColors struct {
 	accent  color.NRGBA
 	neutral bool
 }
 
-// scheme is the application's color scheme: the baseline's, or the one
-// made from the accent; with neutral surfaces, the one of the accent or of
-// Baseline's seed whose surfaces are gray.
+// scheme derives the palette from the active accent for the selected theme.
 func (c appColors) scheme(dark bool) *token.Scheme {
 	seed := c.accent
-	switch {
-	case c.neutral && seed.A == 0:
-		return schemes.SchemeFromSeedNeutral(schemes.BaselineSeed, dark)
-	case c.neutral:
-		return schemes.SchemeFromSeedNeutral(seed, dark)
-	case seed.A != 0:
-		return schemes.SchemeFromSeed(seed, dark)
-	case dark:
-		return schemes.SchemeBaselineDark()
+	if seed.A == 0 {
+		seed = defaultAppAccent
 	}
-	return schemes.SchemeBaselineLight()
+	if c.neutral {
+		return schemes.SchemeFromSeedNeutral(seed, dark)
+	}
+	return schemes.SchemeFromSeed(seed, dark)
 }
 
 // hostTheme is the theme the host draws its own windows in, the panic's.
@@ -1328,6 +1325,15 @@ func (a *App) selectedChat() (model.Chat, bool) {
 // open opens the chat picked in the chat list, at the message picked when a
 // search found one.
 func (a *App) open(pick chatPick) {
+	if pick.End {
+		a.closeComments()
+		if a.info != nil {
+			a.info.Close()
+		}
+		if a.history != nil {
+			a.history.openEnd = pick.ID
+		}
+	}
 	if !a.section.showsChats() {
 		a.section = section{kind: sectionAll}
 	}
@@ -1348,6 +1354,13 @@ func (a *App) open(pick chatPick) {
 			a.history.forget()
 		}
 	}
+}
+
+// openForwarded may be called from another window's goroutine.
+func (a *App) openForwarded(chat model.Chat) {
+	a.openChat.Store(&chatPick{ID: chat.ID, Chat: &chat, End: true})
+	a.window.PerformLater(system.ActionRaise)
+	a.window.Invalidate()
 }
 
 // Layout implements appwindow.Content.
@@ -1482,14 +1495,20 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 			}
 		}
 	}
+	animate := a.window.Motion.AnimationsEnabled()
+	if a.viewer != nil && animate {
+		a.viewer.openPointer.update(gtx)
+	}
 	if a.viewer != nil && a.history.headAvatar.Clicked(gtx) {
 		if c, ok := a.selectedChat(); ok {
-			openHeadAvatar(a.viewer, a.history, c)
+			if openHeadAvatar(a.viewer, a.history, c) {
+				a.animateAvatarOpening(gtx, &a.history.headAvatar, c, animate)
+			}
 		}
 	}
 	if a.viewer != nil && a.forum != nil && a.forum.avatar.Clicked(gtx) {
-		if c, ok := a.selectedChat(); ok {
-			a.viewer.OpenProfile(c.ID)
+		if c, ok := a.selectedChat(); ok && a.viewer.OpenProfile(c.ID) {
+			a.animateAvatarOpening(gtx, &a.forum.avatar, c, animate)
 		}
 	}
 	if a.info != nil && (a.history.header.Clicked(gtx) || a.history.takeInfoAsked() || a.forum != nil && a.forum.header.Clicked(gtx)) {
@@ -1502,6 +1521,9 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 		a.history.themeShown = false
 	}
 	overlayGtx := gtx
+	if a.viewer != nil {
+		a.viewer.updateOpening(gtx, animate)
+	}
 	if a.info != nil && a.info.visible {
 		gtx = gtx.Disabled()
 	}
@@ -1617,10 +1639,18 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	}
 	a.overlay.Layout(gtx)
 	if a.info != nil {
-		a.info.Layout(overlayGtx, a.catalog(), a.window.Motion.AnimationsEnabled())
+		infoGtx := overlayGtx
+		if a.viewer != nil && a.viewer.open {
+			// Escape belongs to the viewer over the info dialog.
+			infoGtx = infoGtx.Disabled()
+		}
+		a.info.Layout(infoGtx, a.catalog(), animate)
 	}
 	if a.viewer != nil {
-		a.viewer.Layout(overlayGtx, a.catalog(), a.window.Motion.AnimationsEnabled())
+		if animate {
+			trackViewerRelease(overlayGtx, &a.viewer.openPointer, size)
+		}
+		a.viewer.Layout(overlayGtx, a.catalog(), animate)
 	}
 	a.layoutBoxViewer(overlayGtx)
 	// An emoji, a sticker or a GIF held, over everything, taking nothing.
@@ -1708,7 +1738,7 @@ func (a *App) layoutPage(gtx layout.Context) layout.Dimensions {
 		if a.history.takesFiles() {
 			a.drop.page = a.history
 		}
-		return layoutChatPage(gtx, c, l, a.layoutAvatar, a.badges, a.returnButton(), func(gtx layout.Context) layout.Dimensions {
+		return layoutChatPage(gtx, c, l, a.viewerAvatar(&a.history.headAvatar), a.badges, a.returnButton(), func(gtx layout.Context) layout.Dimensions {
 			if a.history != nil {
 				return a.history.Layout(gtx, c, l, a.window.Motion.AnimationsEnabled())
 			}
@@ -2076,7 +2106,7 @@ func (a *App) menuPrefs() preferences.Menus { return a.preferences.Global().Menu
 // configureInfo wires p, the info of a profile, to the window: the
 // dialog of a chat's, or the page of the account's own.
 func (a *App) configureInfo(p *chatInfo, store model.Store) {
-	p.drawAvatar = a.layoutAvatar
+	p.drawAvatar = a.viewerAvatar(&p.avatar)
 	// A user's channel in their info opens with a way back, as a
 	// channel's discussion does.
 	p.openChannel = a.history.openReturning
@@ -2091,6 +2121,10 @@ func (a *App) configureInfo(p *chatInfo, store model.Store) {
 	// The files of the sections are selected, forwarded and deleted as
 	// the chat's messages are, and a file goes to its message.
 	p.renderer.chats = store.Chats
+	p.renderer.forwarding.navigate = func(chat model.Chat) {
+		p.modal.Close()
+		a.openForwarded(chat)
+	}
 	p.renderer.avatar = a.layoutAvatar
 	p.renderer.menus = a.menuPrefs
 	p.renderer.frozen = a.frozen
@@ -2121,7 +2155,11 @@ func (a *App) configureInfo(p *chatInfo, store model.Store) {
 		a.viewer.OpenShared(m.Key.ChatID, m, p.messages, p.section, at)
 	}
 	p.renderer.videoEngine = a.videoEngine
-	p.openAvatar = func(chat int64) { a.viewer.OpenProfile(chat) }
+	p.openAvatar = func(gtx layout.Context, chat model.Chat) {
+		if a.viewer.OpenProfile(chat.ID) {
+			a.animateAvatarOpening(gtx, &p.avatar, chat, a.window.Motion.AnimationsEnabled())
+		}
+	}
 }
 
 // openPlaylist opens the playlist of user's profile: the account's own on
