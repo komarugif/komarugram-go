@@ -10,10 +10,12 @@ import (
 	"gio-mw/defaults/schemes"
 
 	"gioui.org/layout"
+
+	"komarugram/internal/messenger/preferences"
 )
 
 // With "System accent color" on, the window's colors are made from the
-// system's accent, follow it when it changes, and go back to the baseline
+// system's accent, follow it when it changes, and go back to the app's accent
 // when it is turned off; the checkbox is offered only where the system
 // tells an accent.
 func TestSystemAccent(t *testing.T) {
@@ -26,9 +28,10 @@ func TestSystemAccent(t *testing.T) {
 		h.frame(func(gtx layout.Context) { c = a.Theme(gtx).Scheme.Primary.Color.AsNRGBA() })
 		return c
 	}
-	baseline := schemes.SchemeBaselineLight().Primary.Color.AsNRGBA()
-	if got := primary(); got != baseline {
-		t.Fatalf("off by default: primary %v, want the baseline's %v", got, baseline)
+	seed := color.NRGBA{R: 61, G: 174, B: 233, A: 255}
+	defaultLight := schemes.SchemeFromSeed(seed, false).Primary.Color.AsNRGBA()
+	if got := primary(); got != defaultLight {
+		t.Fatalf("off by default: primary %v, want %v", got, defaultLight)
 	}
 	h.show(settingsAppearance)
 	if !a.settings.accentOffered() {
@@ -54,8 +57,14 @@ func TestSystemAccent(t *testing.T) {
 	if err := prefs.SetSystemAccent(false); err != nil {
 		t.Fatal(err)
 	}
-	if got := primary(); got != baseline {
-		t.Errorf("turned off: primary %v, want the baseline's %v", got, baseline)
+	if got := primary(); got != defaultLight {
+		t.Errorf("turned off: primary %v, want %v", got, defaultLight)
+	}
+	if err := prefs.SetTheme(preferences.ThemeDark); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := primary(), schemes.SchemeFromSeed(seed, true).Primary.Color.AsNRGBA(); got != want {
+		t.Errorf("dark theme: primary %v, want %v", got, want)
 	}
 
 	system.WithAccent(color.NRGBA{})
@@ -64,7 +73,7 @@ func TestSystemAccent(t *testing.T) {
 	}
 }
 
-// "Neutral surface colors" makes the surfaces gray, with the baseline's
+// "Neutral surface colors" makes the surfaces gray, with the app's
 // accent and with the system's, and keeps the accent's colors.
 func TestNeutralSurfaces(t *testing.T) {
 	prefs := newSettingsPrefs(t)
@@ -90,10 +99,10 @@ func TestNeutralSurfaces(t *testing.T) {
 	}
 	surface, primary := scheme()
 	if !gray(surface) {
-		t.Errorf("baseline accent: surface %v is not gray", surface)
+		t.Errorf("default accent: surface %v is not gray", surface)
 	}
-	if want := schemes.SchemeFromSeed(schemes.BaselineSeed, false).Primary.Color.AsNRGBA(); primary != want {
-		t.Errorf("baseline accent: primary %v, want %v", primary, want)
+	if want := schemes.SchemeFromSeed(defaultAppAccent, false).Primary.Color.AsNRGBA(); primary != want {
+		t.Errorf("default accent: primary %v, want %v", primary, want)
 	}
 
 	if err := prefs.SetSystemAccent(true); err != nil {

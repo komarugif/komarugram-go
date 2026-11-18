@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"gio-mw/defaults"
-	"gio-mw/defaults/schemes"
 	"gio-mw/token"
 	"gio-mw/wdk"
 	"gio-mw/widget/radio"
@@ -252,12 +251,12 @@ func (d *shotDialog) render(gtx layout.Context, p *chatPage, l localization.Cata
 	switch d.opts.theme {
 	case shotLight:
 		if d.light == nil {
-			d.light = defaults.NewTheme(gtx, schemes.SchemeBaselineLight())
+			d.light = defaults.NewTheme(gtx, appColors{}.scheme(false))
 		}
 		wdk.InitMaterialThemeInContext(sgtx, d.light)
 	case shotDark:
 		if d.dark == nil {
-			d.dark = defaults.NewTheme(gtx, schemes.SchemeBaselineDark())
+			d.dark = defaults.NewTheme(gtx, appColors{}.scheme(true))
 		}
 		wdk.InitMaterialThemeInContext(sgtx, d.dark)
 	}

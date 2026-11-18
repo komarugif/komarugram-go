@@ -18,7 +18,10 @@ put it next to these, and add it to this page.
   active tab of a `tabRow`, the section of the chat list or the text of a
   message come from the caller or the `Store`.
 - **Colors and type come from the theme.** `scheme(gtx)` returns the MD3
-  color scheme; text uses `token.Typestyle…`. No literal colors.
+  color scheme. The messenger derives its light and dark palettes from
+  `#3DAEE9` by default. The system accent preference can supply the seed
+  for the main window. Components draw with scheme colors and use
+  `token.Typestyle…` for text.
 - **Text comes from the catalog.** Every string is a key of
   `localization.Catalog` (`l.T`, `l.Format`, `l.Count`), with a value in
   each file of `localization/languages`. When Telegram Desktop shows the

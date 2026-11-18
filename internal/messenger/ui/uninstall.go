@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	"gio-mw/defaults"
-	"gio-mw/defaults/schemes"
 	"gio-mw/exp/appearance"
 	"gio-mw/token"
 	"gio-mw/widget/button"
@@ -74,12 +73,12 @@ func (u *Uninstaller) Theme(gtx layout.Context) *token.Theme {
 	theme := u.light
 	if dark {
 		if u.darkTheme == nil {
-			u.darkTheme = defaults.NewTheme(gtx, schemes.SchemeBaselineDark())
+			u.darkTheme = defaults.NewTheme(gtx, appColors{}.scheme(true))
 		}
 		theme = u.darkTheme
 	} else {
 		if u.light == nil {
-			u.light = defaults.NewTheme(gtx, schemes.SchemeBaselineLight())
+			u.light = defaults.NewTheme(gtx, appColors{}.scheme(false))
 		}
 		theme = u.light
 	}

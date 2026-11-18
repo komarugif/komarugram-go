@@ -18,7 +18,6 @@ import (
 	"komarugram/internal/messenger/localization"
 
 	"gio-mw/defaults"
-	"gio-mw/defaults/schemes"
 	"gio-mw/token"
 	"gio-mw/widget/scroll"
 
@@ -112,7 +111,7 @@ func (p *profiler) Close() {
 
 func (p *profiler) Theme(gtx layout.Context) *token.Theme {
 	if p.theme == nil {
-		p.theme = defaults.NewTheme(gtx, schemes.SchemeBaselineDark())
+		p.theme = defaults.NewTheme(gtx, appColors{}.scheme(true))
 	}
 	return p.theme
 }

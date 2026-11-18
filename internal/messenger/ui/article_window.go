@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"gio-mw/defaults"
-	"gio-mw/defaults/schemes"
 	"gio-mw/exp/appearance"
 	"gio-mw/token"
 	"gio-mw/wdk"
@@ -158,11 +157,7 @@ func (a *articleWindow) Theme(gtx layout.Context) *token.Theme {
 	dark := mode == themeDark || mode == themeAuto && a.w.Appearance.Scheme() == appearance.Dark
 	if v := defaults.FontsVersion(); a.theme == nil || v != a.themeFonts || dark != a.dark {
 		a.themeFonts, a.dark = v, dark
-		scheme := schemes.SchemeBaselineLight()
-		if dark {
-			scheme = schemes.SchemeBaselineDark()
-		}
-		a.theme = defaults.NewTheme(gtx, scheme)
+		a.theme = defaults.NewTheme(gtx, appColors{}.scheme(dark))
 	}
 	a.w.SetFrameDark(dark)
 	a.w.SetFrameColor(a.theme.Scheme.Surface.Color.AsNRGBA())

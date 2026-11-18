@@ -1074,30 +1074,25 @@ func (a *App) accent() color.NRGBA {
 	return c
 }
 
-// appColors is what the application's colors are made of: the system's
-// accent color, transparent for the baseline's, and whether the surfaces
-// are gray.
+// defaultAppAccent is the seed for the messenger's light and dark schemes.
+var defaultAppAccent = color.NRGBA{R: 61, G: 174, B: 233, A: 255}
+
+// appColors holds the optional system accent and neutral surfaces preference.
 type appColors struct {
 	accent  color.NRGBA
 	neutral bool
 }
 
-// scheme is the application's color scheme: the baseline's, or the one
-// made from the accent; with neutral surfaces, the one of the accent or of
-// Baseline's seed whose surfaces are gray.
+// scheme derives the palette from the active accent for the selected theme.
 func (c appColors) scheme(dark bool) *token.Scheme {
 	seed := c.accent
-	switch {
-	case c.neutral && seed.A == 0:
-		return schemes.SchemeFromSeedNeutral(schemes.BaselineSeed, dark)
-	case c.neutral:
-		return schemes.SchemeFromSeedNeutral(seed, dark)
-	case seed.A != 0:
-		return schemes.SchemeFromSeed(seed, dark)
-	case dark:
-		return schemes.SchemeBaselineDark()
+	if seed.A == 0 {
+		seed = defaultAppAccent
 	}
-	return schemes.SchemeBaselineLight()
+	if c.neutral {
+		return schemes.SchemeFromSeedNeutral(seed, dark)
+	}
+	return schemes.SchemeFromSeed(seed, dark)
 }
 
 // hostTheme is the theme the host draws its own windows in, the panic's.
