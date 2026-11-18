@@ -209,25 +209,36 @@ func (a *App) layoutComments(gtx layout.Context, l localization.Catalog) layout.
 	if count > 0 {
 		title = l.Count("comments.header", count, nil)
 	}
-	empty := !history.LoadingOlder && history.Err == nil && len(history.Messages) <= 1
+	emptyTopic := t.topic && !history.LoadingOlder && history.Err == nil && len(history.Messages) == 0
 	head := chatHead{back: t.back, title: title, subtitle: t.title}
 	if t.topic {
-		empty = !history.LoadingOlder && history.Err == nil && len(history.Messages) == 0
 		head.title, head.subtitle = t.name, topicCount(history, l)
 	}
 	return layoutChatPageHead(gtx, t.chat, l, a.layoutAvatar, nil, &head, nil, func(gtx layout.Context) layout.Dimensions {
 		dims := h.Layout(gtx, t.chat, l, a.window.Motion.AnimationsEnabled())
-		if empty {
+		if emptyTopic {
 			layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min = image.Point{}
-				if t.topic {
-					return pill(gtx, l.T("forum.no_messages"))
-				}
-				return pill(gtx, l.T("comments.empty"))
+				return pill(gtx, l.T("forum.no_messages"))
 			})
 		}
 		return dims
 	}, h)
+}
+
+// emptyComments reports whether the full discussion shows only its root post.
+func (p *chatPage) emptyComments(h model.History) bool {
+	if !p.thread || p.topic || h.ThreadRoot == 0 || len(p.messages) != 1 ||
+		h.LoadingOlder || h.LoadingNewer || h.HasOlder || h.HasNewer || h.Err != nil ||
+		h.Counted && h.Count > 0 {
+		return false
+	}
+	for _, m := range messageParts(p.messages[0]) {
+		if m.Key.MessageID == h.ThreadRoot {
+			return true
+		}
+	}
+	return false
 }
 
 // topicCount is what a topic's header says under its name, as Telegram

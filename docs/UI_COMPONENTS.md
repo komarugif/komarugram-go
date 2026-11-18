@@ -1135,7 +1135,8 @@ size-stability fixes remain in place.
 - **Comments** (`comments.go`): `commentsBar` ends a channel post's bubble,
   clipped to its shape; the comments open in a second `chatPage` under a
   `chatHead` — `layoutChatPageHead` with a back button in place of the
-  avatar — over their channel.
+  avatar — over their channel. An empty discussion shows a service plate
+  under the post, within the scrolling history.
 - **Service messages** (`history_service.go`): an action, as a user added or
   a message pinned, is its words on a plate across the middle of the
   history (`servicePill`), worded in the UI's language by
@@ -1234,7 +1235,7 @@ new piece sits next to its neighbours.
   external player; `PLAYER_PNG`, the dialog that asks for it. `MENU_PNG` also
   saves the menu with reactions (`-reactions*.png`), and the menu of a
   recent sticker and of a saved GIF over the picker (`-picker*.png`); `COMMENTS_PNG`, the
-  header of the comments page; `UNWRAPPED_PNG`, stickers and lone emoji; `SERVICE_PNG`, service messages
+  header and an empty discussion; `UNWRAPPED_PNG`, stickers and lone emoji; `SERVICE_PNG`, service messages
   and calls; `POLL_PNG`, polls, a quiz and checklists in their states (and
   `.2.png`, the rest of them; `.reveal.png`, a poll a moment after a vote, its
   results coming in; `.votes.png`, the dialog of who voted).

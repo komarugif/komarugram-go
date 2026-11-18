@@ -32,7 +32,17 @@ func (p *chatPage) serviceText(m model.Message, l localization.Catalog) string {
 // plate across the middle of the history. A pin's plate shows the message
 // pinned.
 func (p *chatPage) servicePill(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog) layout.Dimensions {
-	txt := p.serviceText(m, l)
+	var target *surface
+	pin := m.Service != nil && m.Service.Kind == model.ServicePin && m.ReplyToMessageID != 0
+	// A mention in a story opens it, as Telegram Desktop's View Story.
+	story := m.Service != nil && m.Service.Kind == model.ServiceStoryMention && m.StoryShown()
+	if pin || story {
+		target = &r.reply
+	}
+	return servicePlate(gtx, p.serviceText(m, l), target)
+}
+
+func servicePlate(gtx layout.Context, txt string, target *surface) layout.Dimensions {
 	if txt == "" {
 		return layout.Dimensions{}
 	}
@@ -50,14 +60,11 @@ func (p *chatPage) servicePill(gtx layout.Context, r *messageRow, m model.Messag
 		call.Add(gtx.Ops)
 		return dims
 	}
-	pin := m.Service != nil && m.Service.Kind == model.ServicePin && m.ReplyToMessageID != 0
-	// A mention in a story opens it, as Telegram Desktop's View Story.
-	story := m.Service != nil && m.Service.Kind == model.ServiceStoryMention && m.StoryShown()
-	if !pin && !story {
+	if target == nil {
 		return plate(gtx)
 	}
 	style := surfaceStyle{radius: radius, content: sc.SecondaryContainer.OnColor}
-	return r.reply.Layout(gtx, dims.Size, style, func(gtx layout.Context) layout.Dimensions {
+	return target.Layout(gtx, dims.Size, style, func(gtx layout.Context) layout.Dimensions {
 		return plate(gtx)
 	})
 }

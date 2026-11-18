@@ -387,8 +387,8 @@ type chatPage struct {
 	profiled     map[model.MessageID]uint64
 	profileEnv   model.RenderEnvironment
 	profileStats profileStats
-	// tail is the room under the last row of the history, the composer's,
-	// as the last frame left it: the heights kept are the rows' alone.
+	// tail is the room under the last row, for the composer and any
+	// discussion notice. The heights kept are the messages' alone.
 	tail                                       int
 	measures                                   map[model.MessageID]model.MessageLayout
 	dirty                                      map[model.MessageID]model.MessageLayout
@@ -984,7 +984,6 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	}
 	// The composer's middle is below the row's: a floating one is over the
 	// tail of the history, a classic one under it.
-	p.tail = tail
 	flightFrom := tail / 2
 	if classic {
 		flightFrom = tail + bottom/2
@@ -1008,6 +1007,20 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		// Dates and service messages lie on the wallpaper.
 		body = p.appearance.historyContext(body)
 	}
+	var commentsNotice op.CallOp
+	noticeHeight := 0
+	if len(p.below) == 0 && p.emptyComments(history) {
+		record := op.Record(gtx.Ops)
+		notice := body
+		notice.Constraints.Min.Y = 0
+		noticeHeight = layout.Inset{Top: 4, Bottom: 4, Left: rowInsetLeft, Right: rowInsetRight}.Layout(notice, func(gtx layout.Context) layout.Dimensions {
+			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return servicePlate(gtx, l.T("comments.empty"), nil)
+			})
+		}).Size.Y
+		commentsNotice = record.Stop()
+	}
+	p.tail = tail + noticeHeight
 	offset(body, image.Pt(0, top), func(gtx layout.Context) layout.Dimensions {
 		if len(p.messages) == 0 {
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1039,7 +1052,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 				p.seenSkeleton(s)
 				dims := p.skeleton(gtx, s)
 				if row == rows-1 {
-					dims.Size.Y += tail
+					dims.Size.Y += p.tail
 				}
 				p.heights.Set(row, dims.Size.Y)
 				return dims
@@ -1063,7 +1076,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 			rowEnd := p.trace.Begin("history.rows")
 			end := 0
 			if row == rows-1 {
-				end = tail
+				end = p.tail
 			}
 			// On its way to its place, after a message among the rows left.
 			shift := p.moveShift(gtx, msg.Key.MessageID)
@@ -1077,12 +1090,16 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 			if shift != 0 {
 				moved.Pop()
 			}
-			// The room the composer takes under the last row is the list's,
-			// not the row's: the height kept is the row's alone, as high as
-			// it is once another message comes under it.
+			// Keep only the message's own height in the layout cache. The
+			// notice and composer room belong to the list's tail.
 			height := dims.Size.Y
 			if row == rows-1 {
-				dims.Size.Y += tail
+				if noticeHeight > 0 {
+					at := op.Offset(image.Pt(0, height)).Push(gtx.Ops)
+					commentsNotice.Add(gtx.Ops)
+					at.Pop()
+				}
+				dims.Size.Y += p.tail
 			}
 			rowEnd()
 			p.heights.Set(row, dims.Size.Y)

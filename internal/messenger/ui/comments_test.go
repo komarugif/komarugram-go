@@ -5,7 +5,9 @@ package ui
 import (
 	"image"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"gio-mw/widget/button"
 
@@ -13,8 +15,11 @@ import (
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 
+	"komarugram/internal/appwindow"
 	"komarugram/internal/messenger/localization"
+	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
+	"komarugram/internal/motion"
 )
 
 // TestRenderCommentsHead saves the header of the comments page, for looking
@@ -38,6 +43,51 @@ func TestRenderCommentsHead(t *testing.T) {
 			return layout.Dimensions{Size: gtx.Constraints.Max}
 		}, nil)
 	})
+	w := &appwindow.Window{Motion: motion.New(func() {})}
+	t.Cleanup(w.Motion.Close)
+	store := mockstore.New(time.Now(), 0)
+	a := New(w, store, Services{})
+	t.Cleanup(a.Close)
+	a.selected = 4 // News channel.
+	a.openComments(model.Message{
+		Key: model.MessageKey{ChatID: a.selected, MessageID: 2000}, Date: time.Now(), Post: true,
+		Text: "Заметка из канала\n\n" + strings.Repeat("У длинного поста может быть несколько абзацев. Его обсуждение начинается под самим постом.\n\n", 4),
+	})
+	renderFrames(t, image.Pt(620, 660), path+".empty.png", func(gtx layout.Context) {
+		a.images.BeginFrame()
+		a.comments.media.BeginFrame()
+		a.layoutComments(gtx, l)
+		a.comments.media.EndFrame()
+		a.images.EndFrame()
+	})
+}
+
+func TestEmptyCommentsNoticeUsesHistorySpace(t *testing.T) {
+	h := newMenuHarness(t, nil)
+	p := h.page
+	history := &h.store.benchmarkHistory.h
+	root, reply := history.Messages[0], history.Messages[1]
+	normalTail := p.tail
+
+	p.thread = true
+	history.ThreadRoot, history.Counted = root.Key.MessageID, true
+	history.Messages = []model.Message{root}
+	history.Revision++
+	h.frames(3)
+	if p.tail <= normalTail {
+		t.Fatal("the empty discussion did not reserve room under its post")
+	}
+	if measured := p.measures[root.Key.MessageID]; int64(measured.HeightPx+p.tail) != p.heights.Total() {
+		t.Fatal("the notice's height was not kept separate from the post's height")
+	}
+
+	history.Messages = append(history.Messages, reply)
+	history.Count++
+	history.Revision++
+	h.frames(3)
+	if p.tail != normalTail {
+		t.Fatal("the notice stayed after the first comment arrived")
+	}
 }
 
 // TestCommentsBarOpens clicks the comments bar of a channel post.
