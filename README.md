@@ -93,7 +93,7 @@ We thank the creator of [gotd/td](https://github.com/gotd/td) for the excellent 
 
 ## License
 
-KomaruGram Go, SQLite and dr_libs are in the public domain. Other dependencies are MIT-compatible permissive licenses and require that their authors be credited. We do this in the file [docs/THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md).
+KomaruGram Go, Gio, SQLite and dr_libs are in the public domain. Other dependencies are MIT-compatible permissive licenses and require that their authors be credited. We do this in the file [docs/THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md).
 
 There are two exceptions, both kept out of this repository and out of the binary, loaded at run time, and easy to replace or leave out:
 
