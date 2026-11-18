@@ -550,12 +550,13 @@ size-stability fixes remain in place.
   history while nothing is typed, with a menu on a right click that takes
   the keyboard for its Escape (`key.FocusFilter`, then `key.FocusCmd`).
 - **Box for sending files** (`composer_send_files.go`): a `modal` of what was
-  chosen in the attachment menu, as Telegram Desktop's: media as a grid of
-  squares (one picture alone keeps its shape), other files and, with "Send as
-  documents", everything as rows with a thumbnail, a caption editor that takes
-  the composer's text and Enter to send, and the checkboxes that
-  `sendfiles` says apply (`HasGroupOption`, `HasDocumentsOption`,
-  `HasHighQualityOption`). Files are looked at in the background
+  chosen in the attachment menu. Photos and videos offer Attachment and File
+  tabs along the card's top edge, like the reactions dialog. The selected tab
+  determines how the files are sent and how they are shown: media as a grid
+  (one picture alone keeps its shape), documents as rows with a thumbnail.
+  Ordinary files keep the title and rows. The caption takes the composer's
+  text and Enter to send. The group and quality checkboxes depend on what
+  `sendfiles` says applies. Files are looked at in the background
   (`sendfiles.Inspect`, `Thumbnail`; a click on a photo, a video or a GIF
   opens them in a viewer of their own, which reads them from the disk and
   knows no chat, with nothing to forward or save: `viewer_box.go`; music as
@@ -570,8 +571,9 @@ size-stability fixes remain in place.
   page of the open chat when it takes files (`chatPage.takesFiles`): one
   for documents, and one for photos or media when `sendfiles.DropStateOf`
   says the files are pictures, or pictures and videos. A drop goes to the
-  box above, as documents or not by the area; over an open box the files
-  join it. Where the page is comes from the last frame.
+  box above with the Attachment or File tab selected by the drop area. Files
+  dropped over an open box join it in its current mode. Where the page is
+  comes from the last frame.
 - **Editing a message** (`composer_edit.go`): "Edit" in the message menu, or
   the Up arrow in an empty field (the last message `model.Editable` allows),
   puts the message in the field as Telegram Desktop does: the reply strip
