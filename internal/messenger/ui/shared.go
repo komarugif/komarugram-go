@@ -450,10 +450,14 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 	// Under a gift's dialog the animations stand where they are, and play on
 	// from there once it closes, rather than from their first pictures.
 	p.renderer.media.SetHolding(p.gift != nil)
+	viewport := gtx.Constraints.Max
 	shown := p.modal.Layout(gtx, covered, func(gtx layout.Context) layout.Dimensions {
 		size := image.Pt(min(gtx.Constraints.Max.X, gtx.Dp(640)), min(gtx.Constraints.Max.Y, gtx.Dp(740)))
 		gtx.Constraints = layout.Exact(size)
 		defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(16)).Push(gtx.Ops).Pop()
+		if p.modal.Entered() {
+			return p.layoutGiftUnderlay(gtx, viewport, l, animate)
+		}
 		return p.layoutBody(gtx, l, animate)
 	})
 	// The dialog scales the cover after recording it.
@@ -504,7 +508,7 @@ func (p *chatInfo) LayoutPage(gtx layout.Context, l localization.Catalog, animat
 	gtx.Constraints = layout.Exact(size)
 	func() {
 		defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
-		p.layoutBody(gtx, l, animate)
+		p.layoutGiftUnderlay(gtx, size, l, animate)
 	}()
 	p.renderer.media.SetHolding(false)
 	p.modal.toast.Layout(overlayGtx, image.Rectangle{Max: size})
@@ -574,9 +578,7 @@ func (p *chatInfo) update(gtx layout.Context, l localization.Catalog) bool {
 	for _, m := range p.rendererModals() {
 		m.Update(gtx, false)
 	}
-	if p.gift != nil {
-		p.gift.modal.Update(gtx, false)
-	}
+	p.updateGiftDialog(gtx)
 	if p.collectible != nil {
 		p.collectible.modal.Update(gtx, false)
 	}

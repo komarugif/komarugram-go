@@ -106,6 +106,45 @@ func TestGiftCardPlaysOnHoverWithoutAutoplay(t *testing.T) {
 		})
 	}
 }
+
+func TestGiftDialogKeepsDisplayFramesRunningDuringPlayback(t *testing.T) {
+	skipFrames(t)
+	t.Chdir("../../..")
+	store := mockstore.New(time.Now(), 0)
+	page, err := store.SharedCollection(t.Context(), 2, model.SharedGifts, "", 1)
+	if err != nil || len(page.Messages) != 1 {
+		t.Fatalf("load demo gift: %v, %d gifts", err, len(page.Messages))
+	}
+	var images imageOps
+	var router input.Router
+	p := newChatInfo(store, &images, func() {})
+	defer p.Destroy()
+	p.gift = newGiftDialog(page.Messages[0])
+	l := localization.For("en")
+	frame := func(animate bool) bool {
+		ops := new(op.Ops)
+		gtx := sharedContext(ops, image.Pt(800, 800))
+		gtx.Source = router.Source()
+		wdk.SetDisabledAnimations(gtx, wdk.AnimationDialog)
+		images.BeginFrame()
+		end := mediaFrame(gtx, p.renderer.media)
+		p.layoutGiftDialog(gtx, l, animate)
+		end()
+		images.EndFrame()
+		router.Frame(ops)
+		at, ok := router.WakeupTime()
+		return ok && at.IsZero()
+	}
+	immediate := false
+	waitFor(t, "the fast gift to request the next display frame", func() { immediate = frame(true) }, func() bool { return immediate })
+	if frame(false) {
+		t.Fatal("a paused gift still requests immediate frames")
+	}
+	p.renderer.media.SetPaused(true)
+	if frame(true) {
+		t.Fatal("a gift in an inactive window still requests immediate frames")
+	}
+}
 func TestSharedPageIgnoresLateResultsAndKeepsNextOffset(t *testing.T) {
 	store := mockstore.New(time.Now(), 0)
 	var images imageOps

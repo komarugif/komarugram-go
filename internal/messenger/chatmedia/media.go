@@ -1798,6 +1798,8 @@ type Status struct {
 	Err                error
 	Downloaded, Total  int64
 	Loading, Cancelled bool
+	// PlayingFullRate reports active playback on the 60 Hz media clock.
+	PlayingFullRate bool
 }
 
 func (m *Manager) Status(msg model.Message, animate bool) Status {
@@ -1832,6 +1834,8 @@ func (m *Manager) status(msg model.Message, animate bool, want image.Point, cove
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	st := Status{Frame: frame, Preview: e.preview, Err: e.err, Downloaded: e.downloaded, Total: e.total, Loading: e.frame == nil && e.err == nil && !e.cancelled && !e.waiting, Cancelled: e.cancelled}
+	st.PlayingFullRate = fullRate && animate && !m.quiet && !m.paused && !m.holding &&
+		e.worker && e.every == 1 && e.played == m.generation && !m.stopped[msg.Media.ID]
 	if st.Loading && !m.quiet {
 		m.loadingSeen++
 	}

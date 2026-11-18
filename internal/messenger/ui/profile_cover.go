@@ -590,7 +590,8 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 				if blurred && frame != nil {
 					return layout.Dimensions{Size: gtx.Constraints.Max}
 				}
-				return p.giftArt(gtx, m, animate, p.cover.gifts[i].Hovered())
+				p.drawGiftArt(gtx, m, animate, p.cover.gifts[i].Hovered())
+				return layout.Dimensions{Size: gtx.Constraints.Max}
 			})
 		})
 		opacity.Pop()
