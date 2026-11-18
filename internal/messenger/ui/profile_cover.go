@@ -687,7 +687,7 @@ func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog, 
 	// Moving, it streaks: as a picture of its own, when there is one.
 	streak := p.motion.avatar.Streak(gtx, at)
 	var sprite image.Image
-	if animate && moving(streak) && p.avatarSprite != nil {
+	if animate && moving(streak) && p.avatarSprite != nil && p.avatar.opacity(gtx, animate) == 1 {
 		sprite = p.avatarSprite(gtx, p.chat.ID, p.chat.Kind, p.chat.Title, int(side+.5))
 	}
 	p.motion.avatarStreak = sprite != nil
@@ -697,12 +697,12 @@ func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog, 
 	stack := op.Affine(f32.Affine2D{}.Scale(f32.Point{}, f32.Pt(scale, scale)).Offset(at)).Push(gtx.Ops)
 	if sprite != nil {
 		// Where it is, it still takes the clicks.
-		p.avatar.Layout(withSize(gtx, image.Pt(full, full)), func(gtx layout.Context) layout.Dimensions {
+		p.avatar.layout(withSize(gtx, image.Pt(full, full)), scale, func(gtx layout.Context) layout.Dimensions {
 			pointer.CursorPointer.Add(gtx.Ops)
 			return layout.Dimensions{Size: gtx.Constraints.Max}
 		})
 	} else {
-		p.layoutAvatar(withSize(gtx, image.Pt(full, full)))
+		p.layoutAvatar(withSize(gtx, image.Pt(full, full)), scale)
 	}
 	stack.Pop()
 

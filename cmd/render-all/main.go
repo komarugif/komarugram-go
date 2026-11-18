@@ -59,6 +59,8 @@ func renders() []render {
 		render{"picker-menu", "TestRenderPickerMenu", []string{"MENU_PNG={out}/menu.png"}},
 		render{"reacted", "TestRenderReacted", []string{"REACTED_PNG={out}/reacted.png"}},
 		render{"viewer", "TestRenderMediaViewer", []string{"VIEWER_PNG={out}/viewer.png"}},
+		render{"viewer-open", "TestRenderViewerOpening", []string{"VIEWER_OPEN_PNG_DIR={out}/viewer-open"}},
+		render{"viewer-open-avatar", "TestRenderViewerOpening", []string{"VIEWER_OPEN_AVATAR=header", "VIEWER_OPEN_PNG_DIR={out}/viewer-open-avatar"}},
 		render{"viewer-zoom", "TestRenderMediaViewer", []string{"VIEWER_ZOOM=2", "VIEWER_PNG={out}/viewer-zoom.png"}},
 		render{"viewer-profile-plays", "TestRenderMediaViewer", []string{"VIEWER_PROFILE=plays", "VIEWER_PNG={out}/viewer-profile-plays.png"}},
 		render{"viewer-gifs", "TestRenderMediaViewer", []string{"VIEWER_GIFS=1", "VIEWER_PNG={out}/viewer-gifs.png"}},

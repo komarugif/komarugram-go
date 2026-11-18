@@ -750,13 +750,15 @@ func (v *viewerVideo) toggleMute() {
 
 // playVideo plays m from at, below 0 from the start: a video in the
 // viewer, when the settings choose it, and anything else, a GIF too large
-// to play in the chat say, in the external player.
-func (p *chatPage) playVideo(gtx layout.Context, m model.Message, at time.Duration, l localization.Catalog) {
+// to play in the chat say, in the external player. It reports whether the
+// viewer was used.
+func (p *chatPage) playVideo(gtx layout.Context, m model.Message, at time.Duration, l localization.Catalog) bool {
 	if m.Kind == model.MessageVideo && p.openVideo != nil && p.videoEngine != nil && p.videoEngine(m) != videoExternal {
 		p.openVideo(m, at)
-		return
+		return true
 	}
 	p.playFrom(gtx, m, at, p.reportMedia, l)
+	return false
 }
 
 // configureViewerDecoders gives the media managers of v the decoders chosen, its GIFs

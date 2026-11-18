@@ -120,6 +120,8 @@ type messageRow struct {
 	// quick takes double clicks on the bubble, which react to it.
 	quick gesture.Click
 	media widget.Clickable
+	// A separate tag observes the click position without taking the click.
+	viewerRelease byte
 	// ring shows how far the row's media or file downloaded; plate is
 	// how much the plate over its video shows, which hovering hides.
 	ring  downloadRing
@@ -254,7 +256,7 @@ type chatPage struct {
 	entityMenu entityMenu
 	composer   *messageComposer
 	header     widget.Clickable
-	headAvatar widget.Clickable
+	headAvatar avatarViewerTarget
 	// stories tells the stories of the chat's peer now, whose ring the
 	// header's avatar is drawn in and which a click on it opens; nil for a
 	// store without them.
@@ -425,8 +427,11 @@ type chatPage struct {
 	// them: the plate of a video tells its time, not that it is one.
 	videoTimeOnly bool
 	// openPhoto shows a photo in the viewer; nil leaves photos inline.
-	openPhoto func(model.Message)
-	openAlone func(model.Message)
+	openPhoto    func(model.Message)
+	openAlone    func(model.Message)
+	tileViewer   *mediaViewer
+	viewerArea   byte
+	viewerBounds image.Rectangle
 	// openStory opens the story a message of the chat carries, among the
 	// others the history does; openStoryOf, a story a message replies to.
 	openStory   func(model.Message)
@@ -1037,6 +1042,12 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		}
 		p.selectionEvents(gtx)
 		p.viewHeight = gtx.Constraints.Max.Y
+		p.viewerBounds = image.Rectangle{}
+		if p.tileViewer != nil && animate {
+			if at, ok := p.tileViewer.openPointer.origin(gtx, &p.viewerArea, 1); ok {
+				p.viewerBounds = image.Rectangle{Min: at, Max: at.Add(gtx.Constraints.Max)}
+			}
+		}
 		defer func() { p.rowTopKnown = false }()
 		above := len(p.above)
 		rows := above + len(p.messages) + len(p.below)
@@ -1108,6 +1119,9 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 			p.keepMeasure(msg, height, env, !p.edgeRow(i))
 			return dims
 		})
+		if p.tileViewer != nil && animate {
+			trackViewerRelease(gtx, &p.viewerArea, gtx.Constraints.Max)
+		}
 		p.releaseMedia(gtx, gtx.Now)
 		p.layoutLeaving(gtx, l)
 		p.measureOffScreen(gtx, l)

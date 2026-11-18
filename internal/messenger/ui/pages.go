@@ -13,7 +13,6 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
-	"gioui.org/widget"
 
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
@@ -256,11 +255,11 @@ func layoutHeadBack(gtx layout.Context, back *button.Button, x, height int, l lo
 // layoutAvatarTarget lays out, over the avatar of a chat's header, the click
 // that opens its photo, x from the start; laid out after the header's own,
 // it takes the clicks on the avatar from it.
-func layoutAvatarTarget(gtx layout.Context, click *widget.Clickable, x int) {
+func layoutAvatarTarget(gtx layout.Context, target *avatarViewerTarget, x int) {
 	side := gtx.Dp(chatHeaderImage)
 	offset(gtx, image.Pt(x, (gtx.Dp(chatHeaderSize)-side)/2), func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints = layout.Exact(image.Pt(side, side))
-		return click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return target.layout(gtx, 1, func(gtx layout.Context) layout.Dimensions {
 			pointer.CursorPointer.Add(gtx.Ops)
 			return layout.Dimensions{Size: gtx.Constraints.Max}
 		})
@@ -270,9 +269,9 @@ func layoutAvatarTarget(gtx layout.Context, click *widget.Clickable, x int) {
 // openHeadAvatar opens in v what the avatar of chat c's header, in page,
 // shows: the stories in its ring, alone, as Telegram Desktop's top bar
 // opens them, or else its photos, which the chat's info still opens.
-func openHeadAvatar(v *mediaViewer, page *chatPage, c model.Chat) {
+func openHeadAvatar(v *mediaViewer, page *chatPage, c model.Chat) bool {
 	if ring, ok := page.headStories(c); ok && v.OpenPeerStories(c.ID, ring.Open) {
-		return
+		return false
 	}
-	v.OpenProfile(c.ID)
+	return v.OpenProfile(c.ID)
 }

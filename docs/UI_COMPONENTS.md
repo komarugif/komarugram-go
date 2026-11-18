@@ -416,6 +416,20 @@ size-stability fixes remain in place.
   (`model.ChatStoryGallery`), not the profile's; a reply's opens the story
   alone (`OpenStory`). The store asks for those Telegram left out of the
   messages once, a peer's together (`tgstore/chat_stories.go`).
+- **Opening the media viewer from a chat** (`viewer_opening.go`): a photo,
+  video preview or GIF moves from the clicked tile to the viewer's stage, and
+  the controls and the source tile in the chat fade in once it arrives. The
+  same thumbnail covers the stage while the full picture loads. With
+  animations off the viewer opens at once. Dismissing it during the
+  entrance plays the transition back to the tile from the last drawn
+  frame. Once open, it closes immediately. `VIEWER_OPEN_PNG_DIR` renders
+  an album's opening and interrupted transitions frame by frame.
+  Avatars use the same transition from the chat or forum header, the info
+  dialog and the account's profile. Their mask opens from the avatar's
+  configured roundness to square corners. Set `VIEWER_OPEN_AVATAR` to
+  `header`, `forum`, `info` or `profile` to render those sources.
+  Reopening the same avatar after an interrupted entrance resumes its
+  gallery, including any page still loading.
 - **Held preview** (`hold_preview.go`): an emoji, a sticker or a GIF of the
   composer's panel or of the box of a set, held half a second, shows large
   over the whole window on the viewer's backdrop, as Telegram Desktop's

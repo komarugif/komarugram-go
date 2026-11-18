@@ -46,8 +46,8 @@ type chatInfo struct {
 	loader            loadingIndicator
 	giftGeneration    uint64
 	drawAvatar        avatarLayout
-	openAvatar        func(chat int64)
-	avatar            widget.Clickable
+	openAvatar        func(layout.Context, model.Chat)
+	avatar            avatarViewerTarget
 	gift              *giftDialog
 	giftRows          map[model.MessageKey]*giftRow
 	linkRows          map[model.MessageKey]*sharedLinkRow
@@ -456,6 +456,10 @@ func (p *chatInfo) Layout(gtx layout.Context, l localization.Catalog, animate bo
 		defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(16)).Push(gtx.Ops).Pop()
 		return p.layoutBody(gtx, l, animate)
 	})
+	// The dialog scales the cover after recording it.
+	if p.modal.visible < 1 {
+		p.avatar.scale *= modalEnterScale + (1-modalEnterScale)*p.modal.visible
+	}
 	p.renderer.media.SetHolding(false)
 	if !shown {
 		p.Close()
@@ -591,7 +595,7 @@ func (p *chatInfo) update(gtx layout.Context, l localization.Catalog) bool {
 		}
 	}
 	if p.avatar.Clicked(gtx) && p.openAvatar != nil {
-		p.openAvatar(p.chat.ID)
+		p.openAvatar(gtx, p.chat)
 	}
 	if name := p.chatUsername(); name != "" {
 		if p.username.click.Clicked(gtx) {
@@ -1490,12 +1494,12 @@ func dataCenterText(dc int) string {
 
 // layoutAvatar draws the chat's avatar in the cover; a click on it shows
 // the photo in the viewer.
-func (p *chatInfo) layoutAvatar(gtx layout.Context) layout.Dimensions {
+func (p *chatInfo) layoutAvatar(gtx layout.Context, scale float32) layout.Dimensions {
 	if p.drawAvatar == nil {
 		return layout.Dimensions{}
 	}
 	gtx.Constraints.Min = image.Point{}
-	return p.avatar.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return p.avatar.layout(gtx, scale, func(gtx layout.Context) layout.Dimensions {
 		pointer.CursorPointer.Add(gtx.Ops)
 		return p.drawAvatar(gtx, p.chat.ID, p.chat.Kind, p.chat.Title, pageAvatarSize)
 	})

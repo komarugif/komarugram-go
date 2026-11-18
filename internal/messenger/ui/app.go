@@ -856,6 +856,7 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 		a.window.Invalidate()
 	}
 	p.openPlaylist = a.openPlaylist
+	p.tileViewer = a.viewer
 	p.openPhoto = func(m model.Message) { a.viewer.Open(p.chat, m, p.viewerItems()) }
 	p.openVideo = func(m model.Message, at time.Duration) { a.viewer.OpenVideo(p.chat, m, p.viewerItems(), at) }
 	p.videoEngine = a.videoEngine
@@ -1494,14 +1495,20 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 			}
 		}
 	}
+	animate := a.window.Motion.AnimationsEnabled()
+	if a.viewer != nil && animate {
+		a.viewer.openPointer.update(gtx)
+	}
 	if a.viewer != nil && a.history.headAvatar.Clicked(gtx) {
 		if c, ok := a.selectedChat(); ok {
-			openHeadAvatar(a.viewer, a.history, c)
+			if openHeadAvatar(a.viewer, a.history, c) {
+				a.animateAvatarOpening(gtx, &a.history.headAvatar, c, animate)
+			}
 		}
 	}
 	if a.viewer != nil && a.forum != nil && a.forum.avatar.Clicked(gtx) {
-		if c, ok := a.selectedChat(); ok {
-			a.viewer.OpenProfile(c.ID)
+		if c, ok := a.selectedChat(); ok && a.viewer.OpenProfile(c.ID) {
+			a.animateAvatarOpening(gtx, &a.forum.avatar, c, animate)
 		}
 	}
 	if a.info != nil && (a.history.header.Clicked(gtx) || a.history.takeInfoAsked() || a.forum != nil && a.forum.header.Clicked(gtx)) {
@@ -1514,6 +1521,9 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 		a.history.themeShown = false
 	}
 	overlayGtx := gtx
+	if a.viewer != nil {
+		a.viewer.updateOpening(gtx, animate)
+	}
 	if a.info != nil && a.info.visible {
 		gtx = gtx.Disabled()
 	}
@@ -1629,10 +1639,18 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	}
 	a.overlay.Layout(gtx)
 	if a.info != nil {
-		a.info.Layout(overlayGtx, a.catalog(), a.window.Motion.AnimationsEnabled())
+		infoGtx := overlayGtx
+		if a.viewer != nil && a.viewer.open {
+			// Escape belongs to the viewer over the info dialog.
+			infoGtx = infoGtx.Disabled()
+		}
+		a.info.Layout(infoGtx, a.catalog(), animate)
 	}
 	if a.viewer != nil {
-		a.viewer.Layout(overlayGtx, a.catalog(), a.window.Motion.AnimationsEnabled())
+		if animate {
+			trackViewerRelease(overlayGtx, &a.viewer.openPointer, size)
+		}
+		a.viewer.Layout(overlayGtx, a.catalog(), animate)
 	}
 	a.layoutBoxViewer(overlayGtx)
 	// An emoji, a sticker or a GIF held, over everything, taking nothing.
@@ -1720,7 +1738,7 @@ func (a *App) layoutPage(gtx layout.Context) layout.Dimensions {
 		if a.history.takesFiles() {
 			a.drop.page = a.history
 		}
-		return layoutChatPage(gtx, c, l, a.layoutAvatar, a.badges, a.returnButton(), func(gtx layout.Context) layout.Dimensions {
+		return layoutChatPage(gtx, c, l, a.viewerAvatar(&a.history.headAvatar), a.badges, a.returnButton(), func(gtx layout.Context) layout.Dimensions {
 			if a.history != nil {
 				return a.history.Layout(gtx, c, l, a.window.Motion.AnimationsEnabled())
 			}
@@ -2088,7 +2106,7 @@ func (a *App) menuPrefs() preferences.Menus { return a.preferences.Global().Menu
 // configureInfo wires p, the info of a profile, to the window: the
 // dialog of a chat's, or the page of the account's own.
 func (a *App) configureInfo(p *chatInfo, store model.Store) {
-	p.drawAvatar = a.layoutAvatar
+	p.drawAvatar = a.viewerAvatar(&p.avatar)
 	// A user's channel in their info opens with a way back, as a
 	// channel's discussion does.
 	p.openChannel = a.history.openReturning
@@ -2137,7 +2155,11 @@ func (a *App) configureInfo(p *chatInfo, store model.Store) {
 		a.viewer.OpenShared(m.Key.ChatID, m, p.messages, p.section, at)
 	}
 	p.renderer.videoEngine = a.videoEngine
-	p.openAvatar = func(chat int64) { a.viewer.OpenProfile(chat) }
+	p.openAvatar = func(gtx layout.Context, chat model.Chat) {
+		if a.viewer.OpenProfile(chat.ID) {
+			a.animateAvatarOpening(gtx, &p.avatar, chat, a.window.Motion.AnimationsEnabled())
+		}
+	}
 }
 
 // openPlaylist opens the playlist of user's profile: the account's own on
