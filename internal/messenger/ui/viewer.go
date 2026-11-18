@@ -117,6 +117,10 @@ type mediaViewer struct {
 	items     []model.Message // sorted by message ID
 	loading   [2]bool         // older, newer
 	exhausted [2]bool         // nothing more is asked for on that side
+	// fails counts the pages of a profile that failed in a row on a side,
+	// and retryAt is when it is asked again: see profileRetry.
+	fails   [2]int
+	retryAt [2]time.Time
 	// ended tells the sides the gallery is known to end at, which, with
 	// total, the count of all its items, places the items shown in it.
 	ended [2]bool
@@ -414,6 +418,7 @@ func (v *mediaViewer) openList(chat int64, m model.Message, list mediaList) {
 			pageless = pageless || m.Key.MessageID < 0
 		}
 		v.loading, v.exhausted = [2]bool{}, [2]bool{pageless || v.ended[0], pageless || v.ended[1]}
+		v.fails, v.retryAt = [2]int{}, [2]time.Time{}
 		v.ctx, v.cancel = context.WithCancel(context.Background())
 		ctx, session = v.ctx, v.session
 		if len(v.items) > 0 {
@@ -554,7 +559,7 @@ func (v *mediaViewer) Release() {
 func (v *mediaViewer) fetch(ctx context.Context, session, dir int, anchor model.MessageID) {
 	side := (dir + 1) / 2
 	v.mu.Lock()
-	if v.session != session || v.loading[side] || v.exhausted[side] {
+	if v.session != session || v.loading[side] || v.exhausted[side] || time.Now().Before(v.retryAt[side]) {
 		v.mu.Unlock()
 		return
 	}
@@ -622,10 +627,20 @@ func (v *mediaViewer) fetch(ctx context.Context, session, dir int, anchor model.
 			return
 		}
 		if err != nil {
+			if gallery == galleryProfile {
+				// Telegram limits what a profile asks (FLOOD_WAIT): the other
+				// photos come later, not never. The one shown stays meanwhile.
+				v.fails[side]++
+				wait := profileRetry(v.fails[side])
+				v.retryAt[side] = time.Now().Add(wait)
+				time.AfterFunc(wait, v.invalidate)
+				return
+			}
 			// A failed page ends the strip there; items already known stay available.
 			v.exhausted[side] = true
 			return
 		}
+		v.fails[side] = 0
 		v.ended[side] = !page.More
 		v.exhausted[side] = v.ended[side]
 		if page.Total > 0 {
@@ -639,6 +654,15 @@ func (v *mediaViewer) fetch(ctx context.Context, session, dir int, anchor model.
 		}
 		v.items = v.sharedOnly(mergeMedia(gallery, v.items, page.Messages))
 	}()
+}
+
+// profileRetryStep is the wait after the first failure; a test shortens it.
+var profileRetryStep = 2 * time.Second
+
+// profileRetry is how long to wait to ask for a profile's photos again after
+// the n-th failure in a row: 2 s, doubling, up to 30 s.
+func profileRetry(n int) time.Duration {
+	return min(profileRetryStep<<min(max(n, 1)-1, 4), 15*profileRetryStep)
 }
 
 // viewerTarget is what the viewer decodes for m: a video's thumbnail, in the

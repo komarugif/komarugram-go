@@ -67,6 +67,8 @@ type Store struct {
 	stories storyState
 	// communities are the communities opened.
 	communities communityState
+	// profilePages are the pages of profile photos read lately.
+	profilePages profilePages
 
 	themeRevisions map[int64]uint64
 	// appearances are the states of the chats' cached appearances.

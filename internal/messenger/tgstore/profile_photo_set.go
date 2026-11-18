@@ -46,6 +46,7 @@ func (s *Store) SetProfilePhoto(ctx context.Context, chat int64, path string, pr
 	if !s.CanSetProfilePhoto(chat) {
 		return model.ErrProfilePhotoForbidden
 	}
+	defer s.profilePages.forget(chat)
 	photo, err := sendfiles.PrepareProfilePhoto(path)
 	if err != nil {
 		return err
@@ -159,6 +160,7 @@ func (s *Store) DeleteProfilePhoto(ctx context.Context, m model.Message) error {
 	if !s.CanDeleteProfilePhoto(m) {
 		return model.ErrProfilePhotoForbidden
 	}
+	defer s.profilePages.forget(m.Key.ChatID)
 	ref, _, current, _ := s.profilePhotoOf(m)
 	ctx, api, peer, _, done, err := s.peerOperation(ctx, m.Key.ChatID)
 	if err != nil {
@@ -181,6 +183,7 @@ func (s *Store) MakeProfilePhotoMain(ctx context.Context, m model.Message) error
 	if !s.CanMakeProfilePhotoMain(m) {
 		return model.ErrProfilePhotoForbidden
 	}
+	defer s.profilePages.forget(m.Key.ChatID)
 	ref, _, _, _ := s.profilePhotoOf(m)
 	ctx, api, peer, _, done, err := s.peerOperation(ctx, m.Key.ChatID)
 	if err != nil {
