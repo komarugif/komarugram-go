@@ -19,7 +19,8 @@ type imageTexture struct {
 type imageOps struct {
 	generation uint64
 	entries    map[image.Image]imageTexture
-	colored    map[coloredKey]coloredImage
+	colored    map[coloredKey]cachedImage
+	blurred    map[image.Image]cachedImage
 }
 
 // coloredKey is a picture in a color: see Colored.
@@ -28,7 +29,7 @@ type coloredKey struct {
 	c  color.NRGBA
 }
 
-type coloredImage struct {
+type cachedImage struct {
 	im   image.Image
 	seen uint64
 }
@@ -38,7 +39,7 @@ type coloredImage struct {
 // and forgotten with its texture.
 func (c *imageOps) Colored(im image.Image, col color.NRGBA) image.Image {
 	if c.colored == nil {
-		c.colored = make(map[coloredKey]coloredImage)
+		c.colored = make(map[coloredKey]cachedImage)
 	}
 	key := coloredKey{im, col}
 	out, ok := c.colored[key]
@@ -47,6 +48,23 @@ func (c *imageOps) Colored(im image.Image, col color.NRGBA) image.Image {
 	}
 	out.seen = c.generation
 	c.colored[key] = out
+	return out.im
+}
+
+// Blurred keeps the spoiler's small picture while its source is on screen.
+func (c *imageOps) Blurred(im image.Image) image.Image {
+	if im.Bounds().Empty() {
+		return nil
+	}
+	if c.blurred == nil {
+		c.blurred = make(map[image.Image]cachedImage)
+	}
+	out, ok := c.blurred[im]
+	if !ok {
+		out.im = blurredPicture(im)
+	}
+	out.seen = c.generation
+	c.blurred[im] = out
 	return out.im
 }
 
@@ -81,7 +99,7 @@ func (c *imageOps) Op(im image.Image) paint.ImageOp {
 
 // Release forgets every image, so that a hidden window keeps no pixels
 // alive through its texture handles.
-func (c *imageOps) Release() { c.entries, c.colored = nil, nil }
+func (c *imageOps) Release() { c.entries, c.colored, c.blurred = nil, nil, nil }
 func (c *imageOps) EndFrame() {
 	for im, texture := range c.entries {
 		if texture.seen+1 < c.generation {
@@ -91,6 +109,11 @@ func (c *imageOps) EndFrame() {
 	for key, colored := range c.colored {
 		if colored.seen+1 < c.generation {
 			delete(c.colored, key)
+		}
+	}
+	for im, blurred := range c.blurred {
+		if blurred.seen+1 < c.generation {
+			delete(c.blurred, im)
 		}
 	}
 }

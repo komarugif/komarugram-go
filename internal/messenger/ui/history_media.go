@@ -99,11 +99,40 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	if observe {
 		tileAt, tileKnown = viewer.openPointer.origin(gtx, &r.viewerRelease, 1)
 	}
-	clicked := r.media.Clicked(gtx)
+	mediaClick := &r.media
 	if stickerSet {
-		clicked = r.sticker.Clicked(gtx)
+		mediaClick = &r.sticker.click
 	}
-	play := tileAnimates(gtx, m, animate, r.media.Hovered() || r.sticker.click.Hovered())
+	clicked := mediaClick.Clicked(gtx)
+	spoiler := m.MediaSpoiler && !r.mediaRevealed
+	reveal := &r.mediaReveal
+	revealAnimated := animate && wdk.AnimationEnabled(gtx, wdk.AnimationMessage)
+	if spoiler && clicked {
+		r.mediaRevealed = true
+		spoiler, clicked = false, false
+		if revealAnimated {
+			// The press is in the tile's coordinates, including an album's
+			// offset. A keyboard activation starts at the tile's center.
+			center := layout.FPt(size).Mul(.5)
+			if history := mediaClick.History(); len(history) > 0 {
+				if press := history[len(history)-1]; press.End == gtx.Now && !press.Cancelled {
+					center = layout.FPt(press.Position)
+				}
+			}
+			*reveal = spoilerReveal{started: gtx.Now, center: center, pxPerDp: gtx.Metric.PxPerDp}
+		}
+	}
+	var revealRadius float32
+	if m.MediaSpoiler && !reveal.started.IsZero() {
+		if revealAnimated && !reveal.done(gtx.Now, size) {
+			spoiler, clicked = true, false
+			revealRadius = reveal.radius(gtx.Now, size)
+			gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 60)})
+		} else if gtx.Enabled() {
+			// Measurement and snapshots draw off screen with input disabled.
+			*reveal = spoilerReveal{}
+		}
+	}
 	target := m
 	// A GIF too large to be read whole plays as a video does, streamed in
 	// the player.
@@ -112,7 +141,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	// One that plays here pauses on a click, and opens in the viewer on
 	// one of the middle button.
 	inline := m.Kind == model.MessageGIF && !gif
-	opened := inline && r.gif.update(gtx, p, m) && p.openGIF != nil
+	opened := !spoiler && inline && r.gif.update(gtx, p, m) && p.openGIF != nil
 	if opened {
 		p.openGIF(m)
 	}
@@ -138,12 +167,17 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	if !useLocal && target.Media != nil {
 		// An inline GIF may fetch frames for playback. Keep the local still
 		// visible while those frames start arriving.
-		autoplay := mediaAutoplays(gtx, m, animate)
-		hover := mediaHover(gtx, r, autoplay, play && !autoplay)
-		// As Telegram Desktop plays stickers in messages: up to 60
-		// pictures a second.
-		hover.FullRate = m.Kind == model.MessageSticker
-		status = p.media.StatusHover(target, size, crop, hover)
+		if spoiler {
+			status = p.media.StatusFit(target, false, size, crop)
+		} else {
+			autoplay := mediaAutoplays(gtx, m, animate)
+			play := tileAnimates(gtx, m, animate, r.media.Hovered() || r.sticker.click.Hovered())
+			hover := mediaHover(gtx, r, autoplay, play && !autoplay)
+			// As Telegram Desktop plays stickers in messages: up to 60
+			// pictures a second.
+			hover.FullRate = m.Kind == model.MessageSticker
+			status = p.media.StatusHover(target, size, crop, hover)
+		}
 		if inline && local != nil {
 			status.Preview = local
 		}
@@ -251,10 +285,28 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 				defer paint.PushOpacity(gtx.Ops, opacity).Pop()
 			}
 		}
-		if im != nil {
-			widget.Image{Src: p.images.Op(im), Fit: fit, Position: layout.Center}.Layout(gtx)
+		picture := func(im image.Image) {
+			if im != nil {
+				widget.Image{Src: p.images.Op(im), Fit: fit, Position: layout.Center}.Layout(gtx)
+			}
 		}
-		if video || uploading || loading && (!inline || local == nil) || cancelled || err != nil {
+		if !spoiler {
+			picture(im)
+		} else {
+			func() {
+				if revealRadius > 0 {
+					inside := spoilerWaveClip(gtx, reveal.center, revealRadius).Push(gtx.Ops)
+					picture(im)
+					inside.Pop()
+					defer spoilerCoverClip(gtx, size, reveal.center, revealRadius).Push(gtx.Ops).Pop()
+				}
+				if im != nil {
+					picture(p.images.Blurred(im))
+				}
+				paintMediaSpoiler(gtx, size, int(m.Key.MessageID&3))
+			}()
+		}
+		if uploading || !spoiler && (video || loading && (!inline || local == nil) || cancelled || err != nil) {
 			diameter := min(gtx.Dp(48), min(size.X, size.Y))
 			origin := image.Pt((size.X-diameter)/2, (size.Y-diameter)/2)
 			offset(gtx, origin, func(gtx layout.Context) layout.Dimensions {
@@ -305,7 +357,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			reserve = t.size.X
 		}
 		lift := 0
-		if inline && !loading && !cancelled && err == nil {
+		if inline && !spoiler && !loading && !cancelled && err == nil {
 			paused := p.media.GIFPaused(m)
 			lift = r.gif.layout(gtx, size, paused, r.media.Hovered(), p.media.GIFPosition(m), m.Media.Duration, reserve)
 		}
@@ -314,7 +366,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			// picture to be seen whole, as a video's plate does; on a GIF
 			// that plays here it fades in, as the GIF's time does.
 			target := boolFloat(!r.media.Hovered())
-			if inline {
+			if inline && !spoiler {
 				target = boolFloat(r.media.Hovered() || r.gif.seeking)
 			}
 			r.timeFade.Duration = token.DurationShort2

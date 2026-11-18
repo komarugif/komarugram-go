@@ -120,6 +120,9 @@ type messageRow struct {
 	// quick takes double clicks on the bubble, which react to it.
 	quick gesture.Click
 	media widget.Clickable
+	// The tile's spoiler has its own reveal, separate from the caption's.
+	mediaReveal   spoilerReveal
+	mediaRevealed bool
 	// A separate tag observes the click position without taking the click.
 	viewerRelease byte
 	// ring shows how far the row's media or file downloaded; plate is

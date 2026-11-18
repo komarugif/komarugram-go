@@ -435,8 +435,7 @@ func TestRenderMediaDust(t *testing.T) {
 				offset(gtx, tile.Min, func(gtx layout.Context) layout.Dimensions {
 					defer clip.UniformRRect(image.Rectangle{Max: tile.Size()}, 12).Push(gtx.Ops).Pop()
 					fillRect(gtx, token.NewMatColorFromHexRGB(0x4a5a7a), tile.Size())
-					fillRect(gtx, spoilerDim, tile.Size())
-					paintMediaDust(gtx, tile.Size(), i)
+					paintMediaSpoiler(gtx, tile.Size(), i)
 					return layout.Dimensions{Size: tile.Size()}
 				})
 			}
@@ -451,4 +450,5 @@ func TestRenderMediaDust(t *testing.T) {
 	s := &effectsShots{t: t, dir: dir}
 	s.save("media-dust", frames[0])
 	s.save("media-dust-drift", strip(frames, image.Rect(10, 10, 210, 160)))
+	t.Run("history", func(t *testing.T) { checkHistoryMediaSpoilers(t, dir, true) })
 }
