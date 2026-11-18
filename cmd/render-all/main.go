@@ -81,6 +81,7 @@ func renders() []render {
 		render{"viewer-edit-discard", "TestRenderMediaViewer", []string{"VIEWER_EDIT=discard", "VIEWER_PNG={out}/viewer-edit-discard.png"}},
 		render{"player", "TestRenderPlayerChoice", []string{"PLAYER_PNG={out}/player.png"}},
 		render{"comments", "TestRenderCommentsHead", []string{"COMMENTS_PNG={out}/comments.png"}},
+		render{"loading", "TestRenderLoadingIndicator", []string{"LOADING_PNG={out}/loading.png"}},
 		render{"forum", "TestRenderForum", []string{"FORUM_PNG={out}/forum.png"}},
 		render{"community", "TestRenderCommunity", []string{"COMMUNITY_PNG={out}/community.png"}},
 		render{"chat-previews", "TestRenderChatPreviews", []string{"CHAT_PREVIEW_PNG={out}/chat-previews.png"}},
