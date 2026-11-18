@@ -145,6 +145,85 @@ func TestGiftDialogKeepsDisplayFramesRunningDuringPlayback(t *testing.T) {
 		t.Fatal("a gift in an inactive window still requests immediate frames")
 	}
 }
+
+func TestGiftCardsRestorePointerStateAfterScrimCloses(t *testing.T) {
+	skipFrames(t)
+	for _, animate := range []bool{false, true} {
+		name := "without-animations"
+		if animate {
+			name = "with-animations"
+		}
+		t.Run(name, func(t *testing.T) {
+			store := mockstore.New(time.Now(), 0)
+			var images imageOps
+			p := newChatInfo(store, &images, func() {})
+			defer p.Destroy()
+			p.Open(model.Chat{ID: 2, Kind: model.KindUser})
+			awaitShared(t, p)
+			p.selectSection(model.SharedGifts)
+			awaitShared(t, p)
+			var router input.Router
+			now := time.Unix(1000, 0)
+			frame := func() {
+				ops := new(op.Ops)
+				gtx := sharedContext(ops, image.Pt(1000, 800))
+				gtx.Now, gtx.Source = now, router.Source()
+				wdk.SetAnimationsEnabled(gtx, animate)
+				images.BeginFrame()
+				p.Layout(gtx, localization.For("en"), false)
+				images.EndFrame()
+				router.Frame(ops)
+			}
+			send := func(kind pointer.Kind, pos f32.Point, buttons pointer.Buttons) {
+				router.Queue(pointer.Event{Kind: kind, Source: pointer.Mouse, Position: pos, Buttons: buttons})
+			}
+			click := func(pos f32.Point) {
+				send(pointer.Press, pos, pointer.ButtonPrimary)
+				send(pointer.Release, pos, 0)
+				frame()
+			}
+			frame()
+			now = now.Add(modalEnterDuration)
+			frame()
+			first := f32.Pt(300, 212)
+			send(pointer.Move, first, 0)
+			frame()
+			click(first)
+			if p.gift == nil {
+				t.Fatal("the first gift did not open")
+			}
+			now = now.Add(modalEnterDuration)
+			frame()
+			// Press the scrim away from the grid and release over the exposed
+			// part of a different gift card.
+			card := f32.Pt(790, 200)
+			send(pointer.Press, f32.Pt(65, 90), pointer.ButtonPrimary)
+			frame()
+			send(pointer.Move, card, pointer.ButtonPrimary)
+			frame()
+			send(pointer.Release, card, 0)
+			frame()
+			if animate {
+				now = now.Add(modalExitDuration)
+				frame()
+			}
+			if p.gift != nil {
+				t.Fatal("the scrim did not dismiss the dialog, or opened a gift on release")
+			}
+			if p.giftRows[p.messages[0].Key].click.Hovered() {
+				t.Error("the original gift still thinks it is hovered")
+			}
+			// No movement or extra frame between the dismissal and this click.
+			click(card)
+			if p.gift == nil {
+				t.Fatal("the first click after dismissal did not open the gift")
+			}
+			if p.gift.message.Key != p.messages[2].Key {
+				t.Fatal("the first click after dismissal opened a different gift")
+			}
+		})
+	}
+}
 func TestSharedPageIgnoresLateResultsAndKeepsNextOffset(t *testing.T) {
 	store := mockstore.New(time.Now(), 0)
 	var images imageOps

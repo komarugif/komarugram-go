@@ -116,6 +116,14 @@ func (m *modal) Update(gtx layout.Context, locked bool) {
 	}
 }
 
+// advanceVisibility also retires a closing dialog once its fade ends.
+func (m *modal) advanceVisibility(gtx layout.Context) {
+	m.visible = m.animate(gtx)
+	if m.closing && m.visible == 0 {
+		m.Hide()
+	}
+}
+
 // Layout draws the dialog, content, in the middle of the area. It reports
 // whether the dialog is still shown: false once it closed and animated out.
 func (m *modal) Layout(gtx layout.Context, locked bool, content layout.Widget) bool {
@@ -123,12 +131,11 @@ func (m *modal) Layout(gtx layout.Context, locked bool, content layout.Widget) b
 	if !m.shown {
 		return false
 	}
-	visibility := m.animate(gtx)
-	m.visible = visibility
-	if m.closing && visibility == 0 {
-		m.Hide()
+	m.advanceVisibility(gtx)
+	if !m.shown {
 		return false
 	}
+	visibility := m.visible
 	if m.closing {
 		// A closing dialog takes no input.
 		gtx = gtx.Disabled()

@@ -224,7 +224,7 @@ func (p *chatInfo) coverColors(gtx layout.Context) []uint32 {
 // layoutCover draws the cover across the width it is given.
 func (p *chatInfo) layoutCover(gtx layout.Context, l localization.Catalog, animate bool) layout.Dimensions {
 	for i := range p.cover.gifts {
-		if i < len(p.profile.Gifts) && p.cover.gifts[i].Clicked(gtx) {
+		if p.gift == nil && i < len(p.profile.Gifts) && p.cover.gifts[i].Clicked(gtx) {
 			p.gift = newGiftDialog(p.profile.Gifts[i])
 		}
 	}
@@ -585,8 +585,7 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 			drawStreak(gtx, p.renderer.images, resample.Resize(frame, fit.X, fit.Y), at.Sub(fit.Div(2)), streak)
 		}
 		offset(withSize(gtx, image.Pt(art, art)), at.Sub(image.Pt(art/2, art/2)), func(gtx layout.Context) layout.Dimensions {
-			return p.cover.gifts[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				pointer.CursorPointer.Add(gtx.Ops)
+			return p.layoutGiftTarget(gtx, &p.cover.gifts[i], func(gtx layout.Context) layout.Dimensions {
 				if blurred && frame != nil {
 					return layout.Dimensions{Size: gtx.Constraints.Max}
 				}

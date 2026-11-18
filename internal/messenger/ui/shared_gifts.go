@@ -108,6 +108,20 @@ func (p *chatInfo) drawGiftArt(gtx layout.Context, m model.Message, animate, hov
 	}
 	return st
 }
+
+func (p *chatInfo) layoutGiftTarget(gtx layout.Context, target *widget.Clickable, draw layout.Widget) layout.Dimensions {
+	if p.gift != nil || !gtx.Enabled() {
+		// A covered target can lose its Leave event while input is disabled.
+		// Register it again with fresh pointer state when it is visible.
+		*target = widget.Clickable{}
+		return draw(gtx.Disabled())
+	}
+	return target.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		pointer.CursorPointer.Add(gtx.Ops)
+		return draw(gtx)
+	})
+}
+
 func (p *chatInfo) giftCard(gtx layout.Context, m model.Message, l localization.Catalog, animate bool) layout.Dimensions {
 	g := m.Gift
 	if g == nil {
@@ -119,11 +133,10 @@ func (p *chatInfo) giftCard(gtx layout.Context, m model.Message, l localization.
 		p.giftRows[m.Key] = r
 	}
 	r.seen = p.giftGeneration
-	if r.click.Clicked(gtx) {
+	if p.gift == nil && r.click.Clicked(gtx) {
 		p.gift = newGiftDialog(m)
 	}
-	return r.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		pointer.CursorPointer.Add(gtx.Ops)
+	return p.layoutGiftTarget(gtx, &r.click, func(gtx layout.Context) layout.Dimensions {
 		size := gtx.Constraints.Max
 		bounds := image.Rectangle{Max: size}
 		defer clip.UniformRRect(bounds, gtx.Dp(12)).Push(gtx.Ops).Pop()
@@ -239,6 +252,14 @@ func (p *chatInfo) updateGiftDialog(gtx layout.Context) {
 		p.renderer.media.Retry(d.message)
 	}
 	d.modal.Update(gtx, p.renderer.link != "")
+	if d.modal.closing {
+		// Retire the dialog before laying out the gifts, so their pointer
+		// handlers are ready on the frame the scrim disappears.
+		d.modal.advanceVisibility(gtx)
+		if !d.modal.Shown() {
+			p.gift = nil
+		}
+	}
 }
 
 const giftDialogRadius = unit.Dp(20)
