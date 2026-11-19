@@ -1116,6 +1116,9 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 func (v *mediaViewer) keyEvents(gtx layout.Context, items []model.Message, i int, photo, stage image.Point) {
 	if v.focus {
 		gtx.Execute(key.FocusCmd{Tag: &v.keys})
+		// Early dismissal skips the frame that closes the editor. Register
+		// the viewer's focus target here so Gio keeps the restored focus.
+		gtx.Event(key.FocusFilter{Target: &v.keys})
 		v.focus = false
 	}
 	for {
