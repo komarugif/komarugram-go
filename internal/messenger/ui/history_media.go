@@ -110,7 +110,11 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 		mediaClick = &r.sticker.click
 	}
 	clicked := mediaClick.Clicked(gtx)
-	spoiler := m.MediaSpoiler && !r.mediaRevealed
+	revealed := r.mediaRevealed
+	if p.snapshotting {
+		revealed = p.snapshotRevealSpoilers
+	}
+	spoiler := m.MediaSpoiler && !revealed
 	reveal := &r.mediaReveal
 	revealAnimated := animate && wdk.AnimationEnabled(gtx, wdk.AnimationMessage)
 	if spoiler && clicked {
@@ -129,13 +133,13 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 		}
 	}
 	var revealRadius float32
-	if m.MediaSpoiler && !reveal.started.IsZero() {
+	if !p.snapshotting && m.MediaSpoiler && !reveal.started.IsZero() {
 		if revealAnimated && !reveal.done(gtx.Now, size) {
 			spoiler, clicked = true, false
 			revealRadius = reveal.radius(gtx.Now, size)
 			gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 60)})
 		} else if gtx.Enabled() {
-			// Measurement and snapshots draw off screen with input disabled.
+			// Measurement draws off screen with input disabled.
 			*reveal = spoilerReveal{}
 		}
 	}

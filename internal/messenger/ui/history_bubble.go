@@ -173,6 +173,13 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 		}
 		p.rows[m.Key.MessageID] = r
 	}
+	if p.snapshotting {
+		// The snapshot option also applies to rows that were just created.
+		// A reveal wave in the history cannot uncover part of a snapshot.
+		revealed, wave := r.revealed, r.text.reveal
+		r.revealed, r.text.reveal = p.snapshotRevealSpoilers, spoilerReveal{}
+		defer func() { r.revealed, r.text.reveal = revealed, wave }()
+	}
 	r.refreshDates(gtx, m, l)
 	p.refreshStamps(gtx, r, m, l)
 	r.capture = rowCapture{on: p.wantsProfile(r, m), chips: r.capture.chips[:0], parts: r.capture.parts[:0]}

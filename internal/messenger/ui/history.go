@@ -513,11 +513,10 @@ type chatPage struct {
 	leavingOut   bool
 	deleteEffect func() preferences.DeleteEffect
 	// snapshotting is set while the rows of a snapshot are laid out; shot
-	// is the dialog that makes one; historyWidth, how wide the history was
-	// in the last frame, which a snapshot is too.
-	snapshotting bool
-	shot         shotDialog
-	historyWidth int
+	// is the dialog that makes one.
+	snapshotting           bool
+	snapshotRevealSpoilers bool
+	shot                   shotDialog
 	// deleted is told the messages the page deleted, for a list of them
 	// that is not the history, as a chat's shared files.
 	deleted func([]model.MessageID)
@@ -899,7 +898,6 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	if p.appearance != nil {
 		p.appearance.Update(c.ID, token.IsDarkColorSet(sc.Surface))
 	}
-	p.historyWidth = size.X
 	// Past rowsWidth rows are laid out as in it: a wider history keeps the
 	// heights, and finds those kept at another such width.
 	env := model.RenderEnvironment{WidthPx: layoutWidth(gtx.Metric, size.X), ScaleMilli: int(gtx.Metric.PxPerDp * 1000), TextScaleMilli: int(gtx.Metric.PxPerSp * 1000), Locale: string(l.Language()), FontRevision: fonts.Revision(), LookRevision: lookRevision(lookOf(gtx)), RendererRevision: rendererRevision(gtx)}

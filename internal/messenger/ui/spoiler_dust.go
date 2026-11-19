@@ -58,9 +58,8 @@ func effectsOf(gtx layout.Context) *effects {
 	return e
 }
 
-// withoutEffects is gtx for what is drawn off the frame, as a snapshot is
-// by another GPU context while the window goes on: its spoilers have no
-// particles, whose picture the window changes meanwhile.
+// withoutEffects removes the mutable dust images from ops that will be
+// drawn off the frame, such as the pictures of deleted messages.
 func withoutEffects(gtx layout.Context) layout.Context {
 	if effectsOf(gtx) == nil {
 		return gtx
