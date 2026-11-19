@@ -59,7 +59,11 @@ type messageRow struct {
 	album       map[model.MessageID]*messageRow
 	// albumSizes are the sizes of the pictures of the album the row shows,
 	// kept for its tiles to be placed by in the next frame.
-	albumSizes []image.Point
+	albumSizes     []image.Point
+	attachmentPick gesture.Click
+	// attachmentPressed is the album member under the press, or zero
+	// when the click would select the whole message.
+	attachmentPressed model.MessageID
 	// partPress takes right presses on a part of an album, which tell the
 	// menu the part.
 	partPress byte
@@ -94,8 +98,8 @@ type messageRow struct {
 	// caption is the width the text wraps at under narrower media.
 	caption captionFit
 	// corners are the corners of the row's tile where it is at the top or
-	// the bottom of its bubble; tiles are where an album's lie, as placed
-	// last.
+	// the bottom of its bubble; tiles are where the album members were
+	// laid out, in album coordinates.
 	corners tileCorners
 	tiles   []image.Rectangle
 	// time is the plate of the time the bubble asks the row's tile to draw
@@ -120,6 +124,9 @@ type messageRow struct {
 	// quick takes double clicks on the bubble, which react to it.
 	quick gesture.Click
 	media widget.Clickable
+	// The tile's spoiler has its own reveal, separate from the caption's.
+	mediaReveal   spoilerReveal
+	mediaRevealed bool
 	// A separate tag observes the click position without taking the click.
 	viewerRelease byte
 	// ring shows how far the row's media or file downloaded; plate is
@@ -506,11 +513,10 @@ type chatPage struct {
 	leavingOut   bool
 	deleteEffect func() preferences.DeleteEffect
 	// snapshotting is set while the rows of a snapshot are laid out; shot
-	// is the dialog that makes one; historyWidth, how wide the history was
-	// in the last frame, which a snapshot is too.
-	snapshotting bool
-	shot         shotDialog
-	historyWidth int
+	// is the dialog that makes one.
+	snapshotting           bool
+	snapshotRevealSpoilers bool
+	shot                   shotDialog
 	// deleted is told the messages the page deleted, for a list of them
 	// that is not the history, as a chat's shared files.
 	deleted func([]model.MessageID)
@@ -892,7 +898,6 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 	if p.appearance != nil {
 		p.appearance.Update(c.ID, token.IsDarkColorSet(sc.Surface))
 	}
-	p.historyWidth = size.X
 	// Past rowsWidth rows are laid out as in it: a wider history keeps the
 	// heights, and finds those kept at another such width.
 	env := model.RenderEnvironment{WidthPx: layoutWidth(gtx.Metric, size.X), ScaleMilli: int(gtx.Metric.PxPerDp * 1000), TextScaleMilli: int(gtx.Metric.PxPerSp * 1000), Locale: string(l.Language()), FontRevision: fonts.Revision(), LookRevision: lookRevision(lookOf(gtx)), RendererRevision: rendererRevision(gtx)}
@@ -1043,7 +1048,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 		p.selectionEvents(gtx)
 		p.viewHeight = gtx.Constraints.Max.Y
 		p.viewerBounds = image.Rectangle{}
-		if p.tileViewer != nil && animate {
+		if p.tileViewer != nil && animate && wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment) {
 			if at, ok := p.tileViewer.openPointer.origin(gtx, &p.viewerArea, 1); ok {
 				p.viewerBounds = image.Rectangle{Min: at, Max: at.Add(gtx.Constraints.Max)}
 			}
@@ -1119,7 +1124,7 @@ func (p *chatPage) layoutHistory(gtx layout.Context, c model.Chat, l localizatio
 			p.keepMeasure(msg, height, env, !p.edgeRow(i))
 			return dims
 		})
-		if p.tileViewer != nil && animate {
+		if p.tileViewer != nil && animate && wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment) {
 			trackViewerRelease(gtx, &p.viewerArea, gtx.Constraints.Max)
 		}
 		p.releaseMedia(gtx, gtx.Now)
@@ -1574,7 +1579,7 @@ func (p *chatPage) textFlow(gtx layout.Context, r *messageRow, block *messageTex
 			// emojiBox.
 			st.Box = emojiBox(gtx, st.Size)
 			if !run.Spoiler || r.revealed || !r.text.reveal.started.IsZero() {
-				frames[i] = customEmoji(p.media, p.images, run.Emoji, st.Box.Size.X, animate, st.Color)
+				frames[i] = customEmoji(p.media, p.images, run.Emoji, st.Box.Size.X, animate && wdk.AnimationAllowed(gtx, wdk.AnimationEmoji), st.Color)
 			}
 		}
 		if run.Math {

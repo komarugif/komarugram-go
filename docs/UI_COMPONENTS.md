@@ -93,7 +93,7 @@ put it next to these, and add it to this page.
 | `splitter` | The draggable edge between the chat list and the page. |
 | `spoiler` | Covering a value, such as a phone number in visual privacy mode, until it is clicked. |
 | `paintSpoiler`, `paintLineSpoiler` (`history_text.go`) | The cover of a text under a spoiler, in a message, a `richLabel` or the `spoiler` above: a rounded plate, the dust of `paintDust` drifting over it in the text's color, cut by the circle of the wave that uncovers it. The chat list's previews draw the same plate and dust. |
-| `effects`, `paintDust`, `paintMediaDust` (`spoiler_dust.go`) | The particles of spoilers, as Telegram for Android's (`docs/PORT_ANDROID_EFFECTS.md`): a dust of points over text, one square of 150 dp that repeats, drawn in the color asked; and white points a slow flow carries over media, one square of 320 dp drawn over each media, larger over a larger one, turned or mirrored by its index. Both are moved and drawn by the CPU about 30 times a second into one picture a window, kept in its `effects` (`withEffects` puts them in the frame's `Values`; a window without them shows plain covers) and let go of five seconds after the last spoiler drew them. With animations off the text has no dust and the media's stands still; in a window paused while inactive both stand still. What is drawn off the frame (a snapshot) takes `withoutEffects`. `paintMediaDust` goes inside the clip of the media, over its blurred picture: the tiles of the box of files and the chat list's thumbnails have it. `EFFECTS_PNG_DIR` saves frames of both. |
+| `effects`, `paintDust`, `paintMediaDust` (`spoiler_dust.go`) | The particles of spoilers, as Telegram for Android's (`docs/PORT_ANDROID_EFFECTS.md`): a dust of points over text, one square of 150 dp that repeats, drawn in the color asked; and white points a slow flow carries over media, one square of 320 dp repeated at native resolution over each attachment, turned or mirrored by its index. Both are moved and drawn by the CPU about 30 times a second into one picture a window, kept in its `effects` (`withEffects` puts them in the frame's `Values`; a window without them shows plain covers) and let go of five seconds after the last spoiler drew them. With animations off the text has no dust and the media's stands still. In a window paused while inactive both stand still. Message snapshots own a frozen copy of the particles, and pictures of deleted messages use `withoutEffects`. `paintMediaDust` goes inside the clip of the media, over its blurred picture: the tiles of the box of files, the history's attachments and the chat list's thumbnails have it. In the history a click reveals one attachment with the same circular wave as the text. `EFFECTS_PNG_DIR` saves frames of both. |
 | `leaving`, `rowMoves`, `dissolve` (`history_leave.go`) | A message erased while in view leaving the history, as in Telegram for Android: `leavers` finds the rows gone from the snapshot whose messages the store says were erased (`model.ErasedMessages`; all the parts of an album), before `rebuild` forgets them, and `startLeaving` sets them leaving and the rows that stay moving from where they were into their places (250 ms, Android's curve, after a wait: `leaveHold`, 1 s, while a message dissolves, so its dust is seen over the place it left and not over the rows that take it, and 250 ms while one fades, until it is gone; `moveShift` is how far a row is from its place, which the list's rows and the sticky avatars are drawn by). The rows that left are drawn over the history where their bubbles were, following it as it scrolls: fading out in the same 250 ms, or, by the chats' setting (`preferences.DeleteEffect`), dissolving: the GPU draws their bubbles off the frame (`askPicture`, `renderSnapshot`), and once the picture comes `dissolve` cuts it into pieces of about a pixel, at most 100 000 for the messages that left together, which fly off from the left edge of each bubble to its right, rise and fade, moved and drawn by the CPU into one picture; until then, and if the picture does not come in half a second, the rows stand, then fade. Not for a message on its way, one kept deleted, one younger than 2 s in a group or a bot's chat, or with animations off: those go at once. A panic in their layout drops them (`recoverLeaving`). `EFFECTS_PNG_DIR` saves the frames. |
 | `loadingIndicator` | The [Material 3 Expressive loading indicator](https://m3.material.io/components/loading-indicator/specs), labeled for accessibility. Seven shapes morph as they rotate. The classic ring stands still with animations off. `page` fills a page, `sized` draws it d wide, and `centered` puts it in the middle of a line. `LOADING_PNG` renders both modes. |
 | `selectionMark` (`common.go`) | The round mark of a thing that can be picked: a check on the primary color when picked, an outline when not. A row that has one draws it, and its buttons, over the row's `surface`, not in it: the row's area would take their clicks. The Downloads section's rows pick files with it. |
@@ -422,8 +422,10 @@ size-stability fixes remain in place.
   same thumbnail covers the stage while the full picture loads. With
   animations off the viewer opens at once. Dismissing it during the
   entrance plays the transition back to the tile from the last drawn
-  frame. Once open, it closes immediately. `VIEWER_OPEN_PNG_DIR` renders
-  an album's opening and interrupted transitions frame by frame.
+  frame. Once open, the controls fade out and the picture shrinks and
+  fades in place. While the viewer closes, the chat receives input and
+  the overlay keeps requesting frames. `VIEWER_OPEN_PNG_DIR` renders an
+  album's opening, closing and interrupted transitions frame by frame.
   Avatars use the same transition from the chat or forum header, the info
   dialog and the account's profile. Their mask opens from the avatar's
   configured roundness to square corners. Set `VIEWER_OPEN_AVATAR` to
@@ -463,6 +465,13 @@ size-stability fixes remain in place.
   captions; omitting the author changes Forward to Send. The choices are
   kept in the outgoing queue across retries and restarts. Stories and
   profile music ask for confirmation without message-forwarding options.
+  In the history's selection mode, a click on a standalone attachment
+  toggles its message. A click on an album member toggles that attachment,
+  and a click in a gap or gutter toggles the whole album. The
+  confirmation locks the caption checkbox when an album is only partly
+  selected. The outgoing queue strips those captions and keeps the
+  captions of complete albums in the same forward.
+  `ALBUM_SELECTION_PNG_DIR` renders the selection and its confirmation.
   An optional Go to forwarded message checkbox opens the recipient at the
   end of its history after success, ignoring the saved scroll position;
   with the author hidden its label changes to Go to sent message. A media
@@ -1185,7 +1194,11 @@ size-stability fixes remain in place.
   button opens, as AyuGram's message shot box: a preview rendered off the
   frame (`buildSnapshot`, `renderSnapshot`), the theme and what it shows,
   and buttons that save the PNG or copy it (`clipboard.WriteCmd` with
-  `image/png`).
+  `image/png`). The PNG is at most 1,000 pixels wide including its margins.
+  The message columns fit their contents within that limit independently
+  of the window width. The reveal option controls text and attachment
+  spoilers in the snapshot independently of the history.
+  `SHOT_SPOILERS_PNG_DIR` saves examples of both states.
 - **Pinned bar** (`pinned_bar.go`): under the chat's header, the latest
   pinned message above the history's bottom (`model.PinnedSource`); a click
   goes to it and shows the one before, as Telegram Desktop's does. Its line
@@ -1247,7 +1260,8 @@ new piece sits next to its neighbours.
   `wallpapers`, the gallery of wallpapers over it. `SHARED_PNG` saves the
   page of a chat's theme (`-themes`) and the chat in the theme (`-chat`).
   `SETTINGS_SECTION=power` with `SETTINGS_PNG` shows Power Saving: the
-  animations, and the switch that pauses them in an inactive window.
+  animation mode, the switch that pauses media in an inactive window, and
+  the card that enables or disables individual effects.
   `SETTINGS_SECTION=integrations` with `SETTINGS_PNG` shows the choice of the
   external player; `PLAYER_PNG`, the dialog that asks for it. `MENU_PNG` also
   saves the menu with reactions (`-reactions*.png`), and the menu of a

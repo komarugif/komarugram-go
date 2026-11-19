@@ -148,7 +148,7 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	case "proxy":
 		show, size.Y = settingsProxy, 900
 	case "power":
-		show = settingsPower
+		show, size.Y = settingsPower, 2140
 		must(prefs.SetPauseInactive(true))
 	case "about":
 		show = settingsAbout

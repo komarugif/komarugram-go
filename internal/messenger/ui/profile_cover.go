@@ -224,7 +224,7 @@ func (p *chatInfo) coverColors(gtx layout.Context) []uint32 {
 // layoutCover draws the cover across the width it is given.
 func (p *chatInfo) layoutCover(gtx layout.Context, l localization.Catalog, animate bool) layout.Dimensions {
 	for i := range p.cover.gifts {
-		if i < len(p.profile.Gifts) && p.cover.gifts[i].Clicked(gtx) {
+		if p.gift == nil && i < len(p.profile.Gifts) && p.cover.gifts[i].Clicked(gtx) {
 			p.gift = newGiftDialog(p.profile.Gifts[i])
 		}
 	}
@@ -527,7 +527,7 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 		if i >= len(statuses) {
 			break
 		}
-		statuses[i] = p.renderer.media.StatusFullRate(m, animate, image.Pt(art, art), false)
+		statuses[i] = p.renderer.media.StatusFullRate(m, animate && wdk.AnimationAllowed(gtx, wdk.AnimationGift), image.Pt(art, art), false)
 		shown = i + 1
 	}
 	if p.fades.primed && p.modal.Entered() && coverGiftsLoaded(statuses[:shown]) {
@@ -549,7 +549,7 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 		if p.fades.launched && (st.Frame != nil || st.Preview != nil) {
 			target = 1
 		}
-		progress := flight.Animate(gtx, target)
+		progress := flight.AnimateFor(gtx, wdk.AnimationGift, target)
 		if progress <= 0 {
 			continue
 		}
@@ -558,7 +558,7 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 		// Its flight streaks it; the cover's scrolling, which moves all of
 		// the info, does not.
 		streak := p.motion.gifts[i].Streak(gtx, layout.FPt(at))
-		blurred := animate && moving(streak)
+		blurred := animate && wdk.AnimationAllowed(gtx, wdk.AnimationGift) && moving(streak)
 		p.motion.giftStreaks = p.motion.giftStreaks || blurred
 		opacity := paint.PushOpacity(gtx.Ops, progress)
 		if g := m.Gift; g != nil && g.HasBackdrop && m.Media != nil {
@@ -585,12 +585,12 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 			drawStreak(gtx, p.renderer.images, resample.Resize(frame, fit.X, fit.Y), at.Sub(fit.Div(2)), streak)
 		}
 		offset(withSize(gtx, image.Pt(art, art)), at.Sub(image.Pt(art/2, art/2)), func(gtx layout.Context) layout.Dimensions {
-			return p.cover.gifts[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				pointer.CursorPointer.Add(gtx.Ops)
+			return p.layoutGiftTarget(gtx, &p.cover.gifts[i], func(gtx layout.Context) layout.Dimensions {
 				if blurred && frame != nil {
 					return layout.Dimensions{Size: gtx.Constraints.Max}
 				}
-				return p.giftArt(gtx, m, animate)
+				p.drawGiftArt(gtx, m, &p.cover.gifts[i], animate, p.cover.gifts[i].Hovered())
+				return layout.Dimensions{Size: gtx.Constraints.Max}
 			})
 		})
 		opacity.Pop()
@@ -687,7 +687,7 @@ func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog, 
 	// Moving, it streaks: as a picture of its own, when there is one.
 	streak := p.motion.avatar.Streak(gtx, at)
 	var sprite image.Image
-	if animate && moving(streak) && p.avatarSprite != nil && p.avatar.opacity(gtx, animate) == 1 {
+	if animate && wdk.AnimationAllowed(gtx, wdk.AnimationAvatar) && moving(streak) && p.avatarSprite != nil && p.avatar.opacity(gtx, animate) == 1 {
 		sprite = p.avatarSprite(gtx, p.chat.ID, p.chat.Kind, p.chat.Title, int(side+.5))
 	}
 	p.motion.avatarStreak = sprite != nil

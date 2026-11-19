@@ -251,6 +251,6 @@ func (m *menuRowMotion) Position(gtx layout.Context, target float32, tracking bo
 	}
 	m.width, m.height = gtx.Constraints.Max.X, height
 	m.tween.Duration, m.tween.Easing = token.DurationShort4, &token.EasingStandard
-	m.value = m.tween.Animate(gtx, target)
+	m.value = m.tween.AnimateFor(gtx, wdk.AnimationMenu, target)
 	return m.value
 }

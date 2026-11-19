@@ -58,9 +58,8 @@ func effectsOf(gtx layout.Context) *effects {
 	return e
 }
 
-// withoutEffects is gtx for what is drawn off the frame, as a snapshot is
-// by another GPU context while the window goes on: its spoilers have no
-// particles, whose picture the window changes meanwhile.
+// withoutEffects removes the mutable dust images from ops that will be
+// drawn off the frame, such as the pictures of deleted messages.
 func withoutEffects(gtx layout.Context) layout.Context {
 	if effectsOf(gtx) == nil {
 		return gtx
@@ -312,7 +311,7 @@ func (d *textDust) tile(gtx layout.Context, col color.NRGBA, still bool) paint.I
 // in a window without particles.
 func paintDust(gtx layout.Context, size, origin image.Point, col color.NRGBA, opacity float32) {
 	e := effectsOf(gtx)
-	if e == nil || col.A == 0 || opacity <= 0 || size.X <= 0 || size.Y <= 0 || !wdk.AnimationsEnabled(gtx) {
+	if e == nil || col.A == 0 || opacity <= 0 || size.X <= 0 || size.Y <= 0 || !wdk.AnimationEnabled(gtx, wdk.AnimationMessage) {
 		return
 	}
 	tile := e.text.tile(gtx, col, e.still)
@@ -335,8 +334,7 @@ func paintDust(gtx layout.Context, size, origin image.Point, col color.NRGBA, op
 }
 
 const (
-	// mediaDustTile is the side of the media's dust, drawn once over each
-	// media, larger over a larger one.
+	// mediaDustTile is the side of the repeating square of media dust.
 	mediaDustTile = unit.Dp(320)
 	// mediaDustSize is how large a point is across.
 	mediaDustSize = unit.Dp(1.2)
@@ -508,11 +506,9 @@ func (d *mediaDust) draw() {
 	d.op = paint.NewImageOp(d.img)
 }
 
-// paintMediaDust draws the media's dust over size, inside the clip of the
-// media it covers: at its own size, larger over media larger than its
-// square, and turned or mirrored by index, the media's place among those
-// shown, so that neighbours do not show the same dust. With animations
-// off the dust stands still.
+// paintMediaDust repeats the dust at native resolution over the attachment.
+// It mirrors the pattern by index so neighbours have different dust.
+// With animations off the dust stands still.
 func paintMediaDust(gtx layout.Context, size image.Point, index int) {
 	e := effectsOf(gtx)
 	if e == nil || size.X <= 0 || size.Y <= 0 {
@@ -524,29 +520,42 @@ func paintMediaDust(gtx layout.Context, size image.Point, index int) {
 		d.init(gtx)
 	}
 	d.used = gtx.Now
-	if !e.still && wdk.AnimationsEnabled(gtx) {
+	if !e.still && wdk.AnimationEnabled(gtx, wdk.AnimationMessage) {
 		if advance(gtx.Now, &d.stepped, d.step) {
 			d.draw()
 		}
 		gtx.Execute(op.InvalidateCmd{At: d.stepped.Add(dustStep)})
 	}
-	side := float32(d.side)
-	grow := max(1, float32(size.X)/side, float32(size.Y)/side)
-	sx, sy := grow, grow
+	sx, sy := float32(1), float32(1)
 	switch index % 4 {
 	case 1:
-		sx, sy = -grow, -grow
+		sx, sy = -1, -1
 	case 2:
-		sx = -grow
+		sx = -1
 	case 3:
-		sy = -grow
+		sy = -1
 	}
-	// The square's middle over the media's.
-	middle := f32.Pt(float32(size.X)/2, float32(size.Y)/2)
-	t := f32.Affine2D{}.Offset(f32.Pt(-side/2, -side/2)).Scale(f32.Point{}, f32.Pt(sx, sy)).Offset(middle)
+	// Center the pattern on whole pixels to avoid filtering it even at 1:1.
+	side := d.side
+	x0, y0 := (size.X/2-side/2)%side, (size.Y/2-side/2)%side
+	if x0 > 0 {
+		x0 -= side
+	}
+	if y0 > 0 {
+		y0 -= side
+	}
+	half := float32(side) / 2
+	mirror := f32.Affine2D{}.Scale(f32.Pt(half, half), f32.Pt(sx, sy))
+	tile := clip.Rect{Max: image.Pt(side, side)}
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
-	defer op.Affine(t).Push(gtx.Ops).Pop()
-	defer clip.Rect{Max: image.Pt(d.side, d.side)}.Push(gtx.Ops).Pop()
-	d.op.Add(gtx.Ops)
-	paint.PaintOp{}.Add(gtx.Ops)
+	for y := y0; y < size.Y; y += side {
+		for x := x0; x < size.X; x += side {
+			at := op.Affine(mirror.Offset(f32.Pt(float32(x), float32(y)))).Push(gtx.Ops)
+			area := tile.Push(gtx.Ops)
+			d.op.Add(gtx.Ops)
+			paint.PaintOp{}.Add(gtx.Ops)
+			area.Pop()
+			at.Pop()
+		}
+	}
 }

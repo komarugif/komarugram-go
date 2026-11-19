@@ -32,8 +32,9 @@ before them, in "What we have", is how it was.
   a field of five waves that repeats over the square, charted on a grid of
   32×32 for each step; speed capped at 6% of the side to a unit of the flow's
   time, which runs at 0.65; cycles of 0.56…2.8 units, alpha `sin(π t)` times
-  0.6…1. Drawn over the blurred tiles of the box of files and the chat list's
-  thumbnails; the history still draws media under a spoiler plainly.
+  0.6…1. The square repeats at native pixel size, mirrored by tile index.
+  The dust covers blurred media in the send-files box, the history and the
+  chat list's thumbnails.
 - **Deletion** (`internal/messenger/ui/history_leave.go`): the store tells
   the messages erased (`model.ErasedMessages`); the rows of those in view are
   kept as they were drawn last and drawn over the history, the rows that stay

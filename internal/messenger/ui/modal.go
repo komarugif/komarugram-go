@@ -116,6 +116,14 @@ func (m *modal) Update(gtx layout.Context, locked bool) {
 	}
 }
 
+// advanceVisibility also retires a closing dialog once its fade ends.
+func (m *modal) advanceVisibility(gtx layout.Context) {
+	m.visible = m.animate(gtx)
+	if m.closing && m.visible == 0 {
+		m.Hide()
+	}
+}
+
 // Layout draws the dialog, content, in the middle of the area. It reports
 // whether the dialog is still shown: false once it closed and animated out.
 func (m *modal) Layout(gtx layout.Context, locked bool, content layout.Widget) bool {
@@ -123,12 +131,11 @@ func (m *modal) Layout(gtx layout.Context, locked bool, content layout.Widget) b
 	if !m.shown {
 		return false
 	}
-	visibility := m.animate(gtx)
-	m.visible = visibility
-	if m.closing && visibility == 0 {
-		m.Hide()
+	m.advanceVisibility(gtx)
+	if !m.shown {
 		return false
 	}
+	visibility := m.visible
 	if m.closing {
 		// A closing dialog takes no input.
 		gtx = gtx.Disabled()
@@ -187,7 +194,7 @@ func (m *modal) layoutToast(gtx layout.Context, area, dialog image.Point) {
 func (m *modal) animate(gtx layout.Context) float32 {
 	if m.visibility.Duration == 0 {
 		// Start hidden, so that the dialog animates in on its first frame.
-		m.visibility.Animate(gtx, 0)
+		m.visibility.AnimateFor(gtx, wdk.AnimationDialog, 0)
 	}
 	target := float32(1)
 	m.visibility.Duration = modalEnterDuration
@@ -197,7 +204,7 @@ func (m *modal) animate(gtx layout.Context) float32 {
 		m.visibility.Duration = modalExitDuration
 		m.visibility.Easing = &token.EasingEmphasizedAccelerate
 	}
-	return m.visibility.Animate(gtx, target)
+	return m.visibility.AnimateFor(gtx, wdk.AnimationDialog, target)
 }
 
 // Card animates content-driven changes independently of the dialog's entrance.

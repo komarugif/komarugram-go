@@ -45,6 +45,194 @@ func awaitShared(t *testing.T, p *chatInfo) {
 		t.Fatalf("shared load: %v", p.problem)
 	}
 }
+
+func TestGiftCardPlaysOnHoverWithoutAutoplay(t *testing.T) {
+	skipFrames(t)
+	t.Chdir("../../..")
+	for _, global := range []bool{false, true} {
+		name := "global-off"
+		if global {
+			name = "gift-autoplay-off"
+		}
+		t.Run(name, func(t *testing.T) {
+			now := time.Now()
+			store := mockstore.New(now, 0)
+			page, err := store.SharedCollection(t.Context(), 2, model.SharedGifts, "", 1)
+			if err != nil || len(page.Messages) != 1 {
+				t.Fatalf("load demo gift: %v, %d gifts", err, len(page.Messages))
+			}
+			var images imageOps
+			var router input.Router
+			var ops op.Ops
+			p := newChatInfo(store, &images, func() {})
+			defer p.Destroy()
+			l := localization.For("en")
+			size := image.Pt(160, 160)
+			var art image.Image
+			frame := func() {
+				now = now.Add(time.Second / 60)
+				ops.Reset()
+				gtx := sharedContext(&ops, size)
+				gtx.Now, gtx.Source = now, router.Source()
+				wdk.SetAnimationsEnabled(gtx, global)
+				if global {
+					wdk.SetDisabledAnimations(gtx, wdk.AnimationGift)
+				}
+				images.BeginFrame()
+				end := mediaFrame(gtx, p.renderer.media)
+				p.giftCard(gtx, page.Messages[0], l, global)
+				end()
+				images.EndFrame()
+				router.Frame(&ops)
+				art = nil
+				for im, texture := range images.entries {
+					if texture.seen == images.generation {
+						art = im
+					}
+				}
+			}
+			waitFor(t, "the still gift", frame, func() bool { return art != nil })
+			still := art
+			for until := now.Add(time.Second / 2); now.Before(until); {
+				frame()
+				if art != still {
+					t.Fatal("the gift animated before hover")
+				}
+			}
+			router.Queue(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: layout.FPt(size.Div(2))})
+			waitFor(t, "the gift to animate on hover", frame, func() bool { return art != nil && art != still })
+			router.Queue(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: layout.FPt(size.Mul(2))})
+			frame()
+			if art == still || p.renderer.media.NextFrame().IsZero() {
+				t.Fatal("leaving hover stopped the gift mid-loop")
+			}
+			waitFor(t, "the gift to finish its loop", frame, func() bool { return p.renderer.media.NextFrame().IsZero() })
+			last := art
+			frame()
+			if last == nil || last == still || art != last || !p.renderer.media.NextFrame().IsZero() {
+				t.Fatal("the gift did not stay on its last frame")
+			}
+		})
+	}
+}
+
+func TestGiftDialogKeepsDisplayFramesRunningDuringPlayback(t *testing.T) {
+	skipFrames(t)
+	t.Chdir("../../..")
+	store := mockstore.New(time.Now(), 0)
+	page, err := store.SharedCollection(t.Context(), 2, model.SharedGifts, "", 1)
+	if err != nil || len(page.Messages) != 1 {
+		t.Fatalf("load demo gift: %v, %d gifts", err, len(page.Messages))
+	}
+	var images imageOps
+	var router input.Router
+	p := newChatInfo(store, &images, func() {})
+	defer p.Destroy()
+	p.gift = newGiftDialog(page.Messages[0])
+	l := localization.For("en")
+	frame := func(animate bool) bool {
+		ops := new(op.Ops)
+		gtx := sharedContext(ops, image.Pt(800, 800))
+		gtx.Source = router.Source()
+		wdk.SetDisabledAnimations(gtx, wdk.AnimationDialog)
+		images.BeginFrame()
+		end := mediaFrame(gtx, p.renderer.media)
+		p.layoutGiftDialog(gtx, l, animate)
+		end()
+		images.EndFrame()
+		router.Frame(ops)
+		at, ok := router.WakeupTime()
+		return ok && at.IsZero()
+	}
+	immediate := false
+	waitFor(t, "the fast gift to request the next display frame", func() { immediate = frame(true) }, func() bool { return immediate })
+	if frame(false) {
+		t.Fatal("a paused gift still requests immediate frames")
+	}
+	p.renderer.media.SetPaused(true)
+	if frame(true) {
+		t.Fatal("a gift in an inactive window still requests immediate frames")
+	}
+}
+
+func TestGiftCardsRestorePointerStateAfterScrimCloses(t *testing.T) {
+	skipFrames(t)
+	for _, animate := range []bool{false, true} {
+		name := "without-animations"
+		if animate {
+			name = "with-animations"
+		}
+		t.Run(name, func(t *testing.T) {
+			store := mockstore.New(time.Now(), 0)
+			var images imageOps
+			p := newChatInfo(store, &images, func() {})
+			defer p.Destroy()
+			p.Open(model.Chat{ID: 2, Kind: model.KindUser})
+			awaitShared(t, p)
+			p.selectSection(model.SharedGifts)
+			awaitShared(t, p)
+			var router input.Router
+			now := time.Unix(1000, 0)
+			frame := func() {
+				ops := new(op.Ops)
+				gtx := sharedContext(ops, image.Pt(1000, 800))
+				gtx.Now, gtx.Source = now, router.Source()
+				wdk.SetAnimationsEnabled(gtx, animate)
+				images.BeginFrame()
+				p.Layout(gtx, localization.For("en"), false)
+				images.EndFrame()
+				router.Frame(ops)
+			}
+			send := func(kind pointer.Kind, pos f32.Point, buttons pointer.Buttons) {
+				router.Queue(pointer.Event{Kind: kind, Source: pointer.Mouse, Position: pos, Buttons: buttons})
+			}
+			click := func(pos f32.Point) {
+				send(pointer.Press, pos, pointer.ButtonPrimary)
+				send(pointer.Release, pos, 0)
+				frame()
+			}
+			frame()
+			now = now.Add(modalEnterDuration)
+			frame()
+			first := f32.Pt(300, 212)
+			send(pointer.Move, first, 0)
+			frame()
+			click(first)
+			if p.gift == nil {
+				t.Fatal("the first gift did not open")
+			}
+			now = now.Add(modalEnterDuration)
+			frame()
+			// Press the scrim away from the grid and release over the exposed
+			// part of a different gift card.
+			card := f32.Pt(790, 200)
+			send(pointer.Press, f32.Pt(65, 90), pointer.ButtonPrimary)
+			frame()
+			send(pointer.Move, card, pointer.ButtonPrimary)
+			frame()
+			send(pointer.Release, card, 0)
+			frame()
+			if animate {
+				now = now.Add(modalExitDuration)
+				frame()
+			}
+			if p.gift != nil {
+				t.Fatal("the scrim did not dismiss the dialog, or opened a gift on release")
+			}
+			if p.giftRows[p.messages[0].Key].click.Hovered() {
+				t.Error("the original gift still thinks it is hovered")
+			}
+			// No movement or extra frame between the dismissal and this click.
+			click(card)
+			if p.gift == nil {
+				t.Fatal("the first click after dismissal did not open the gift")
+			}
+			if p.gift.message.Key != p.messages[2].Key {
+				t.Fatal("the first click after dismissal opened a different gift")
+			}
+		})
+	}
+}
 func TestSharedPageIgnoresLateResultsAndKeepsNextOffset(t *testing.T) {
 	store := mockstore.New(time.Now(), 0)
 	var images imageOps

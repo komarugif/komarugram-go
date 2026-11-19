@@ -20,6 +20,7 @@ import (
 	"gio-mw/defaults/schemes"
 	"gio-mw/exp/powersave"
 	"gio-mw/token"
+	"gio-mw/wdk"
 	"gio-mw/widget/button"
 	"gio-mw/widget/overlay"
 
@@ -295,8 +296,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	}
 	a.drawer.badges = a.badges
 	global := services.Preferences.Global()
-	w.Motion.SetMode(global.MotionMode)
-	w.Motion.SetLowBattery(global.LowBattery)
+	w.Motion.ApplyPreferences(global.MotionMode, global.LowBattery, global.DisabledAnimations)
 	w.Motion.SetPreferenceChanged(func(mode powersave.Mode, lowBattery int) {
 		if err := services.Preferences.SetMotion(mode, lowBattery); err != nil {
 			log.Printf("save settings: %v", err)
@@ -304,8 +304,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	})
 	a.unsubscribe = append(a.unsubscribe, services.Preferences.Subscribe(func() {
 		global := services.Preferences.Global()
-		w.Motion.SetMode(global.MotionMode)
-		w.Motion.SetLowBattery(global.LowBattery)
+		w.Motion.ApplyPreferences(global.MotionMode, global.LowBattery, global.DisabledAnimations)
 		services.MiniApps.SetStorage(global.MiniAppStorage)
 		miniapp.SetBrowser(global.BrowserPath)
 		applyFonts(global.Fonts, a.emojiPacks)
@@ -545,6 +544,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		}
 	}
 	a.settings.pauseInactive = func() bool { return a.preferences.Global().PauseInactive }
+	a.settings.animationOptions = newAnimationOptions(a.preferences)
 	a.settings.setPauseInactive = func(on bool) {
 		if err := services.Preferences.SetPauseInactive(on); err != nil {
 			log.Printf("save settings: %v", err)
@@ -1496,7 +1496,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 		}
 	}
 	animate := a.window.Motion.AnimationsEnabled()
-	if a.viewer != nil && animate {
+	if a.viewer != nil && animate && wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment) {
 		a.viewer.openPointer.update(gtx)
 	}
 	if a.viewer != nil && a.history.headAvatar.Clicked(gtx) {
@@ -1523,6 +1523,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	overlayGtx := gtx
 	if a.viewer != nil {
 		a.viewer.updateOpening(gtx, animate)
+		a.viewer.updateClosingInput(gtx)
 	}
 	if a.info != nil && a.info.visible {
 		gtx = gtx.Disabled()
@@ -1640,14 +1641,14 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	a.overlay.Layout(gtx)
 	if a.info != nil {
 		infoGtx := overlayGtx
-		if a.viewer != nil && a.viewer.open {
+		if a.viewer != nil && a.viewer.blocksInput() {
 			// Escape belongs to the viewer over the info dialog.
 			infoGtx = infoGtx.Disabled()
 		}
 		a.info.Layout(infoGtx, a.catalog(), animate)
 	}
 	if a.viewer != nil {
-		if animate {
+		if animate && wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment) {
 			trackViewerRelease(overlayGtx, &a.viewer.openPointer, size)
 		}
 		a.viewer.Layout(overlayGtx, a.catalog(), animate)

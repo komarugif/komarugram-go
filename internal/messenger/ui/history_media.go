@@ -16,6 +16,7 @@ import (
 	"komarugram/pkg/mp4"
 
 	"gio-mw/token"
+	"gio-mw/wdk"
 
 	"gioui.org/f32"
 	"gioui.org/io/pointer"
@@ -42,7 +43,13 @@ func fitMediaSize(w, h, maxW, maxH int) image.Point {
 	}
 	return image.Pt(width, height)
 }
-func (p *chatPage) mediaLayout(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog, animate bool) layout.Dimensions {
+func (p *chatPage) mediaLayout(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog, animate bool) (dims layout.Dimensions) {
+	if p.updateAttachmentSelection(gtx, r, m) {
+		defer func(gtx layout.Context) {
+			attachmentSelectionArea(gtx, r, m, dims.Size)
+		}(gtx)
+		gtx = gtx.Disabled()
+	}
 	if m.Kind == model.MessageRound && m.Media != nil {
 		return p.roundLayout(gtx, r, m, l, animate)
 	}
@@ -65,15 +72,14 @@ func mediaBox(m unit.Metric, kind model.MessageKind, w, h, maxX int) image.Point
 	return fitMediaSize(w, h, maxW, maxH)
 }
 
-// tileAnimates tells whether a tile of kind plays: as animations do, and,
-// with them off, a sticker or a GIF while the pointer is on it, as Telegram
-// Desktop's do with autoplay off.
-func tileAnimates(kind model.MessageKind, animate, hovered bool) bool {
-	switch kind {
+// tileAnimates allows stickers and GIFs to play on hover with autoplay off.
+func tileAnimates(gtx layout.Context, m model.Message, animate, hovered bool) bool {
+	autoplay := mediaAutoplays(gtx, m, animate)
+	switch m.Kind {
 	case model.MessageSticker, model.MessageGIF:
-		return animate || hovered
+		return autoplay || hovered
 	}
-	return animate
+	return autoplay
 }
 
 func mediaErrorText(err error) string {
@@ -93,16 +99,50 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	viewer := p.tileViewer
 	var tileAt image.Point
 	var tileKnown bool
-	observe := viewer != nil && animate && gtx.Enabled() &&
+	viewerTravel := animate && wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment)
+	observe := viewer != nil && viewerTravel && gtx.Enabled() &&
 		(m.Kind == model.MessagePhoto || m.Kind == model.MessageVideo || m.Kind == model.MessageGIF)
 	if observe {
 		tileAt, tileKnown = viewer.openPointer.origin(gtx, &r.viewerRelease, 1)
 	}
-	clicked := r.media.Clicked(gtx)
+	mediaClick := &r.media
 	if stickerSet {
-		clicked = r.sticker.Clicked(gtx)
+		mediaClick = &r.sticker.click
 	}
-	animate = tileAnimates(m.Kind, animate, r.media.Hovered() || r.sticker.click.Hovered())
+	clicked := mediaClick.Clicked(gtx)
+	revealed := r.mediaRevealed
+	if p.snapshotting {
+		revealed = p.snapshotRevealSpoilers
+	}
+	spoiler := m.MediaSpoiler && !revealed
+	reveal := &r.mediaReveal
+	revealAnimated := animate && wdk.AnimationEnabled(gtx, wdk.AnimationMessage)
+	if spoiler && clicked {
+		r.mediaRevealed = true
+		spoiler, clicked = false, false
+		if revealAnimated {
+			// The press is in the tile's coordinates, including an album's
+			// offset. A keyboard activation starts at the tile's center.
+			center := layout.FPt(size).Mul(.5)
+			if history := mediaClick.History(); len(history) > 0 {
+				if press := history[len(history)-1]; press.End == gtx.Now && !press.Cancelled {
+					center = layout.FPt(press.Position)
+				}
+			}
+			*reveal = spoilerReveal{started: gtx.Now, center: center, pxPerDp: gtx.Metric.PxPerDp}
+		}
+	}
+	var revealRadius float32
+	if !p.snapshotting && m.MediaSpoiler && !reveal.started.IsZero() {
+		if revealAnimated && !reveal.done(gtx.Now, size) {
+			spoiler, clicked = true, false
+			revealRadius = reveal.radius(gtx.Now, size)
+			gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 60)})
+		} else if gtx.Enabled() {
+			// Measurement draws off screen with input disabled.
+			*reveal = spoilerReveal{}
+		}
+	}
 	target := m
 	// A GIF too large to be read whole plays as a video does, streamed in
 	// the player.
@@ -111,7 +151,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	// One that plays here pauses on a click, and opens in the viewer on
 	// one of the middle button.
 	inline := m.Kind == model.MessageGIF && !gif
-	opened := inline && r.gif.update(gtx, p, m) && p.openGIF != nil
+	opened := !spoiler && inline && r.gif.update(gtx, p, m) && p.openGIF != nil
 	if opened {
 		p.openGIF(m)
 	}
@@ -137,13 +177,17 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	if !useLocal && target.Media != nil {
 		// An inline GIF may fetch frames for playback. Keep the local still
 		// visible while those frames start arriving.
-		fit := p.media.StatusFit
-		if m.Kind == model.MessageSticker {
+		if spoiler {
+			status = p.media.StatusFit(target, false, size, crop)
+		} else {
+			autoplay := mediaAutoplays(gtx, m, animate)
+			play := tileAnimates(gtx, m, animate, r.media.Hovered() || r.sticker.click.Hovered())
+			hover := mediaHover(gtx, r, autoplay, play && !autoplay)
 			// As Telegram Desktop plays stickers in messages: up to 60
 			// pictures a second.
-			fit = p.media.StatusFullRate
+			hover.FullRate = m.Kind == model.MessageSticker
+			status = p.media.StatusHover(target, size, crop, hover)
 		}
-		status = fit(target, animate, size, crop)
 		if inline && local != nil {
 			status.Preview = local
 		}
@@ -215,7 +259,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 	}
 	if viewer != nil && opened && viewer.open && viewer.chat == p.chat && viewer.current == m.Key.MessageID {
 		viewer.opening.tile.picture = im
-		if observe {
+		if animate && (observe || wdk.AnimationAllowed(gtx, wdk.AnimationViewer)) {
 			viewer.opening.start = gtx.Now
 		}
 		if tileKnown && im != nil && !im.Bounds().Empty() {
@@ -243,7 +287,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			paint.FillShape(gtx.Ops, scheme(gtx).SurfaceContainerHigh.AsNRGBA(), shape.Op(gtx.Ops))
 		}
 		if observe {
-			opacity := viewer.opening.sourceOpacity(gtx, &r.media, animate)
+			opacity := viewer.opening.sourceOpacity(gtx, &r.media, viewerTravel)
 			if opacity <= 0 {
 				return layout.Dimensions{Size: size}
 			}
@@ -251,10 +295,28 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 				defer paint.PushOpacity(gtx.Ops, opacity).Pop()
 			}
 		}
-		if im != nil {
-			widget.Image{Src: p.images.Op(im), Fit: fit, Position: layout.Center}.Layout(gtx)
+		picture := func(im image.Image) {
+			if im != nil {
+				widget.Image{Src: p.images.Op(im), Fit: fit, Position: layout.Center}.Layout(gtx)
+			}
 		}
-		if video || uploading || loading && (!inline || local == nil) || cancelled || err != nil {
+		if !spoiler {
+			picture(im)
+		} else {
+			func() {
+				if revealRadius > 0 {
+					inside := spoilerWaveClip(gtx, reveal.center, revealRadius).Push(gtx.Ops)
+					picture(im)
+					inside.Pop()
+					defer spoilerCoverClip(gtx, size, reveal.center, revealRadius).Push(gtx.Ops).Pop()
+				}
+				if im != nil {
+					picture(p.images.Blurred(im))
+				}
+				paintMediaSpoiler(gtx, size, int(m.Key.MessageID&3))
+			}()
+		}
+		if uploading || !spoiler && (video || loading && (!inline || local == nil) || cancelled || err != nil) {
 			diameter := min(gtx.Dp(48), min(size.X, size.Y))
 			origin := image.Pt((size.X-diameter)/2, (size.Y-diameter)/2)
 			offset(gtx, origin, func(gtx layout.Context) layout.Dimensions {
@@ -305,7 +367,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			reserve = t.size.X
 		}
 		lift := 0
-		if inline && !loading && !cancelled && err == nil {
+		if inline && !spoiler && !loading && !cancelled && err == nil {
 			paused := p.media.GIFPaused(m)
 			lift = r.gif.layout(gtx, size, paused, r.media.Hovered(), p.media.GIFPosition(m), m.Media.Duration, reserve)
 		}
@@ -314,11 +376,11 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 			// picture to be seen whole, as a video's plate does; on a GIF
 			// that plays here it fades in, as the GIF's time does.
 			target := boolFloat(!r.media.Hovered())
-			if inline {
+			if inline && !spoiler {
 				target = boolFloat(r.media.Hovered() || r.gif.seeking)
 			}
 			r.timeFade.Duration = token.DurationShort2
-			if shown := r.timeFade.Animate(gtx, target); shown > 0 {
+			if shown := r.timeFade.AnimateFor(gtx, wdk.AnimationMessage, target); shown > 0 {
 				func() {
 					defer paint.PushOpacity(gtx.Ops, shown).Pop()
 					offset(gtx, image.Pt(size.X-inset-t.size.X, size.Y-inset-lift-t.size.Y), func(gtx layout.Context) layout.Dimensions {
@@ -337,7 +399,7 @@ func (p *chatPage) mediaTile(gtx layout.Context, r *messageRow, m model.Message,
 				shown = 0
 			}
 			r.plate.Duration = token.DurationShort2
-			shown = r.plate.Animate(gtx, shown)
+			shown = r.plate.AnimateFor(gtx, wdk.AnimationMessage, shown)
 		}
 		if shown > 0 {
 			defer paint.PushOpacity(gtx.Ops, shown).Pop()
@@ -429,11 +491,11 @@ func (r *messageRow) tileMedia(m model.Message, size image.Point) model.Message 
 	}
 	return r.tile
 }
-func ring(gtx layout.Context, diameter int, progress float32, animate bool) {
+func ring(gtx layout.Context, diameter int, progress float32, animate bool, kind wdk.AnimationKind) {
 	start := -math.Pi / 2
 	if progress <= 0 {
 		progress = .28
-		if animate {
+		if animate && wdk.AnimationEnabled(gtx, kind) {
 			start += float64(gtx.Now.UnixMilli()%1400) * 2 * math.Pi / 1400
 			gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
 		}
@@ -514,18 +576,41 @@ func tiledAlbum(attachments []model.Message) bool {
 	return true
 }
 
-func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog, animate bool) layout.Dimensions {
+func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog, animate bool) (dims layout.Dimensions) {
+	selecting := p.updateAttachmentSelection(gtx, r, m)
+	if selecting {
+		defer func() { attachmentSelectionArea(gtx, r, m, dims.Size) }()
+	}
+	drawMember := func(gtx layout.Context, member model.Message, child *messageRow, draw layout.Widget) layout.Dimensions {
+		p.partPresses(gtx, m, child, member)
+		if selecting {
+			dims := draw(gtx.Disabled())
+			p.selection.markAlbumPart(gtx, m.Key.MessageID, member.Key.MessageID, dims.Size)
+			return dims
+		}
+		dims := draw(gtx)
+		partPressArea(gtx, child, dims.Size)
+		return dims
+	}
 	if !tiledAlbum(m.Attachments) {
+		r.tiles = r.tiles[:0]
+		y := 0
 		children := make([]layout.FlexChild, 0, 2*len(m.Attachments))
 		for i, member := range m.Attachments {
 			if i > 0 {
-				children = append(children, vspace(8))
+				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					dims := (layout.Spacer{Height: 8}).Layout(gtx)
+					y += dims.Size.Y
+					return dims
+				}))
 			}
 			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				child := albumRow(gtx, r, member, l)
-				p.partPresses(gtx, m, child, member)
-				dims := p.mediaLayout(gtx, child, member, l, animate)
-				partPressArea(gtx, child, dims.Size)
+				dims := drawMember(gtx, member, child, func(gtx layout.Context) layout.Dimensions {
+					return p.mediaLayout(gtx, child, member, l, animate)
+				})
+				r.tiles = append(r.tiles, image.Rect(0, y, dims.Size.X, y+dims.Size.Y))
+				y += dims.Size.Y
 				return dims
 			}))
 		}
@@ -543,7 +628,7 @@ func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Messag
 	}
 	r.albumSizes = sizes
 	tiles, album := albumTiles(gtx.Metric, gtx.Constraints.Max.X, sizes, r.tiles[:0])
-	defer func() { r.tiles = tiles[:0] }()
+	r.tiles = tiles
 	width, height := album.X, album.Y
 	// The last tile, at the album's bottom right, carries the message's
 	// time, as a single one would; the album then ends the bubble.
@@ -576,10 +661,9 @@ func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Messag
 			if k == last {
 				child.time = r.time
 			}
-			p.partPresses(gtx, m, child, member)
-			dims := p.mediaTile(gtx, child, member, tile.Size(), true, l, animate)
-			partPressArea(gtx, child, tile.Size())
-			return dims
+			return drawMember(gtx, member, child, func(gtx layout.Context) layout.Dimensions {
+				return p.mediaTile(gtx, child, member, tile.Size(), true, l, animate)
+			})
 		})
 	}
 	return layout.Dimensions{Size: image.Pt(width, height)}

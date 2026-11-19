@@ -35,7 +35,12 @@ type FloatTween struct {
 // Animate returns the value for the current frame and requests the next
 // frame while the animation is running.
 func (t *FloatTween) Animate(gtx layout.Context, target float32) float32 {
-	return t.animate(gtx, target, t.Duration, t.Easing, lerpFloat)
+	return t.AnimateFor(gtx, 0, target)
+}
+
+// AnimateFor also respects the setting for kind.
+func (t *FloatTween) AnimateFor(gtx layout.Context, kind AnimationKind, target float32) float32 {
+	return t.animate(gtx, kind, target, t.Duration, t.Easing, lerpFloat)
 }
 
 // ColorTween animates a color like FloatTween animates a float32.
@@ -49,7 +54,12 @@ type ColorTween struct {
 // Animate returns the color for the current frame and requests the next
 // frame while the animation is running.
 func (t *ColorTween) Animate(gtx layout.Context, target token.MatColor) token.MatColor {
-	return t.animate(gtx, target, t.Duration, t.Easing, token.LerpColor)
+	return t.AnimateFor(gtx, 0, target)
+}
+
+// AnimateFor also respects the setting for kind.
+func (t *ColorTween) AnimateFor(gtx layout.Context, kind AnimationKind, target token.MatColor) token.MatColor {
+	return t.animate(gtx, kind, target, t.Duration, t.Easing, token.LerpColor)
 }
 
 func lerpFloat(a, b float32, t float32) float32 {
@@ -66,11 +76,11 @@ type tween[V comparable] struct {
 	interrupted bool
 }
 
-func (tw *tween[V]) animate(gtx layout.Context, target V, duration time.Duration, easing *token.Easing, lerp func(a, b V, t float32) V) V {
+func (tw *tween[V]) animate(gtx layout.Context, kind AnimationKind, target V, duration time.Duration, easing *token.Easing, lerp func(a, b V, t float32) V) V {
 	// Without a clock (gtx.Now is zero, e.g. in tests) there is nothing to
 	// animate against, so jump to the target. The same applies when
 	// animations are turned off, which also cuts running animations short.
-	if !tw.started || gtx.Now.IsZero() || !AnimationsEnabled(gtx) {
+	if !tw.started || gtx.Now.IsZero() || !AnimationEnabled(gtx, kind) {
 		tw.started = true
 		tw.from, tw.to, tw.value = target, target, target
 		tw.last = gtx.Now

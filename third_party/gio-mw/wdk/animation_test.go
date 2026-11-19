@@ -108,6 +108,25 @@ func TestFloatTweenAnimationsDisabled(t *testing.T) {
 	}
 }
 
+func TestFloatTweenAnimationKind(t *testing.T) {
+	gtx := tweenContext(time.Unix(1000, 0))
+	gtx.Values = map[string]any{}
+	var progress, scrollbar FloatTween
+	progress.AnimateFor(gtx, AnimationProgress, 0)
+	scrollbar.AnimateFor(gtx, AnimationScrollbar, 0)
+	SetDisabledAnimations(gtx, AnimationProgress)
+	if got := progress.AnimateFor(gtx, AnimationProgress, 1); got != 1 {
+		t.Errorf("disabled progress = %v, want 1 immediately", got)
+	}
+	if got := scrollbar.AnimateFor(gtx, AnimationScrollbar, 1); got != 0 {
+		t.Errorf("enabled scrollbar = %v, want 0 at the start of the transition", got)
+	}
+	SetAnimationsEnabled(gtx, false)
+	if got := scrollbar.AnimateFor(gtx, AnimationScrollbar, 1); got != 1 {
+		t.Errorf("globally disabled scrollbar = %v, want 1 immediately", got)
+	}
+}
+
 func TestRippleAlpha(t *testing.T) {
 	start := time.Unix(1000, 0)
 	at := func(ms int) time.Time { return start.Add(time.Duration(ms) * time.Millisecond) }

@@ -278,7 +278,7 @@ func (p *chatPage) pollLayout(gtx layout.Context, m *model.Message, l localizati
 		target = 1
 	}
 	st.reveal.Duration = token.DurationMedium4
-	reveal := st.reveal.Animate(gtx, target)
+	reveal := st.reveal.AnimateFor(gtx, wdk.AnimationMessage, target)
 	st.revealed = reveal
 	for len(st.fills) < len(poll.Answers) {
 		st.fills = append(st.fills, wdk.FloatTween{Duration: token.DurationMedium4})
@@ -307,7 +307,7 @@ func (p *chatPage) pollLayout(gtx layout.Context, m *model.Message, l localizati
 			if percents != nil {
 				percent = percents[i]
 			}
-			fill := st.fills[i].Animate(gtx, float32(percent)/100)
+			fill := st.fills[i].AnimateFor(gtx, wdk.AnimationMessage, float32(percent)/100)
 			return p.pollAnswer(gtx, poll, &st.answers[i], poll.Answers[i], st, canVote, reveal, percents != nil, percent, fill)
 		}))
 	}

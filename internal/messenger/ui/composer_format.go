@@ -13,6 +13,7 @@ import (
 	"komarugram/internal/messenger/model"
 
 	"gio-mw/token"
+	"gio-mw/wdk"
 
 	"gioui.org/f32"
 	"gioui.org/io/key"
@@ -438,7 +439,7 @@ func formattedEditor(gtx layout.Context, e *widget.Editor, hint string, entities
 			if r.style.emoji != 0 && len(emojiMedia) > 0 && (emojiMedia[0].hidden == nil || !emojiMedia[0].hidden(r.style.emoji)) {
 				media := emojiMedia[0]
 				px := min(g.Bounds.Dx(), g.Bounds.Dy())
-				if frame := customEmoji(media.media, media.images, r.style.emoji, px, media.animate, color.AsNRGBA()); frame != nil {
+				if frame := customEmoji(media.media, media.images, r.style.emoji, px, media.animate && wdk.AnimationAllowed(gtx, wdk.AnimationEmoji), color.AsNRGBA()); frame != nil {
 					origin := image.Pt(g.Bounds.Min.X+(g.Bounds.Dx()-px)/2, g.Bounds.Min.Y+(g.Bounds.Dy()-px)/2)
 					offset(gtx, origin, func(gtx layout.Context) layout.Dimensions {
 						return drawImage(gtx, media.images, frame, image.Pt(px, px))

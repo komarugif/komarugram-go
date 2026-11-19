@@ -4,12 +4,14 @@ package ui
 
 import (
 	"image"
+	"maps"
 	"sort"
 	"time"
 
 	"komarugram/internal/messenger/model"
 
 	"gioui.org/f32"
+	"gioui.org/gesture"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
@@ -21,14 +23,18 @@ import (
 // Selection uses stable message IDs, not virtualized row positions. A drag
 // applies a range to a snapshot, so reversing direction restores crossed rows.
 type messageSelection struct {
-	selected  map[model.MessageID]bool
-	before    map[model.MessageID]bool
-	dragging  bool
-	pointer   pointer.ID
-	anchor    model.MessageID
-	selecting bool
-	position  f32.Point
-	scrollAt  time.Time
+	// selected contains rows with a selection. An entry in parts limits
+	// that row's selection to the given album members.
+	selected    map[model.MessageID]bool
+	parts       map[model.MessageID]map[model.MessageID]bool
+	before      map[model.MessageID]bool
+	beforeParts map[model.MessageID]map[model.MessageID]bool
+	dragging    bool
+	pointer     pointer.ID
+	anchor      model.MessageID
+	selecting   bool
+	position    f32.Point
+	scrollAt    time.Time
 	// pending is a press beside a message with nothing selected: it
 	// starts selecting only once the mouse moves away, from origin.
 	pending bool
@@ -56,7 +62,81 @@ func (p *chatPage) holdsKeyboard() bool {
 func (p *chatPage) clearSelection() {
 	p.selection = messageSelection{}
 }
+
+func (s *messageSelection) setRow(id model.MessageID, selected bool) {
+	delete(s.parts, id)
+	if selected {
+		if s.selected == nil {
+			s.selected = make(map[model.MessageID]bool)
+		}
+		s.selected[id] = true
+	} else {
+		delete(s.selected, id)
+	}
+}
+
+func (s *messageSelection) setAlbumParts(m model.Message, parts map[model.MessageID]bool) {
+	id := m.Key.MessageID
+	s.setRow(id, len(parts) > 0)
+	if len(parts) > 0 && len(parts) < len(messageParts(m)) {
+		if s.parts == nil {
+			s.parts = make(map[model.MessageID]map[model.MessageID]bool)
+		}
+		s.parts[id] = parts
+	}
+}
+
+func (s *messageSelection) toggleAlbumPart(m model.Message, id model.MessageID) {
+	row := m.Key.MessageID
+	if id == 0 {
+		s.setRow(row, !s.selected[row] || s.parts[row] != nil)
+		return
+	}
+	parts := maps.Clone(s.parts[row])
+	if parts == nil {
+		parts = make(map[model.MessageID]bool)
+		if s.selected[row] {
+			for _, member := range m.Attachments {
+				parts[member.Key.MessageID] = true
+			}
+		}
+	}
+	if parts[id] {
+		delete(parts, id)
+	} else {
+		parts[id] = true
+	}
+	s.setAlbumParts(m, parts)
+}
+
 func (p *chatPage) pruneSelection(alive map[model.MessageID]bool) {
+	s := &p.selection
+	if len(s.parts) > 0 {
+		// The first member may have changed, or only one may remain.
+		picked := make(map[model.MessageID]bool)
+		for row, parts := range s.parts {
+			maps.Copy(picked, parts)
+			delete(s.selected, row)
+		}
+		clear(s.parts)
+		for _, m := range p.messages {
+			if s.selected[m.Key.MessageID] {
+				continue
+			}
+			var parts map[model.MessageID]bool
+			for _, member := range messageParts(m) {
+				if id := member.Key.MessageID; picked[id] {
+					if parts == nil {
+						parts = make(map[model.MessageID]bool)
+					}
+					parts[id] = true
+				}
+			}
+			if len(parts) > 0 {
+				s.setAlbumParts(m, parts)
+			}
+		}
+	}
 	for id := range p.selection.selected {
 		if !alive[id] {
 			delete(p.selection.selected, id)
@@ -96,17 +176,14 @@ func (p *chatPage) rangeSelection(end model.MessageID) {
 			s.selected[id] = true
 		}
 	}
+	s.parts = maps.Clone(s.beforeParts)
 	lo, hi := min(s.anchor, end), max(s.anchor, end)
 	for _, m := range p.messages {
 		id := m.Key.MessageID
 		if id < lo || id > hi || m.Kind == model.MessageService {
 			continue
 		}
-		if s.selecting {
-			s.selected[id] = true
-		} else {
-			delete(s.selected, id)
-		}
+		s.setRow(id, s.selecting)
 	}
 }
 func (p *chatPage) rowAt(y float32) int {
@@ -192,7 +269,7 @@ func (p *chatPage) selectionEvents(gtx layout.Context) {
 		case pointer.Cancel:
 			s.pending = false
 			if s.dragging {
-				s.selected = s.before
+				s.selected, s.parts = s.before, s.beforeParts
 				s.dragging = false
 			}
 		}
@@ -230,7 +307,8 @@ func (p *chatPage) startSelection(gtx layout.Context, e pointer.Event) {
 	for id, v := range s.selected {
 		s.before[id] = v
 	}
-	s.selecting = !s.selected[s.anchor]
+	s.beforeParts = maps.Clone(s.parts)
+	s.selecting = !s.selected[s.anchor] || s.parts[s.anchor] != nil
 	s.dragging, s.pointer, s.position, s.scrollAt = true, e.PointerID, e.Position, gtx.Now
 	p.activeText = nil
 	p.rangeSelection(s.anchor)
@@ -287,9 +365,76 @@ func (p *chatPage) selectionCount() int {
 	for id := range p.selection.selected {
 		i := sort.Search(len(p.messages), func(i int) bool { return p.messages[i].Key.MessageID >= id })
 		if i < len(p.messages) && p.messages[i].Key.MessageID == id {
-			n += max(1, len(p.messages[i].Attachments))
+			if parts := p.selection.parts[id]; parts != nil {
+				n += len(parts)
+			} else {
+				n += max(1, len(p.messages[i].Attachments))
+			}
 		}
 	}
 
 	return n
+}
+
+// updateAttachmentSelection handles clicks in the media's own coordinates.
+// The surrounding gutters keep their usual whole-row click and drag input.
+func (p *chatPage) updateAttachmentSelection(gtx layout.Context, r *messageRow, m model.Message) bool {
+	if !gtx.Enabled() || p.snapshotting || m.Local() || m.Kind == model.MessageService || len(p.selection.selected) == 0 {
+		return false
+	}
+	memberAt := func(pos image.Point) model.MessageID {
+		for i, tile := range r.tiles {
+			if i < len(m.Attachments) && pos.In(tile) {
+				return m.Attachments[i].Key.MessageID
+			}
+		}
+		return 0
+	}
+	for {
+		e, ok := r.attachmentPick.Update(gtx.Source)
+		if !ok {
+			break
+		}
+		switch e.Kind {
+		case gesture.KindPress:
+			r.attachmentPressed = memberAt(e.Position)
+		case gesture.KindClick:
+			if id := memberAt(e.Position); id == r.attachmentPressed {
+				p.selection.toggleAlbumPart(m, id)
+				gtx.Execute(key.FocusCmd{Tag: &p.keyboard})
+				gtx.Execute(op.InvalidateCmd{})
+			}
+		}
+	}
+	return len(p.selection.selected) > 0
+}
+
+// attachmentSelectionArea takes clicks over the media and leaves an
+// album's right-click observers above it for the message menu.
+func attachmentSelectionArea(gtx layout.Context, r *messageRow, m model.Message, size image.Point) {
+	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
+	pointer.CursorPointer.Add(gtx.Ops)
+	r.attachmentPick.Add(gtx.Ops)
+	for i, tile := range r.tiles {
+		child := r.album[m.Attachments[i].Key.MessageID]
+		at := op.Offset(tile.Min).Push(gtx.Ops)
+		partPressArea(gtx, child, tile.Size())
+		at.Pop()
+	}
+}
+
+func (s *messageSelection) markAlbumPart(gtx layout.Context, album, member model.MessageID, size image.Point) {
+	d := min(gtx.Dp(24), size.X-gtx.Dp(12), size.Y-gtx.Dp(12))
+	if d <= 0 {
+		return
+	}
+	selected := s.selected[album]
+	if parts := s.parts[album]; parts != nil {
+		selected = parts[member]
+	}
+	at := image.Pt(size.X-d-gtx.Dp(6), gtx.Dp(6))
+	offset(gtx, at, func(gtx layout.Context) layout.Dimensions {
+		fillRounded(gtx, scheme(gtx).Surface.Color, image.Pt(d, d), d/2)
+		return selectionMark(gtx, d, selected)
+	})
 }

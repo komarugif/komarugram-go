@@ -299,7 +299,7 @@ func (s checkboxStyle) drawStateLayer(gtx layout.Context) {
 	}
 
 	// Draw the state layer.
-	stateLayerColor := s.cAnimation.stateLayer.Animate(gtx, token.MatColor(layerStyle.getStateLayerColor())).AsNRGBA()
+	stateLayerColor := s.cAnimation.stateLayer.AnimateFor(gtx, wdk.AnimationCheckboxSlider, token.MatColor(layerStyle.getStateLayerColor())).AsNRGBA()
 	if stateLayerColor.A > 0 {
 		paint.FillShape(
 			gtx.Ops,
@@ -358,7 +358,7 @@ func (s checkboxStyle) drawContainer(gtx layout.Context) {
 	if !s.cSelected {
 		target = target.SetOpacity(0)
 	}
-	containerColor := s.cAnimation.container.Animate(gtx, target).AsNRGBA()
+	containerColor := s.cAnimation.container.AnimateFor(gtx, wdk.AnimationCheckboxSlider, target).AsNRGBA()
 	if containerColor.A == 0 {
 		return
 	}
@@ -414,7 +414,7 @@ func (s checkboxStyle) drawOutline(gtx layout.Context) {
 	if s.cSelected {
 		target = target.SetOpacity(0)
 	}
-	outlineColor := s.cAnimation.outline.Animate(gtx, target).AsNRGBA()
+	outlineColor := s.cAnimation.outline.AnimateFor(gtx, wdk.AnimationCheckboxSlider, target).AsNRGBA()
 	if outlineColor.A == 0 {
 		return
 	}
@@ -472,8 +472,8 @@ func (s checkboxStyle) drawIcon(gtx layout.Context) {
 	if s.cSelected {
 		target = 1
 	}
-	progress := s.cAnimation.check.Animate(gtx, target)
-	iconColor := s.cAnimation.icon.Animate(gtx, token.MatColor(s.getIconColor())).AsNRGBA()
+	progress := s.cAnimation.check.AnimateFor(gtx, wdk.AnimationCheckboxSlider, target)
+	iconColor := s.cAnimation.icon.AnimateFor(gtx, wdk.AnimationCheckboxSlider, token.MatColor(s.getIconColor())).AsNRGBA()
 	if progress <= 0 {
 		return
 	}
@@ -486,7 +486,7 @@ func (s checkboxStyle) drawIcon(gtx layout.Context) {
 	if s.cIndeterminate {
 		dashTarget = 1
 	}
-	dash := s.cAnimation.dash.Animate(gtx, dashTarget)
+	dash := s.cAnimation.dash.AnimateFor(gtx, wdk.AnimationCheckboxSlider, dashTarget)
 	checkPoints := [3]f32.Point{{X: 0.22, Y: 0.56}, {X: 0.39, Y: 0.69}, {X: 0.78, Y: 0.33}}
 	dashPoints := [3]f32.Point{{X: 0.22, Y: 0.5}, {X: 0.5, Y: 0.5}, {X: 0.78, Y: 0.5}}
 	points := make([]f32.Point, len(checkPoints))

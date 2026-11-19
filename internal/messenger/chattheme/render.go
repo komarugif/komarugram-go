@@ -11,6 +11,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"math"
+	"sync"
 
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/resample"
@@ -149,10 +150,13 @@ func rasterize(icon *oksvg.SvgIcon, w, h int) *image.RGBA {
 }
 
 // rasterizeMask draws the shapes of an SVG pattern to cover w×h, as alpha.
-func rasterizeMask(icon *oksvg.SvgIcon, w, h int) *image.Alpha {
+func (b *Background) rasterizeMask(w, h int) *image.Alpha {
 	dst := image.NewAlpha(image.Rect(0, 0, w, h))
-	coverTarget(icon, w, h)
-	icon.Draw(rasterx.NewDasher(w, h, newAlphaScanner(dst)), 1)
+	// SVG rendering changes the transform and sorts gradient stops in place.
+	b.vectorMu.Lock()
+	defer b.vectorMu.Unlock()
+	coverTarget(b.vector, w, h)
+	b.vector.Draw(rasterx.NewDasher(w, h, newAlphaScanner(dst)), 1)
 	return dst
 }
 
@@ -202,9 +206,10 @@ type Background struct {
 	tile      bool
 	// photo is the picture over the colors, blurred already when asked;
 	// a pattern is either vector, drawn at each size, or a picture.
-	photo   image.Image
-	vector  *oksvg.SvgIcon
-	pattern image.Image
+	photo    image.Image
+	vector   *oksvg.SvgIcon
+	vectorMu sync.Mutex
+	pattern  image.Image
 	// average is the color the wallpaper averages to, RGB.
 	average uint32
 }
@@ -285,7 +290,7 @@ func (b *Background) Render(size image.Point) *image.RGBA {
 	case b.vector != nil || b.pattern != nil:
 		var mask *image.Alpha
 		if b.vector != nil {
-			mask = rasterizeMask(b.vector, w, h)
+			mask = b.rasterizeMask(w, h)
 		} else {
 			mask = alphaOf(cover(b.pattern, w, h))
 		}

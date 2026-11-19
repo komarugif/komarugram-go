@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"komarugram/internal/crash"
+	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
@@ -576,7 +577,9 @@ func (d *stickerSetDialog) gridRow(gtx layout.Context, p *chatPage, row, columns
 				return layout.UniformInset(4).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					hovered := d.cells[index].click.Hovered()
 					cheap := hovered && p.media.CheapToPlay(item.Media, gtx.Constraints.Max, false)
-					return d.item(gtx, p, item, p.animate || d.hover.Play(gtx, index, hovered, cheap))
+					auto := mediaAutoplays(gtx, item.Media, p.animate)
+					hover := mediaHover(gtx, &d.cells[index], auto, !auto && d.hover.Play(gtx, index, hovered, cheap))
+					return d.item(gtx, p, item, hover)
 				})
 			}
 			if index >= len(d.cells) {
@@ -590,8 +593,8 @@ func (d *stickerSetDialog) gridRow(gtx layout.Context, p *chatPage, row, columns
 	return layout.Dimensions{Size: image.Pt(width, cell.Y)}
 }
 
-func (d *stickerSetDialog) item(gtx layout.Context, p *chatPage, item model.PickerItem, animate bool) layout.Dimensions {
-	status := p.media.StatusFit(item.Media, animate, gtx.Constraints.Max, false)
+func (d *stickerSetDialog) item(gtx layout.Context, p *chatPage, item model.PickerItem, hover chatmedia.HoverPlayback) layout.Dimensions {
+	status := p.media.StatusHover(item.Media, gtx.Constraints.Max, false, hover)
 	im := status.Frame
 	if im == nil {
 		im = status.Preview

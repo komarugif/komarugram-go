@@ -153,7 +153,7 @@ func (t *typing) follow(r *messageRow) {
 // yet to show. It returns nil, and size's height, unless r is a draft or
 // the message one became.
 func (p *chatPage) typingStep(gtx layout.Context, r *messageRow, size image.Point, animate bool) (*typing, []typingLine, int) {
-	animate = animate && wdk.AnimationsEnabled(gtx)
+	animate = animate && wdk.AnimationEnabled(gtx, wdk.AnimationMessage)
 	t := p.typing[r.key.MessageID]
 	if t == nil && r.streaming && animate {
 		if p.typing == nil {

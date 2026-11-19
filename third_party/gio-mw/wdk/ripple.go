@@ -50,7 +50,7 @@ type Ripple struct {
 
 // RipplesEnabled reports whether ripples are drawn in this frame.
 func RipplesEnabled(gtx layout.Context) bool {
-	return AnimationsEnabled(gtx) && !gtx.Now.IsZero()
+	return AnimationEnabled(gtx, AnimationRipple) && !gtx.Now.IsZero()
 }
 
 // Draw draws a ripple for each press and requests the next frame while any

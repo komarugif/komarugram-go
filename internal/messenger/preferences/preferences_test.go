@@ -9,10 +9,40 @@ import (
 	"testing"
 
 	"gio-mw/exp/powersave"
+	"gio-mw/wdk"
 
 	"komarugram/pkg/miniapp"
 	"komarugram/pkg/player"
 )
+
+func TestDisabledAnimationsPersistIndependently(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"global":{"motion_mode":1}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Global().DisabledAnimations; got != 0 {
+		t.Fatalf("old settings have disabled animations: %v", got)
+	}
+	for _, kind := range []wdk.AnimationKind{wdk.AnimationGIF, wdk.AnimationBadge} {
+		if err := s.SetDisabledAnimations(kind, kind); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetDisabledAnimations(wdk.AnimationGIF, 0); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.Global().DisabledAnimations; got != wdk.AnimationBadge {
+		t.Fatalf("disabled animations = %v, want only badges", got)
+	}
+}
 
 // A video without sound goes as a GIF until chosen otherwise, which stays.
 func TestSilentVideoChoice(t *testing.T) {

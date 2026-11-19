@@ -6,9 +6,12 @@ import (
 	"bytes"
 	"fmt"
 	"image"
+	"image/color"
+	"image/draw"
 	"image/png"
 	"io"
 	"maps"
+	"math"
 	"time"
 
 	"gio-mw/defaults"
@@ -23,8 +26,10 @@ import (
 	"gioui.org/widget"
 
 	"komarugram/internal/crash"
+	"komarugram/internal/messenger/chattheme"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
+	"komarugram/pkg/resample"
 )
 
 // shotTheme is the theme a snapshot is drawn in.
@@ -77,6 +82,9 @@ type shotDialog struct {
 const (
 	shotMediaWait  = 20 * time.Second
 	shotMediaRetry = 100 * time.Millisecond
+	shotMargin     = 8
+	shotMessageGap = 24
+	shotMaxWidth   = 1000 // PNG pixels, including the margins.
 )
 
 type shotRender struct {
@@ -91,7 +99,11 @@ func (p *chatPage) selectedMessages() []model.Message {
 	var msgs []model.Message
 	for _, m := range p.messages {
 		if p.selection.selected[m.Key.MessageID] {
-			msgs = append(msgs, m)
+			if picked := p.selection.parts[m.Key.MessageID]; picked != nil {
+				msgs = append(msgs, model.GroupAlbums(appendSelectedParts(nil, m, picked))...)
+			} else {
+				msgs = append(msgs, m)
+			}
 		}
 	}
 	return msgs
@@ -142,9 +154,6 @@ func (d *shotDialog) layout(gtx layout.Context, p *chatPage, l localization.Cata
 		}
 	default:
 	}
-	if d.stale && !d.rendering && !gtx.Now.Before(d.retryAt) {
-		d.render(gtx, p, l)
-	}
 	if !d.modal.closing {
 		if d.close.Clicked(gtx) {
 			d.modal.Close()
@@ -174,6 +183,12 @@ func (d *shotDialog) layout(gtx layout.Context, p *chatPage, l localization.Cata
 	})
 	if !shown {
 		d.stop()
+		return
+	}
+	// The switches take input during layout. Render their new options even
+	// when the switches are not animated and no further frame is due.
+	if d.stale && !d.rendering && !gtx.Now.Before(d.retryAt) {
+		d.render(gtx, p, l)
 	}
 }
 
@@ -204,7 +219,7 @@ func (d *shotDialog) layoutContent(gtx layout.Context, p *chatPage, l localizati
 			case d.image != nil:
 				return layout.UniformInset(8).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min = gtx.Constraints.Max
-					return widget.Image{Src: p.images.Op(d.image), Fit: widget.Contain, Position: layout.N}.Layout(gtx)
+					return widget.Image{Src: p.images.Op(d.image), Fit: widget.ScaleDown, Position: layout.N, Scale: 1 / gtx.Metric.PxPerDp}.Layout(gtx)
 				})
 			case d.err != nil:
 				// The toast told why; the preview stays empty.
@@ -273,93 +288,206 @@ func (d *shotDialog) render(gtx layout.Context, p *chatPage, l localization.Cata
 		d.modal.Toast(l.T("history.snapshot_too_tall"))
 		return
 	}
+	pad := max(1, gtx.Dp(shotMargin))
+	fill := scheme(sgtx).SurfaceContainerLow.AsNRGBA()
+	var wallpaper *chattheme.Background
+	if d.opts.theme == shotCurrent && d.opts.background && p.appearance != nil {
+		wallpaper = p.appearance.background
+	}
 	d.rendering = true
 	d.results = make(chan shotRender, 1)
 	results := d.results
 	go func() {
 		defer crash.Recover("snapshot", func(e *crash.Panic) { results <- shotRender{err: e}; p.invalidate() })
 		img, err := renderSnapshot(ops, size)
+		if err == nil {
+			img = finishMessageShot(img, pad, fill, wallpaper)
+		}
 		results <- shotRender{img, err}
 		p.invalidate()
 	}()
 }
 
-// buildSnapshot lays msgs out as the history shows them, as opts asks, on
-// the chat's background: without the selection's highlight, and with the
-// avatars of private chats, which the history leaves out. ok is false
-// when they are too tall for one picture.
+// buildSnapshot lays msgs out within the PNG's width limit, then moves
+// their columns together. Private chats include sender avatars. The
+// result is cropped after rendering. ok is false when it is too tall.
 func (p *chatPage) buildSnapshot(gtx layout.Context, l localization.Catalog, msgs []model.Message, opts shotOptions) (ops *op.Ops, size image.Point, ok bool) {
-	width := p.historyWidth
-	if width <= 0 {
-		width = gtx.Dp(600)
-	}
+	pad := max(1, gtx.Dp(shotMargin))
+	width := shotMaxWidth - 2*pad
+	insetLeft := gtx.Dp(rowInsetLeft)
+	insets := insetLeft + gtx.Dp(rowInsetRight)
+	room := image.Pt(width-insets, 0)
 	ops = new(op.Ops)
-	// Without the spoilers' dust, whose picture the window changes while
-	// the snapshot is drawn.
-	sgtx := withoutEffects(gtx.Disabled())
+	// The headless renderer needs its own frozen dust images, which the
+	// chat cannot change while the snapshot is drawn.
+	sgtx := gtx.Disabled()
+	sgtx.Values = maps.Clone(gtx.Values)
+	withEffects(sgtx, new(effects), true)
 	sgtx.Ops = ops
 	sgtx.Constraints = layout.Constraints{Min: image.Pt(width, 0), Max: image.Pt(width, snapshotMaxHeight)}
-	pad := gtx.Dp(8)
-	type row struct {
-		call   op.CallOp
-		height int
+	type dateLabel struct {
+		call     op.CallOp
+		y, width int
 	}
-	var rows []row
-	height := 2 * pad
+	type rowDraw struct {
+		call     op.CallOp
+		align    layout.Direction
+		y, width int
+	}
+	var dates []dateLabel
+	var rows []rowDraw
+	var height, widestIncoming, widestOutgoing, widestCentered int
 	// A chat's theme is of the theme it is shown in.
 	appearance := p.appearance
 	if opts.theme != shotCurrent {
 		p.appearance = nil
 	}
-	revealed := map[model.MessageID]bool{}
-	p.snapshotting = true
+	p.snapshotting, p.snapshotRevealSpoilers = true, opts.spoilers
 	defer func() {
-		p.snapshotting, p.appearance = false, appearance
-		for id, was := range revealed {
-			if r := p.rows[id]; r != nil {
-				r.revealed = was
-			}
-		}
+		p.snapshotting, p.snapshotRevealSpoilers, p.appearance = false, false, appearance
 	}()
 	joins := messageJoins(msgs, p.kind == model.KindSaved)
 	for i, m := range msgs {
-		date := opts.date && (i == 0 || !sameDay(m.Date, msgs[i-1].Date))
+		if opts.date && (i == 0 || !sameDay(m.Date, msgs[i-1].Date)) {
+			dateGtx := sgtx
+			dateGtx.Constraints.Min.X = 0
+			macro := op.Record(ops)
+			dims := layout.Inset{Top: 10, Bottom: 10}.Layout(dateGtx, func(gtx layout.Context) layout.Dimensions {
+				return datePill(gtx, m.Date.Local().Format("02.01.2006"))
+			})
+			dates = append(dates, dateLabel{call: macro.Stop(), y: height, width: dims.Size.X})
+			widestCentered = max(widestCentered, dims.Size.X)
+			height += dims.Size.Y
+		}
 		if !opts.reactions {
 			m.Reactions = nil
 		}
-		if opts.spoilers {
-			if r := p.rows[m.Key.MessageID]; r != nil {
-				revealed[m.Key.MessageID] = r.revealed
-				r.revealed = true
-			}
-		}
+		row := rowDraw{align: layout.W, y: height}
 		macro := op.Record(ops)
-		dims := p.row(sgtx, m, date, joins[i], l, false)
-		if r := p.rows[m.Key.MessageID]; r != nil && p.avatar != nil && joins[i]&joinBelow == 0 {
-			if id := p.senderAvatar(m); id != 0 {
-				offset(sgtx, r.avatarPoint, func(gtx layout.Context) layout.Dimensions {
-					return p.avatar(gtx, id, model.KindUser, p.avatarName(m), 34)
-				})
+		dims := p.row(sgtx, m, false, joins[i], l, false)
+		if r := p.rows[m.Key.MessageID]; r != nil && r.bodySize.X > 0 {
+			row.width = r.bodySize.X
+			switch {
+			case m.ServicePill():
+				row.align = layout.Center
+				widestCentered = max(widestCentered, row.width)
+			case m.Outgoing:
+				row.align = layout.E
+				widestOutgoing = max(widestOutgoing, row.width)
+			default:
+				widestIncoming = max(widestIncoming, row.width)
+			}
+			if p.avatar != nil && joins[i]&joinBelow == 0 {
+				if id := p.senderAvatar(m); id != 0 {
+					offset(sgtx, r.avatarPoint, func(gtx layout.Context) layout.Dimensions {
+						return p.avatar(gtx, id, model.KindUser, p.avatarName(m), 34)
+					})
+				}
 			}
 		}
-		rows = append(rows, row{macro.Stop(), dims.Size.Y})
+		row.call = macro.Stop()
+		rows = append(rows, row)
 		height += dims.Size.Y
 	}
-	if height > snapshotMaxHeight {
+	if height+2*pad > snapshotMaxHeight {
 		return nil, image.Point{}, false
 	}
-	size = image.Pt(width, height)
-	sgtx.Constraints = layout.Exact(size)
-	fillRect(sgtx, scheme(sgtx).SurfaceContainerLow, size)
-	if p.appearance != nil && opts.background {
-		p.appearance.Background(sgtx)
+	columns := widestIncoming + widestOutgoing
+	if widestIncoming > 0 && widestOutgoing > 0 {
+		columns += gtx.Dp(shotMessageGap)
 	}
-	y := pad
-	for _, r := range rows {
-		stack := op.Offset(image.Pt(0, y)).Push(ops)
-		r.call.Add(ops)
+	packedWidth := min(width, insets+max(columns, widestCentered))
+	packedRoom := image.Pt(packedWidth-insets, 0)
+	left, right := packedWidth, 0
+	for _, row := range rows {
+		body := image.Pt(row.width, 0)
+		x := row.align.Position(body, packedRoom).X
+		shift := x - row.align.Position(body, room).X
+		stack := op.Offset(image.Pt(shift, row.y)).Push(ops)
+		row.call.Add(ops)
 		stack.Pop()
-		y += r.height
+		if row.width > 0 {
+			left, right = min(left, insetLeft+x), max(right, insetLeft+x+row.width)
+		}
 	}
-	return ops, size, true
+	// Center the dates over the selected messages so a short bubble on
+	// either side does not have to share the width of the chat with them.
+	for _, date := range dates {
+		x := min(max(0, (left+right-date.width)/2), packedWidth-date.width)
+		stack := op.Offset(image.Pt(x, date.y)).Push(ops)
+		date.call.Add(ops)
+		stack.Pop()
+	}
+	return ops, image.Pt(packedWidth, max(1, height)), true
+}
+
+// finishMessageShot finds the painted pixels before adding the margin and
+// background. This keeps pixels beyond the bubble, such as tails and avatars.
+func finishMessageShot(img *image.RGBA, pad int, fill color.NRGBA, wallpaper *chattheme.Background) *image.RGBA {
+	size := img.Bounds().Size()
+	left, top, right, bottom := size.X, size.Y, 0, 0
+	for y := range size.Y {
+		line := img.Pix[y*img.Stride:][:size.X*4]
+		for x := range size.X {
+			if line[x*4+3] != 0 {
+				left, top = min(left, x), min(top, y)
+				right, bottom = max(right, x+1), max(bottom, y+1)
+			}
+		}
+	}
+	content := image.Rectangle{Min: image.Pt(left, top), Max: image.Pt(right, bottom)}
+	if content.Empty() {
+		content = image.Rectangle{}
+	}
+	size = content.Size().Add(image.Pt(2*pad, 2*pad))
+	var out *image.RGBA
+	if wallpaper != nil {
+		out = wallpaper.Render(size)
+		if out.Bounds().Size() != size {
+			out = resample.Resize(out, size.X, size.Y)
+		}
+	} else {
+		out = image.NewRGBA(image.Rectangle{Max: size})
+		draw.Draw(out, out.Bounds(), image.NewUniform(fill), image.Point{}, draw.Src)
+	}
+	// Gio's headless target encodes linear-premultiplied RGB in sRGB.
+	// Blend the antialiased edges over the opaque background in linear light.
+	for y := range content.Dy() {
+		src := img.Pix[(content.Min.Y+y)*img.Stride+content.Min.X*4:][:content.Dx()*4]
+		dst := out.Pix[(pad+y)*out.Stride+pad*4:][:len(src)]
+		for x := 0; x < len(src); x += 4 {
+			switch alpha := src[x+3]; alpha {
+			case 0:
+			case 255:
+				copy(dst[x:x+4], src[x:x+4])
+			default:
+				remaining := float64(255-alpha) / 255
+				for c := x; c < x+3; c++ {
+					dst[c] = shotEncodeSRGB(shotLinearSRGB[src[c]] + shotLinearSRGB[dst[c]]*remaining)
+				}
+			}
+		}
+	}
+	return out
+}
+
+var shotLinearSRGB = func() (linear [256]float64) {
+	for i := range linear {
+		v := float64(i) / 255
+		if v <= 0.04045 {
+			linear[i] = v / 12.92
+		} else {
+			linear[i] = math.Pow((v+0.055)/1.055, 2.4)
+		}
+	}
+	return linear
+}()
+
+func shotEncodeSRGB(v float64) uint8 {
+	if v <= 0.0031308 {
+		v *= 12.92
+	} else {
+		v = 1.055*math.Pow(v, 1/2.4) - 0.055
+	}
+	return uint8(min(255, v*255+0.5))
 }

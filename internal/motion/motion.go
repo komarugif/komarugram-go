@@ -9,6 +9,9 @@ import (
 	"sync"
 
 	"gio-mw/exp/powersave"
+	"gio-mw/wdk"
+
+	"gioui.org/layout"
 )
 
 // Settings holds the user's animation preference and the watched system
@@ -16,9 +19,31 @@ import (
 type Settings struct {
 	mu         sync.Mutex
 	policy     powersave.Policy
+	disabled   wdk.AnimationKind
 	monitor    *powersave.Monitor
 	invalidate func()
 	changed    func(powersave.Mode, int)
+}
+
+// ApplyPreferences synchronizes saved preferences without writing them back.
+func (m *Settings) ApplyPreferences(mode powersave.Mode, lowBattery int, disabled wdk.AnimationKind) {
+	policy := powersave.Policy{Mode: mode, LowBattery: float64(lowBattery)}
+	m.mu.Lock()
+	changed := m.policy != policy || m.disabled != disabled
+	m.policy, m.disabled = policy, disabled
+	m.mu.Unlock()
+	if changed {
+		m.invalidate()
+	}
+}
+
+// Frame publishes the window's animation policy to the widgets in this frame.
+func (m *Settings) Frame(gtx layout.Context) {
+	m.mu.Lock()
+	policy, disabled := m.policy, m.disabled
+	m.mu.Unlock()
+	wdk.SetAnimationsEnabled(gtx, policy.AnimationsEnabled(m.monitor.State()))
+	wdk.SetDisabledAnimations(gtx, disabled)
 }
 
 // New starts watching the system; invalidate is called when the decision may
@@ -94,10 +119,14 @@ func (m *Settings) SystemState() powersave.State {
 
 // AnimationsEnabled reports whether widgets should animate now.
 func (m *Settings) AnimationsEnabled() bool {
+	return m.AnimationEnabled(0)
+}
+
+func (m *Settings) AnimationEnabled(kind wdk.AnimationKind) bool {
 	m.mu.Lock()
-	policy := m.policy
+	policy, disabled := m.policy, m.disabled
 	m.mu.Unlock()
-	return policy.AnimationsEnabled(m.monitor.State())
+	return disabled&kind == 0 && policy.AnimationsEnabled(m.monitor.State())
 }
 
 func (m *Settings) Close() {

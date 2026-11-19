@@ -6,6 +6,8 @@ import (
 	"image"
 	"time"
 
+	"gio-mw/wdk"
+
 	"gioui.org/f32"
 	"gioui.org/gesture"
 	"gioui.org/io/pointer"
@@ -49,7 +51,7 @@ func (s *spoiler) Layout(gtx layout.Context, covered, animate bool, w layout.Wid
 	macro := op.Record(gtx.Ops)
 	dims := w(gtx)
 	call := macro.Stop()
-	if s.shown && (!animate || s.reveal.done(gtx.Now, dims.Size)) {
+	if s.shown && (!animate || !wdk.AnimationAllowed(gtx, wdk.AnimationMessage) || s.reveal.done(gtx.Now, dims.Size)) {
 		call.Add(gtx.Ops)
 		return dims
 	}

@@ -34,8 +34,9 @@ import (
 // viewer: a window draws on its own GPU context and runs on its own
 // goroutine, and shares only the store with the chat.
 type articleWindow struct {
-	shortcuts shortcutPreferences
-	w         *appwindow.Window
+	stopMotion func()
+	shortcuts  shortcutPreferences
+	w          *appwindow.Window
 	// invalidate asks for a frame: the window's, or a test's.
 	invalidate func()
 	page       *chatPage
@@ -431,6 +432,9 @@ func (a *articleWindow) SetSuspended(hidden bool) {
 
 // Close is called by the window loop after the window is gone.
 func (a *articleWindow) Close() {
+	if a.stopMotion != nil {
+		a.stopMotion()
+	}
 	if a.cancel != nil {
 		a.cancel()
 	}
@@ -539,6 +543,7 @@ func (a *App) openArticleWindowOf(m model.Message, fragment, title string, src a
 				},
 			}
 			window := newArticleWindow(w, source, catalog, host, m, fragment)
+			window.stopMotion = watchAuxiliaryMotion(w, a.preferences)
 			window.src = src
 			a.articleWindows.add(m.Key, window)
 			return window

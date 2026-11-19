@@ -39,11 +39,13 @@ type viewerWindow struct {
 	// unsubscribe ends the window's watch on the settings, and asked counts
 	// the redraws a change of them asked for.
 	unsubscribe func()
+	stopMotion  func()
 	asked       atomic.Int64
 }
 
 func newViewerWindow(w *appwindow.Window, prefs *preferences.Store, source model.ConversationStore, catalog localization.Catalog, chat int64, current model.Message, known mediaList) *viewerWindow {
 	p := &viewerWindow{w: w, catalog: catalog, prefs: prefs}
+	p.stopMotion = watchAuxiliaryMotion(w, prefs)
 	// The window learns of a change of the settings made in another window
 	// at once: it draws no frame of its own, but for an event or an
 	// animation, and would take them at the next of these. Only the redraw
@@ -120,6 +122,7 @@ func (p *viewerWindow) SetSuspended(hidden bool) {
 // Close is called by the window loop after the window is gone.
 func (p *viewerWindow) Close() {
 	p.unsubscribe()
+	p.stopMotion()
 	p.viewer.Destroy()
 }
 

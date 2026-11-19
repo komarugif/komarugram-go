@@ -28,7 +28,7 @@ type heightTransition struct {
 func (h *heightTransition) Value(gtx layout.Context, target int, animate bool) int {
 	target = max(0, target)
 	width := gtx.Constraints.Max.X
-	if !h.initialized || h.width != width || !animate || !wdk.AnimationsEnabled(gtx) {
+	if !h.initialized || h.width != width || !animate || !wdk.AnimationEnabled(gtx, wdk.AnimationHeight) {
 		h.tween = wdk.FloatTween{}
 	}
 	h.initialized, h.width, h.target = true, width, target

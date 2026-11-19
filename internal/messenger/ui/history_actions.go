@@ -40,10 +40,23 @@ func (p *chatPage) selectedParts() []model.Message {
 	var out []model.Message
 	for _, m := range p.messages {
 		if p.selection.selected[m.Key.MessageID] {
-			out = append(out, messageParts(m)...)
+			out = appendSelectedParts(out, m, p.selection.parts[m.Key.MessageID])
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Key.MessageID < out[j].Key.MessageID })
+	return out
+}
+
+func appendSelectedParts(out []model.Message, m model.Message, picked map[model.MessageID]bool) []model.Message {
+	parts := messageParts(m)
+	if picked == nil {
+		return append(out, parts...)
+	}
+	for _, part := range parts {
+		if picked[part.Key.MessageID] {
+			out = append(out, part)
+		}
+	}
 	return out
 }
 
@@ -177,6 +190,29 @@ func (p *chatPage) openForward(gtx layout.Context) {
 	p.openForwardParts(gtx, p.selectedParts(), true)
 }
 
+func (p *chatPage) selectedAlbumCaptions() map[model.MessageID]bool {
+	var omitCaptions map[model.MessageID]bool
+	for _, m := range p.messages {
+		picked := p.selection.parts[m.Key.MessageID]
+		if picked == nil {
+			continue
+		}
+		if omitCaptions == nil {
+			omitCaptions = make(map[model.MessageID]bool)
+		}
+		// Forwarding a subset without its caption needs the API flags
+		// only if a selected member actually carries caption text.
+		if slices.ContainsFunc(m.Attachments, func(part model.Message) bool {
+			return picked[part.Key.MessageID] && part.Text != ""
+		}) {
+			for id := range picked {
+				omitCaptions[id] = true
+			}
+		}
+	}
+	return omitCaptions
+}
+
 // openForwardParts opens the picker to forward parts, messages of the open
 // chat; selection tells that they are the selected ones.
 func (p *chatPage) openForwardParts(gtx layout.Context, parts []model.Message, selection bool) {
@@ -186,6 +222,10 @@ func (p *chatPage) openForwardParts(gtx layout.Context, parts []model.Message, s
 	}
 	f.ids, f.songs = f.ids[:0], nil
 	f.hasMedia = false
+	f.omitAlbumCaptions = nil
+	if selection {
+		f.omitAlbumCaptions = p.selectedAlbumCaptions()
+	}
 	_, f.allowOptions = p.source.(model.MessageForwarderWithOptions)
 	for _, m := range parts {
 		f.hasMedia = f.hasMedia || m.Media != nil
@@ -253,6 +293,7 @@ func (p *chatPage) forward(target model.Chat) {
 	}
 	from, ids := f.from, append([]model.MessageID(nil), f.ids...)
 	options := f.options
+	options.DropAlbumCaptions = f.omitAlbumCaptions
 	f.send(ctx, target, func(ctx context.Context, to int64) error {
 		return forwardWithOptions(ctx, source, from, ids, to, options)
 	}, p.invalidate)

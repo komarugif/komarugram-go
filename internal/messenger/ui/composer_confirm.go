@@ -94,7 +94,7 @@ func (p *chatPage) confirmPreview(gtx layout.Context, item model.PickerItem) lay
 	if item.Media.Media == nil || p.media == nil || p.images == nil {
 		return layout.Dimensions{Size: size}
 	}
-	frame, _ := p.media.Frame(item.Media, p.animate)
+	frame, _ := p.media.Frame(item.Media, mediaAutoplays(gtx, item.Media, p.animate))
 	if frame == nil {
 		return layout.Dimensions{Size: size}
 	}

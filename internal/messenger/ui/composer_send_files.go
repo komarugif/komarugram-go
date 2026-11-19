@@ -41,6 +41,7 @@ type filesBox struct {
 	way   sendfiles.Way
 	// caption is the text of the message the files go with.
 	caption           widget.Editor
+	paste             *byte
 	list              scroll.List
 	add, cancel, send surface
 	mode              tabRow
@@ -138,6 +139,8 @@ func (b *filesBox) Shown() bool { return b.modal.Shown() }
 func (b *filesBox) addPaths(c *messageComposer, paths []string, documents bool) {
 	if !b.modal.Shown() || b.modal.closing {
 		b.generation++
+		// A clipboard reply belongs to this opening of the box.
+		b.paste = new(byte)
 		b.files = nil
 		b.way = sendfiles.Way{Group: true, Documents: documents}
 		b.mode = tabRow{}
@@ -420,6 +423,11 @@ func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l loca
 		}
 		b.tips = tooltips{}
 		return
+	}
+	if !b.modal.closing {
+		if _, err := c.updatePaste(gtx, &b.caption, b.paste); err != nil {
+			b.modal.Toast(composerErrorText(err, l))
+		}
 	}
 	files := b.fileInfo()
 	tabbed := sendfiles.HasDocumentsOption(files)
@@ -931,9 +939,7 @@ func (c *messageComposer) layoutTile(gtx layout.Context, p *chatPage, f *boxFile
 			widget.Image{Src: p.images.Op(thumb), Fit: widget.Cover, Position: layout.Center}.Layout(gtx)
 		}
 		if f.spoiler {
-			// As Telegram Desktop shows media it will hide: blurred, darker.
-			fillRect(gtx, spoilerDim, size)
-			paintMediaDust(gtx, size, slices.Index(c.files.files, f))
+			paintMediaSpoiler(gtx, size, slices.Index(c.files.files, f))
 		}
 		return layout.Dimensions{Size: size}
 	})
@@ -967,9 +973,6 @@ func (c *messageComposer) layoutTile(gtx layout.Context, p *chatPage, f *boxFile
 	return layout.Dimensions{Size: size}
 }
 
-// spoilerDim darkens a picture to go under a spoiler, over its blur.
-var spoilerDim = token.NewMatColorFromHexRGBA(0x00000040)
-
 // shownThumb is the picture the tile of f shows: blurred under a spoiler.
 func (f *boxFile) shownThumb() *image.RGBA {
 	if !f.spoiler || f.thumb == nil {
@@ -979,61 +982,6 @@ func (f *boxFile) shownThumb() *image.RGBA {
 		f.blurred, f.blurredOf = blurredPicture(f.thumb), f.thumb
 	}
 	return f.blurred
-}
-
-// blurredPicture is src made small and blurred, which drawn at the size of
-// src shows its colors and nothing of what is in it, as Telegram Desktop
-// blurs media under a spoiler.
-func blurredPicture(src *image.RGBA) *image.RGBA {
-	const side = 24
-	r := src.Bounds()
-	w, h := r.Dx(), r.Dy()
-	if w <= 0 || h <= 0 {
-		return src
-	}
-	dw, dh := max(1, w*side/max(w, h)), max(1, h*side/max(w, h))
-	dst := image.NewRGBA(image.Rect(0, 0, dw, dh))
-	// Each pixel is the mean of the pixels of src it covers.
-	for y := range dh {
-		y0, y1 := y*h/dh, max(y*h/dh+1, (y+1)*h/dh)
-		for x := range dw {
-			x0, x1 := x*w/dw, max(x*w/dw+1, (x+1)*w/dw)
-			var sum [4]int
-			for sy := y0; sy < y1; sy++ {
-				row := src.Pix[src.PixOffset(r.Min.X+x0, r.Min.Y+sy):]
-				for sx := range x1 - x0 {
-					for c := range 4 {
-						sum[c] += int(row[sx*4+c])
-					}
-				}
-			}
-			n := (y1 - y0) * (x1 - x0)
-			for c := range 4 {
-				dst.Pix[y*dst.Stride+x*4+c] = uint8(sum[c] / n)
-			}
-		}
-	}
-	// Then twice through a box of three each way, for the steps between
-	// its pixels not to show once drawn large.
-	tmp := image.NewRGBA(dst.Rect)
-	for range 2 {
-		for _, pass := range [2]image.Point{{1, 0}, {0, 1}} {
-			for y := range dh {
-				for x := range dw {
-					for c := range 4 {
-						sum := 0
-						for k := -1; k <= 1; k++ {
-							sx, sy := min(max(x+k*pass.X, 0), dw-1), min(max(y+k*pass.Y, 0), dh-1)
-							sum += int(dst.Pix[sy*dst.Stride+sx*4+c])
-						}
-						tmp.Pix[y*tmp.Stride+x*4+c] = uint8((sum + 1) / 3)
-					}
-				}
-			}
-			dst, tmp = tmp, dst
-		}
-	}
-	return dst
 }
 
 // layoutTag draws a short word on a dark plate, as a mark over a picture.

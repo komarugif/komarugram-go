@@ -6,6 +6,8 @@ import (
 	"image"
 	"math"
 
+	"gio-mw/wdk"
+
 	"gioui.org/layout"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
@@ -77,8 +79,11 @@ func (a *App) animateAvatarOpening(gtx layout.Context, t *avatarViewerTarget, ch
 	if !animate {
 		return
 	}
-	o.start = gtx.Now
-	if !t.located || im == nil || im.Bounds().Empty() {
+	travel := wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment)
+	if travel || wdk.AnimationAllowed(gtx, wdk.AnimationViewer) {
+		o.start = gtx.Now
+	}
+	if !travel || !t.located || im == nil || im.Bounds().Empty() {
 		return
 	}
 	side := int(math.Round(float64(float32(t.shape.Rect.Dx()) * t.scale)))

@@ -129,7 +129,7 @@ func (r richLabel) Layout(gtx layout.Context) layout.Dimensions {
 		if run.Emoji != 0 && r.media != nil && r.images != nil {
 			st.Box = emojiBox(gtx, ty.Size)
 			if !run.Spoiler || r.revealed {
-				frames[i] = customEmoji(r.media, r.images, run.Emoji, st.Box.Size.X, r.animate, fg)
+				frames[i] = customEmoji(r.media, r.images, run.Emoji, st.Box.Size.X, r.animate && wdk.AnimationAllowed(gtx, wdk.AnimationEmoji), fg)
 			}
 		}
 		styles[i] = st

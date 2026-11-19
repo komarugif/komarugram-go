@@ -173,6 +173,13 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 		}
 		p.rows[m.Key.MessageID] = r
 	}
+	if p.snapshotting {
+		// The snapshot option also applies to rows that were just created.
+		// A reveal wave in the history cannot uncover part of a snapshot.
+		revealed, wave := r.revealed, r.text.reveal
+		r.revealed, r.text.reveal = p.snapshotRevealSpoilers, spoilerReveal{}
+		defer func() { r.revealed, r.text.reveal = revealed, wave }()
+	}
 	r.refreshDates(gtx, m, l)
 	p.refreshStamps(gtx, r, m, l)
 	r.capture = rowCapture{on: p.wantsProfile(r, m), chips: r.capture.chips[:0], parts: r.capture.parts[:0]}
@@ -202,8 +209,13 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 		if !ok {
 			break
 		}
-		if e.Kind == gesture.KindClick && e.NumClicks == 2 {
-			p.quickReact(m)
+		if e.Kind == gesture.KindClick {
+			if len(m.Attachments) > 1 && !m.Local() && len(p.selection.selected) > 0 {
+				p.selection.toggleAlbumPart(m, 0)
+				gtx.Execute(op.InvalidateCmd{})
+			} else if e.NumClicks == 2 {
+				p.quickReact(m)
+			}
 		}
 	}
 	if m.Service != nil && m.Service.Kind == model.ServiceHidden && !date {
@@ -269,7 +281,7 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 		)
 	})
 	call := record.Stop()
-	if p.selection.selected[m.Key.MessageID] && !p.snapshotting {
+	if p.selection.selected[m.Key.MessageID] && p.selection.parts[m.Key.MessageID] == nil && !p.snapshotting {
 		fillRect(gtx, scheme(gtx).Primary.Color.SetOpacity(.13), dims.Size)
 	} else if p.highlight == m.Key.MessageID && gtx.Now.Before(p.highlightUntil) && !p.snapshotting {
 		// A message a search went to, which fades out.
@@ -1374,7 +1386,7 @@ func reactionChipColors(sc *token.Scheme, chosen, outgoing bool) (background, co
 func (p *chatPage) reactionIcon(gtx layout.Context, reaction model.Reaction, animate bool) layout.Dimensions {
 	size := gtx.Dp(18)
 	if reaction.DocumentID != 0 && p.media != nil {
-		if frame := customEmoji(p.media, p.images, reaction.DocumentID, size, animate, scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
+		if frame := customEmoji(p.media, p.images, reaction.DocumentID, size, animate && wdk.AnimationAllowed(gtx, wdk.AnimationEmoji), scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
 			return drawImage(gtx, p.images, frame, image.Pt(size, size))
 		}
 		return layout.Dimensions{Size: image.Pt(size, size)}

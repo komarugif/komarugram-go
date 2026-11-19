@@ -109,7 +109,7 @@ type rowMoves struct {
 // of every row in view is, for those that stay to move from.
 func (p *chatPage) leavers(gtx layout.Context, next []model.Message, env model.RenderEnvironment) (rows []goneRow, tops map[model.MessageID]int, anchor model.MessageID) {
 	source, ok := p.source.(model.ErasedMessages)
-	if !ok || !p.animate || !wdk.AnimationsEnabled(gtx) || !p.restored || p.heights == nil || env != p.env || len(next) >= len(p.messages) {
+	if !ok || !p.animate || !wdk.AnimationEnabled(gtx, wdk.AnimationMessage) || !p.restored || p.heights == nil || env != p.env || len(next) >= len(p.messages) {
 		return nil, nil, 0
 	}
 	above := len(p.above)
@@ -224,7 +224,7 @@ func (p *chatPage) moveShift(gtx layout.Context, id model.MessageID) int {
 	}
 	// Before they start, the rows are where they were.
 	t := max(0, float64(gtx.Now.Sub(m.started))/float64(leaveMove))
-	if t >= 1 || !wdk.AnimationsEnabled(gtx) {
+	if t >= 1 || !wdk.AnimationEnabled(gtx, wdk.AnimationMessage) {
 		p.moves = nil
 		return 0
 	}
@@ -293,7 +293,7 @@ func (p *chatPage) layoutLeaving(gtx layout.Context, l localization.Catalog) {
 	if len(p.leavings) == 0 {
 		return
 	}
-	if !wdk.AnimationsEnabled(gtx) {
+	if !wdk.AnimationEnabled(gtx, wdk.AnimationMessage) {
 		p.dropLeaving()
 		return
 	}

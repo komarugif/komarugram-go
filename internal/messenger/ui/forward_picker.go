@@ -26,13 +26,16 @@ import (
 // forwardPicker is the dialog that picks the chat to forward to: what the
 // history forwards, and what the media viewer shows. Who opens it sends.
 type forwardPicker struct {
-	goToMessage              bool
-	goTo                     *checkbox.Checkboxes[string]
-	navigate                 func(model.Chat)
-	confirming               bool
-	hasMedia                 bool
-	allowOptions             bool
-	options                  model.ForwardOptions
+	goToMessage  bool
+	goTo         *checkbox.Checkboxes[string]
+	navigate     func(model.Chat)
+	confirming   bool
+	hasMedia     bool
+	allowOptions bool
+	options      model.ForwardOptions
+	// Non-nil for a partial album selection. The IDs identify the subsets
+	// that need captions removed by the server.
+	omitAlbumCaptions        map[model.MessageID]bool
 	dropAuthor, dropCaptions *checkbox.Checkboxes[string]
 	back, confirm            surface
 	presence                 model.PresenceSource
@@ -64,16 +67,27 @@ func (f *forwardPicker) open(gtx layout.Context) {
 		f.goToMessage = len(values) > 0
 	})
 	f.confirming = false
-	f.options = model.ForwardOptions{}
-	f.dropAuthor = checkbox.NewCheckboxes([]string{"author"}, nil, func(values []string) {
+	f.options = model.ForwardOptions{DropAuthor: f.mustDropAuthor()}
+	var author []string
+	if f.options.DropAuthor {
+		author = []string{"author"}
+	}
+	f.dropAuthor = checkbox.NewCheckboxes([]string{"author"}, author, func(values []string) {
 		f.options.DropAuthor = len(values) > 0
-		if !f.options.DropAuthor {
+		if !f.options.DropAuthor && f.omitAlbumCaptions == nil {
 			f.options.DropCaptions = false
 			f.dropCaptions.SetValues(nil)
 		}
 	})
-	f.dropCaptions = checkbox.NewCheckboxes([]string{"captions"}, nil, func(values []string) {
-		f.options.DropCaptions = f.options.DropAuthor && f.hasMedia && len(values) > 0
+	if f.options.DropAuthor {
+		f.dropAuthor.Disable()
+	}
+	var captions []string
+	if f.omitAlbumCaptions != nil {
+		captions = []string{"captions"}
+	}
+	f.dropCaptions = checkbox.NewCheckboxes([]string{"captions"}, captions, func(values []string) {
+		f.options.DropCaptions = f.omitAlbumCaptions == nil && f.options.DropAuthor && f.hasMedia && len(values) > 0
 	})
 	f.modal.back = func() bool {
 		if f.confirming {
@@ -93,6 +107,12 @@ func (f *forwardPicker) open(gtx layout.Context) {
 	f.modal.field = &f.search
 	f.modal.Open()
 	gtx.Execute(op.InvalidateCmd{})
+}
+
+// Telegram removes attribution when it strips captions. If this applies
+// to every item, the confirmation can only send copies.
+func (f *forwardPicker) mustDropAuthor() bool {
+	return len(f.ids) > 0 && len(f.omitAlbumCaptions) == len(f.ids)
 }
 
 // targets are the chats of chats one may send to that match the search,
@@ -239,12 +259,14 @@ func (f *forwardPicker) layoutConfirmation(gtx layout.Context, l localization.Ca
 		input = input.Disabled()
 	}
 	f.dropAuthor.Update(input)
-	if f.allowOptions && f.hasMedia && f.options.DropAuthor {
+	canDropCaptions := f.omitAlbumCaptions == nil && f.allowOptions && f.hasMedia && f.options.DropAuthor
+	if canDropCaptions {
 		f.dropCaptions.Enable()
+		f.dropCaptions.Update(input)
 	} else {
 		f.dropCaptions.Disable()
+		f.dropCaptions.Update(input.Disabled())
 	}
-	f.dropCaptions.Update(input)
 	f.goTo.Update(input)
 	if !f.busy {
 		if f.back.Clicked(gtx) {
@@ -272,10 +294,13 @@ func (f *forwardPicker) layoutConfirmation(gtx layout.Context, l localization.Ca
 					}
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							if f.mustDropAuthor() {
+								defer paint.PushOpacity(gtx.Ops, .38).Pop()
+							}
 							return f.dropAuthor.Layout(gtx, map[string]string{"author": l.T("history.forward_no_author")})
 						}),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							if !f.hasMedia || !f.options.DropAuthor {
+							if !canDropCaptions {
 								defer paint.PushOpacity(gtx.Ops, .38).Pop()
 							}
 							return f.dropCaptions.Layout(gtx, map[string]string{"captions": l.T("history.forward_no_caption")})
@@ -322,7 +347,7 @@ func forwardWithOptions(ctx context.Context, source model.MessageForwarder, from
 	if s, ok := source.(model.MessageForwarderWithOptions); ok {
 		return s.ForwardMessagesWithOptions(ctx, from, ids, to, options)
 	}
-	if options.DropAuthor || options.DropCaptions {
+	if options.DropAuthor || options.DropCaptions || len(options.DropAlbumCaptions) > 0 {
 		return errors.New("forwarding options are not supported")
 	}
 	return source.ForwardMessages(ctx, from, ids, to)
