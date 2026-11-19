@@ -59,7 +59,11 @@ type messageRow struct {
 	album       map[model.MessageID]*messageRow
 	// albumSizes are the sizes of the pictures of the album the row shows,
 	// kept for its tiles to be placed by in the next frame.
-	albumSizes []image.Point
+	albumSizes     []image.Point
+	attachmentPick gesture.Click
+	// attachmentPressed is the album member under the press, or zero
+	// when the click would select the whole message.
+	attachmentPressed model.MessageID
 	// partPress takes right presses on a part of an album, which tell the
 	// menu the part.
 	partPress byte
@@ -94,8 +98,8 @@ type messageRow struct {
 	// caption is the width the text wraps at under narrower media.
 	caption captionFit
 	// corners are the corners of the row's tile where it is at the top or
-	// the bottom of its bubble; tiles are where an album's lie, as placed
-	// last.
+	// the bottom of its bubble; tiles are where the album members were
+	// laid out, in album coordinates.
 	corners tileCorners
 	tiles   []image.Rectangle
 	// time is the plate of the time the bubble asks the row's tile to draw

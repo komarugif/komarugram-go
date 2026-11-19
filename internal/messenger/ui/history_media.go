@@ -43,7 +43,13 @@ func fitMediaSize(w, h, maxW, maxH int) image.Point {
 	}
 	return image.Pt(width, height)
 }
-func (p *chatPage) mediaLayout(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog, animate bool) layout.Dimensions {
+func (p *chatPage) mediaLayout(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog, animate bool) (dims layout.Dimensions) {
+	if p.updateAttachmentSelection(gtx, r, m) {
+		defer func(gtx layout.Context) {
+			attachmentSelectionArea(gtx, r, m, dims.Size)
+		}(gtx)
+		gtx = gtx.Disabled()
+	}
 	if m.Kind == model.MessageRound && m.Media != nil {
 		return p.roundLayout(gtx, r, m, l, animate)
 	}
@@ -566,18 +572,41 @@ func tiledAlbum(attachments []model.Message) bool {
 	return true
 }
 
-func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog, animate bool) layout.Dimensions {
+func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Message, l localization.Catalog, animate bool) (dims layout.Dimensions) {
+	selecting := p.updateAttachmentSelection(gtx, r, m)
+	if selecting {
+		defer func() { attachmentSelectionArea(gtx, r, m, dims.Size) }()
+	}
+	drawMember := func(gtx layout.Context, member model.Message, child *messageRow, draw layout.Widget) layout.Dimensions {
+		p.partPresses(gtx, m, child, member)
+		if selecting {
+			dims := draw(gtx.Disabled())
+			p.selection.markAlbumPart(gtx, m.Key.MessageID, member.Key.MessageID, dims.Size)
+			return dims
+		}
+		dims := draw(gtx)
+		partPressArea(gtx, child, dims.Size)
+		return dims
+	}
 	if !tiledAlbum(m.Attachments) {
+		r.tiles = r.tiles[:0]
+		y := 0
 		children := make([]layout.FlexChild, 0, 2*len(m.Attachments))
 		for i, member := range m.Attachments {
 			if i > 0 {
-				children = append(children, vspace(8))
+				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					dims := (layout.Spacer{Height: 8}).Layout(gtx)
+					y += dims.Size.Y
+					return dims
+				}))
 			}
 			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				child := albumRow(gtx, r, member, l)
-				p.partPresses(gtx, m, child, member)
-				dims := p.mediaLayout(gtx, child, member, l, animate)
-				partPressArea(gtx, child, dims.Size)
+				dims := drawMember(gtx, member, child, func(gtx layout.Context) layout.Dimensions {
+					return p.mediaLayout(gtx, child, member, l, animate)
+				})
+				r.tiles = append(r.tiles, image.Rect(0, y, dims.Size.X, y+dims.Size.Y))
+				y += dims.Size.Y
 				return dims
 			}))
 		}
@@ -595,7 +624,7 @@ func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Messag
 	}
 	r.albumSizes = sizes
 	tiles, album := albumTiles(gtx.Metric, gtx.Constraints.Max.X, sizes, r.tiles[:0])
-	defer func() { r.tiles = tiles[:0] }()
+	r.tiles = tiles
 	width, height := album.X, album.Y
 	// The last tile, at the album's bottom right, carries the message's
 	// time, as a single one would; the album then ends the bubble.
@@ -628,10 +657,9 @@ func (p *chatPage) albumLayout(gtx layout.Context, r *messageRow, m model.Messag
 			if k == last {
 				child.time = r.time
 			}
-			p.partPresses(gtx, m, child, member)
-			dims := p.mediaTile(gtx, child, member, tile.Size(), true, l, animate)
-			partPressArea(gtx, child, tile.Size())
-			return dims
+			return drawMember(gtx, member, child, func(gtx layout.Context) layout.Dimensions {
+				return p.mediaTile(gtx, child, member, tile.Size(), true, l, animate)
+			})
 		})
 	}
 	return layout.Dimensions{Size: image.Pt(width, height)}

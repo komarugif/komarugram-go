@@ -202,8 +202,13 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 		if !ok {
 			break
 		}
-		if e.Kind == gesture.KindClick && e.NumClicks == 2 {
-			p.quickReact(m)
+		if e.Kind == gesture.KindClick {
+			if len(m.Attachments) > 1 && !m.Local() && len(p.selection.selected) > 0 {
+				p.selection.toggleAlbumPart(m, 0)
+				gtx.Execute(op.InvalidateCmd{})
+			} else if e.NumClicks == 2 {
+				p.quickReact(m)
+			}
 		}
 	}
 	if m.Service != nil && m.Service.Kind == model.ServiceHidden && !date {
@@ -269,7 +274,7 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 		)
 	})
 	call := record.Stop()
-	if p.selection.selected[m.Key.MessageID] && !p.snapshotting {
+	if p.selection.selected[m.Key.MessageID] && p.selection.parts[m.Key.MessageID] == nil && !p.snapshotting {
 		fillRect(gtx, scheme(gtx).Primary.Color.SetOpacity(.13), dims.Size)
 	} else if p.highlight == m.Key.MessageID && gtx.Now.Before(p.highlightUntil) && !p.snapshotting {
 		// A message a search went to, which fades out.

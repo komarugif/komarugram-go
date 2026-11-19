@@ -76,7 +76,15 @@ func (p *chatPage) updateDelete(chat int64, l localization.Catalog) {
 			d.modal.Close()
 			if d.chat == chat {
 				for _, id := range d.ids {
-					delete(p.selection.selected, id)
+					if p.selection.parts[id] == nil {
+						p.selection.setRow(id, false)
+					}
+					for row, parts := range p.selection.parts {
+						delete(parts, id)
+						if len(parts) == 0 {
+							p.selection.setRow(row, false)
+						}
+					}
 				}
 				if p.deleted != nil {
 					p.deleted(d.ids)

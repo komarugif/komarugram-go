@@ -409,10 +409,11 @@ func (p *chatPage) menuDo(gtx layout.Context, a menuAction, m model.Message, l l
 	case actionDeleteSelected:
 		p.openDelete(gtx, p.selectionRights())
 	case actionSelect:
-		if p.selection.selected == nil {
-			p.selection.selected = map[model.MessageID]bool{}
+		if part, ok := p.menuAlbumMember(m); ok {
+			p.selection.toggleAlbumPart(m, part.Key.MessageID)
+		} else {
+			p.selection.setRow(m.Key.MessageID, true)
 		}
-		p.selection.selected[m.Key.MessageID] = true
 		p.activeText = nil
 	case actionClearSelection:
 		p.clearSelection()

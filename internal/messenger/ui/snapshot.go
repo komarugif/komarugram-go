@@ -91,7 +91,11 @@ func (p *chatPage) selectedMessages() []model.Message {
 	var msgs []model.Message
 	for _, m := range p.messages {
 		if p.selection.selected[m.Key.MessageID] {
-			msgs = append(msgs, m)
+			if picked := p.selection.parts[m.Key.MessageID]; picked != nil {
+				msgs = append(msgs, model.GroupAlbums(appendSelectedParts(nil, m, picked))...)
+			} else {
+				msgs = append(msgs, m)
+			}
 		}
 	}
 	return msgs

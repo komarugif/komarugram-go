@@ -463,6 +463,13 @@ size-stability fixes remain in place.
   captions; omitting the author changes Forward to Send. The choices are
   kept in the outgoing queue across retries and restarts. Stories and
   profile music ask for confirmation without message-forwarding options.
+  In the history's selection mode, a click on a standalone attachment
+  toggles its message. A click on an album member toggles that attachment,
+  and a click in a gap or gutter toggles the whole album. The
+  confirmation locks the caption checkbox when an album is only partly
+  selected. The outgoing queue strips those captions and keeps the
+  captions of complete albums in the same forward.
+  `ALBUM_SELECTION_PNG_DIR` renders the selection and its confirmation.
   An optional Go to forwarded message checkbox opens the recipient at the
   end of its history after success, ignoring the saved scroll position;
   with the author hidden its label changes to Go to sent message. A media

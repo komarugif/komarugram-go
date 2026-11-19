@@ -94,6 +94,7 @@ func renders() []render {
 		render{"jump-buttons", "TestRenderJumpButtons", []string{"JUMP_PNG_DIR={out}"}},
 		render{"skeletons", "TestRenderSkeletonBars", []string{"SKELETON_PNG_DIR={out}"}},
 		render{"tile-fit", "TestRenderTileFit", []string{"TILE_FIT_PNG={out}/tile-fit.png"}},
+		render{"album-selection", "TestRenderAlbumSelection", []string{"ALBUM_SELECTION_PNG_DIR={out}"}},
 		render{"profiler", "TestRenderProfiler", []string{"PROFILER_PNG_DIR={out}"}},
 		render{"pinned", "TestRenderPinned", []string{"PINNED_PNG={out}/pinned.png"}},
 		render{"bubble-fit", "TestRenderBubbleFit", []string{"BUBBLE_FIT_PNG={out}/bubble-fit.png"}},

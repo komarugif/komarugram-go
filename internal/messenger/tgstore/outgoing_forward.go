@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -21,8 +22,14 @@ type outgoingForward struct {
 	Options model.ForwardOptions
 }
 
+func (f *outgoingForward) flags(id model.MessageID) (dropAuthor, dropCaptions bool) {
+	forced := f.Options.DropAlbumCaptions[id]
+	return f.Options.DropAuthor || forced, (f.Options.DropAuthor && f.Options.DropCaptions) || forced
+}
+
 func (s *Store) queueForward(ctx context.Context, from int64, ids []model.MessageID, to int64, wait bool, options model.ForwardOptions) error {
 	options.DropCaptions = options.DropCaptions && options.DropAuthor
+	options.DropAlbumCaptions = maps.Clone(options.DropAlbumCaptions)
 	if len(ids) == 0 {
 		return nil
 	}
@@ -83,8 +90,9 @@ func (s *Store) queueForward(ctx context.Context, from int64, ids []model.Messag
 		if m.NoForwards {
 			return errors.New("message forwarding is protected")
 		}
+		dropAuthor, dropCaptions := e.Forward.flags(messageID)
 		text, entities := m.Text, m.Entities
-		if options.DropCaptions && m.Media != nil {
+		if dropCaptions && m.Media != nil {
 			text, entities = "", nil
 		}
 		pending, err := s.outgoingMessages(ctx, to, model.OutgoingMessage{Text: text, Entities: entities}, e.Created)
@@ -102,7 +110,7 @@ func (s *Store) queueForward(ctx context.Context, from int64, ids []model.Messag
 			p.msg.ForwardFromID = from
 			p.msg.ForwardName = source.Name
 		}
-		if options.DropAuthor {
+		if dropAuthor {
 			p.msg.ForwardFromID, p.msg.ForwardName, p.msg.ForwardPostID = 0, "", 0
 		}
 		if m.GroupedID != 0 {
@@ -152,19 +160,30 @@ func (s *Store) deliverForward(ctx context.Context, e *outgoingEntry) error {
 	if !s.CanSend(e.Chat) {
 		return errors.New("cannot forward to this chat")
 	}
-	for start := 0; start < len(e.Forward.IDs); start += 100 {
-		end := min(start+100, len(e.Forward.IDs))
+	ids := e.Forward.IDs
+	for start := 0; start < len(ids); {
+		dropAuthor, dropCaptions := e.Forward.flags(ids[start])
+		// Caption flags apply to the whole RPC. Split at flag changes
+		// without changing message order or retry identities.
+		end := start + 1
+		for end < min(start+100, len(ids)) {
+			author, captions := e.Forward.flags(ids[end])
+			if author != dropAuthor || captions != dropCaptions {
+				break
+			}
+			end++
+		}
 		req := &tg.MessagesForwardMessagesRequest{FromPeer: e.Forward.Source.input(), ToPeer: e.Peer.input(), TopMsgID: e.Top}
-		req.DropAuthor = e.Forward.Options.DropAuthor
-		req.DropMediaCaptions = e.Forward.Options.DropCaptions && req.DropAuthor
+		req.DropAuthor, req.DropMediaCaptions = dropAuthor, dropCaptions
 		for i := start; i < end; i++ {
 			identity := outgoingRandomID(e.Request.RandomID, i)
 			if _, done := e.Done[identity]; done {
 				continue
 			}
-			req.ID = append(req.ID, int(e.Forward.IDs[i]))
+			req.ID = append(req.ID, int(ids[i]))
 			req.RandomID = append(req.RandomID, identity)
 		}
+		start = end
 		if len(req.ID) == 0 {
 			continue
 		}

@@ -8,6 +8,9 @@ import "context"
 type ForwardOptions struct {
 	DropAuthor   bool
 	DropCaptions bool // Only valid with DropAuthor.
+	// DropAlbumCaptions identifies the forwarded members of partial albums
+	// whose captions must be removed. Telegram also drops their attribution.
+	DropAlbumCaptions map[MessageID]bool `json:",omitempty"`
 }
 
 // MessageForwarderWithOptions supports Telegram's forwarding options.
