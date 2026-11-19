@@ -839,18 +839,26 @@ func (v *mediaViewer) Layout(gtx layout.Context, l localization.Catalog, animate
 	if v.configureDecoders != nil {
 		v.configureDecoders()
 	}
+	v.updateOpening(gtx, animate)
+	v.updateClosingInput(gtx)
 	if !v.open {
 		return
 	}
 	v.layingOut = true
-	if v.opening.returning() || v.closing.requested {
-		gtx = gtx.Disabled()
+	input := gtx
+	if !v.blocksInput() {
+		input = gtx.Disabled()
+		defer pointer.PassOp{}.Push(gtx.Ops).Pop()
 	}
 	// What its buttons do shows over all of it, the dialogs too.
-	tips := v.tips.begin(gtx)
-	v.layout(gtx, l, animate)
+	tips := v.tips.begin(input)
+	v.layout(input, l, animate)
 	if v.open {
-		v.tips.layout(gtx)
+		v.tips.layout(input)
+		if !v.blocksInput() {
+			// The disabled input source also drops InvalidateCmd.
+			gtx.Execute(op.InvalidateCmd{})
+		}
 	}
 	tips.Pop()
 	v.layingOut = false
@@ -930,9 +938,6 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 		if st.click.Clicked(gtx) {
 			v.show(items, indexOf(items, id), false)
 		}
-	}
-	if !editing && (v.backdrop.Clicked(gtx) && !v.standalone || v.close.Clicked(gtx)) {
-		v.dismiss()
 	}
 	v.updateKept(gtx)
 	v.updateShare(gtx, items[indexOf(items, v.current)], l)
@@ -1023,7 +1028,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 	// Any move over the viewer shows the controls of a video. Registered
 	// here, under everything drawn after it, it takes no clicks from them.
 	event.Op(gtx.Ops, &v.controls.moves)
-	// Everything under the viewer is covered and gets no input.
+	// The open viewer's backdrop takes clicks outside the picture.
 	v.backdrop.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		fill := v.backdropColor
 		fill.A = uint8(float32(fill.A) * travel * closeFade)
@@ -1069,7 +1074,7 @@ func (v *mediaViewer) layout(gtx layout.Context, l localization.Catalog, animate
 		}
 		captionTop = v.layoutCaption(chromeGtx, items[i], captionStage, l, animate)
 		v.layoutSides(chromeGtx, view, i > 0, i < len(items)-1, l)
-		if !editing && opened == 1 {
+		if !editing && opened == 1 && gtx.Enabled() {
 			// Over the side zones, so that the wheel works there too; it passes
 			// clicks on to them.
 			v.zoomArea(gtx, view, photo)
@@ -1116,19 +1121,6 @@ func (v *mediaViewer) keyEvents(gtx layout.Context, items []model.Message, i int
 	for {
 		id, e, ok := v.shortcuts.next(gtx, &v.keys, "viewer.previous", "viewer.next", "viewer.first", "viewer.last", "viewer.zoom_in", "viewer.zoom_out", "viewer.zoom_reset", "viewer.copy", "viewer.save",
 			"viewer.play_pause", "viewer.seek_back", "viewer.seek_forward", "viewer.mute")
-		// Escape stays a fixed dismiss key.
-		if !ok {
-			ev, found := gtx.Event(key.FocusFilter{Target: &v.keys}, key.Filter{Focus: &v.keys, Name: key.NameEscape})
-			if found {
-				var isKey bool
-				e, isKey = ev.(key.Event)
-				if !isKey {
-					continue
-				}
-				id = "viewer.close"
-				ok = true
-			}
-		}
 		if !ok {
 			return
 		}
@@ -1146,10 +1138,6 @@ func (v *mediaViewer) keyEvents(gtx layout.Context, items []model.Message, i int
 			v.show(items, 0, true)
 		case "viewer.last":
 			v.show(items, len(items)-1, true)
-		case "viewer.close":
-			v.dismiss()
-			gtx.Execute(key.FocusCmd{})
-			return
 		case "viewer.zoom_in":
 			if photo != (image.Point{}) {
 				v.zoom.zoomBy(zoomStep, f32.Point{}, fitScale(photo, stage))
@@ -1320,7 +1308,7 @@ func (v *mediaViewer) layoutCurrent(gtx layout.Context, item model.Message, stag
 	}
 	offset(gtx, origin, func(gtx layout.Context) layout.Dimensions {
 		return v.picture.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			if video || gif || motionFrame != nil || status.Err != nil || status.Cancelled {
+			if gtx.Enabled() && (video || gif || motionFrame != nil || status.Err != nil || status.Cancelled) {
 				// A press plays the video or the GIF, or pauses it, or loads the
 				// picture again.
 				pointer.CursorPointer.Add(gtx.Ops)
@@ -1451,7 +1439,7 @@ func (v *mediaViewer) layoutCaption(gtx layout.Context, m model.Message, stage i
 			call.Add(gtx.Ops)
 			return dims
 		})
-		if spoilers && !revealed {
+		if gtx.Enabled() && spoilers && !revealed {
 			defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 			pointer.CursorPointer.Add(gtx.Ops)
 			v.caption.Add(gtx.Ops)
@@ -1495,7 +1483,9 @@ func sideZone(gtx layout.Context, tips *tooltips, c *widget.Clickable, r image.R
 		gtx.Constraints = layout.Exact(size)
 		return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			tips.target(gtx, c, tip)
-			pointer.CursorPointer.Add(gtx.Ops)
+			if gtx.Enabled() {
+				pointer.CursorPointer.Add(gtx.Ops)
+			}
 			if c.Hovered() {
 				paint.FillShape(gtx.Ops, color.NRGBA{R: 255, G: 255, B: 255, A: 10}, clip.Rect{Max: size}.Op())
 			}
@@ -1529,7 +1519,9 @@ func viewerIcon(gtx layout.Context, hovered bool, icon wdk.IconWidget, d int) la
 func viewerButton(gtx layout.Context, tips *tooltips, c *widget.Clickable, icon wdk.IconWidget, d int, tip string) layout.Dimensions {
 	return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		tips.target(gtx, c, tip)
-		pointer.CursorPointer.Add(gtx.Ops)
+		if gtx.Enabled() {
+			pointer.CursorPointer.Add(gtx.Ops)
+		}
 		return viewerIcon(gtx, c.Hovered(), icon, d)
 	})
 }
@@ -1748,7 +1740,9 @@ func (v *mediaViewer) layoutStrip(gtx layout.Context, items []model.Message, cur
 			}
 			return layout.Inset{Right: unit.Dp(float32(gap) / gtx.Metric.PxPerDp)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return st.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					pointer.CursorPointer.Add(gtx.Ops)
+					if gtx.Enabled() {
+						pointer.CursorPointer.Add(gtx.Ops)
+					}
 					size := image.Pt(side, side)
 					gtx.Constraints = layout.Exact(size)
 					defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(6)).Push(gtx.Ops).Pop()

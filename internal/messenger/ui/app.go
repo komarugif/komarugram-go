@@ -1523,6 +1523,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	overlayGtx := gtx
 	if a.viewer != nil {
 		a.viewer.updateOpening(gtx, animate)
+		a.viewer.updateClosingInput(gtx)
 	}
 	if a.info != nil && a.info.visible {
 		gtx = gtx.Disabled()
@@ -1640,7 +1641,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	a.overlay.Layout(gtx)
 	if a.info != nil {
 		infoGtx := overlayGtx
-		if a.viewer != nil && a.viewer.open {
+		if a.viewer != nil && a.viewer.blocksInput() {
 			// Escape belongs to the viewer over the info dialog.
 			infoGtx = infoGtx.Disabled()
 		}

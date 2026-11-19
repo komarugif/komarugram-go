@@ -11,7 +11,6 @@ import (
 	"gio-mw/wdk"
 
 	"gioui.org/io/event"
-	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -128,22 +127,12 @@ func (v *mediaViewer) updateOpening(gtx layout.Context, animate bool) {
 	if o.returning() {
 		if !animate || !wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment) || o.elapsed(gtx.Now) <= 0 {
 			v.closeViewer(true)
-		} else {
-			gtx.Execute(op.InvalidateCmd{})
 		}
 		return
 	}
-	dismiss := v.backdrop.Clicked(gtx) || v.close.Clicked(gtx)
-	for !dismiss {
-		e, ok := gtx.Event(key.FocusFilter{Target: &v.keys}, key.Filter{Focus: &v.keys, Name: key.NameEscape})
-		if !ok {
-			return
-		}
-		if e, ok := e.(key.Event); ok && e.State == key.Press {
-			dismiss = true
-		}
+	if !v.dismissInput(gtx) {
+		return
 	}
-	gtx.Execute(key.FocusCmd{})
 	if !animate || !wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment) || o.source == nil || o.drawn <= 0 {
 		v.closeViewer(true)
 		return
@@ -151,7 +140,6 @@ func (v *mediaViewer) updateOpening(gtx layout.Context, animate bool) {
 	// Reverse from the frame the user actually saw, even if the close
 	// event arrived after a long gap between frames.
 	o.returnStart = gtx.Now
-	gtx.Execute(op.InvalidateCmd{})
 }
 
 // step returns the picture's travel and the opacity of the viewer controls.

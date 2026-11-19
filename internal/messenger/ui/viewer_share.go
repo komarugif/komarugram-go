@@ -160,10 +160,6 @@ func (v *mediaViewer) layoutShare(gtx layout.Context, l localization.Catalog) {
 // for: the backdrop, the ring, and the button that closes it; for a story
 // gone, the words that tell it in place of the ring.
 func (v *mediaViewer) layoutWaiting(gtx layout.Context, l localization.Catalog, gone bool) {
-	if v.backdrop.Clicked(gtx) && !v.standalone || v.close.Clicked(gtx) {
-		v.Close()
-		return
-	}
 	size := gtx.Constraints.Max
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 	v.backdrop.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -192,7 +188,9 @@ func layoutLike(gtx layout.Context, tips *tooltips, c *widget.Clickable, story m
 			tip = l.T("viewer.tip_unlike")
 		}
 		tips.target(gtx, c, tip)
-		pointer.CursorPointer.Add(gtx.Ops)
+		if gtx.Enabled() {
+			pointer.CursorPointer.Add(gtx.Ops)
+		}
 		white := token.NewMatColorFromHexRGB(0xffffff)
 		icon, col := iconReacted, white
 		if story.Liked {

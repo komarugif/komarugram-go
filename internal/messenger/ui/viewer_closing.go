@@ -8,8 +8,8 @@ import (
 	"gio-mw/token"
 	"gio-mw/wdk"
 
+	"gioui.org/io/key"
 	"gioui.org/layout"
-	"gioui.org/op"
 )
 
 // viewerCloseShrink is how much smaller the picture is when it has gone.
@@ -22,6 +22,43 @@ const viewerCloseShrink = .15
 type viewerClosing struct {
 	requested bool
 	start     time.Time
+}
+
+func (v *mediaViewer) blocksInput() bool {
+	return v.open && !v.closing.requested && !v.opening.returning()
+}
+
+func (v *mediaViewer) dismissInput(gtx layout.Context) bool {
+	clicked := v.backdrop.Clicked(gtx) && !v.standalone || v.close.Clicked(gtx)
+	for !clicked {
+		e, ok := gtx.Event(key.FocusFilter{Target: &v.keys}, key.Filter{Focus: &v.keys, Name: key.NameEscape})
+		if !ok {
+			return false
+		}
+		if e, ok := e.(key.Event); ok {
+			clicked = e.State == key.Press
+		}
+	}
+	v.tips.hide()
+	if gtx.Focused(&v.keys) {
+		gtx.Execute(key.FocusCmd{})
+	}
+	return true
+}
+
+// Read the dismissal before registering any hit areas for the new frame.
+func (v *mediaViewer) updateClosingInput(gtx layout.Context) {
+	if !v.blocksInput() || !v.opening.start.IsZero() || v.edit.opened() || !v.dismissInput(gtx) {
+		return
+	}
+	v.mu.Lock()
+	waiting := len(v.items) == 0
+	v.mu.Unlock()
+	if waiting {
+		v.Close()
+		return
+	}
+	v.dismiss()
 }
 
 // dismiss closes the viewer as the user asked: with the animation, which
@@ -68,6 +105,5 @@ func (c *viewerClosing) step(gtx layout.Context, animate bool) (chrome, gone flo
 		// The opening's travel run backwards.
 		gone = 1 - float32(token.EasingStandard.Ease(1-float64(elapsed-fade)/float64(move)))
 	}
-	gtx.Execute(op.InvalidateCmd{})
 	return chrome, gone, false
 }

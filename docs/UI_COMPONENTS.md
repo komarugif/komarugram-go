@@ -422,8 +422,10 @@ size-stability fixes remain in place.
   same thumbnail covers the stage while the full picture loads. With
   animations off the viewer opens at once. Dismissing it during the
   entrance plays the transition back to the tile from the last drawn
-  frame. Once open, it closes immediately. `VIEWER_OPEN_PNG_DIR` renders
-  an album's opening and interrupted transitions frame by frame.
+  frame. Once open, the controls fade out and the picture shrinks and
+  fades in place. While the viewer closes, the chat receives input and
+  the overlay keeps requesting frames. `VIEWER_OPEN_PNG_DIR` renders an
+  album's opening, closing and interrupted transitions frame by frame.
   Avatars use the same transition from the chat or forum header, the info
   dialog and the account's profile. Their mask opens from the avatar's
   configured roundness to square corners. Set `VIEWER_OPEN_AVATAR` to
