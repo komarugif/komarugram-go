@@ -41,6 +41,7 @@ type filesBox struct {
 	way   sendfiles.Way
 	// caption is the text of the message the files go with.
 	caption           widget.Editor
+	paste             *byte
 	list              scroll.List
 	add, cancel, send surface
 	mode              tabRow
@@ -138,6 +139,8 @@ func (b *filesBox) Shown() bool { return b.modal.Shown() }
 func (b *filesBox) addPaths(c *messageComposer, paths []string, documents bool) {
 	if !b.modal.Shown() || b.modal.closing {
 		b.generation++
+		// A clipboard reply belongs to this opening of the box.
+		b.paste = new(byte)
 		b.files = nil
 		b.way = sendfiles.Way{Group: true, Documents: documents}
 		b.mode = tabRow{}
@@ -420,6 +423,11 @@ func (c *messageComposer) layoutFilesBox(gtx layout.Context, p *chatPage, l loca
 		}
 		b.tips = tooltips{}
 		return
+	}
+	if !b.modal.closing {
+		if _, err := c.updatePaste(gtx, &b.caption, b.paste); err != nil {
+			b.modal.Toast(composerErrorText(err, l))
+		}
 	}
 	files := b.fileInfo()
 	tabbed := sendfiles.HasDocumentsOption(files)

@@ -12,18 +12,20 @@ import (
 	"strings"
 
 	"gioui.org/io/clipboard"
+	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/io/transfer"
 	"gioui.org/layout"
+	"gioui.org/widget"
 
 	"komarugram/internal/messenger/model"
 )
 
 // updatePaste takes Ctrl+V before the field: files, then a picture, then
 // text, as Telegram Desktop.
-func (c *messageComposer) updatePaste(gtx layout.Context, d *messageDraft) {
+func (c *messageComposer) updatePaste(gtx layout.Context, editor *widget.Editor, target event.Tag) (changed bool, saveErr error) {
 	for {
-		_, e, ok := c.shortcuts.next(gtx, &d.editor, "composer.paste")
+		_, e, ok := c.shortcuts.next(gtx, editor, "composer.paste")
 		if !ok {
 			break
 		}
@@ -32,14 +34,14 @@ func (c *messageComposer) updatePaste(gtx layout.Context, d *messageDraft) {
 			if c.permissions(c.chat).Any(model.SendAttachments) {
 				types = []string{clipboard.TypeURIList, clipboard.TypePNG, clipboard.TypeText}
 			}
-			gtx.Execute(clipboard.ReadCmd{Tag: &c.paste, Types: types})
+			gtx.Execute(clipboard.ReadCmd{Tag: target, Types: types})
 		}
 	}
 	for {
 		ev, ok := gtx.Event(
-			transfer.TargetFilter{Target: &c.paste, Type: clipboard.TypeURIList},
-			transfer.TargetFilter{Target: &c.paste, Type: clipboard.TypePNG},
-			transfer.TargetFilter{Target: &c.paste, Type: clipboard.TypeText},
+			transfer.TargetFilter{Target: target, Type: clipboard.TypeURIList},
+			transfer.TargetFilter{Target: target, Type: clipboard.TypePNG},
+			transfer.TargetFilter{Target: target, Type: clipboard.TypeText},
 		)
 		if !ok {
 			break
@@ -59,20 +61,21 @@ func (c *messageComposer) updatePaste(gtx layout.Context, d *messageDraft) {
 			if paths := localPaths(string(content)); len(paths) > 0 {
 				c.files.addPaths(c, paths, false)
 			} else {
-				gtx.Execute(clipboard.ReadCmd{Tag: &c.paste, Types: []string{clipboard.TypePNG, clipboard.TypeText}})
+				gtx.Execute(clipboard.ReadCmd{Tag: target, Types: []string{clipboard.TypePNG, clipboard.TypeText}})
 			}
 		case clipboard.TypePNG:
 			if path, err := c.savePasted(content); err == nil {
 				c.files.addPaths(c, []string{path}, false)
 			} else {
-				d.err = err
+				saveErr = err
 			}
 		case clipboard.TypeText:
-			if d.editor.Insert(string(content)) > 0 {
-				c.textChanged(d)
+			if editor.Insert(string(content)) > 0 {
+				changed = true
 			}
 		}
 	}
+	return changed, saveErr
 }
 
 // localPaths are the files of a text/uri-list, nil unless all are local.

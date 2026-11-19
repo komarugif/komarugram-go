@@ -685,7 +685,13 @@ drained:
 
 	if !d.sending && permissions.Allows(model.SendText) {
 		c.editKeys(gtx, chat, d, p)
-		c.updatePaste(gtx, d)
+		changed, err := c.updatePaste(gtx, &d.editor, &c.paste)
+		if changed {
+			c.textChanged(d)
+		}
+		if err != nil {
+			d.err = err
+		}
 		for {
 			ev, ok := d.editor.Update(gtx)
 			if !ok {

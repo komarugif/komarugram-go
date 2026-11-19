@@ -67,6 +67,22 @@ func TestComposerPaste(t *testing.T) {
 	if got := c.files.caption.Text(); got != "hello" {
 		t.Fatalf("caption %q", got)
 	}
+	h.frame()
+	paste(pasteData(clipboard.TypeText, " there"))
+	second := filepath.Join(dir, "second.txt")
+	if err := os.WriteFile(second, []byte("y"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	paste(pasteData(clipboard.TypeURIList, fileURI(second).String()+"\r\n"))
+	if !c.files.Shown() || len(c.files.files) != 2 || c.files.files[0].Path != file || c.files.files[1].Path != second {
+		t.Fatalf("after the second file: shown %v, %d files", c.files.Shown(), len(c.files.files))
+	}
+	if got := c.files.caption.Text(); got != "hello there" {
+		t.Fatalf("caption after the second file %q", got)
+	}
+	if got := c.draft(1).editor.Text(); got != "hello" {
+		t.Fatalf("message draft after pasting in the box %q", got)
+	}
 	c.files.close()
 	h.frame()
 	h.click(150, 680)
