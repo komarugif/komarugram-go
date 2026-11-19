@@ -404,6 +404,48 @@ func TestLeavingRecovers(t *testing.T) {
 	}
 }
 
+func TestMediaDustKeepsNativeResolution(t *testing.T) {
+	skipFrames(t)
+	tiles := []image.Rectangle{
+		image.Rect(0, 0, 160, 120),
+		image.Rect(160, 0, 321, 121),
+		image.Rect(321, 0, 968, 423),
+	}
+	size := image.Pt(968, 423)
+	gtx := layout.Context{
+		Ops: new(op.Ops), Now: time.Unix(1000, 0), Constraints: layout.Exact(size),
+		Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{},
+	}
+	withEffects(gtx, new(effects), true)
+	for _, tile := range tiles {
+		offset(gtx, tile.Min, func(gtx layout.Context) layout.Dimensions {
+			paintMediaDust(gtx, tile.Size(), 0)
+			return layout.Dimensions{Size: tile.Size()}
+		})
+	}
+	img, err := renderSnapshot(gtx.Ops, size)
+	if err != nil {
+		t.Skip("no GPU:", err)
+	}
+	center := func(r image.Rectangle) image.Point { return r.Min.Add(r.Size().Div(2)) }
+	foundDust := false
+	for y := -24; y < 24; y++ {
+		for x := -24; x < 24; x++ {
+			want := img.RGBAAt(center(tiles[0]).X+x, center(tiles[0]).Y+y)
+			foundDust = foundDust || want.A != 0
+			for _, tile := range tiles[1:] {
+				at := center(tile).Add(image.Pt(x, y))
+				if got := img.RGBAAt(at.X, at.Y); got != want {
+					t.Fatalf("dust at (%d,%d) changed with cover size %v: got %v, want %v", x, y, tile.Size(), got, want)
+				}
+			}
+		}
+	}
+	if !foundDust {
+		t.Fatal("the cover drew no dust")
+	}
+}
+
 // TestRenderMediaDust saves frames of the dust over media under a
 // spoiler, a fifth of a second apart, over a tile and over one larger
 // than the dust's square, for looking at them:
