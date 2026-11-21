@@ -141,7 +141,7 @@ func (v *mediaViewer) layoutShare(gtx layout.Context, l localization.Catalog) {
 	if !s.picker.modal.Shown() || s.chats == nil {
 		return
 	}
-	targets := s.picker.targets(s.chats(), s.rights, l)
+	targets := s.picker.recipients(gtx, s.chats(), s.rights, l)
 	c, ok := s.picker.layout(gtx, l, targets, s.avatar)
 	if !ok {
 		return

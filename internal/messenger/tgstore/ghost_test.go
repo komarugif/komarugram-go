@@ -205,6 +205,10 @@ func TestDialogsKeepReadsTold(t *testing.T) {
 		case *tg.MessagesGetDialogFiltersRequest:
 			*out.(*tg.MessagesDialogFilters) = tg.MessagesDialogFilters{}
 		case *tg.MessagesGetDialogsRequest:
+			if in.(*tg.MessagesGetDialogsRequest).FolderID == 1 {
+				out.(*tg.MessagesDialogsBox).Dialogs = &tg.MessagesDialogs{}
+				return nil
+			}
 			// Read before Telegram had ann's read; bob was read further on
 			// the phone.
 			out.(*tg.MessagesDialogsBox).Dialogs = &tg.MessagesDialogs{

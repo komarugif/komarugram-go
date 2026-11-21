@@ -5,9 +5,7 @@ package ui
 import (
 	"gio-mw/wdk"
 	"komarugram/internal/messenger/localization"
-	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/preferences"
-	"strconv"
 )
 
 const (
@@ -45,15 +43,14 @@ func arrangeMenu[T any](get menuPreferences, menu string, available []T, id func
 	return out
 }
 
-func navigationID(k drawerKey, account string) string {
+func navigationID(e drawerEntry) string {
+	k := e.key
 	if k.theme {
 		return "theme"
 	}
 	switch k.section.kind {
-	case sectionAll:
-		return "all"
-	case sectionFolder:
-		return "folder:" + account + ":" + strconv.FormatInt(k.section.folder, 10)
+	case sectionAll, sectionFolder:
+		return preferences.FolderMenuItem
 	case sectionSearch:
 		return "search"
 	case sectionProfile:
@@ -75,6 +72,10 @@ func (p *chatPage) messageActionID(a menuAction) string {
 }
 func chatRowActionID(a chatRowAction) string {
 	switch a {
+	case chatRowAddFolder:
+		return "folder_add"
+	case chatRowRemoveFolder:
+		return "folder_remove"
 	case chatRowRead:
 		return "read"
 	case chatRowUngroup:
@@ -97,10 +98,10 @@ type menuCatalog struct {
 	items     []menuChoice
 }
 
-func menuCatalogs(folders []model.Folder, account string, l localization.Catalog) []menuCatalog {
+func menuCatalogs(l localization.Catalog) []menuCatalog {
 	var nav []menuChoice
-	for _, e := range drawerEntries(folders, nil, false, l) {
-		nav = append(nav, menuChoice{navigationID(e.key, account), e.title, e.icon})
+	for _, e := range navigationSlots(false, l) {
+		nav = append(nav, menuChoice{navigationID(e), e.title, e.icon})
 	}
 	out := []menuCatalog{{menuSidebar, l.T("menus.sidebar"), nav}, {menuDrawer, l.T("menus.drawer"), nav}}
 	p := &chatPage{}
@@ -124,7 +125,7 @@ func menuCatalogs(folders []model.Folder, account string, l localization.Catalog
 		message.items = append(message.items, menuChoice{id, title, menuIcon(a)})
 	}
 	out = append(out, message)
-	out = append(out, menuCatalog{menuChatRow, l.T("menus.chat_row"), []menuChoice{{"pin", l.T("chat_row.pin"), iconPinChat}, {"read", l.T("chat_row.read"), iconRead}, {"ungroup", l.T("chat_row.ungroup"), iconUngroup}, {"community", l.T("chat_row.community"), iconKindCommunity}}})
+	out = append(out, menuCatalog{menuChatRow, l.T("menus.chat_row"), []menuChoice{{"pin", l.T("chat_row.pin"), iconPinChat}, {"folder_add", l.T("chat_row.folder_add"), iconFolder}, {"folder_remove", l.T("chat_row.folder_remove"), iconFolder}, {"read", l.T("chat_row.read"), iconRead}, {"ungroup", l.T("chat_row.ungroup"), iconUngroup}, {"community", l.T("chat_row.community"), iconKindCommunity}}})
 	header := menuCatalog{menuChatHeader, l.T("menus.chat_header"), nil}
 	for a := chatMenuAction(0); a < chatMenuActions; a++ {
 		title := p.chatMenuLabel(a, l)

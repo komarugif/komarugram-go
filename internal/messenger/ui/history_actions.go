@@ -246,12 +246,12 @@ func (p *chatPage) openForwardParts(gtx layout.Context, parts []model.Message, s
 
 // forwardTargets are the chats messages may be forwarded to, matching the
 // search, Saved Messages first.
-func (p *chatPage) forwardTargets(l localization.Catalog) []model.Chat {
+func (p *chatPage) forwardTargets(gtx layout.Context, l localization.Catalog) []model.Chat {
 	if p.chats == nil {
 		return nil
 	}
 	rights, _ := p.source.(model.RightsSource)
-	return p.forwarding.targets(p.chats(), rights, l)
+	return p.forwarding.recipients(gtx, p.chats(), rights, l)
 }
 
 // updateForward takes the result of a forward.
@@ -304,7 +304,7 @@ func (p *chatPage) forwardDialog(gtx layout.Context, l localization.Catalog) {
 	if !p.forwarding.modal.Shown() {
 		return
 	}
-	if c, ok := p.forwarding.layout(gtx, l, p.forwardTargets(l), p.avatar); ok {
+	if c, ok := p.forwarding.layout(gtx, l, p.forwardTargets(gtx, l), p.avatar); ok {
 		p.forward(c)
 	}
 }

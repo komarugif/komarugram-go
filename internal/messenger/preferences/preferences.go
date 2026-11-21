@@ -813,6 +813,7 @@ func OpenPath(path string) (*Store, error) {
 	if data.Version != version {
 		return nil, fmt.Errorf("unsupported settings version %d", data.Version)
 	}
+	data.Global.Menus.migrateFolderItems()
 	if err := validate(data.Global); err != nil {
 		return nil, fmt.Errorf("read settings: %w", err)
 	}

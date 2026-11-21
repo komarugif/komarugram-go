@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"image"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,6 +45,10 @@ const (
 	chatRowRead
 	chatRowUngroup
 	chatRowCommunity
+	chatRowFolderPin
+	chatRowFolderUnpin
+	chatRowAddFolder
+	chatRowRemoveFolder
 	chatRowActions
 )
 
@@ -57,7 +62,12 @@ var iconPinChat wdk.IconWidget = func(gtx layout.Context, color token.MatColor) 
 type chatRowMenu struct {
 	menus menuPreferences
 	// store does what the menu offers; nil leaves the menu off.
-	store model.ChatListActions
+	store        model.ChatListActions
+	folderStore  model.FolderManager
+	folderChoice chatFolderChoice
+	folderSave   chan error
+	folderNotice string
+	section      section
 	// premium tells the pin limit; nil skips the check.
 	premium model.PremiumSource
 	// invalidate redraws the window when a pin is answered.
@@ -105,8 +115,7 @@ func (m *chatRowMenu) row(chat int64) *byte {
 	return t
 }
 
-// actions are the items the menu of c offers; pins are only of the list of
-// all chats, where a pin is the list's own.
+// actions keeps folder pins separate from the main list's server or local pins.
 func (m *chatRowMenu) actions(c model.Chat, sec section) []chatRowAction {
 	if m.store == nil {
 		return nil
@@ -117,6 +126,32 @@ func (m *chatRowMenu) actions(c model.Chat, sec section) []chatRowAction {
 			out = append(out, chatRowUnpin)
 		} else {
 			out = append(out, chatRowPin)
+		}
+	}
+	if m.folderStore != nil && m.folderSave == nil && c.Kind != model.KindCommunity {
+		var add, remove bool
+		for _, f := range m.folderStore.Folders() {
+			if f.ID == 0 {
+				continue
+			}
+			if !f.Contains(c) {
+				add = true
+				continue
+			}
+			if sec.kind == sectionFolder && f.ID == sec.folder {
+				if slices.Contains(f.Pinned, c.ID) {
+					out = append(out, chatRowFolderUnpin)
+				} else {
+					out = append(out, chatRowFolderPin)
+				}
+			}
+			remove = remove || f.CanRemoveChat(c)
+		}
+		if add {
+			out = append(out, chatRowAddFolder)
+		}
+		if remove {
+			out = append(out, chatRowRemoveFolder)
 		}
 	}
 	if c.Unread > 0 {
@@ -133,6 +168,14 @@ func (m *chatRowMenu) actions(c model.Chat, sec section) []chatRowAction {
 
 func chatRowLabel(a chatRowAction, l localization.Catalog) string {
 	switch a {
+	case chatRowFolderPin:
+		return l.T("chat_row.folder_pin")
+	case chatRowFolderUnpin:
+		return l.T("chat_row.folder_unpin")
+	case chatRowAddFolder:
+		return l.T("chat_row.folder_add")
+	case chatRowRemoveFolder:
+		return l.T("chat_row.folder_remove")
 	case chatRowPin:
 		return l.T("chat_row.pin")
 	case chatRowUnpin:
@@ -147,6 +190,8 @@ func chatRowLabel(a chatRowAction, l localization.Catalog) string {
 
 func chatRowIcon(a chatRowAction) wdk.IconWidget {
 	switch a {
+	case chatRowAddFolder, chatRowRemoveFolder:
+		return iconFolder
 	case chatRowRead:
 		return iconRead
 	case chatRowUngroup:
@@ -164,6 +209,11 @@ func (m *chatRowMenu) update(gtx layout.Context, sec section, chats []model.Chat
 		return
 	}
 	m.tell(toast, l)
+	m.folderResult(toast, l)
+	if (m.open || m.folderChoice.modal.Shown()) && m.section != sec {
+		m.close()
+	}
+
 	// Where the right click was, in the list, and on which chat.
 	for {
 		ev, ok := gtx.Event(pointer.Filter{Target: &m.area, Kinds: pointer.Press})
@@ -184,13 +234,17 @@ func (m *chatRowMenu) update(gtx layout.Context, sec section, chats []model.Chat
 			if !ok || e.Source != pointer.Mouse || e.Buttons != pointer.ButtonSecondary {
 				continue
 			}
-			if c, ok := chatByID(chats, id); ok && len(m.actions(c, sec)) > 0 {
-				m.open, m.id, m.focus = true, id, true
+			if c, ok := chatByID(chats, id); ok && !m.folderChoice.modal.Shown() && len(m.actions(c, sec)) > 0 {
+				m.open, m.id, m.focus, m.section = true, id, true, sec
 				m.menu = contextMenu{}
 				m.at = image.Pt(int(m.press.X), int(m.press.Y))
 				gtx.Execute(op.InvalidateCmd{})
 			}
 		}
+	}
+	if m.folderChoice.modal.Shown() {
+		m.folderChoice.update(gtx, m, chats, toast, l)
+		return
 	}
 	if !m.open {
 		return
@@ -210,7 +264,7 @@ func (m *chatRowMenu) update(gtx layout.Context, sec section, chats []model.Chat
 		}
 	}
 	c, ok := chatByID(chats, m.id)
-	if !ok {
+	if !ok || !m.open {
 		m.open = false
 		return
 	}
@@ -225,6 +279,21 @@ func (m *chatRowMenu) update(gtx layout.Context, sec section, chats []model.Chat
 		}
 		m.open = false
 		switch a {
+		case chatRowFolderPin, chatRowFolderUnpin:
+			for _, f := range m.folderStore.Folders() {
+				if f.ID == sec.folder {
+					change := model.FolderPinChat
+					if a == chatRowFolderUnpin {
+						change = model.FolderUnpinChat
+					}
+					m.changeFolder(f, c, change, toast, l)
+					break
+				}
+			}
+		case chatRowAddFolder, chatRowRemoveFolder:
+			if m.folderSave == nil {
+				m.folderChoice.open(c, a, m.folderStore.Folders())
+			}
 		case chatRowPin, chatRowUnpin:
 			m.pin(c, a == chatRowPin, chats, toast, l)
 		case chatRowRead:

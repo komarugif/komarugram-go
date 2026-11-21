@@ -128,9 +128,10 @@ type App struct {
 	// found is the open chat when a search found it outside the chat list.
 	found model.Chat
 
-	sidebar  *sidebar
-	chats    *chatList
-	splitter splitter
+	folderMenu folderContextMenu
+	sidebar    *sidebar
+	chats      *chatList
+	splitter   splitter
 
 	// When the window is too small for the sidebar, its items move to a
 	// drawer opened by the menu button, and the folders to a bar over the
@@ -282,6 +283,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	a.profile.premium, _ = store.(model.PremiumSource)
 	a.chats.badges = a.badges
 	a.chats.menu.store, _ = store.(model.ChatListActions)
+	a.chats.menu.folderStore, _ = store.(model.FolderManager)
 	a.chats.menu.premium, _ = store.(model.PremiumSource)
 	a.chats.menu.invalidate = w.Invalidate
 	a.chats.reorder.store, _ = store.(model.PinReorderer)
@@ -365,6 +367,18 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	a.settings.images = &a.images
 	a.settings.private = a.private
 	a.settings.premium, _ = store.(model.PremiumSource)
+	if source, ok := store.(model.FolderManager); ok {
+		a.settings.folders = newFolderSettings(source)
+		if actions, ok := store.(model.FolderActions); ok {
+			a.folderMenu.store = actions
+			a.sidebar.folderMenu = &a.folderMenu
+			a.folderBar.folderMenu = &a.folderMenu
+		}
+		a.settings.folders.dialogs = a.folderDialogs
+		a.settings.folders.avatar = a.layoutAvatar
+		a.settings.folders.peers.usernames, _ = store.(model.UsernameSource)
+		a.settings.folders.peers.presence, _ = store.(model.PresenceSource)
+	}
 	a.settings.setPrivate = func(on bool) {
 		if err := services.Preferences.SetVisualPrivacy(on); err != nil {
 			log.Printf("save settings: %v", err)
@@ -668,14 +682,11 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.settings.sessions.private = a.private
 	}
 	a.sidebar.menus = a.menuPrefs
-	a.sidebar.account = a.currentAccount
 	a.chats.menu.menus = a.menuPrefs
 	if a.chats.panel != nil {
 		a.chats.panel.recent.menus = a.menuPrefs
 	}
-	a.settings.menus = newMenuSettings(a.menuPrefs, a.preferences.SetMenus, func(l localization.Catalog) []menuCatalog {
-		return menuCatalogs(a.store.Folders(), a.currentAccount(), l)
-	}, &a.settings.toast)
+	a.settings.menus = newMenuSettings(a.menuPrefs, a.preferences.SetMenus, menuCatalogs, &a.settings.toast)
 	a.security = a.settings.security
 	if services.Security != nil {
 		a.unsubscribe = append(a.unsubscribe, services.Security.Subscribe(w.Invalidate))
@@ -829,7 +840,8 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 	p.stickers.menus = a.menuPrefs
 	p.membershipNotice = a.chats.toast.Show
 	p.frozen = a.frozen
-	p.chats = store.Chats
+	p.chats = a.folderDialogs
+	p.forwarding.folders = store.Folders
 	p.images = &a.images
 	p.classic = func() bool { return a.composerStyle() == preferences.ComposerClassic }
 	p.deleteEffect = func() preferences.DeleteEffect { return a.preferences.Global().DeleteEffect }
@@ -903,6 +915,9 @@ func (a *App) messageFilter() *messageFilter {
 
 // Close releases process-wide subscriptions when this window closes.
 func (a *App) Close() {
+	if a.folderMenu.stop != nil {
+		a.folderMenu.stop()
+	}
 	if a.stopBadges != nil {
 		a.stopBadges()
 	}
@@ -1175,6 +1190,10 @@ func (a *App) Update(gtx layout.Context) {
 	a.shownChat.Store(a.selected)
 	a.shortcutEvents(gtx)
 	folders := a.store.Folders()
+	a.folderMenu.update(gtx, a, folders)
+	if a.section.kind == sectionFolder && !slices.ContainsFunc(folders, func(f model.Folder) bool { return f.ID == a.section.folder }) {
+		a.section = section{kind: sectionAll}
+	}
 	a.overlay.Update(gtx)
 	a.overlayUpdated = true
 	if a.compact {
@@ -1241,7 +1260,8 @@ func (a *App) toggleTheme() {
 
 // layoutDrawer is the content of the drawer overlay item.
 func (a *App) layoutDrawer(gtx layout.Context) layout.Dimensions {
-	entries := arrangeMenu(a.menuPrefs, menuDrawer, drawerEntries(a.store.Folders(), a.store.Chats(), a.dark(), a.catalog()), func(e drawerEntry) string { return navigationID(e.key, a.currentAccount()) })
+	slots := arrangeMenu(a.menuPrefs, menuDrawer, navigationSlots(a.dark(), a.catalog()), navigationID)
+	entries := navigationEntries(slots, a.store.Folders(), a.folderDialogs(), a.catalog())
 	if key, ok := a.drawer.Update(gtx, entries); ok {
 		if key.theme {
 			a.toggleTheme()
@@ -1254,6 +1274,13 @@ func (a *App) layoutDrawer(gtx layout.Context) layout.Dimensions {
 }
 
 func (a *App) openSection(gtx layout.Context, sec section) {
+	if a.chats != nil {
+		a.chats.menu.close()
+	}
+	if a.section.kind == sectionSettings && a.settings != nil && a.settings.section == settingsFolders && a.settings.folders != nil && a.settings.folders.draft {
+		a.settings.folders.leaveDraft(gtx, a.catalog(), func(current layout.Context) { a.openSection(current, sec) })
+		return
+	}
 	if a.settings != nil && a.settings.shortcuts != nil {
 		a.settings.shortcuts.Close()
 		a.settings.shortcuts.signature = ""
@@ -1299,8 +1326,15 @@ func (a *App) savedChat() int64 {
 	return a.store.Me().ID
 }
 
+func (a *App) folderDialogs() []model.Chat {
+	if store, ok := a.store.(interface{ FolderDialogs() []model.Chat }); ok {
+		return store.FolderDialogs()
+	}
+	return a.store.Chats()
+}
+
 func (a *App) selectedChat() (model.Chat, bool) {
-	for _, c := range a.store.Chats() {
+	for _, c := range a.folderDialogs() {
 		if c.ID == a.selected {
 			c.Title = a.catalog().ChatTitle(c)
 			return c, true
@@ -1340,7 +1374,7 @@ func (a *App) open(pick chatPick) {
 	a.selected = pick.ID
 	if pick.Chat != nil {
 		a.found = *pick.Chat
-	} else if c, ok := chatByID(a.store.Chats(), pick.ID); ok && c.Kind == model.KindCommunity {
+	} else if c, ok := chatByID(a.folderDialogs(), pick.ID); ok && c.Kind == model.KindCommunity {
 		// Shown apart, a community has no row: its page stays open.
 		c.Collapsed = false
 		a.found = c
@@ -1542,7 +1576,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	}
 	size := gtx.Constraints.Max
 	folders := a.store.Folders()
-	chats := a.store.Chats()
+	chats := a.folderDialogs()
 	sc := scheme(gtx)
 
 	sidebarPx := gtx.Dp(sidebarWidth)
@@ -1555,14 +1589,22 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 
 	// The sidebar needs room for itself, the list and the page across,
 	// and for all its buttons down.
-	a.compact = toDp(size.X) < sidebarWidth+listMinWidth+pageMinWidth ||
-		toDp(size.Y) < sidebarNeededHeight(len(folders))
+	a.compact = toDp(size.X) < sidebarWidth+listMinWidth+pageMinWidth
 	x := 0
 	if !a.compact {
-		column(0, 0, sidebarPx, size.Y, func(gtx layout.Context) layout.Dimensions {
-			return a.sidebar.Layout(gtx, a.section, folders, chats, a.dark(), a.catalog())
-		})
-		x = sidebarPx
+		slots := arrangeMenu(a.menuPrefs, menuSidebar, navigationSlots(a.dark(), a.catalog()), navigationID)
+		rows := len(slots)
+		if slices.ContainsFunc(slots, func(e drawerEntry) bool { return e.key.section.kind == sectionFolder }) {
+			rows += len(folders) - 1
+		}
+		a.compact = toDp(size.Y) < sidebarNeededHeight(rows)
+		if !a.compact {
+			entries := navigationEntries(slots, folders, chats, a.catalog())
+			column(0, 0, sidebarPx, size.Y, func(gtx layout.Context) layout.Dimensions {
+				return a.sidebar.Layout(gtx, a.section, entries, a.dark(), a.catalog())
+			})
+			x = sidebarPx
+		}
 	}
 
 	var listAt image.Point
@@ -1631,6 +1673,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	if a.section.showsChats() {
 		a.chats.layoutMenu(gtx, listAt, menuBackdrop, a.catalog())
 	}
+	a.folderMenu.layout(gtx, menuBackdrop, a.catalog())
 	a.drop.layout(gtx, a.catalog())
 	if !a.overlayUpdated {
 		// A window locked or signing in returns from Update before the

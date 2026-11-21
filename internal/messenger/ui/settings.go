@@ -79,6 +79,7 @@ const (
 	// client shows of them: ghost mode, the message filters, what the cache
 	// keeps, and the hiding of what distracts.
 	settingsVisibility
+	settingsFolders
 )
 
 func settingsTitles(l localization.Catalog) map[settingsSection]string {
@@ -92,6 +93,7 @@ func settingsTitles(l localization.Catalog) map[settingsSection]string {
 		settingsMenuOrder:  l.T("menus.title"),
 		settingsShortcuts:  l.T("keys.title"),
 		settingsVisibility: l.T("settings.visibility"),
+		settingsFolders:    l.T("folders.title"),
 	}
 }
 
@@ -110,6 +112,7 @@ var settingsIcons = map[settingsSection]wdk.IconWidget{
 	settingsMenuOrder:    iconReorder,
 	settingsShortcuts:    iconKeyboard,
 	settingsVisibility:   iconVisibility,
+	settingsFolders:      iconFolder,
 }
 
 func storageShort(l localization.Catalog) map[miniapp.Storage]string {
@@ -128,6 +131,7 @@ func motionShort(l localization.Catalog) map[powersave.Mode]string {
 
 // settingsPage shows the main settings page or one of its sections.
 type settingsPage struct {
+	folders     *folderSettings
 	shortcuts   *shortcutSettings
 	menus       *menuSettings
 	cardHeights map[string]*heightTransition
@@ -372,6 +376,7 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			settingsMenuOrder:    new(settingsItem),
 			settingsShortcuts:    new(settingsItem),
 			settingsVisibility:   new(settingsItem),
+			settingsFolders:      new(settingsItem),
 		},
 		back:          button.Text(),
 		motion:        m,
@@ -651,7 +656,11 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		}
 	}
 	if p.back.Clicked(gtx) {
-		p.open()
+		if p.section == settingsFolders && p.folders.draft {
+			p.folders.leaveDraft(gtx, p.worded, func(layout.Context) { p.list.Position = layout.Position{} })
+		} else {
+			p.open()
+		}
 	}
 	if p.subscribe.Clicked(gtx) && p.premium != nil {
 		if bot := p.premium.Premium().Bot; bot != "" {
@@ -882,6 +891,11 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		p.lookView.Update(gtx)
 		p.chats.Update(gtx)
 	}
+	if p.section == settingsFolders && p.folders != nil {
+		p.folders.update(gtx, p, localization.For(language))
+	} else if p.folders != nil {
+		p.folders.reorder.cancel()
+	}
 	if p.section == settingsAbout {
 		p.about.Update(gtx)
 	}
@@ -897,7 +911,15 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 	dims := p.layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		header := layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			title := func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, titles[p.section], token.TypestyleHeadlineSmall, sc.Surface.OnColor, 1)
+				text := titles[p.section]
+				if p.section == settingsFolders && p.folders.draft {
+					key := "folders.new"
+					if p.folders.base != nil {
+						key = "folders.edit"
+					}
+					text = l.T(key)
+				}
+				return label(gtx, text, token.TypestyleHeadlineSmall, sc.Surface.OnColor, 1)
 			}
 			if p.section == settingsMain {
 				return title(gtx)
@@ -1039,6 +1061,10 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 			content = func(gtx layout.Context) layout.Dimensions { return p.layoutIntegrations(gtx, l) }
 		case settingsDevices:
 			content = func(gtx layout.Context) layout.Dimensions { return p.sessions.Layout(gtx, l) }
+		case settingsFolders:
+			content = func(gtx layout.Context) layout.Dimensions {
+				return p.folders.layout(gtx, l, p.premium != nil && p.premium.Premium().Active)
+			}
 		case settingsChats:
 			content = func(gtx layout.Context) layout.Dimensions { return p.layoutChats(gtx, l) }
 		case settingsAbout:
@@ -1063,6 +1089,9 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 	})
 	p.layingOut = false
 	p.followLogOut(gtx)
+	if p.section == settingsFolders && p.folders != nil {
+		p.folders.overlay(gtx, l)
+	}
 	if p.section == settingsShortcuts && p.shortcuts != nil {
 		p.shortcuts.Overlay(gtx, l)
 	}
@@ -1147,6 +1176,7 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 		settingsPremium:      p.premiumText(l),
 		settingsIntegrations: p.players.subtitle(l),
 		settingsDevices:      l.T("settings.devices_hint"),
+		settingsFolders:      l.T("folders.subtitle"),
 		settingsChats:        p.chats.subtitle(l),
 		settingsNotify:       p.notifyView.subtitle(l),
 		settingsMenuOrder:    l.T("menus.subtitle"),
@@ -1232,6 +1262,9 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 				}
 				if p.chats.available() || p.composerStyle != nil || p.lookView.look != nil {
 					sections = append(sections, settingsChats)
+				}
+				if p.folders != nil {
+					sections = append(sections, settingsFolders)
 				}
 				if p.hasVisibility() {
 					sections = append(sections, settingsVisibility)

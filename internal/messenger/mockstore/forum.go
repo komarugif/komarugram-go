@@ -43,7 +43,16 @@ func (s *Store) Topics(chat int64) model.TopicList {
 	if chat != DemoForum {
 		return model.TopicList{}
 	}
-	return model.TopicList{Topics: demoTopics(s.created)}
+	s.mu.Lock()
+	read := s.forumRead
+	s.mu.Unlock()
+	topics := demoTopics(s.created)
+	if read {
+		for i := range topics {
+			topics[i].Unread, topics[i].Mentions = 0, 0
+		}
+	}
+	return model.TopicList{Topics: topics}
 }
 
 // LoadMoreTopics implements model.ForumSource.
@@ -106,7 +115,7 @@ func (s *Store) SearchForum(ctx context.Context, forum int64, text, next string,
 		return model.ForumSearchPage{}, ctx.Err()
 	}
 	var found []model.FoundInTopic
-	for _, t := range demoTopics(s.created) {
+	for _, t := range s.Topics(forum).Topics {
 		for _, m := range s.History(s.OpenTopic(forum, t).ID).Messages {
 			if strings.Contains(strings.ToLower(m.Text), text) {
 				found = append(found, model.FoundInTopic{Message: m, Topic: t})

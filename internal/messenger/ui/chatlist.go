@@ -38,6 +38,10 @@ const (
 
 // chatList is the list of chats of a section.
 type chatList struct {
+	// The store replaces snapshots on change. Reuse the ordered folder view
+	// through hover and animation frames that read the same snapshots.
+	folder                  *model.Folder
+	folderInput, folderRows []model.Chat
 	// toast is what to tell of what happened in the list: the list, too
 	// narrow for a long error, does not draw it, but the App, in the chat
 	// open or over the window (relayListToast).
@@ -153,14 +157,23 @@ func (l *chatList) row(id int64) *chatRow {
 
 // visible returns the chats the section lists.
 func (l *chatList) visible(sec section, folders []model.Folder, chats []model.Chat, catalog localization.Catalog) []model.Chat {
+	if sec.kind != sectionFolder {
+		l.folder, l.folderInput, l.folderRows = nil, nil, nil
+	}
 	var match func(model.Chat) bool
 	switch sec.kind {
 	case sectionFolder:
-		for _, f := range folders {
-			if f.ID == sec.folder {
-				match = f.Contains
+		for i := range folders {
+			f := &folders[i]
+			if f.ID != sec.folder {
+				continue
 			}
+			if l.folder != f || len(l.folderInput) != len(chats) || len(chats) > 0 && &l.folderInput[0] != &chats[0] {
+				l.folder, l.folderInput, l.folderRows = f, chats, f.Chats(chats)
+			}
+			return l.folderRows
 		}
+		return nil
 	case sectionSearch:
 		query := strings.ToLower(strings.TrimSpace(l.search.GetText()))
 		if query != "" {
@@ -288,13 +301,15 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 	}
 	l.items = l.items[:0]
 
+	if sec.kind != sectionFolder {
+		chats = model.MainDialogs(chats)
+	}
 	l.menu.all = chats
 	if sec.kind == sectionAll || sec.kind == sectionSaved {
 		chats = communityRows(chats, catalog)
 	}
 	chats = l.reorder.update(gtx, sec, chats, l.shown, &l.toast, catalog)
 	visible := l.visible(sec, folders, chats, catalog)
-	l.menu.update(gtx, sec, chats, l.shown, &l.toast, catalog)
 	listGtx := gtx
 	listGtx.Constraints = layout.Exact(image.Pt(size.X, max(size.Y-headerHeight, 0)))
 	// The rows are recorded to be drawn again, blurred, behind whatever
@@ -303,13 +318,7 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 	recording := overlays.menus
 	l.bd = nil
 	rows := func(gtx layout.Context) layout.Dimensions {
-		if len(visible) == 0 {
-			return layout.N.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.UniformInset(unit.Dp(24)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return centeredLabel(gtx, catalog.T("chat.not_found"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 2)
-				})
-			})
-		}
+
 		now := time.Now()
 		l.shown = l.shown[:0]
 		// The row of stories is the list's first: it scrolls away with the
@@ -331,6 +340,13 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 			first = 1
 		} else {
 			l.storiesRow.shown = l.storiesRow.shown[:0]
+		}
+		if len(visible) == 0 && !row {
+			return layout.N.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.UniformInset(unit.Dp(24)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return centeredLabel(gtx, catalog.T("chat.not_found"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 2)
+				})
+			})
 		}
 		dims := l.list.Layout(gtx, len(visible)+first, func(gtx layout.Context, i int) layout.Dimensions {
 			if i < first {
@@ -386,6 +402,8 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 		l.menu.areaOp(gtx)
 		return layout.Dimensions{}
 	})
+	// Register presses for the rows of this frame, including the first frame after a folder switch.
+	l.menu.update(gtx, sec, visible, l.shown, &l.toast, catalog)
 	l.menuShown, l.menuTop = true, headerHeight
 	return layout.Dimensions{Size: size}
 }
@@ -398,6 +416,7 @@ func (l *chatList) layoutMenu(gtx layout.Context, origin image.Point, bd *blurBa
 		return
 	}
 	l.menu.layout(gtx, origin.Add(image.Pt(0, l.menuTop)), bd, catalog)
+	l.menu.folderChoice.layout(gtx, catalog)
 }
 
 // chatIndex is where the chat of id is in chats, -1 for nowhere.

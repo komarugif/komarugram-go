@@ -138,7 +138,10 @@ func Renumbered(chats []Chat) []Chat {
 // order, as an update of the pinned chats says. Chats of order that are not
 // in the list are left out.
 func WithPinOrder(chats []Chat, order []int64) []Chat {
-	out := append([]Chat(nil), chats...)
+	return setPinOrder(append([]Chat(nil), chats...), order)
+}
+
+func setPinOrder(out []Chat, order []int64) []Chat {
 	rank := make(map[int64]int, len(order))
 	for i, id := range order {
 		rank[id] = i + 1

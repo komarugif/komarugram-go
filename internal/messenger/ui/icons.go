@@ -99,6 +99,8 @@ var (
 	iconPlace         = wdk.RequireIconWidget(icons.MapsPlace)
 	iconForward       = wdk.RequireIconWidget(icons.ContentForward)
 	iconDelete        = wdk.RequireIconWidget(icons.ActionDelete)
+	iconChatChecked   = wdk.RequireIconWidget(icons.ToggleCheckBox)
+	iconChatUnchecked = wdk.RequireIconWidget(icons.ToggleCheckBoxOutlineBlank)
 	iconCheck         = wdk.RequireIconWidget(icons.NavigationCheck)
 	iconGIF           = wdk.RequireIconWidget(icons.ActionGIF)
 	iconEditBrush     = wdk.RequireIconWidget(icons.ImageBrush)
@@ -150,17 +152,19 @@ var (
 
 // folderIcon picks an icon for a folder by the kinds of chats it holds.
 func folderIcon(f model.Folder) wdk.IconWidget {
-	if len(f.Kinds) == 0 {
-		return iconFolder
+	if icon := f.Emoticon; icon != "" {
+		return func(gtx layout.Context, col token.MatColor) layout.Dimensions {
+			return centeredLabel(gtx, icon, token.TypestyleTitleMedium, col, 1)
+		}
 	}
-	switch f.Kinds[0] {
-	case model.KindUser:
+	switch {
+	case f.Contacts || f.NonContacts:
 		return iconPersonal
-	case model.KindGroup:
+	case f.Groups:
 		return iconGroups
-	case model.KindChannel:
+	case f.Channels:
 		return iconChannels
-	case model.KindBot:
+	case f.Bots:
 		return iconBots
 	default:
 		return iconFolder

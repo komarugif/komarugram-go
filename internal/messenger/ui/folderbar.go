@@ -25,8 +25,9 @@ const (
 // folderBar is the horizontal, scrollable row of folders shown above the
 // chat list when the sidebar is hidden.
 type folderBar struct {
-	list  scroll.List
-	chips map[int64]*folderChip // By folder id; 0 is all chats.
+	folderMenu *folderContextMenu
+	list       scroll.List
+	chips      map[int64]*folderChip // By folder id; 0 is all chats.
 }
 
 type folderChip struct {
@@ -57,9 +58,13 @@ type barFolder struct {
 }
 
 func barFolders(folders []model.Folder, chats []model.Chat, l localization.Catalog) []barFolder {
-	out := []barFolder{{title: l.T("nav.all"), unread: unreadChats(chats, func(model.Chat) bool { return true })}}
+	var out []barFolder
 	for _, f := range folders {
-		out = append(out, barFolder{id: f.ID, title: f.Title, unread: unreadChats(chats, f.Contains)})
+		title := f.Title
+		if f.ID == 0 {
+			title = l.T("nav.all")
+		}
+		out = append(out, barFolder{id: f.ID, title: title, unread: unreadChats(chats, f.Contains)})
 	}
 	return out
 }
@@ -81,7 +86,7 @@ func (b *folderBar) Update(gtx layout.Context, folders []model.Folder) (section,
 		return section{kind: sectionAll}, true
 	}
 	for _, f := range folders {
-		if b.chip(f.ID).click.Clicked(gtx) {
+		if f.ID != 0 && b.chip(f.ID).click.Clicked(gtx) {
 			return section{kind: sectionFolder, folder: f.ID}, true
 		}
 	}
@@ -97,7 +102,9 @@ func (b *folderBar) Layout(gtx layout.Context, current section, folders []model.
 		active := (f.id == 0 && current.kind == sectionAll) || (current.kind == sectionFolder && current.folder == f.id)
 		gap := gtx.Dp(folderChipGap)
 		dims := offset(gtx, image.Pt(gap, (size.Y-gtx.Dp(folderChipHeight))/2), func(gtx layout.Context) layout.Dimensions {
-			return b.chip(f.id).Layout(gtx, f.title, active, f.unread)
+			dims := b.chip(f.id).Layout(gtx, f.title, active, f.unread)
+			b.folderMenu.hit(gtx, f.id, dims.Size)
+			return dims
 		})
 		return layout.Dimensions{Size: image.Pt(dims.Size.X+gap, size.Y)}
 	})

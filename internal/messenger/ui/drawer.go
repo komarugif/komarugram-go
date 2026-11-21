@@ -90,25 +90,42 @@ func (d *drawer) close() {
 	}
 }
 
-func drawerEntries(folders []model.Folder, chats []model.Chat, dark bool, l localization.Catalog) []drawerEntry {
-	entries := []drawerEntry{{key: drawerKey{section: section{kind: sectionAll}}, icon: iconAllChats, title: l.T("nav.all"),
-		unread: unreadChats(chats, func(model.Chat) bool { return true })}}
-	for _, f := range folders {
-		entries = append(entries, drawerEntry{key: drawerKey{section: section{kind: sectionFolder, folder: f.ID}},
-			icon: folderIcon(f), title: f.Title, unread: unreadChats(chats, f.Contains)})
-	}
-	entries = append(entries,
-		drawerEntry{key: drawerKey{section: section{kind: sectionSearch}}, icon: iconSearch, title: l.T("nav.search")},
-		drawerEntry{key: drawerKey{section: section{kind: sectionProfile}}, icon: iconProfile, title: l.T("nav.profile")},
-		drawerEntry{key: drawerKey{section: section{kind: sectionSaved}}, icon: iconSaved, title: l.T("nav.saved")},
-		drawerEntry{key: drawerKey{section: section{kind: sectionDownloads}}, icon: iconDownloads, title: l.T("nav.downloads")},
-		drawerEntry{key: drawerKey{section: section{kind: sectionSettings}}, icon: iconSettings, title: l.T("nav.settings")},
-	)
+// navigationSlots supplies the same catalog to both menus and their settings.
+// Its folder placeholder is expanded only when rendering a particular account.
+func navigationSlots(dark bool, l localization.Catalog) []drawerEntry {
 	theme := drawerEntry{key: drawerKey{theme: true}, icon: iconDark, title: l.T("nav.theme_dark_full")}
 	if dark {
 		theme.icon, theme.title = iconLight, l.T("nav.theme_light_full")
 	}
-	return append(entries, theme)
+	return []drawerEntry{
+		{key: drawerKey{section: section{kind: sectionFolder}}, icon: iconFolder, title: l.T("folders.title")},
+		{key: drawerKey{section: section{kind: sectionSearch}}, icon: iconSearch, title: l.T("nav.search")},
+		{key: drawerKey{section: section{kind: sectionProfile}}, icon: iconProfile, title: l.T("nav.profile")},
+		{key: drawerKey{section: section{kind: sectionSaved}}, icon: iconSaved, title: l.T("nav.saved")},
+		{key: drawerKey{section: section{kind: sectionDownloads}}, icon: iconDownloads, title: l.T("nav.downloads")},
+		{key: drawerKey{section: section{kind: sectionSettings}}, icon: iconSettings, title: l.T("nav.settings")},
+		theme,
+	}
+}
+
+func navigationEntries(slots []drawerEntry, folders []model.Folder, chats []model.Chat, l localization.Catalog) []drawerEntry {
+	rows := make([]drawerEntry, 0, len(slots)+len(folders))
+	for _, slot := range slots {
+		if slot.key.section.kind != sectionFolder {
+			rows = append(rows, slot)
+			continue
+		}
+		for _, f := range folders {
+			row := drawerEntry{key: drawerKey{section: section{kind: sectionFolder, folder: f.ID}}, icon: folderIcon(f), title: f.Title, unread: unreadChats(chats, f.Contains)}
+			if f.ID == 0 {
+				row.key.section = section{kind: sectionAll}
+				row.icon = iconAllChats
+				row.title = l.T("nav.all")
+			}
+			rows = append(rows, row)
+		}
+	}
+	return rows
 }
 
 // Update returns what the user picked; the caller closes the drawer.

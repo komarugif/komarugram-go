@@ -4,6 +4,7 @@ package tgstore
 
 import (
 	"context"
+	"errors"
 	"log"
 	"sync"
 	"time"
@@ -97,7 +98,7 @@ func (s *Store) MarkRead(chat int64, id model.MessageID, asked bool) {
 	}
 	// The messages read before: those after them up to id are read now.
 	prev, unread := s.readUpTo(chat), 0
-	for _, ch := range s.Chats() {
+	for _, ch := range s.FolderDialogs() {
 		if ch.ID == chat {
 			prev, unread = max(prev, ch.ReadInbox), ch.Unread
 		}
@@ -168,13 +169,20 @@ func (s *Store) MarkRead(chat int64, id model.MessageID, asked bool) {
 		return
 	}
 	s.tellRead(chat, id, func(ctx context.Context, api *tg.Client) error {
-		if peer.Kind == "channel" {
-			_, err := api.ChannelsReadHistory(ctx, &tg.ChannelsReadHistoryRequest{Channel: &tg.InputChannel{ChannelID: peer.ID, AccessHash: peer.Hash}, MaxID: int(id)})
-			return err
-		}
-		_, err := api.MessagesReadHistory(ctx, &tg.MessagesReadHistoryRequest{Peer: peer.input(), MaxID: int(id)})
-		return err
+		return readPeerHistory(ctx, api, peer, id)
 	})
+}
+
+func readPeerHistory(ctx context.Context, api *tg.Client, peer peerRecord, id model.MessageID) error {
+	if peer.Kind == "channel" {
+		ok, err := api.ChannelsReadHistory(ctx, &tg.ChannelsReadHistoryRequest{Channel: &tg.InputChannel{ChannelID: peer.ID, AccessHash: peer.Hash}, MaxID: int(id)})
+		if err == nil && !ok {
+			return errors.New("channel history read refused")
+		}
+		return err
+	}
+	_, err := api.MessagesReadHistory(ctx, &tg.MessagesReadHistoryRequest{Peer: peer.input(), MaxID: int(id)})
+	return err
 }
 
 // mayRead reports whether chat is to be told it is read up to id: Ghost

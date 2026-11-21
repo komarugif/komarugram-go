@@ -2,7 +2,13 @@
 
 package preferences
 
-import "slices"
+import (
+	"slices"
+	"strings"
+)
+
+// FolderMenuItem is the navigation slot expanded into the active account's ordered folders.
+const FolderMenuItem = "folders"
 
 // Menus stores user choices by stable menu and action IDs. Unknown IDs remain
 // saved so a temporarily unavailable account keeps its place.
@@ -53,8 +59,7 @@ func (m MenuLayout) Arrange(available []string, includeHidden bool) []string {
 	return out
 }
 
-// WithOrder merges a reordered visible catalog into the saved order without
-// discarding actions belonging to other accounts.
+// WithOrder merges a reordered catalog into the saved order, preserving unknown actions.
 func (m MenuLayout) WithOrder(order []string) MenuLayout {
 	known := make(map[string]bool, len(order))
 	for _, id := range order {
@@ -73,6 +78,44 @@ func (m MenuLayout) WithOrder(order []string) MenuLayout {
 	return MenuLayout{Order: next, Hidden: slices.Clone(m.Hidden)}
 }
 
+func legacyFolderItem(id string) bool {
+	return id == "all" || strings.HasPrefix(id, "folder:")
+}
+
+// Earlier versions placed All chats and every account's folders separately.
+// Collapse them at the first old slot. A partially hidden group stays visible.
+func (m Menus) migrateFolderItems() {
+	for _, menu := range []string{"sidebar", "drawer"} {
+		layout := m[menu]
+		if !slices.ContainsFunc(layout.Order, legacyFolderItem) && !slices.ContainsFunc(layout.Hidden, legacyFolderItem) {
+			continue
+		}
+		placed := slices.Contains(layout.Order, FolderMenuItem)
+		hideGroup := !placed && slices.Contains(layout.Order, "all") && slices.Contains(layout.Hidden, "all")
+		order := make([]string, 0, len(layout.Order))
+		for _, id := range layout.Order {
+			if !legacyFolderItem(id) {
+				order = append(order, id)
+				continue
+			}
+			if !slices.Contains(layout.Hidden, id) {
+				hideGroup = false
+			}
+			if !placed {
+				order = append(order, FolderMenuItem)
+				placed = true
+			}
+		}
+		hidden := slices.DeleteFunc(layout.Hidden, legacyFolderItem)
+		if hideGroup && !slices.Contains(hidden, FolderMenuItem) {
+			hidden = append(hidden, FolderMenuItem)
+		}
+		m[menu] = MenuLayout{Order: order, Hidden: hidden}
+	}
+}
+
 func (s *Store) SetMenus(m Menus) error {
-	return s.change(func(g *Global) { g.Menus = m.Clone() })
+	menus := m.Clone()
+	menus.migrateFolderItems()
+	return s.change(func(g *Global) { g.Menus = menus })
 }
