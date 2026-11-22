@@ -131,6 +131,52 @@ deletions so a new folder reusing an ID cannot inherit the old color.
 This proposal needs no per-chat tag table or storage-channel synchronization.
 [Local Premium](LOCAL_PREMIUM.md) · [Telegram folder tags](https://core.telegram.org/api/folders#folder-tags)
 
+## Archived Chats in the official clients
+
+Archive navigation was traced in the Telegram Desktop 7.4.4 stable release,
+the 7.4.5 prerelease and the Telegram for Android 13.2.2 (7303) source.
+
+- **Desktop.** The archive row belongs to **All chats** and can be collapsed
+  or moved to the main menu. The menu opens the same account-wide archive
+  from any selected folder and can open it in a separate window. A custom
+  folder lists matching chats, including eligible archived chats. The archive
+  itself opens as a single list with no custom-folder filter.
+  [Opening the archive](https://github.com/telegramdesktop/tdesktop/blob/v7.4.4/Telegram/SourceFiles/window/window_session_controller.cpp#L2263-L2276) · [Archive entry](https://github.com/telegramdesktop/tdesktop/blob/v7.4.4/Telegram/SourceFiles/window/window_main_menu.cpp#L491-L538) · [Filter population](https://github.com/telegramdesktop/tdesktop/blob/v7.4.4/Telegram/SourceFiles/data/data_chat_filters.cpp#L737-L771)
+- **Android.** The archive row is in **All chats**. The user can pin it in
+  the list or hide it above the list and reveal it by pulling down. Opening
+  the row starts a separate chat-list screen with `folderId = 1`. Folder tabs
+  are created on the main screen with `folderId = 0`.
+  [Archive row](https://github.com/TelegramMessenger/Telegram-Android/blob/21f7d109da6ab3506c9e9577f98c6a38771ab335/TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java#L22679-L22702) · [Opening it](https://github.com/TelegramMessenger/Telegram-Android/blob/21f7d109da6ab3506c9e9577f98c6a38771ab335/TMessagesProj/src/main/java/org/telegram/ui/DialogsActivity.java#L7819-L7830) · [Tabs](https://github.com/TelegramMessenger/Telegram-Android/blob/21f7d109da6ab3506c9e9577f98c6a38771ab335/TMessagesProj/src/main/java/org/telegram/ui/DialogsActivity.java#L3469-L3473) · [Hide and reveal](https://telegram.org/blog/folders#archived-chats)
+- **Membership.** In both clients an archived chat can still appear in a
+  custom folder. Explicit exclusion wins, while explicit inclusion or a
+  folder pin overrides the automatic **Exclude archived** rule. The API
+  supports that exclusion and provides no automatic **Only archived** rule.
+  [Desktop matching](https://github.com/telegramdesktop/tdesktop/blob/v7.4.4/Telegram/SourceFiles/data/data_chat_filters.cpp#L362-L387) · [Android matching](https://github.com/TelegramMessenger/Telegram-Android/blob/21f7d109da6ab3506c9e9577f98c6a38771ab335/TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java#L1309-L1325) · [Telegram folder API](https://core.telegram.org/api/folders)
+- **Archive Settings.** Both clients expose `keep_archived_unmuted` and
+  `keep_archived_folders`. The second setting can keep an unmuted chat in
+  the archive when it receives a new message, if the chat was explicitly
+  included or pinned in a custom folder. This controls automatic unarchiving.
+  [Telegram privacy settings](https://core.telegram.org/constructor/globalPrivacySettings) · [Desktop controls](https://github.com/telegramdesktop/tdesktop/blob/v7.4.4/Telegram/SourceFiles/settings/sections/settings_advanced.cpp#L1908-L1989) · [Android controls](https://github.com/TelegramMessenger/Telegram-Android/blob/21f7d109da6ab3506c9e9577f98c6a38771ab335/TMessagesProj/src/main/java/org/telegram/ui/ArchiveSettingsActivity.java#L92-L122)
+
+In KomaruGram, **Visibility → Archived chats** is on by default.
+The switch follows the shared Visibility settings until the account pins
+its own settings for the section.
+It shows the archive card in **All chats** when the archive has chats.
+The card opens the archive, which has a
+matching **All chats** card for returning. Each card previews the destination's
+most recent chat titles. Both lists share the same stories row and folder
+navigation. Inside the archive a folder matches archived chats and ignores
+its **Exclude archived** rule. The remaining rules and explicit exceptions
+apply as usual. Both lists work from the cached dialog snapshot.
+Chat-row actions move dialogs with `folders.editPeerFolders` using IDs 1 and 0.
+The store applies `updateFolderPeers` from the response and from other sessions.
+The same settings card exposes **Archive and Mute** for new chats from
+non-contacts. Enabling it requires Telegram Premium. Its value belongs to
+the Telegram account. The client refreshes
+it when the Visibility page opens or regains focus and writes only the
+`archive_and_mute_new_noncontact_peers` flag of the latest global privacy object.
+[Cached dialog updates](../internal/messenger/tgstore/dialogs_kept.go) · [Folder matching](../internal/messenger/model/folders.go) · [Archive API](https://core.telegram.org/api/folders#peer-folders)
+
 ## Shared folders and their links
 
 **Receiving a link**

@@ -29,23 +29,27 @@ type chatFolderChoice struct {
 	cancel  surface
 }
 
-func (p *chatFolderChoice) open(chat model.Chat, action chatRowAction, folders []model.Folder) {
+func (p *chatFolderChoice) open(chat model.Chat, action chatRowAction, folders []model.Folder, archive bool) {
 	p.chat, p.action = chat, action
 	p.list = scroll.List{List: layout.List{Axis: layout.Vertical}}
 	p.rows = make(map[int64]*surface)
-	p.refresh(folders)
+	p.refresh(folders, archive)
 	if len(p.folders) > 0 {
 		p.modal.Open()
 	}
 }
 
-func (p *chatFolderChoice) refresh(folders []model.Folder) {
+func (p *chatFolderChoice) refresh(folders []model.Folder, archive bool) {
 	p.folders = p.folders[:0]
 	for _, f := range folders {
 		if f.ID == 0 {
 			continue
 		}
-		if p.action == chatRowAddFolder && !f.Contains(p.chat) || p.action == chatRowRemoveFolder && f.CanRemoveChat(p.chat) {
+		rules := f
+		if archive {
+			rules = rules.ForArchive()
+		}
+		if p.action == chatRowAddFolder && !rules.Contains(p.chat) || p.action == chatRowRemoveFolder && rules.CanRemoveChat(p.chat) {
 			p.folders = append(p.folders, f)
 		}
 	}
@@ -73,7 +77,7 @@ func (p *chatFolderChoice) update(gtx layout.Context, m *chatRowMenu, chats []mo
 			return
 		}
 	}
-	p.refresh(m.folderStore.Folders())
+	p.refresh(m.folderStore.Folders(), m.section.kind == sectionArchive)
 	if len(p.folders) == 0 {
 		p.modal.Close()
 	}
@@ -134,11 +138,16 @@ func (m *chatRowMenu) changeFolder(base model.Folder, c model.Chat, change model
 	if m.folderSave != nil {
 		return
 	}
-	draft, err := base.WithChat(c, change)
+	rules := base
+	if m.section.kind == sectionArchive {
+		rules = rules.ForArchive()
+	}
+	draft, err := rules.WithChat(c, change)
 	if err != nil {
 		t.Show(l.T(folderChangeError(err)))
 		return
 	}
+	draft.ExcludeArchived = base.ExcludeArchived
 	done := make(chan error, 1)
 	m.folderSave = done
 	m.folderNotice = ""

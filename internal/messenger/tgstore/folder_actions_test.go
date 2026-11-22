@@ -77,6 +77,24 @@ func TestFolderReadAndRemove(t *testing.T) {
 		t.Fatal("offered read on an incomplete dialog list")
 	}
 	s.dialogsComplete.Store(true)
+	excludesArchived := *raw
+	excludesArchived.ExcludeArchived = true
+	filters.Filters[1] = &excludesArchived
+	if err := s.loadDialogFilters(ctx, s.history.api, 1); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int64{0, 4} {
+		if archived := s.UnreadInArchivedFolder(id); len(archived) != 1 || archived[0].ID != 2 {
+			t.Fatalf("archive targets for folder %d: %+v", id, archived)
+		}
+	}
+	if got := s.UnreadInFolder(4); len(got) != 2 || slices.ContainsFunc(got, func(c model.FolderReadChat) bool { return c.ID == 2 }) {
+		t.Fatalf("ordinary folder targets included the archived chat: %+v", got)
+	}
+	filters.Filters[1] = raw
+	if err := s.loadDialogFilters(ctx, s.history.api, 1); err != nil {
+		t.Fatal(err)
+	}
 	targets := s.UnreadInFolder(4)
 	if len(targets) != 3 {
 		t.Fatalf("targets: %+v", targets)

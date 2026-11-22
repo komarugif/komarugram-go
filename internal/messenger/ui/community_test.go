@@ -237,6 +237,8 @@ func (s apartStore) Chats() []model.Chat {
 	return out
 }
 
+func (s apartStore) FolderDialogs() []model.Chat { return s.Chats() }
+
 // TestOpenCommunityWithoutRow checks that a community with no row in the
 // list opens all the same, from a chat's menu or its badge: its page, with
 // the name the store knows.

@@ -155,7 +155,7 @@ func TestNavigationFolderBlock(t *testing.T) {
 			for _, folders := range [][]model.Folder{
 				{{ID: 4}, {}, {ID: 2}}, {{ID: 2}, {ID: 5}, {}, {ID: 4}}, {{}},
 			} {
-				rows := navigationEntries(slots, folders, nil, l)
+				rows := navigationEntries(slots, folders, nil, false, l)
 				if len(rows) != len(slots)-1+len(folders) || navigationID(rows[0]) != prefs[catalog.id].Order[0] || navigationID(rows[1+len(folders)]) != prefs[catalog.id].Order[2] {
 					t.Fatalf("misplaced folder block for %v", folders)
 				}

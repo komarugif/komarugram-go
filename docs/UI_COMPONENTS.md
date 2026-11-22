@@ -372,6 +372,10 @@ size-stability fixes remain in place.
 - **Chat list rows** (`chatlist.go`): `layoutRowWith` draws any row that looks
   like a chat (avatar, title, time, line, counter) with a `surface` of the
   caller's; search results reuse it for found messages.
+- **Chat archive cards** (`chat_archive.go`) sit below stories in **All chats**
+  and in the archive. Both use the chat row's size, with the destination's
+  icon and latest chat titles. The same sidebar folders and compact chips
+  filter whichever list is open.
 - **Last message line** (`chatlist_preview.go`): `previewLine` draws a chat's
   or a topic's last message as Telegram Desktop's list does: the sender, the
   arrow of a forward, up to three thumbnails (a video's with a play mark, a
@@ -393,8 +397,8 @@ size-stability fixes remain in place.
   accent; the chat's header shows it in place of the status.
   `CHAT_PREVIEW_PNG` saves a list of every kind, light, dark and narrow.
 - **Row of stories** (`stories_row.go`): `storiesRow` is the first row of
-  all chats, as Telegram Desktop's `Dialogs::Stories::List`: who has
-  stories now (`model.StorySource`), each an avatar in a ring of a
+  all chats and the archive. Like Telegram Desktop's `Dialogs::Stories::List`,
+  it shows who has stories now (`model.StorySource`), each an avatar in a ring of a
   segment a story, the unread ones thick in the accent's gradient and the
   seen ones thin and dim, the name under it. It scrolls sideways, and a
   mouse drags it (`dragOnlyHorizontalStrip`, which leaves the wheel to the

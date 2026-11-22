@@ -417,6 +417,29 @@ func TestLocalPinOfAChatGone(t *testing.T) {
 	}
 }
 
+func TestLocalPinsIgnoreArchivedChat(t *testing.T) {
+	s, server := localPinStore(t, 1, 2, 3, 4, 5)
+	ctx := t.Context()
+	if err := s.PinChat(ctx, 6, true); err != nil {
+		t.Fatal(err)
+	}
+	settled(t, s)
+	// Chat 5 is now pinned only locally. Archiving keeps its dialog in
+	// the snapshot but removes it from the main list and its pin order.
+	s.applyFolderPeers(&tg.UpdateFolderPeers{FolderPeers: []tg.FolderPeer{{Peer: &tg.PeerUser{UserID: 5}, FolderID: 1}}})
+	order := []int64{4, 6, 1, 2, 3}
+	if err := s.ReorderPinned(ctx, order); err != nil {
+		t.Fatalf("reordering the main list: %v", err)
+	}
+	checkPins(t, s, server, order, order)
+	s.collections.mu.Lock()
+	stillPinned := slices.Contains(s.collections.pins.Order, 5)
+	s.collections.mu.Unlock()
+	if stillPinned {
+		t.Fatal("kept an archived chat in the local main-list pins")
+	}
+}
+
 // Chats is asked in every frame: with local pins and stickers it must not copy
 // and sort the whole list each time.
 func TestChatsIsTheSameSliceUntilChanged(t *testing.T) {

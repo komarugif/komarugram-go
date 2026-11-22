@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -103,6 +104,9 @@ type Store struct {
 	// Both main and archived dialogs have been enumerated at least once.
 	dialogsComplete atomic.Bool
 	archiveRevision uint64 // Incremented on a move between the main list and archive.
+	archiveWrite    sync.Mutex
+	archiveMute     model.ArchiveMute
+	archiveMuteMu   sync.Mutex // Serializes reads and writes of global privacy settings.
 
 	// entries is what the folders' rules ask of the chats beyond them, and
 	// filters the folders as Telegram tells them: see folderList.
@@ -254,14 +258,26 @@ func (s *Store) loadDialogPages(ctx context.Context, api *tg.Client, self int64,
 	s.mu.RUnlock()
 	l := newList(self)
 	offset := page{peer: &tg.InputPeerEmpty{}}
+	pinnedCount := 0
 	for {
 		// A gap in the updates while the page is asked for leaves its
 		// chats as they are.
 		s.history.mu.Lock()
 		liveEpoch := s.history.liveEpoch
 		s.history.mu.Unlock()
+		read := len(l.chats)
+		if offset.id == 0 {
+			pinned, err := api.MessagesGetPinnedDialogs(ctx, folderID)
+			if err != nil {
+				return false, fmt.Errorf("tgstore: pinned dialogs: %w", err)
+			}
+			if _, err := s.ingestDialogPage(ctx, l, pinned, folderID, true, liveEpoch); err != nil {
+				return false, err
+			}
+			pinnedCount = len(l.chats)
+		}
 		req := &tg.MessagesGetDialogsRequest{
-			ExcludePinned: offset.id != 0,
+			ExcludePinned: true,
 			OffsetDate:    offset.date,
 			OffsetID:      offset.id,
 			OffsetPeer:    offset.peer,
@@ -276,45 +292,15 @@ func (s *Store) loadDialogPages(ctx context.Context, api *tg.Client, self int64,
 		if !ok {
 			break
 		}
-		s.rememberPeers(dialogs.GetUsers(), dialogs.GetChats())
-		s.history.mu.Lock()
-		tops, pts := map[int64]int{}, map[int64]int{}
-		for _, d := range dialogs.GetDialogs() {
-			if d, ok := d.(*tg.Dialog); ok {
-				s.history.top[peerID(d.Peer)] = max(s.history.top[peerID(d.Peer)], d.TopMessage)
-				tops[peerID(d.Peer)] = d.TopMessage
-				if p, ok := d.Peer.(*tg.PeerChannel); ok {
-					if n, ok := d.GetPts(); ok {
-						pts[p.ChannelID] = n
-					}
-				}
-			}
-		}
-		s.history.mu.Unlock()
-		if err := s.keepChannelPts(ctx, self, pts); err != nil {
+		batch, err := s.ingestDialogPage(ctx, l, dialogs, folderID, false, liveEpoch)
+		if err != nil {
 			return false, err
 		}
-		if err := s.liveFromDialogs(ctx, tops, liveEpoch); err != nil {
-			return false, err
-		}
-		read := len(l.chats)
-		added := l.add(dialogs)
 		pageChats := l.chats[read:]
-		if folderID == 1 {
-			for i := range pageChats {
-				pageChats[i].Archived = true
-				pageChats[i].Pinned = false
-				pageChats[i].PinRank = 0
-			}
-		}
-		// Without them the thumbnails stay blank: the list is shown all the
-		// same.
-		_ = s.keepPreviewRefs(ctx, l.refs)
-		l.refs = nil
 		// The pages after one that tells nothing new are of chats that
 		// changed no more: see dialogs_kept.go.
 		slice, sliced := dialogs.(*tg.MessagesDialogsSlice)
-		complete := !sliced || len(l.chats) >= slice.Count || len(dialogs.GetDialogs()) == 0
+		complete := !sliced || len(l.chats)-pinnedCount >= slice.Count || len(dialogs.GetDialogs()) == 0
 		unchanged, moved := false, false
 		s.publish(func() {
 			if revision != s.archiveRevision {
@@ -322,7 +308,8 @@ func (s *Store) loadDialogPages(ctx context.Context, api *tg.Client, self int64,
 				moved = true
 				return
 			}
-			unchanged = folderID == 0 && s.dialogsComplete.Load() && s.pageUnchanged(pageChats, l)
+			unchanged = folderID == 0 && s.dialogsComplete.Load() && s.pageUnchanged(pageChats, l) &&
+				slices.Equal(model.PinnedOrder(l.chats[:pinnedCount]), model.PinnedOrder(model.MainDialogs(s.chats)))
 			chats, entries := s.withKept(l, folderID == 1, complete)
 			chats = keepAlbums(chats, s.chats)
 			s.chats, s.entries = s.keepReads(chats), entries
@@ -342,10 +329,10 @@ func (s *Store) loadDialogPages(ctx context.Context, api *tg.Client, self int64,
 		if complete {
 			return true, nil
 		}
-		if added == 0 {
+		if len(pageChats) == 0 {
 			break
 		}
-		next, ok := l.nextPage(dialogs)
+		next, ok := l.nextPage(batch)
 		if !ok {
 			break
 		}
@@ -358,6 +345,64 @@ func (s *Store) loadDialogPages(ctx context.Context, api *tg.Client, self int64,
 	}
 	// An unpageable tail can still be displayed, but cannot certify a new cache.
 	return s.dialogsComplete.Load(), nil
+}
+
+// A request's folder is a fallback when the dialog omits its own folder ID.
+// Pins are accepted only from getPinnedDialogs, where the folder is required.
+func (s *Store) ingestDialogPage(ctx context.Context, l *list, page interface {
+	GetDialogs() []tg.DialogClass
+	GetMessages() []tg.MessageClass
+	GetChats() []tg.ChatClass
+	GetUsers() []tg.UserClass
+}, folderID int, pinned bool, liveEpoch uint64) (*tg.MessagesDialogs, error) {
+	batch := &tg.MessagesDialogs{Messages: page.GetMessages(), Chats: page.GetChats(), Users: page.GetUsers()}
+	for _, raw := range page.GetDialogs() {
+		switch d := raw.(type) {
+		case *tg.Dialog:
+			if id, known := d.GetFolderID(); known && id != folderID || d.Pinned && !pinned {
+				continue
+			}
+		case *tg.DialogCommunity:
+			if d.Pinned && !pinned {
+				continue
+			}
+		}
+		batch.Dialogs = append(batch.Dialogs, raw)
+	}
+	s.rememberPeers(batch.Users, batch.Chats)
+	s.history.mu.Lock()
+	tops, pts := map[int64]int{}, map[int64]int{}
+	for _, raw := range batch.Dialogs {
+		if d, ok := raw.(*tg.Dialog); ok {
+			id := peerID(d.Peer)
+			s.history.top[id] = max(s.history.top[id], d.TopMessage)
+			tops[id] = d.TopMessage
+			if p, ok := d.Peer.(*tg.PeerChannel); ok {
+				if n, ok := d.GetPts(); ok {
+					pts[p.ChannelID] = n
+				}
+			}
+		}
+	}
+	s.history.mu.Unlock()
+	if err := s.keepChannelPts(ctx, l.self, pts); err != nil {
+		return nil, err
+	}
+	if err := s.liveFromDialogs(ctx, tops, liveEpoch); err != nil {
+		return nil, err
+	}
+	read := len(l.chats)
+	l.add(batch)
+	if folderID == 1 {
+		for i := range l.chats[read:] {
+			c := &l.chats[read+i]
+			c.Archived, c.Pinned, c.PinRank = true, false, 0
+		}
+	}
+	// Missing thumbnails do not hold back the dialog list.
+	_ = s.keepPreviewRefs(ctx, l.refs)
+	l.refs = nil
+	return batch, nil
 }
 
 // keepChannelPts keeps the channels' pts the dialogs tell (pts, by channel

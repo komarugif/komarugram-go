@@ -1095,7 +1095,7 @@ func (s *Store) applyIndexPins(ctx context.Context, file storageIndex) {
 		return
 	}
 	s.mu.RLock()
-	server := model.PinnedOrder(s.chats)
+	server := model.PinnedOrder(model.MainDialogs(s.chats))
 	s.mu.RUnlock()
 	merged := mergePins(file.Pins, file.Synced, server)
 	l := &s.collections

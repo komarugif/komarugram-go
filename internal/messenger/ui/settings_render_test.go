@@ -253,7 +253,7 @@ func TestFolderEditorMenuExit(t *testing.T) {
 	h.frame(nil)
 	dest := drawerKey{section: section{kind: sectionAll}}
 	gtx := h.context()
-	a.sidebar.Layout(gtx, a.section, navigationEntries(navigationSlots(false, a.catalog()), h.store.Folders(), h.store.Chats(), a.catalog()), false, a.catalog())
+	a.sidebar.Layout(gtx, a.section, navigationEntries(navigationSlots(false, a.catalog()), h.store.Folders(), h.store.Chats(), false, a.catalog()), false, a.catalog())
 	a.sidebar.buttons[dest].click.Click()
 	a.Update(h.context())
 	if a.section.kind != sectionSettings || !v.saveDialog.Shown() {

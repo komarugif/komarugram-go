@@ -157,6 +157,16 @@
 "chat.not_found" = "Ничего не найдено";
 "chat.search" = "Поиск";
 
+"chat_archive.all" = "Весь архив";
+"chat_archive.empty" = "В архиве нет чатов";
+"chat_archive.empty_folder" = "В этой папке нет архивных чатов";
+"chat_archive.main_empty" = "Чатов пока нет";
+"chat_archive.preview_list" = "{accumulated}, {chat}";
+"chat_archive.preview_more#few" = "{chats} и ещё {count} чата";
+"chat_archive.preview_more#many" = "{chats} и ещё {count} чатов";
+"chat_archive.preview_more#one" = "{chats} и ещё {count} чат";
+"chat_archive.preview_more#other" = "{chats} и ещё {count} чата";
+
 "chat_menu.beginning" = "К началу";
 "chat_menu.channel" = "Информация о канале";
 "chat_menu.group" = "Информация о группе";
@@ -166,6 +176,9 @@
 "chat_menu.search" = "Поиск сообщений";
 "chat_menu.show_filtered" = "Показать отфильтрованные";
 
+"chat_row.archive" = "В архив";
+"chat_row.archive_failed" = "Не удалось переместить чат";
+"chat_row.archived" = "Чат перемещён в архив";
 "chat_row.folder_add" = "Добавить в папку";
 "chat_row.folder_remove" = "Убрать из папки";
 "chat_row.folder_pin" = "Закрепить в этой папке";
@@ -179,6 +192,8 @@
 "chat_row.pin_limit_pro" = "Закрепить можно не больше {limit} чатов. С Telegram Premium — до {premium}.";
 "chat_row.read" = "Прочитано";
 "chat_row.ungroup" = "Разгруппировать";
+"chat_row.unarchive" = "Вернуть из архива";
+"chat_row.unarchived" = "Чат возвращён из архива";
 "chat_row.unpin" = "Открепить";
 
 "chat_search.close" = "Закрыть поиск";
@@ -1349,6 +1364,7 @@
 "miniapp.title" = "Mini Apps";
 
 "nav.all" = "Все чаты";
+"nav.archive" = "Архив чатов";
 "nav.downloads" = "Загрузки";
 "nav.menu" = "Меню";
 "nav.profile" = "Профиль";
@@ -1552,6 +1568,13 @@
 "preview.videos#one" = "{count} видео";
 "preview.voice" = "Голосовое сообщение";
 
+"privacy.archive_mute" = "В архив и без уведомлений";
+"privacy.archive_mute_body" = "Новые чаты от тех, кого нет в контактах, автоматически попадают в архив без уведомлений. Настройка действует для этого аккаунта на всех устройствах.";
+"privacy.archive_mute_load_failed" = "Не удалось загрузить настройку автоархивации";
+"privacy.archive_mute_premium_required" = "Для опции «В архив и без уведомлений» требуется Telegram Premium.";
+"privacy.archive_mute_save_failed" = "Не удалось сохранить настройку автоархивации";
+"privacy.chat_archive_body" = "Показывает карточку архива во «Всех чатах» и позволяет перемещать чаты в архив и обратно.";
+"privacy.chat_archive_failed" = "Не удалось сохранить настройку архива";
 "privacy.streamer" = "Режим стримера";
 "privacy.streamer_body" = "Окна мессенджера не попадают в запись и трансляцию экрана: там, где они, будет пусто. Как режим стримера AyuGram.";
 "privacy.visual" = "Режим визуальной приватности";

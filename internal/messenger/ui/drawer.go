@@ -108,7 +108,7 @@ func navigationSlots(dark bool, l localization.Catalog) []drawerEntry {
 	}
 }
 
-func navigationEntries(slots []drawerEntry, folders []model.Folder, chats []model.Chat, l localization.Catalog) []drawerEntry {
+func navigationEntries(slots []drawerEntry, folders []model.Folder, chats []model.Chat, archive bool, l localization.Catalog) []drawerEntry {
 	rows := make([]drawerEntry, 0, len(slots)+len(folders))
 	for _, slot := range slots {
 		if slot.key.section.kind != sectionFolder {
@@ -116,11 +116,10 @@ func navigationEntries(slots []drawerEntry, folders []model.Folder, chats []mode
 			continue
 		}
 		for _, f := range folders {
-			row := drawerEntry{key: drawerKey{section: section{kind: sectionFolder, folder: f.ID}}, icon: folderIcon(f), title: f.Title, unread: unreadChats(chats, f.Contains)}
+			item := navigationFolder(f, chats, archive, l)
+			row := drawerEntry{key: drawerKey{section: folderSection(f.ID, false)}, icon: folderIcon(f), title: item.title, unread: item.unread}
 			if f.ID == 0 {
-				row.key.section = section{kind: sectionAll}
 				row.icon = iconAllChats
-				row.title = l.T("nav.all")
 			}
 			rows = append(rows, row)
 		}
@@ -186,7 +185,7 @@ func (d *drawer) Layout(gtx layout.Context, entries []drawerEntry, current secti
 	offset(listGtx, image.Pt(0, headerHeight), func(gtx layout.Context) layout.Dimensions {
 		return d.list.Layout(gtx, len(entries), func(gtx layout.Context, i int) layout.Dimensions {
 			e := entries[i]
-			active := !e.key.theme && e.key.section == current
+			active := !e.key.theme && e.key.section == current.destination()
 			return layout.Inset{Left: 8, Right: 8, Top: 2, Bottom: 2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return d.row(e.key).Layout(gtx, e, active)
 			})

@@ -67,6 +67,8 @@ func (d *dialogServer) invoke(ctx context.Context, in bin.Encoder, out bin.Decod
 	switch r := in.(type) {
 	case *tg.MessagesGetDialogFiltersRequest:
 		*out.(*tg.MessagesDialogFilters) = tg.MessagesDialogFilters{Filters: []tg.DialogFilterClass{&tg.DialogFilter{ID: 2, Title: tg.TextWithEntities{Text: "Contacts"}, Contacts: true}}}
+	case *tg.MessagesGetPinnedDialogsRequest:
+		*out.(*tg.MessagesPeerDialogs) = tg.MessagesPeerDialogs{}
 	case *tg.MessagesGetDialogsRequest:
 		if r.FolderID == 1 {
 			out.(*tg.MessagesDialogsBox).Dialogs = &tg.MessagesDialogs{}
@@ -125,6 +127,62 @@ func chatIDs(chats []model.Chat) []int64 {
 }
 
 func user(id int64) int64 { return peerID(&tg.PeerUser{UserID: id}) }
+
+// An archive page can contain pins from the main list when the request
+// includes pins. Reload must also repair a cache written by that old load.
+func TestDialogLoadKeepsMainPinsOutOfArchive(t *testing.T) {
+	s := testStore(t)
+	mainPin, mainChat, archivePin, archiveChat := user(2), user(3), user(4), user(5)
+	s.chats = []model.Chat{{ID: mainPin, Archived: true}}
+	s.dialogsComplete.Store(true)
+	row := func(id int64, pinned bool) *tg.Dialog {
+		return &tg.Dialog{Peer: &tg.PeerUser{UserID: id}, Pinned: pinned}
+	}
+	mainListPin := row(2, true)
+	wrongFolder := row(3, false)
+	wrongFolder.SetFolderID(0)
+	s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
+		switch r := in.(type) {
+		case *tg.MessagesGetDialogFiltersRequest:
+			return &tg.MessagesDialogFilters{}, nil
+		case *tg.MessagesGetPinnedDialogsRequest:
+			if r.FolderID == 1 {
+				return &tg.MessagesPeerDialogs{Dialogs: []tg.DialogClass{row(4, true)}}, nil
+			}
+			return &tg.MessagesPeerDialogs{Dialogs: []tg.DialogClass{mainListPin}}, nil
+		case *tg.MessagesGetDialogsRequest:
+			if r.FolderID == 1 {
+				dialogs := []tg.DialogClass{row(5, false), wrongFolder}
+				if !r.ExcludePinned {
+					dialogs = append([]tg.DialogClass{mainListPin, row(4, true)}, dialogs...)
+				}
+				return &tg.MessagesDialogs{Dialogs: dialogs}, nil
+			}
+			dialogs := []tg.DialogClass{row(3, false)}
+			if !r.ExcludePinned {
+				dialogs = append([]tg.DialogClass{mainListPin}, dialogs...)
+			}
+			return &tg.MessagesDialogs{Dialogs: dialogs}, nil
+		default:
+			return nil, fmt.Errorf("unexpected RPC %T", in)
+		}
+	})
+	if err := s.loadDialogs(t.Context(), s.history.api, 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := chatIDs(s.Chats()); !slices.Equal(got, []int64{mainPin, mainChat}) || !slices.Equal(model.PinnedOrder(s.Chats()), []int64{mainPin}) {
+		t.Fatalf("main dialogs: %v, pins %v", got, model.PinnedOrder(s.Chats()))
+	}
+	var archived []int64
+	for _, c := range s.FolderDialogs() {
+		if c.Archived {
+			archived = append(archived, c.ID)
+		}
+	}
+	if !slices.Equal(archived, []int64{archivePin, archiveChat}) {
+		t.Fatalf("archived dialogs: %v", archived)
+	}
+}
 
 // Folders and their membership used to disappear on an offline restart.
 func TestDialogFoldersOffline(t *testing.T) {

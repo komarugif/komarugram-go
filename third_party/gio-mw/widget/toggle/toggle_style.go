@@ -30,9 +30,9 @@ const (
 )
 
 type widgetStyle[T comparable] struct {
-	Toggle  *Toggle[T]
-	tLabels map[T]string
-	tTheme  *Theme
+	Toggle *Toggle[T]
+	tLabel func(layout.Context, T) layout.Dimensions
+	tTheme *Theme
 }
 
 func (s widgetStyle[T]) layout(gtx layout.Context) layout.Dimensions {
@@ -65,8 +65,9 @@ func (s widgetStyle[T]) layoutOption(gtx layout.Context, value T) layout.Dimensi
 		}).AlignMiddle(),
 		block.NewHorizontalSpacer(unit.Dp(4)),
 		block.NewFlexSegment(func(gtx layout.Context) layout.Dimensions {
-			label := s.tLabels[value]
-			return s.layoutLabel(gtx, label)
+			return block.UniformPadding(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return s.tLabel(gtx, value)
+			})
 		}).AlignMiddle(),
 	)
 	row := macro.Stop()
@@ -81,16 +82,6 @@ func (s widgetStyle[T]) layoutOption(gtx layout.Context, value T) layout.Dimensi
 	}
 	row.Add(gtx.Ops)
 	return dims
-}
-
-func (s widgetStyle[T]) layoutLabel(gtx layout.Context, label string) layout.Dimensions {
-	p := block.UniformPadding(unit.Dp(4))
-	return p.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		lStyle := wdk.LabelStyle{
-			Typestyle: token.TypestyleBodyLarge,
-		}
-		return wdk.LayoutLabel(gtx, lStyle, label)
-	})
 }
 
 func (s widgetStyle[T]) layoutTarget(gtx layout.Context, value T) layout.Dimensions {

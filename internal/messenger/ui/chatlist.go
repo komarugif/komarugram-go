@@ -40,8 +40,13 @@ const (
 type chatList struct {
 	// The store replaces snapshots on change. Reuse the ordered folder view
 	// through hover and animation frames that read the same snapshots.
-	folder                  *model.Folder
-	folderInput, folderRows []model.Chat
+	folder                    *model.Folder
+	folderInput, folderRows   []model.Chat
+	archiveInput, archiveRows []model.Chat
+	archiveEnabled            func() bool
+	archiveSwitch             chatSwitchRow
+	archiveSwitchShown        bool
+	leadingRows               int
 	// toast is what to tell of what happened in the list: the list, too
 	// narrow for a long error, does not draw it, but the App, in the chat
 	// open or over the window (relayListToast).
@@ -84,8 +89,8 @@ type chatList struct {
 	// activity tells what others do in the chats, drawn in place of their
 	// last messages; nil for nothing.
 	activity model.ActivitySource
-	// stories are those with stories now, drawn as the first row of all
-	// chats, nil for none; openStories opens a peer's. storiesShown tells
+	// stories are those with stories now, drawn first in all chats and the
+	// archive, nil for none; openStories opens a peer's. storiesShown tells
 	// whether the last frame had the row.
 	stories      model.StorySource
 	storiesRow   storiesRow
@@ -157,24 +162,31 @@ func (l *chatList) row(id int64) *chatRow {
 
 // visible returns the chats the section lists.
 func (l *chatList) visible(sec section, folders []model.Folder, chats []model.Chat, catalog localization.Catalog) []model.Chat {
-	if sec.kind != sectionFolder {
-		l.folder, l.folderInput, l.folderRows = nil, nil, nil
+	if sec.kind == sectionArchive {
+		chats = l.archived(chats)
+	} else {
+		l.archiveInput, l.archiveRows = nil, nil
 	}
-	var match func(model.Chat) bool
-	switch sec.kind {
-	case sectionFolder:
+	if sec.kind == sectionFolder || sec.kind == sectionArchive && sec.folder != 0 {
 		for i := range folders {
 			f := &folders[i]
 			if f.ID != sec.folder {
 				continue
 			}
-			if l.folder != f || len(l.folderInput) != len(chats) || len(chats) > 0 && &l.folderInput[0] != &chats[0] {
-				l.folder, l.folderInput, l.folderRows = f, chats, f.Chats(chats)
+			if l.folder != f || !sameChatSnapshot(l.folderInput, chats) {
+				rules := *f
+				if sec.kind == sectionArchive {
+					rules = rules.ForArchive()
+				}
+				l.folder, l.folderInput, l.folderRows = f, chats, rules.Chats(chats)
 			}
 			return l.folderRows
 		}
 		return nil
-	case sectionSearch:
+	}
+	l.folder, l.folderInput, l.folderRows = nil, nil, nil
+	var match func(model.Chat) bool
+	if sec.kind == sectionSearch {
 		query := strings.ToLower(strings.TrimSpace(l.search.GetText()))
 		if query != "" {
 			match = func(c model.Chat) bool { return strings.Contains(strings.ToLower(catalog.ChatTitle(c)), query) }
@@ -190,6 +202,26 @@ func (l *chatList) visible(sec section, folders []model.Folder, chats []model.Ch
 		}
 	}
 	return out
+}
+
+func sameChatSnapshot(a, b []model.Chat) bool {
+	return len(a) == len(b) && (len(a) == 0 || &a[0] == &b[0])
+}
+
+func (l *chatList) archived(chats []model.Chat) []model.Chat {
+	if sameChatSnapshot(l.archiveInput, chats) {
+		return l.archiveRows
+	}
+	var archived []model.Chat
+	for _, c := range chats {
+		if c.Archived {
+			c.Pinned, c.PinRank = false, 0
+			archived = append(archived, c)
+		}
+	}
+	model.SortChats(archived)
+	l.archiveInput, l.archiveRows = chats, archived
+	return archived
 }
 
 // searching reports whether the search panel shows its results.
@@ -251,11 +283,10 @@ func (l *chatList) Update(gtx layout.Context, sec section, catalog localization.
 	return chatPick{}, false
 }
 
-// storyPeers are the peers of the row of stories the section shows: all
-// chats have it, as Telegram Desktop's main list does, unless the list is
-// too narrow for names.
+// storyPeers are the peers of the stories row shared by all chats and the
+// archive. The collapsed avatar column has no stories row.
 func (l *chatList) storyPeers(sec section, narrow bool) []model.StoryPeer {
-	if l.stories == nil || sec.kind != sectionAll || narrow {
+	if l.stories == nil || narrow || sec.kind != sectionAll && sec.kind != sectionArchive {
 		return nil
 	}
 	return l.stories.StoryPeers()
@@ -269,6 +300,7 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 	size := gtx.Constraints.Max
 	fillWindowSurface(gtx, sc.Surface.Color, size)
 	l.menuShown = false
+	l.archiveSwitchShown = false
 
 	// Only search has a header; otherwise the chats take the full height
 	// under a small gap.
@@ -301,7 +333,8 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 	}
 	l.items = l.items[:0]
 
-	if sec.kind != sectionFolder {
+	allDialogs := chats
+	if sec.kind != sectionFolder && sec.kind != sectionArchive {
 		chats = model.MainDialogs(chats)
 	}
 	l.menu.all = chats
@@ -318,38 +351,19 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 	recording := overlays.menus
 	l.bd = nil
 	rows := func(gtx layout.Context) layout.Dimensions {
-
 		now := time.Now()
 		l.shown = l.shown[:0]
-		// The row of stories is the list's first: it scrolls away with the
-		// chats. The chats in view stay where they are as it comes or goes.
+		// Stories keep their place above either list. Keep chat rows anchored
+		// when one of the leading rows comes or goes while scrolled.
 		peers := l.storyPeers(sec, narrow)
-		row := len(peers) > 0
-		if row != l.storiesShown {
-			if l.list.Position.First > 0 || l.list.Position.Offset > 0 {
-				if row {
-					l.list.Position.First++
-				} else {
-					l.list.Position.First = max(l.list.Position.First-1, 0)
-				}
-			}
-			l.storiesShown = row
-		}
-		first := 0
-		if row {
-			first = 1
-		} else {
+		l.storiesShown = len(peers) > 0
+		if !l.storiesShown {
 			l.storiesRow.shown = l.storiesRow.shown[:0]
 		}
-		if len(visible) == 0 && !row {
-			return layout.N.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.UniformInset(unit.Dp(24)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return centeredLabel(gtx, catalog.T("chat.not_found"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 2)
-				})
-			})
-		}
-		dims := l.list.Layout(gtx, len(visible)+first, func(gtx layout.Context, i int) layout.Dimensions {
-			if i < first {
+		var prefix [3]layout.Widget
+		leading := prefix[:0]
+		if l.storiesShown {
+			leading = append(leading, func(gtx layout.Context) layout.Dimensions {
 				invalidate := l.invalidate
 				if invalidate == nil {
 					invalidate = func() {}
@@ -357,9 +371,47 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 				dims := l.storiesRow.layout(gtx, peers, l.avatar, catalog, invalidate)
 				l.storiesHeight = dims.Size.Y
 				return dims
+			})
+		}
+		canSwitch := l.showsArchiveSwitch(sec)
+		if canSwitch && (sec.kind == sectionArchive || l.archiveSwitch.preview(allDialogs, true, catalog) != "") {
+			l.archiveSwitchShown = true
+			leading = append(leading, func(gtx layout.Context) layout.Dimensions {
+				return l.archiveSwitch.layout(gtx, allDialogs, sec.kind == sectionAll, narrow, catalog)
+			})
+		} else if !canSwitch {
+			l.archiveSwitch.snapshot, l.archiveSwitch.summary = nil, ""
+		}
+		first := len(leading)
+		if first != l.leadingRows && (l.list.Position.First > 0 || l.list.Position.Offset > 0) {
+			l.list.Position.First = max(l.list.Position.First+first-l.leadingRows, 0)
+		}
+		l.leadingRows = first
+		if len(visible) == 0 && (!l.storiesShown || sec.kind == sectionArchive) {
+			message := "chat.not_found"
+			if sec.kind == sectionArchive {
+				message = "chat_archive.empty"
+				if sec.folder != 0 {
+					message = "chat_archive.empty_folder"
+				}
+			}
+			empty := func(gtx layout.Context) layout.Dimensions {
+				return layout.UniformInset(unit.Dp(24)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return centeredLabel(gtx, catalog.T(message), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 2)
+				})
+			}
+			if first == 0 {
+				return layout.N.Layout(gtx, empty)
+			}
+			leading = append(leading, empty)
+			first++
+		}
+		dims := l.list.Layout(gtx, len(visible)+first, func(gtx layout.Context, i int) layout.Dimensions {
+			if i < first {
+				return leading[i](gtx)
 			}
 			c := visible[i-first]
-			if c.Pinned && c.ID == l.reorder.lifted {
+			if sec.kind == sectionAll && c.Pinned && c.ID == l.reorder.lifted {
 				// The lifted row is drawn over the others, after them.
 				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(chatRowHeight))}
 			}
@@ -375,9 +427,9 @@ func (l *chatList) Layout(gtx layout.Context, sec section, folders []model.Folde
 			return dims
 		})
 		l.reorder.drawn = 0
-		if i := chatIndex(visible, l.reorder.lifted); l.reorder.lifted != 0 && i >= 0 {
+		if i := chatIndex(visible, l.reorder.lifted); sec.kind == sectionAll && l.reorder.lifted != 0 && i >= 0 {
 			c := visible[i]
-			l.reorder.layoutLifted(gtx, l.slotTop(gtx, i+first, first), func(gtx layout.Context) layout.Dimensions {
+			l.reorder.layoutLifted(gtx, l.slotTop(gtx, i+first), func(gtx layout.Context) layout.Dimensions {
 				return l.layoutRow(gtx, c, c.ID == selected, narrow, now, catalog)
 			})
 		}
@@ -430,10 +482,10 @@ func chatIndex(chats []model.Chat, id int64) int {
 }
 
 // slotTop is where the list's element k is, by the position the list was
-// laid out at; the first of them are the row of stories.
-func (l *chatList) slotTop(gtx layout.Context, k, first int) int {
+// laid out at. The stories row is the only variable-height row in All chats.
+func (l *chatList) slotTop(gtx layout.Context, k int) int {
 	height := func(j int) int {
-		if j < first {
+		if j == 0 && l.storiesShown {
 			return l.storiesHeight
 		}
 		return gtx.Dp(chatRowHeight)

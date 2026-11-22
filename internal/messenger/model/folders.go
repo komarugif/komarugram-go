@@ -81,6 +81,19 @@ func (f Folder) Contains(c Chat) bool {
 	return f.matchesRules(c)
 }
 
+// ForArchive applies a custom folder's rules within the archive view. The
+// caller supplies archived chats and keeps the original folder for saving.
+func (f Folder) ForArchive() Folder {
+	f.ExcludeArchived = false
+	return f
+}
+
+// ContainsArchived reports whether an archived chat is visible in the folder
+// within the archive. The default folder there includes the whole archive.
+func (f Folder) ContainsArchived(c Chat) bool {
+	return c.Archived && (f.ID == 0 || f.ForArchive().Contains(c))
+}
+
 type FolderChatAction uint8
 
 const (
@@ -239,6 +252,7 @@ type FolderReadChat struct {
 }
 type FolderActions interface {
 	UnreadInFolder(id int64) []FolderReadChat
+	UnreadInArchivedFolder(id int64) []FolderReadChat
 	ReadFolderChats(ctx context.Context, chats []FolderReadChat) error
 	DeleteFolder(ctx context.Context, folder Folder) error
 }

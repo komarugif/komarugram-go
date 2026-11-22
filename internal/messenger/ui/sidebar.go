@@ -28,12 +28,30 @@ const (
 	sectionSaved
 	sectionSettings
 	sectionDownloads
+	sectionArchive
 )
 
 // section is what the sidebar has selected.
 type section struct {
 	kind   sectionKind
-	folder int64 // For sectionFolder.
+	folder int64 // Custom folder, or the folder filter within the archive.
+}
+
+func (s section) destination() section {
+	if s.kind == sectionArchive {
+		return folderSection(s.folder, false)
+	}
+	return s
+}
+
+func folderSection(id int64, archive bool) section {
+	if archive {
+		return section{kind: sectionArchive, folder: id}
+	}
+	if id == 0 {
+		return section{kind: sectionAll}
+	}
+	return section{kind: sectionFolder, folder: id}
 }
 
 // showsChats reports whether the chat list is shown next to the page.
@@ -115,7 +133,7 @@ func (s *sidebar) Layout(gtx layout.Context, current section, entries []drawerEn
 				title = l.T("nav.theme_light")
 			}
 		}
-		dims := s.buttons[e.key].Layout(gtx, e.icon, title, !e.key.theme && e.key.section == current, e.unread)
+		dims := s.buttons[e.key].Layout(gtx, e.icon, title, !e.key.theme && e.key.section == current.destination(), e.unread)
 		if !e.key.theme && (e.key.section.kind == sectionAll || e.key.section.kind == sectionFolder) {
 			s.folderMenu.hit(gtx, e.key.section.folder, dims.Size)
 		}

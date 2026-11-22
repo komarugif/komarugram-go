@@ -4,8 +4,27 @@ package model
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ChatArchiveActions moves dialogs between the main list and Telegram's archive.
+type ChatArchiveActions interface {
+	SetChatArchived(ctx context.Context, chat int64, archived bool) error
+}
+
+// ArchiveMute is the account's server-side rule for new chats from non-contacts.
+type ArchiveMute struct {
+	Known, Enabled, CanEnable bool
+}
+
+var ErrArchiveMuteRequiresPremium = errors.New("automatic archiving requires Telegram Premium")
+
+type ArchiveMuteStore interface {
+	ArchiveMute() ArchiveMute
+	RefreshArchiveMute(context.Context) error
+	SetArchiveMute(context.Context, bool) error
+}
 
 // ArchiveProgress is how far saving a chat's messages to the cache has come.
 type ArchiveProgress struct {

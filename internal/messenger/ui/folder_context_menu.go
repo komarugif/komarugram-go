@@ -39,6 +39,7 @@ type folderContextMenu struct {
 	open, focus          bool
 	at                   image.Point
 	folder               model.Folder
+	archive              bool
 	items                []infoMenuItem
 	edit, read, remove   surface
 	confirm              modal
@@ -124,7 +125,7 @@ func (m *folderContextMenu) update(gtx layout.Context, a *App, folders []model.F
 			}
 			e, ok := ev.(pointer.Event)
 			if ok && e.Source == pointer.Mouse && e.Buttons == pointer.ButtonSecondary && m.pending == nil {
-				m.show(f, l)
+				m.show(f, a.section.kind == sectionArchive, l)
 				gtx.Execute(op.InvalidateCmd{})
 			}
 		}
@@ -163,7 +164,7 @@ func (m *folderContextMenu) update(gtx layout.Context, a *App, folders []model.F
 		m.confirm.Open()
 	case m.read.Clicked(gtx):
 		m.open = false
-		targets := m.store.UnreadInFolder(m.folder.ID)
+		targets := m.unreadTargets()
 		if len(targets) == 0 {
 			return
 		}
@@ -180,15 +181,23 @@ func (m *folderContextMenu) update(gtx layout.Context, a *App, folders []model.F
 	}
 }
 
-func (m *folderContextMenu) show(f model.Folder, l localization.Catalog) {
+func (m *folderContextMenu) unreadTargets() []model.FolderReadChat {
+	if m.archive {
+		return m.store.UnreadInArchivedFolder(m.folder.ID)
+	}
+	return m.store.UnreadInFolder(m.folder.ID)
+}
+
+func (m *folderContextMenu) show(f model.Folder, archive bool, l localization.Catalog) {
 	m.folder, m.open, m.focus = f, true, true
+	m.archive = archive
 	m.menu = contextMenu{}
 	edit := l.T("folders.context_edit")
 	if f.ID == 0 {
 		edit = l.T("folders.title")
 	}
 	m.items = []infoMenuItem{{item: &m.edit, icon: iconEdit, text: edit}}
-	if len(m.store.UnreadInFolder(f.ID)) > 0 {
+	if len(m.unreadTargets()) > 0 {
 		m.items = append(m.items, infoMenuItem{item: &m.read, icon: iconRead, text: l.T("folders.context_read")})
 	}
 	if f.ID != 0 {
@@ -273,7 +282,11 @@ func (m *folderContextMenu) layout(gtx layout.Context, bd *blurBackdrop, l local
 	}
 	title := m.folder.Title
 	if m.folder.ID == 0 {
-		title = l.T("nav.all")
+		if m.archive {
+			title = l.T("chat_archive.all")
+		} else {
+			title = l.T("nav.all")
+		}
 	}
 	msg, action := "folders.remove_sure", "menu.delete"
 	if m.folder.HasMyInvites {

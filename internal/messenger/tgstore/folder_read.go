@@ -18,6 +18,14 @@ import (
 // Start with both dialog lists, before community collapsing, UI pagination
 // or muting the navigation badge. entries and chats are immutable snapshots.
 func (s *Store) UnreadInFolder(id int64) []model.FolderReadChat {
+	return s.unreadInFolder(id, false)
+}
+
+func (s *Store) UnreadInArchivedFolder(id int64) []model.FolderReadChat {
+	return s.unreadInFolder(id, true)
+}
+
+func (s *Store) unreadInFolder(id int64, archive bool) []model.FolderReadChat {
 	// Never offer a bulk read based on just the first pages of a new account.
 	if !s.dialogsComplete.Load() {
 		return nil
@@ -33,12 +41,16 @@ func (s *Store) UnreadInFolder(id int64) []model.FolderReadChat {
 		}
 		folder = folders[i]
 	}
+	matches := folder.Contains
+	if archive {
+		matches = folder.ContainsArchived
+	}
 	h := s.history
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	var out []model.FolderReadChat
 	for _, c := range chats {
-		if c.Kind == model.KindCommunity {
+		if c.Kind == model.KindCommunity || archive && !c.Archived {
 			continue
 		}
 		if c.Forum {
@@ -52,7 +64,7 @@ func (s *Store) UnreadInFolder(id int64) []model.FolderReadChat {
 			}
 		}
 		marked := entries[c.ID].unreadMark
-		if (c.Unread > 0 || c.UnreadMentions > 0 || marked) && folder.Contains(c) {
+		if (c.Unread > 0 || c.UnreadMentions > 0 || marked) && matches(c) {
 			out = append(out, model.FolderReadChat{ID: c.ID, Top: max(c.Last.ID, model.MessageID(h.top[c.ID])), Unread: c.Unread, Mentions: c.UnreadMentions, Marked: marked, Forum: c.Forum})
 		}
 	}

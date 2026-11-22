@@ -34,6 +34,8 @@ var (
 	iconAttachTasks   = wdk.RequireIconWidget(icons.ActionCheckCircle)
 	iconAllChats      = wdk.RequireIconWidget(icons.CommunicationForum)
 	iconFolder        = wdk.RequireIconWidget(icons.FileFolder)
+	iconArchive       = wdk.RequireIconWidget(icons.ContentArchive)
+	iconUnarchive     = wdk.RequireIconWidget(icons.ContentUnarchive)
 	iconPersonal      = wdk.RequireIconWidget(icons.SocialPerson)
 	iconGroups        = wdk.RequireIconWidget(icons.SocialGroup)
 	iconChannels      = wdk.RequireIconWidget(icons.ActionAnnouncement)

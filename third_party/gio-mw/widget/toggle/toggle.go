@@ -66,11 +66,18 @@ func (t *Toggle[T]) ToggleDisable() *Toggle[T] {
 }
 
 func (t *Toggle[T]) Layout(gtx layout.Context, labels map[T]string) layout.Dimensions {
+	return t.LayoutWithLabel(gtx, func(gtx layout.Context, option T) layout.Dimensions {
+		return wdk.LayoutLabel(gtx, wdk.LabelStyle{Typestyle: token.TypestyleBodyLarge}, labels[option])
+	})
+}
+
+// LayoutWithLabel draws a custom label within each option's clickable row.
+func (t *Toggle[T]) LayoutWithLabel(gtx layout.Context, label func(layout.Context, T) layout.Dimensions) layout.Dimensions {
 	t.update(gtx)
 	style := widgetStyle[T]{
-		Toggle:  t,
-		tLabels: labels,
-		tTheme:  BuildTheme(gtx),
+		Toggle: t,
+		tLabel: label,
+		tTheme: BuildTheme(gtx),
 	}
 	return style.layout(gtx)
 }

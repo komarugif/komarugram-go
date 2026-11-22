@@ -148,6 +148,14 @@
 "chat.not_found" = "Nothing found";
 "chat.search" = "Search";
 
+"chat_archive.all" = "All archived";
+"chat_archive.empty" = "No archived chats";
+"chat_archive.empty_folder" = "No archived chats in this folder";
+"chat_archive.main_empty" = "No chats yet";
+"chat_archive.preview_list" = "{accumulated}, {chat}";
+"chat_archive.preview_more#one" = "{chats} and {count} more chat";
+"chat_archive.preview_more#other" = "{chats} and {count} more chats";
+
 "chat_menu.beginning" = "To Beginning";
 "chat_menu.channel" = "View channel info";
 "chat_menu.group" = "View group info";
@@ -157,6 +165,9 @@
 "chat_menu.search" = "Search for messages";
 "chat_menu.show_filtered" = "Show Filtered Messages";
 
+"chat_row.archive" = "Archive";
+"chat_row.archive_failed" = "Could not move the chat";
+"chat_row.archived" = "Chat archived";
 "chat_row.folder_add" = "Add to folder";
 "chat_row.folder_remove" = "Remove from folder";
 "chat_row.folder_pin" = "Pin in this folder";
@@ -170,6 +181,8 @@
 "chat_row.pin_limit_pro" = "You can pin no more than {limit} chats. With Telegram Premium, up to {premium}.";
 "chat_row.read" = "Mark as read";
 "chat_row.ungroup" = "Ungroup";
+"chat_row.unarchive" = "Unarchive";
+"chat_row.unarchived" = "Chat restored from the archive";
 "chat_row.unpin" = "Unpin from top";
 
 "chat_search.close" = "Close search";
@@ -1291,6 +1304,7 @@
 "miniapp.title" = "Mini Apps";
 
 "nav.all" = "All chats";
+"nav.archive" = "Archived chats";
 "nav.downloads" = "Downloads";
 "nav.menu" = "Menu";
 "nav.profile" = "Profile";
@@ -1474,6 +1488,13 @@
 "preview.videos#one" = "{count} video";
 "preview.voice" = "Voice message";
 
+"privacy.archive_mute" = "Archive and Mute";
+"privacy.archive_mute_body" = "Automatically archive and mute new chats from non-contacts. This setting applies to this account on all devices.";
+"privacy.archive_mute_load_failed" = "Could not load the account's archive setting";
+"privacy.archive_mute_premium_required" = "Archive and Mute requires Telegram Premium.";
+"privacy.archive_mute_save_failed" = "Could not save the account's archive setting";
+"privacy.chat_archive_body" = "Show the archive card in All chats and allow moving chats into and out of the archive.";
+"privacy.chat_archive_failed" = "Could not save the archive setting";
 "privacy.streamer" = "Streamer Mode";
 "privacy.streamer_body" = "The messenger's windows stay out of screen recordings and streams, which show nothing where they are, as AyuGram's Streamer Mode.";
 "privacy.visual" = "Visual privacy mode";

@@ -57,16 +57,20 @@ type barFolder struct {
 	unread int
 }
 
-func barFolders(folders []model.Folder, chats []model.Chat, l localization.Catalog) []barFolder {
-	var out []barFolder
-	for _, f := range folders {
-		title := f.Title
-		if f.ID == 0 {
-			title = l.T("nav.all")
+// navigationFolder describes a folder in the sidebar, drawer or chip bar.
+func navigationFolder(f model.Folder, chats []model.Chat, archive bool, l localization.Catalog) barFolder {
+	title := f.Title
+	if f.ID == 0 {
+		title = l.T("nav.all")
+		if archive {
+			title = l.T("chat_archive.all")
 		}
-		out = append(out, barFolder{id: f.ID, title: title, unread: unreadChats(chats, f.Contains)})
 	}
-	return out
+	match := f.Contains
+	if archive {
+		match = f.ContainsArchived
+	}
+	return barFolder{id: f.ID, title: title, unread: unreadChats(chats, match)}
 }
 
 // unreadChats counts the unmuted chats with unread messages that match.
@@ -81,25 +85,24 @@ func unreadChats(chats []model.Chat, match func(model.Chat) bool) int {
 }
 
 // Update returns the section the user picked, if any.
-func (b *folderBar) Update(gtx layout.Context, folders []model.Folder) (section, bool) {
+func (b *folderBar) Update(gtx layout.Context, folders []model.Folder) (int64, bool) {
 	if b.chip(0).click.Clicked(gtx) {
-		return section{kind: sectionAll}, true
+		return 0, true
 	}
 	for _, f := range folders {
 		if f.ID != 0 && b.chip(f.ID).click.Clicked(gtx) {
-			return section{kind: sectionFolder, folder: f.ID}, true
+			return f.ID, true
 		}
 	}
-	return section{}, false
+	return 0, false
 }
 
 // Layout draws the bar in the exact size of the constraints.
 func (b *folderBar) Layout(gtx layout.Context, current section, folders []model.Folder, chats []model.Chat, l localization.Catalog) layout.Dimensions {
-	items := barFolders(folders, chats, l)
 	size := gtx.Constraints.Max
-	return b.list.Layout(gtx, len(items), func(gtx layout.Context, i int) layout.Dimensions {
-		f := items[i]
-		active := (f.id == 0 && current.kind == sectionAll) || (current.kind == sectionFolder && current.folder == f.id)
+	return b.list.Layout(gtx, len(folders), func(gtx layout.Context, i int) layout.Dimensions {
+		f := navigationFolder(folders[i], chats, current.kind == sectionArchive, l)
+		active := current == folderSection(f.id, current.kind == sectionArchive)
 		gap := gtx.Dp(folderChipGap)
 		dims := offset(gtx, image.Pt(gap, (size.Y-gtx.Dp(folderChipHeight))/2), func(gtx layout.Context) layout.Dimensions {
 			dims := b.chip(f.id).Layout(gtx, f.title, active, f.unread)

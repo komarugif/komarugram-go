@@ -281,7 +281,8 @@ func (h *chatListHarness) click(at f32.Point) {
 
 // The row of stories is the first of all chats, and goes up with them; a
 // click on someone in it opens theirs. The chats in view stay where they
-// are when it comes; a folder has none.
+// are when it comes. The archive shows the same stories, and an ordinary
+// folder has none.
 func TestStoriesRowInList(t *testing.T) {
 	src := newStoryGallery()
 	h := &chatListHarness{list: newChatList(), sec: section{kind: sectionAll}}
@@ -309,6 +310,12 @@ func TestStoriesRowInList(t *testing.T) {
 	h.frame()
 	if !slices.Equal(opened, []int64{7}) {
 		t.Fatalf("opened %v", opened)
+	}
+	h.sec = section{kind: sectionArchive, folder: 1}
+	h.frame()
+	h.click(f32.Pt(4+72+36, at))
+	if !h.list.storiesShown || !slices.Equal(opened, []int64{7, 7}) {
+		t.Fatalf("stories in the archive: shown %v, opened %v", h.list.storiesShown, opened)
 	}
 	h.sec = section{kind: sectionFolder, folder: 1}
 	h.frame()

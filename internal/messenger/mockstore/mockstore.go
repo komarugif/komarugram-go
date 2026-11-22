@@ -39,13 +39,14 @@ type Store struct {
 	chatThemes map[int64]string
 	// mu guards histories and views: a media viewer in its own window reads
 	// the store from that window's goroutine.
-	mu        sync.Mutex
-	histories map[int64]model.History
-	chats     []model.Chat
-	folders   []model.Folder
-	forumRead bool
-	views     map[int64]model.Viewport
-	me        model.Profile
+	mu          sync.Mutex
+	histories   map[int64]model.History
+	chats       []model.Chat
+	folders     []model.Folder
+	archiveMute bool
+	forumRead   bool
+	views       map[int64]model.Viewport
+	me          model.Profile
 	// recent is the search history; query, the search asked for last.
 	recent []model.Chat
 	query  model.SearchQuery
@@ -270,15 +271,27 @@ func (s *Store) DeleteFolder(ctx context.Context, folder model.Folder) error {
 }
 
 func (s *Store) UnreadInFolder(id int64) []model.FolderReadChat {
+	return s.unreadInFolder(id, false)
+}
+
+func (s *Store) UnreadInArchivedFolder(id int64) []model.FolderReadChat {
+	return s.unreadInFolder(id, true)
+}
+
+func (s *Store) unreadInFolder(id int64, archive bool) []model.FolderReadChat {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	i := slices.IndexFunc(s.folders, func(f model.Folder) bool { return f.ID == id })
 	if i < 0 {
 		return nil
 	}
+	matches := s.folders[i].Contains
+	if archive {
+		matches = s.folders[i].ContainsArchived
+	}
 	var chats []model.FolderReadChat
 	for _, c := range s.chats {
-		if c.Kind != model.KindCommunity && (c.Unread > 0 || c.UnreadMentions > 0) && s.folders[i].Contains(c) {
+		if c.Kind != model.KindCommunity && (c.Unread > 0 || c.UnreadMentions > 0) && matches(c) {
 			chats = append(chats, model.FolderReadChat{ID: c.ID, Top: c.Last.ID, Unread: c.Unread, Mentions: c.UnreadMentions, Forum: c.Forum})
 		}
 	}
@@ -314,9 +327,34 @@ func (s *Store) ReadFolderChats(ctx context.Context, targets []model.FolderReadC
 }
 
 func (s *Store) Chats() []model.Chat {
+	return model.MainDialogs(s.FolderDialogs())
+}
+
+func (s *Store) FolderDialogs() []model.Chat {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.chats
+}
+
+func (s *Store) SetChatArchived(ctx context.Context, chat int64, archived bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	for i, c := range s.chats {
+		if c.ID == chat && c.Archived != archived {
+			chats := slices.Clone(s.chats)
+			chats[i].Archived, chats[i].Pinned, chats[i].PinRank = archived, false, 0
+			s.chats = model.Renumbered(chats)
+			break
+		}
+	}
+	changed := s.changed
+	s.mu.Unlock()
+	if changed != nil {
+		changed()
+	}
+	return nil
 }
 
 // PinChat implements model.ChatListActions with the limit of the demo

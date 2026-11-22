@@ -199,6 +199,7 @@ func (s *Store) applyFolderPeers(u *tg.UpdateFolderPeers) {
 	if len(fetch) > 0 {
 		s.addDialogs(fetch)
 	}
+	s.syncPins()
 	s.goPersistDialogs()
 }
 

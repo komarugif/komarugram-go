@@ -179,9 +179,13 @@ type settingsPage struct {
 	images        *imageOps
 	// private and setPrivate read and switch visual privacy mode; without
 	// them the mode is off and the switch hidden.
-	private    func() bool
-	setPrivate func(bool)
-	visual     *toggle.Toggle[string]
+	private        func() bool
+	setPrivate     func(bool)
+	visual         *toggle.Toggle[string]
+	chatArchive    func() bool
+	setChatArchive func(bool)
+	archiveToggle  *toggle.Toggle[string]
+	archiveMute    *archiveMuteSettings
 	// streamer and setStreamer read and switch Streamer Mode, where the
 	// platform has it.
 	streamer     func() bool
@@ -403,6 +407,9 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			p.setPrivate(len(values) == 1)
 		}
 	})
+	p.archiveToggle = toggle.NewToggle([]string{"archive"}, nil, func(values []string) {
+		p.setChatArchive(len(values) != 0)
+	})
 	p.streamerMode = toggle.NewToggle([]string{"streamer"}, nil, func(values []string) {
 		if p.setStreamer != nil {
 			p.setStreamer(len(values) == 1)
@@ -606,6 +613,10 @@ func (p *settingsPage) show(section settingsSection) {
 		p.refreshPrograms()
 	case settingsDevices:
 		p.sessions.refresh()
+	case settingsVisibility:
+		if p.archiveMute != nil {
+			p.archiveMute.reload = true
+		}
 	case settingsAbout:
 		p.about.open()
 	case settingsProxy:
@@ -858,6 +869,9 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		p.localPremiumBoxes.Update(gtx)
 	}
 	if p.section == settingsVisibility {
+		if p.archiveMute != nil {
+			p.archiveMute.update(gtx, p.worded, &p.toast)
+		}
 		p.filtersView.Update(gtx)
 		if p.calm != nil {
 			p.calmBoxes.Update(gtx)
@@ -996,6 +1010,14 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 						})
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						if p.setChatArchive == nil {
+							return layout.Dimensions{}
+						}
+						return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return p.cardHeight("chat-archive").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutChatArchive(gtx, l) }, defaultCardPadding)
+						})
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						if p.hidePeerBadges == nil {
 							return layout.Dimensions{}
 						}
@@ -1100,6 +1122,33 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 
 func (p *settingsPage) isPrivate() bool {
 	return p.private != nil && p.private()
+}
+
+func (p *settingsPage) layoutChatArchive(gtx layout.Context, l localization.Catalog) layout.Dimensions {
+	if on := p.chatArchive(); on != (len(p.archiveToggle.GetValues()) != 0) {
+		if on {
+			p.archiveToggle.SetValues([]string{"archive"})
+		} else {
+			p.archiveToggle.SetValues(nil)
+		}
+	}
+	children := []layout.FlexChild{
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return p.archiveToggle.Layout(gtx, map[string]string{"archive": l.T("nav.archive")})
+		}),
+		vspace(4),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, l.T("privacy.chat_archive_body"), token.TypestyleBodyMedium, scheme(gtx).SurfaceVariant.OnColor, 0)
+		}),
+	}
+	if p.archiveMute != nil {
+		children = append(children, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return p.archiveMute.layout(gtx, l, func(gtx layout.Context) layout.Dimensions {
+				return p.layoutPremiumMark(gtx, settingsPremiumMarkSize)
+			})
+		}))
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 }
 
 // layoutVisualPrivacy draws the switch of visual privacy mode. The mode may
@@ -1844,6 +1893,8 @@ func (p *settingsPage) premiumText(l localization.Catalog) string {
 	return l.T("premium.off")
 }
 
+const settingsPremiumMarkSize = unit.Dp(20)
+
 // layoutPremiumMark draws the Premium star in a square of size, nothing
 // where there is no window to take it from.
 func (p *settingsPage) layoutPremiumMark(gtx layout.Context, size unit.Dp) layout.Dimensions {
@@ -1942,9 +1993,9 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 			return withBadges(gtx, nil, func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, title, token.TypestyleTitleMedium, sc.Surface.OnColor, 1)
 			}, func(gtx layout.Context) layout.Dimensions {
-				px := gtx.Dp(20)
+				px := gtx.Dp(settingsPremiumMarkSize)
 				return exact(gtx, image.Pt(px, px), func(gtx layout.Context) layout.Dimensions {
-					return p.layoutPremiumMark(gtx, 20)
+					return p.layoutPremiumMark(gtx, settingsPremiumMarkSize)
 				})
 			})
 		}),
