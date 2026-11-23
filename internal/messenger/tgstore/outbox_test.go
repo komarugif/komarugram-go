@@ -222,6 +222,70 @@ func TestOutgoingRetriesClosedTelegramConnection(t *testing.T) {
 }
 
 func TestOutgoingForwardSurvivesRestartAndRetry(t *testing.T) {
+	for _, options := range []model.ForwardOptions{{}, {DropAuthor: true}, {DropAuthor: true, DropCaptions: true}, {DropAlbumCaptions: map[model.MessageID]bool{10: true}}} {
+		t.Run(fmt.Sprint(options), func(t *testing.T) {
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "history")
+			s := New(nil)
+			t.Cleanup(func() { s.Close() })
+			if err := s.Configure(ctx, "a", path, nil); err != nil {
+				t.Fatal(err)
+			}
+			s.history.peers[5] = peerRecord{Kind: "user", ID: 5, Hash: 55, Name: "Friend"}
+			s.history.peers[6] = peerRecord{Kind: "user", ID: 6, Hash: 66}
+			s.history.histories[5] = &model.History{Messages: []model.Message{{Key: model.MessageKey{AccountID: "a", ChatID: 5, MessageID: 10}, Kind: model.MessagePhoto, Media: &model.MessageMedia{ID: "photo"}, Text: "forward me", SenderName: "Friend"}}}
+			if err := s.ForwardMessagesWithOptions(ctx, 5, []model.MessageID{10}, 6, options); err != nil {
+				t.Fatal(err)
+			}
+			s.outbox.mu.Lock()
+			identity := s.outbox.entries[0].Request.RandomID
+			s.outbox.mu.Unlock()
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			s = New(nil)
+			if err := s.Configure(ctx, "a", path, nil); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { s.Close() })
+			s.history.histories[6] = &model.History{}
+			dropAuthor := options.DropAuthor || options.DropAlbumCaptions[10]
+			dropCaptions := options.DropCaptions || options.DropAlbumCaptions[10]
+			wantText := "forward me"
+			if dropCaptions {
+				wantText = ""
+			}
+			if got := s.History(6).Messages; len(got) != 1 || !got[0].Sending || got[0].Text != wantText || (got[0].ForwardName == "") != dropAuthor {
+				t.Fatalf("forward not restored: %+v", got)
+			}
+			calls := 0
+			s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
+				r, ok := in.(*tg.MessagesForwardMessagesRequest)
+				if !ok {
+					return nil, fmt.Errorf("unexpected %T", in)
+				}
+				if len(r.RandomID) != 1 || r.RandomID[0] != identity || len(r.ID) != 1 || r.ID[0] != 10 {
+					return nil, fmt.Errorf("forward identity changed: %+v", r)
+				}
+				if r.DropAuthor != dropAuthor || r.DropMediaCaptions != dropCaptions {
+					return nil, fmt.Errorf("forward options lost: %+v", r)
+				}
+				calls++
+				if calls == 1 {
+					return nil, io.EOF
+				}
+				return &tg.Updates{}, nil
+			})
+			s.startOutgoing()
+			waitOutgoing(t, s, 0)
+			if calls != 2 {
+				t.Fatalf("forward had %d attempts", calls)
+			}
+		})
+	}
+}
+
+func TestOutgoingForwardKeepsCaptionsOutsidePartialAlbum(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "history")
 	s := New(nil)
@@ -229,46 +293,45 @@ func TestOutgoingForwardSurvivesRestartAndRetry(t *testing.T) {
 	if err := s.Configure(ctx, "a", path, nil); err != nil {
 		t.Fatal(err)
 	}
-	s.history.peers[5] = peerRecord{Kind: "user", ID: 5, Hash: 55, Name: "Friend"}
-	s.history.peers[6] = peerRecord{Kind: "user", ID: 6, Hash: 66}
-	s.history.histories[5] = &model.History{Messages: []model.Message{{Key: model.MessageKey{AccountID: "a", ChatID: 5, MessageID: 10}, Text: "forward me", SenderName: "Friend"}}}
-	if err := s.ForwardMessages(ctx, 5, []model.MessageID{10}, 6); err != nil {
+	s.history.peers[5] = peerRecord{Kind: "user", ID: 5, Name: "Friend"}
+	s.history.peers[6] = peerRecord{Kind: "user", ID: 6}
+	var messages []model.Message
+	for _, id := range []model.MessageID{10, 11, 12, 13} {
+		m := model.Message{Key: model.MessageKey{AccountID: "a", ChatID: 5, MessageID: id}, Kind: model.MessagePhoto,
+			Media: &model.MessageMedia{ID: "photo"}, Text: "caption", SenderName: "Friend"}
+		if id <= 12 {
+			m.GroupedID = 7
+		}
+		messages = append(messages, m)
+	}
+	s.history.histories[5] = &model.History{Messages: messages}
+	s.history.histories[6] = &model.History{}
+	options := model.ForwardOptions{DropAlbumCaptions: map[model.MessageID]bool{10: true, 12: true}}
+	if err := s.ForwardMessagesWithOptions(ctx, 5, []model.MessageID{10, 12, 13}, 6, options); err != nil {
 		t.Fatal(err)
 	}
 	s.outbox.mu.Lock()
-	identity := s.outbox.entries[0].Request.RandomID
+	pending := slices.Clone(s.outbox.entries[0].Messages)
 	s.outbox.mu.Unlock()
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
+	if len(pending) != 3 || pending[0].Text != "" || pending[1].Text != "" || pending[2].Text != "caption" {
+		t.Fatalf("pending captions differ from the requested forward: %+v", pending)
 	}
-	s = New(nil)
-	if err := s.Configure(ctx, "a", path, nil); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { s.Close() })
-	s.history.histories[6] = &model.History{}
-	if got := s.History(6).Messages; len(got) != 1 || !got[0].Sending || got[0].Text != "forward me" {
-		t.Fatalf("forward not restored: %+v", got)
-	}
-	calls := 0
+	var calls []*tg.MessagesForwardMessagesRequest
 	s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
 		r, ok := in.(*tg.MessagesForwardMessagesRequest)
 		if !ok {
 			return nil, fmt.Errorf("unexpected %T", in)
 		}
-		if len(r.RandomID) != 1 || r.RandomID[0] != identity || len(r.ID) != 1 || r.ID[0] != 10 {
-			return nil, fmt.Errorf("forward identity changed: %+v", r)
-		}
-		calls++
-		if calls == 1 {
-			return nil, io.EOF
-		}
+		calls = append(calls, r)
 		return &tg.Updates{}, nil
 	})
 	s.startOutgoing()
 	waitOutgoing(t, s, 0)
-	if calls != 2 {
-		t.Fatalf("forward had %d attempts", calls)
+	if len(calls) != 2 || !slices.Equal(calls[0].ID, []int{10, 12}) || !slices.Equal(calls[1].ID, []int{13}) {
+		t.Fatalf("unexpected forward batches: %+v", calls)
+	}
+	if !calls[0].DropAuthor || !calls[0].DropMediaCaptions || calls[1].DropAuthor || calls[1].DropMediaCaptions {
+		t.Fatalf("incorrect attribution or caption flags: %+v", calls)
 	}
 }
 

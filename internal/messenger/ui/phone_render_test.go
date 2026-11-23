@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -113,7 +112,7 @@ func TestRenderPhoneStep(t *testing.T) {
 			page.qr.inverted = scene.inverted
 			renderPNG(t, filepath.Join(dir, lang+"-"+scene.name+".png"), size, 4, func(gtx layout.Context) {
 				if scene.dark {
-					wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineDark()))
+					wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineDark()))
 				}
 				page.Update(gtx, l)
 				page.Layout(gtx, l, false)

@@ -41,7 +41,7 @@ const preRoll = 2
 
 // DefaultLimits suit a voice message or a song: a decoder keeps a few
 // hundred KiB, and a unit takes well under a millisecond.
-var DefaultLimits = sandbox.Limits{Memory: 16 << 20, Slow: 250 * time.Millisecond}
+var DefaultLimits = sandbox.Limits{Memory: 16 << 20, PerFrame: true}
 
 // Runtime compiles the decoder once; each file then gets its own instance.
 type Runtime struct {

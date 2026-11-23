@@ -3,7 +3,6 @@ package ui
 
 import (
 	"context"
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 	"gioui.org/io/input"
@@ -33,7 +32,7 @@ func TestShortcutRecordingConflictAndManualSystemCollision(t *testing.T) {
 	now := time.Unix(1000, 0)
 	frame := func() {
 		gtx := layout.Context{Ops: new(op.Ops), Source: router.Source(), Now: now, Constraints: layout.Exact(image.Pt(900, 1800)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		view.Update(gtx, localization.For("en"))
 		view.Layout(gtx, p, localization.For("en"))
 		view.Overlay(gtx, localization.For("en"))

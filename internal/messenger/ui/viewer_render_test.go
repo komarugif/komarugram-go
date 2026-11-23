@@ -15,7 +15,6 @@ import (
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 	"gio-mw/widget/indicator"
@@ -78,6 +77,11 @@ func TestRenderMediaViewer(t *testing.T) {
 		v.editSink = box.edit
 	}
 	v.popout = func(int64, model.Message, mediaList) {}
+	// VIEWER_BLUR: the plates of the caption and of a video's controls blur
+	// what is under them, as with the toasts' blur on.
+	if os.Getenv("VIEWER_BLUR") != "" {
+		v.overlays = func() overlayPrefs { return overlayPrefs{toasts: true} }
+	}
 	v.share.chats = store.Chats
 	if boxItems != nil {
 		v.popout = nil
@@ -144,7 +148,7 @@ func TestRenderMediaViewer(t *testing.T) {
 			// The viewer is dark in either; its dialogs are the theme's.
 			scheme = schemes.SchemeBaselineDark()
 		}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, scheme))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, scheme))
 		images.BeginFrame()
 		v.Layout(gtx, localization.For("ru"), false)
 		images.EndFrame()

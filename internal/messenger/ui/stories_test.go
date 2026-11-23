@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -204,11 +203,20 @@ func TestViewerStories(t *testing.T) {
 	h.frame()
 	v.share.picker.rows[9].click.Click()
 	h.frame()
+	if !v.share.picker.confirming || slices.Contains(src.recorded(), "share 8 1 to 9") {
+		t.Fatal("a story was shared before confirmation")
+	}
+	var navigated int64
+	v.share.picker.navigate = func(chat model.Chat) { navigated = chat.ID }
+	v.share.picker.goToMessage = true
+	v.share.picker.confirm.click.Click()
+	h.frame()
 	want := []string{"read 7 2", "read 7 3", "read 8 1", "like 8 1 true", "share 8 1 to 9"}
 	h.until("told", func() bool { return len(src.recorded()) >= len(want) })
 	if told := src.recorded(); !slices.Equal(told, want) {
 		t.Fatalf("told %q, want %q", told, want)
 	}
+	h.until("opened recipient", func() bool { return navigated == 9 && !v.open })
 }
 
 // What the viewer forwards: a message of Telegram's, or a story, unless it
@@ -256,7 +264,7 @@ type chatListHarness struct {
 
 func (h *chatListHarness) frame() {
 	gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: time.Now(), Constraints: layout.Exact(image.Pt(360, 600)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	catalog := localization.For("en")
 	h.list.Update(gtx, h.sec, catalog)
 	h.list.Layout(gtx, h.sec, nil, h.chats, 0, false, catalog)

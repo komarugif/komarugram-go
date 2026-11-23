@@ -46,7 +46,7 @@ func (i *Indicator) circularIndeterminate(gtx layout.Context) layout.Dimensions 
 		i.started = gtx.Now
 	}
 	start, sweep := -math.Pi/2, math.Pi*1.5
-	if wdk.AnimationsEnabled(gtx) && !gtx.Now.IsZero() {
+	if wdk.AnimationEnabled(gtx, wdk.AnimationLoading) && !gtx.Now.IsZero() {
 		start, sweep = circularAngles(max(0, gtx.Now.Sub(i.started)))
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 60)})
 	}

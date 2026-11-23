@@ -4,19 +4,21 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"komarugram/internal/messenger/localization"
+	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -41,6 +43,31 @@ type menuStore struct {
 	forwarded []string
 	// sets maps a custom emoji to its set.
 	sets map[int64]int64
+	// erased are the messages deleted: see erase.
+	erased map[model.MessageKey]bool
+}
+
+// MessageErased implements model.ErasedMessages.
+func (s *menuStore) MessageErased(key model.MessageKey) bool { return s.erased[key] }
+
+// erase deletes the messages ids from the history, as Telegram does.
+func (s *menuStore) erase(ids ...model.MessageID) {
+	if s.erased == nil {
+		s.erased = map[model.MessageKey]bool{}
+	}
+	for _, m := range s.h.Messages {
+		if slices.Contains(ids, m.Key.MessageID) {
+			s.erased[m.Key] = true
+		}
+	}
+	s.unload(ids...)
+}
+
+// unload takes the messages ids out of what the history has loaded: they
+// are not deleted.
+func (s *menuStore) unload(ids ...model.MessageID) {
+	s.h.Messages = slices.DeleteFunc(slices.Clone(s.h.Messages), func(m model.Message) bool { return slices.Contains(ids, m.Key.MessageID) })
+	s.h.Revision++
 }
 
 func (s *menuStore) Picker(context.Context, model.PickerRequest) (model.PickerPage, error) {
@@ -88,9 +115,19 @@ type menuHarness struct {
 	// when it is 0.
 	still bool
 	width int
+	// fx are the particles of the harness's window, for a test that has
+	// them; scale is how many px a dp is, 1 when it is 0; dark draws in
+	// the dark theme; ops are those of the frame drawn last.
+	// animate lays the page out as a window with animations on does.
+	fx      *effects
+	scale   float32
+	dark    bool
+	animate bool
+	ops     *op.Ops
 }
 
 func newMenuHarness(t *testing.T, edit func(*menuStore, []model.Message)) *menuHarness {
+	skipFrames(t)
 	return newMenuHarnessOn(t, edit, nil)
 }
 
@@ -98,6 +135,7 @@ func newMenuHarness(t *testing.T, edit func(*menuStore, []model.Message)) *menuH
 // store, such as one that also takes reactions.
 func newMenuHarnessOn(t *testing.T, edit func(*menuStore, []model.Message), wrap func(*menuStore) model.ConversationStore) *menuHarness {
 	t.Helper()
+	skipFrames(t)
 	h := &menuHarness{t: t, now: time.Unix(1000, 0)}
 	var messages []model.Message
 	for i := 1; i <= 20; i++ {
@@ -125,14 +163,27 @@ func (h *menuHarness) frame() {
 	if width == 0 {
 		width = 500
 	}
-	gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(width, 700)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	scale := h.scale
+	if scale == 0 {
+		scale = 1
+	}
+	h.ops = new(op.Ops)
+	gtx := layout.Context{Ops: h.ops, Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(width, 700)), Metric: unit.Metric{PxPerDp: scale, PxPerSp: scale}, Values: map[string]any{}}
+	colors := schemes.SchemeBaselineLight()
+	if h.dark {
+		colors = schemes.SchemeBaselineDark()
+	}
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, colors))
 	if h.still {
 		wdk.SetAnimationsEnabled(gtx, false)
 	}
+	if h.fx != nil {
+		withEffects(gtx, h.fx, false)
+	}
+	fillRect(gtx, scheme(gtx).Surface.Color, gtx.Constraints.Max)
 	h.page.images.BeginFrame()
 	h.page.media.BeginFrame()
-	h.page.Layout(gtx, model.Chat{ID: 1, Title: "Chat", Kind: model.KindGroup}, localization.For("en"), false)
+	h.page.Layout(gtx, model.Chat{ID: 1, Title: "Chat", Kind: model.KindGroup}, localization.For("en"), h.animate)
 	h.page.layoutDialogs(gtx, localization.For("en"))
 	h.page.media.EndFrame()
 	h.page.images.EndFrame()
@@ -143,6 +194,32 @@ func (h *menuHarness) frames(n int) {
 	for range n {
 		h.frame()
 	}
+}
+
+// settle draws frames until none of the media drawn is loading, for a
+// picture of the page to be of what the media came to, whatever the
+// goroutines that load them took.
+func (h *menuHarness) settle(t *testing.T) {
+	t.Helper()
+	h.page.media.LoadingSeen()
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		h.frame()
+		if h.page.media.LoadingSeen() == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the media are still loading")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// errNoMedia is what the media of menuStore are: it keeps none.
+var errNoMedia = errors.New("the test's store keeps no media")
+
+// Media has no media: the store keeps none.
+func (s *menuStore) Media(context.Context, model.Message) ([]byte, error) {
+	return nil, errNoMedia
 }
 func (h *menuHarness) press(button pointer.Buttons, pos f32.Point) {
 	for _, kind := range []pointer.Kind{pointer.Press, pointer.Release} {
@@ -180,6 +257,17 @@ func (h *menuHarness) openMenu(id model.MessageID) {
 func (h *menuHarness) choose(a menuAction) {
 	h.t.Helper()
 	m := &h.page.messageMenu
+	// An item that comes from the background, as the emoji packs, grows
+	// the menu, to the height m.rect has at once and on screen in an
+	// animation: it is clicked once the menu is still, and has grown, on
+	// the test's clock.
+	last := m.rect
+	waitFor(h.t, "the menu still", h.frame, func() bool {
+		still := m.rect == last
+		last = m.rect
+		return still && len(m.shown) > 0
+	})
+	h.frames(30)
 	y := m.rect.Min.Y + menuPadding
 	if strip := m.reactions.height(layout.Context{Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}); strip > 0 {
 		y = m.rect.Min.Y + strip
@@ -346,7 +434,11 @@ func TestMessageMenuReply(t *testing.T) {
 	h.router.Queue(key.EditEvent{Text: "yes"})
 	h.frame()
 	h.router.Queue(key.Event{Name: key.NameReturn, State: key.Press})
-	h.frames(10)
+	waitFor(t, "the reply sent", h.frame, func() bool {
+		h.store.mu.Lock()
+		defer h.store.mu.Unlock()
+		return len(h.store.sent) > 0 && d.reply == nil
+	})
 	h.store.mu.Lock()
 	sent := append([]model.OutgoingMessage(nil), h.store.sent...)
 	h.store.mu.Unlock()
@@ -399,7 +491,14 @@ func TestMessageMenuEmojiPacks(t *testing.T) {
 		m[2].Entities = one
 		m[3].Entities = append(one, model.Entity{Kind: "emoji", DocumentID: 3})
 	})
+	// The packs of a message's emoji are looked up in the background, and
+	// the item comes once they are found.
+	hasPacks := func() bool {
+		shown := h.page.messageMenu.shown
+		return len(shown) > 0 && shown[len(shown)-1] == actionEmojiPacks
+	}
 	h.openMenu(3)
+	waitFor(t, "the packs of message 3", h.frame, hasPacks)
 	shown := h.page.messageMenu.shown
 	if shown[len(shown)-1] != actionEmojiPacks {
 		t.Fatalf("no emoji packs item: %v", shown)
@@ -413,10 +512,15 @@ func TestMessageMenuEmojiPacks(t *testing.T) {
 	}
 	h.page.stickers.stop()
 	h.openMenu(4)
+	waitFor(t, "the packs of message 4", h.frame, func() bool {
+		return hasPacks() && h.page.menuLabel(actionEmojiPacks, localization.For("en")) != "This message contains emoji from 0 packs."
+	})
 	if got := h.page.menuLabel(actionEmojiPacks, localization.For("en")); got != "This message contains emoji from 2 packs." {
 		t.Fatalf("label %q", got)
 	}
 	h.choose(actionEmojiPacks)
+	// The sets are read in the background, as the menu's label was.
+	waitFor(t, "the sets", h.frame, func() bool { return len(h.page.emojiPacks.refs) > 0 })
 	if !h.page.emojiPacks.modal.Shown() || len(h.page.emojiPacks.refs) != 2 {
 		t.Fatal("the sets did not open")
 	}
@@ -551,4 +655,47 @@ func TestStickerWaitsForConfirmation(t *testing.T) {
 	}
 	c.chooseIn(gtx, model.PickerGIF, model.PickerItem{ID: "gif/1"})
 	wait(2)
+}
+
+// A song in a chat goes on the account's profile from its menu, first on
+// its playlist, as Telegram Desktop's Save to... Profile puts it; one
+// there already, and a voice message, have no such item.
+func TestMessageMenuSavesMusicToProfile(t *testing.T) {
+	store := mockstore.New(time.Now(), 0)
+	p := newChatPage(store, func() {})
+	t.Cleanup(p.Close)
+	var song, voice model.Message
+	for _, c := range store.Chats() {
+		for _, m := range store.History(c.ID).Messages {
+			switch {
+			case m.Kind == model.MessageMusic && song.Media == nil:
+				song = m
+			case m.Kind == model.MessageVoice && voice.Media == nil:
+				voice = m
+			}
+		}
+	}
+	if song.Media == nil || voice.Media == nil {
+		t.Fatal("the demo has no song or no voice message")
+	}
+	p.chat = song.Key.ChatID
+	offered := func(m model.Message) bool { return slices.Contains(p.menuActions(m), actionSaveMusic) }
+	if !offered(song) || offered(voice) {
+		t.Fatalf("offered for the song %v, for the voice message %v", offered(song), offered(voice))
+	}
+	l := localization.For("en")
+	p.menuDo(layout.Context{}, actionSaveMusic, song, l)
+	waitAudio(t, "the song was not saved", func() bool { return store.SavedMusic(song) })
+	waitAudio(t, "the save was not told", func() bool {
+		p.errorMu.Lock()
+		defer p.errorMu.Unlock()
+		return p.notice == l.T("menu.music_saved")
+	})
+	if offered(song) {
+		t.Fatal("a song on the profile is offered again")
+	}
+	playlist, err := store.SharedCollection(context.Background(), store.Me().ID, model.SharedSavedMusic, "", 10)
+	if err != nil || len(playlist.Messages) == 0 || playlist.Messages[0].Media.Title != song.Media.Title {
+		t.Fatalf("the playlist %v, %v", playlist.Messages, err)
+	}
 }

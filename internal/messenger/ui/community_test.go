@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -151,7 +150,8 @@ func TestCommunityItems(t *testing.T) {
 // TestRenderCommunity draws the demo's community shown as one chat, for
 // looking at it: COMMUNITY_PNG=/tmp/community.png has its page, -list
 // beside it the list of all chats with its row, and -apart the list with
-// it shown apart, its chats with the badge that opens it.
+// it shown apart, its chats with the badge that opens it. Search results
+// and recent chats (-search and -recent) have no community badges.
 func TestRenderCommunity(t *testing.T) {
 	path := os.Getenv("COMMUNITY_PNG")
 	if path == "" {
@@ -181,6 +181,25 @@ func TestRenderCommunity(t *testing.T) {
 	renderFrames(t, image.Pt(360, 620), strings.TrimSuffix(path, ".png")+"-apart.png", func(gtx layout.Context) {
 		apart.Layout(gtx, section{kind: sectionAll}, nil, chats, mockstore.DemoForum, false, l)
 	})
+	var peers []model.Chat
+	for _, peer := range info.Peers {
+		peers = append(peers, peer.Chat)
+	}
+	for _, recent := range []bool{false, true} {
+		search := newChatList()
+		search.panel = newSearchPanel(store)
+		suffix := "-search.png"
+		if recent {
+			search.panel.recent.shown = peers
+			suffix = "-recent.png"
+		} else {
+			search.search.SetText("Go")
+			search.panel.results.Chats = peers
+		}
+		renderFrames(t, image.Pt(360, 620), strings.TrimSuffix(path, ".png")+suffix, func(gtx layout.Context) {
+			search.Layout(gtx, section{kind: sectionSearch}, nil, store.Chats(), 0, false, l)
+		})
+	}
 }
 
 // TestCommunityBadge checks that a chat of a community shown apart has the
@@ -254,7 +273,7 @@ func TestChatHeaderCommunityBadge(t *testing.T) {
 	now := time.Now()
 	frame := func(chat int64) bool {
 		gtx := layout.Context{Ops: new(op.Ops), Source: router.Source(), Now: now, Constraints: layout.Exact(image.Pt(500, 300)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		clicked := page.communityBadge.Clicked(gtx)
 		layoutChatPageHead(gtx, model.Chat{ID: chat, Kind: model.KindChannel, Title: "Channel"}, l, noAvatar, nil, nil, nil, func(gtx layout.Context) layout.Dimensions {
 			return layout.Dimensions{Size: gtx.Constraints.Max}
@@ -315,7 +334,7 @@ func TestCommunitySwitchWithoutRow(t *testing.T) {
 	l := localization.For("ru")
 	frame := func() {
 		gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(600, 700)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		c, ok := a.selectedChat()
 		if !ok {
 			t.Fatal("the community's page lost its chat")

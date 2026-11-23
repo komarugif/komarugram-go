@@ -18,7 +18,6 @@ import (
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -56,9 +55,13 @@ type composerHarness struct {
 	// under the page, as the desktop behind a translucent window.
 	transparency int
 	under        func(gtx layout.Context)
+	// fx are the particles of the harness's window, for a view that
+	// shows them.
+	fx *effects
 }
 
 func newComposerHarness(t *testing.T) *composerHarness {
+	skipFrames(t)
 	s := mockstore.New(time.Now(), 0)
 	p := newChatPage(s, func() {})
 	p.images = &imageOps{}
@@ -70,10 +73,13 @@ func newComposerHarness(t *testing.T) *composerHarness {
 func (h *composerHarness) frame() *op.Ops {
 	ops := new(op.Ops)
 	gtx := layout.Context{Ops: ops, Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(h.size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineDark()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineDark()))
 	wdk.SetAnimationsEnabled(gtx, !h.still)
 	if h.transparency > 0 {
 		withWindowSurfaceOpacity(gtx, h.transparency, true)
+	}
+	if h.fx != nil {
+		withEffects(gtx, h.fx, false)
 	}
 	if h.under != nil {
 		h.under(gtx)
@@ -278,6 +284,22 @@ func TestRenderComposer(t *testing.T) {
 	h := newComposerHarness(t)
 	h.p.composer.pickerOpen = true
 	switch os.Getenv("COMPOSER_VIEW") {
+	case "forward", "forward-confirm", "forward-send", "forward-text":
+		h.p.composer.pickerOpen = false
+		h.p.chats = h.p.source.(*mockstore.Store).Chats
+		h.p.forwarding.open(layout.Context{Ops: new(op.Ops)})
+		h.p.forwarding.navigate = func(model.Chat) {}
+		if os.Getenv("COMPOSER_VIEW") != "forward" {
+			f := &h.p.forwarding
+			f.confirming, f.allowOptions = true, true
+			f.target = model.Chat{ID: 2, Kind: model.KindUser, Title: "Анна Смирнова"}
+			f.hasMedia = os.Getenv("COMPOSER_VIEW") != "forward-text"
+			if os.Getenv("COMPOSER_VIEW") == "forward-send" {
+				f.options = model.ForwardOptions{DropAuthor: true, DropCaptions: true}
+				f.dropAuthor.SetValues([]string{"author"})
+				f.dropCaptions.SetValues([]string{"captions"})
+			}
+		}
 	case "channel-readonly", "channel-readonly-hover":
 		restrictComposer(h, model.SendPermissions{Unavailable: true, Broadcast: true, DiscussionID: 9, DirectMessagesID: 40})
 		h.p.composer.pickerOpen = false
@@ -451,6 +473,7 @@ func TestRenderComposer(t *testing.T) {
 			// The first and the last hidden under a spoiler; the pointer rests on
 			// the first's spoiler button below.
 			b.files[0].spoiler, b.files[2].spoiler = true, true
+			h.fx = new(effects)
 		case "files-drag":
 			// The first dragged over the third's place, the others making room.
 			b.drag = boxDrag{file: b.files[0], active: true, target: 2, at: f32.Pt(330, 70), grab: f32.Pt(60, 60)}
@@ -902,7 +925,7 @@ func TestPickerHidesPaidWithTheCalm(t *testing.T) {
 			deadline := time.Now().Add(5 * time.Second)
 			for time.Now().Before(deadline) {
 				gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(400, 500)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-				wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+				wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 				withCalm(gtx, tc.calm)
 				c.update(gtx, 5, l, p)
 				c.pickerOpen = true

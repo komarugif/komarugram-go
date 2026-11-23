@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 	"gioui.org/f32"
@@ -35,7 +34,7 @@ func TestMenuSettingsDragAndHidePersist(t *testing.T) {
 	now := time.Unix(1000, 0)
 	frame := func() {
 		gtx := layout.Context{Ops: new(op.Ops), Source: router.Source(), Now: now, Constraints: layout.Exact(image.Pt(500, 400)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		view.Update(gtx, localization.For("en"))
 		view.layoutCard(gtx, catalog, localization.For("en"))
 		router.Frame(gtx.Ops)
@@ -47,17 +46,17 @@ func TestMenuSettingsDragAndHidePersist(t *testing.T) {
 		router.Queue(pointer.Event{Kind: kind, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: f32.Pt(float32(x), float32(y))})
 		frame()
 	}
-	send(pointer.Press, 20, c.startY+24)
-	send(pointer.Move, 20, c.startY+2*menuSettingsRowHeight+24)
-	send(pointer.Release, 20, c.startY+2*menuSettingsRowHeight+24)
+	send(pointer.Press, 20, c.reorder.top+24)
+	send(pointer.Move, 20, c.reorder.top+2*menuSettingsRowHeight+24)
+	send(pointer.Release, 20, c.reorder.top+2*menuSettingsRowHeight+24)
 	for range 20 {
 		frame()
 	}
 	if got := prefs.Global().Menus[catalog.id].Order; !reflect.DeepEqual(got, []string{"b", "c", "a"}) {
 		t.Fatalf("drag: %v", got)
 	}
-	send(pointer.Press, 476, c.startY+24)
-	send(pointer.Release, 476, c.startY+24)
+	send(pointer.Press, 476, c.reorder.top+24)
+	send(pointer.Release, 476, c.reorder.top+24)
 	frame()
 	saved, err := preferences.OpenPath(path)
 	if err != nil {
@@ -66,16 +65,16 @@ func TestMenuSettingsDragAndHidePersist(t *testing.T) {
 	if got := saved.Global().Menus[catalog.id].Arrange(catalogIDs(catalog), false); !reflect.DeepEqual(got, []string{"c", "a"}) {
 		t.Fatalf("hidden: %v", got)
 	}
-	send(pointer.Press, 476, c.startY+24)
-	send(pointer.Release, 476, c.startY+24)
+	send(pointer.Press, 476, c.reorder.top+24)
+	send(pointer.Release, 476, c.reorder.top+24)
 	frame()
 	if got := prefs.Global().Menus[catalog.id].Arrange(catalogIDs(catalog), false); !reflect.DeepEqual(got, []string{"b", "c", "a"}) {
 		t.Fatalf("unhidden: %v", got)
 	}
 	// Cancel restores the previous order without saving a partial drag.
-	send(pointer.Press, 20, c.startY+24)
-	send(pointer.Move, 20, c.startY+120)
-	send(pointer.Cancel, 20, c.startY+120)
+	send(pointer.Press, 20, c.reorder.top+24)
+	send(pointer.Move, 20, c.reorder.top+120)
+	send(pointer.Cancel, 20, c.reorder.top+120)
 	if got := prefs.Global().Menus[catalog.id].Order; !reflect.DeepEqual(got, []string{"b", "c", "a"}) {
 		t.Fatalf("cancel: %v", got)
 	}

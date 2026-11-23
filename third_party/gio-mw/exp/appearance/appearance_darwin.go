@@ -8,7 +8,7 @@ import (
 )
 
 func startPlatform(m *Monitor) func() {
-	return poll(m, readScheme)
+	return poll(m, readScheme, nil)
 }
 
 // readScheme asks for AppleInterfaceStyle, which is "Dark" in dark mode and

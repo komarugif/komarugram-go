@@ -4,6 +4,7 @@ package tgstore
 
 import (
 	"maps"
+	"slices"
 	"sort"
 
 	"github.com/gotd/td/tg"
@@ -35,6 +36,112 @@ type pendingMessage struct {
 type pendingMessages struct {
 	seq  int
 	list []*pendingMessage
+	// Only one album can be in messages.sendMultiMedia at a time.
+	album *pendingAlbum
+}
+
+type pendingAlbum struct {
+	chat, peer int64
+	after      model.MessageID
+	group      int64
+	parts      []pendingAlbumPart
+}
+
+type pendingAlbumPart struct {
+	pending *pendingMessage
+	mediaID int64
+	photo   bool
+}
+
+// trackPendingAlbum remembers the media IDs assigned by uploadMedia. The
+// corresponding new messages can arrive before sendMultiMedia returns their
+// message IDs.
+func (c *conversation) trackPendingAlbum(e *outgoingEntry, order []int, items []tg.InputSingleMedia) {
+	album := &pendingAlbum{chat: e.Chat, peer: e.Peer.key()}
+	for i, item := range items {
+		part := pendingAlbumPart{pending: e.pending[order[i]]}
+		switch media := item.Media.(type) {
+		case *tg.InputMediaPhoto:
+			if ref, ok := media.ID.(*tg.InputPhoto); ok {
+				part.mediaID, part.photo = ref.ID, true
+			}
+		case *tg.InputMediaDocument:
+			if ref, ok := media.ID.(*tg.InputDocument); ok {
+				part.mediaID = ref.ID
+			}
+		}
+		if part.mediaID == 0 {
+			return
+		}
+		album.parts = append(album.parts, part)
+	}
+	c.mu.Lock()
+	album.after = model.MessageID(c.top[album.peer])
+	c.pending.album = album
+	c.mu.Unlock()
+}
+
+func (c *conversation) untrackPendingAlbum() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if album := c.pending.album; album != nil {
+		c.touchPending(album.chat)
+		c.pending.album = nil
+	}
+}
+
+// notePendingAlbumPart binds a live update to its pending upload, even in
+// Saved Messages, where the server leaves Out unset. The caller holds c.mu.
+func (c *conversation) notePendingAlbumPart(m model.Message, ref *fileLocation, own bool) {
+	album := c.pending.album
+	if album == nil || !own || ref == nil || m.Key.ChatID != album.peer ||
+		m.Key.MessageID <= album.after || m.GroupedID == 0 || album.group != 0 && album.group != m.GroupedID {
+		return
+	}
+	for _, part := range album.parts {
+		if part.pending.id == m.Key.MessageID {
+			return
+		}
+	}
+	for _, part := range album.parts {
+		if part.pending.id == 0 && part.mediaID == ref.ID && part.photo == ref.Photo {
+			album.group = m.GroupedID
+			c.sentPending(part.pending, int(m.Key.MessageID))
+			return
+		}
+	}
+}
+
+// pendingAlbumContains reports whether this message confirms a tile of the
+// album being sent. The caller holds c.mu.
+func (c *conversation) pendingAlbumContains(m model.Message) bool {
+	album := c.pending.album
+	return album != nil && album.peer == m.Key.ChatID && m.GroupedID != 0 &&
+		slices.ContainsFunc(album.parts, func(part pendingAlbumPart) bool {
+			return part.pending.id == m.Key.MessageID
+		})
+}
+
+// shownServerMessages hides an incomplete confirmation while all of its
+// pending tiles are still available. The caller holds c.mu.
+func (c *conversation) shownServerMessages(chat int64, have []model.Message) []model.Message {
+	out := append([]model.Message(nil), have...)
+	album := c.pending.album
+	if album == nil || album.chat != chat {
+		return out
+	}
+	var confirmed []model.MessageID
+	for _, part := range album.parts {
+		if id := part.pending.id; id != 0 && holds(have, id) {
+			confirmed = append(confirmed, id)
+		}
+	}
+	if len(confirmed) == 0 || len(confirmed) == len(album.parts) {
+		return out
+	}
+	return slices.DeleteFunc(out, func(m model.Message) bool {
+		return slices.Contains(confirmed, m.Key.MessageID)
+	})
 }
 
 // sentPending notes that Telegram took p as message id. The caller holds
@@ -44,18 +151,18 @@ func (c *conversation) sentPending(p *pendingMessage, id int) {
 	c.touchPending(p.chat)
 }
 
-// dropPending takes p off its history.
-func (s *Store) dropPending(p *pendingMessage) {
+// dropPending removes the specified pending rows in one history change.
+func (s *Store) dropPending(pending ...*pendingMessage) {
 	c := s.history
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	for i, q := range c.pending.list {
-		if q == p {
-			c.pending.list = append(c.pending.list[:i], c.pending.list[i+1:]...)
+	c.pending.list = slices.DeleteFunc(c.pending.list, func(p *pendingMessage) bool {
+		if slices.Contains(pending, p) {
 			c.touchPending(p.chat)
-			return
+			return true
 		}
-	}
+		return false
+	})
 }
 
 // touchPending tells the history of chat that its messages on their way
@@ -84,7 +191,8 @@ func (c *conversation) pendingMessagesOf(chat int64, have []model.Message) []mod
 // time, keeping them outside Telegram's ID-ordered history and its cache spans.
 // A message on its way comes last: Telegram will place it after what is there.
 func (c *conversation) shownMessages(chat int64, h *model.History) []model.Message {
-	out := append([]model.Message(nil), h.Messages...)
+	have := c.shownServerMessages(chat, h.Messages)
+	out := have
 	// Beyond what is loaded, it shows when that part of the history does.
 	loaded := func(m model.Message) bool {
 		return len(h.Messages) == 0 || !(h.HasOlder && m.Date.Before(h.Messages[0].Date) || h.HasNewer && m.Date.After(h.Messages[len(h.Messages)-1].Date))
@@ -108,7 +216,7 @@ func (c *conversation) shownMessages(chat int64, h *model.History) []model.Messa
 		}
 	}
 	var onItsWay []model.Message
-	for _, m := range c.pendingMessagesOf(chat, h.Messages) {
+	for _, m := range c.pendingMessagesOf(chat, have) {
 		switch {
 		case m.SendError == "":
 			onItsWay = append(onItsWay, m)
@@ -116,7 +224,7 @@ func (c *conversation) shownMessages(chat int64, h *model.History) []model.Messa
 			out = append(out, m)
 		}
 	}
-	if len(out) > len(h.Messages) {
+	if len(out) > len(have) {
 		sort.SliceStable(out, func(i, j int) bool { return out[i].Date.Before(out[j].Date) })
 	}
 	return append(out, onItsWay...)

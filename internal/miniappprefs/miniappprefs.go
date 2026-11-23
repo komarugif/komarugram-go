@@ -68,6 +68,8 @@ type Strings struct {
 	Hints    map[miniapp.Storage]string
 	Browser  string // Followed by the browser that will run Mini Apps.
 	NoneSeen string
+	// Searching follows Browser while the browser is being looked for.
+	Searching string
 }
 
 // View is the settings UI for Settings.
@@ -107,8 +109,12 @@ func (v *View) Layout(gtx layout.Context) layout.Dimensions {
 	if titleStyle == token.TypestyleDefault {
 		titleStyle = token.TypestyleTitleLarge
 	}
+	// Looking for the browser may take a second: the frame does not wait,
+	// and whoever looks for it draws the view again.
 	browser := v.strings.NoneSeen
-	if found := miniapp.Browser(); found != "" {
+	if found, known := miniapp.KnownBrowser(); !known {
+		browser = v.strings.Searching
+	} else if found != "" {
 		browser = filepath.Base(found)
 	}
 	return block.Line{

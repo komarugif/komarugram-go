@@ -54,7 +54,7 @@ func (d *downloadRing) layout(gtx layout.Context, diameter int, active bool, pro
 	if progress < 0 {
 		// A quarter of the ring turns once in 1.4 s.
 		start := -math.Pi / 2
-		if animate {
+		if animate && wdk.AnimationEnabled(gtx, wdk.AnimationAttachmentLoading) {
 			start += float64(gtx.Now.UnixMilli()%1400) * 2 * math.Pi / 1400
 			gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 60)})
 		}
@@ -66,10 +66,10 @@ func (d *downloadRing) layout(gtx layout.Context, diameter int, active bool, pro
 		d.progress = wdk.FloatTween{}
 	}
 	d.last = progress
-	shown := progress
-	if animate {
-		shown = d.progress.Animate(gtx, progress)
+	if !animate {
+		gtx.Now = time.Time{}
 	}
+	shown := d.progress.AnimateFor(gtx, wdk.AnimationProgress, progress)
 	// A sliver shows that it started.
 	arc(gtx, diameter, inset, width, -math.Pi/2, max(float64(shown), .02)*2*math.Pi, ink)
 	return layout.Dimensions{Size: size}

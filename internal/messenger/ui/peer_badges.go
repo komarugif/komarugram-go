@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"gio-mw/wdk"
+
 	"gioui.org/f32"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -54,10 +56,11 @@ func (a *App) badgeClickable(key badgeKey) *widget.Clickable {
 }
 
 // peerMarks are the marks of the forks of Telegram clients for the peer b
-// belongs to, in the order they are drawn: the Komaru faces and the emoji
-// status KomaruGram gives, then the arrow of exteraGram and AyuGram, or the
-// custom emoji it gives. A click on one tells what it means through tell,
-// nil for the chat list's toast.
+// belongs to, drawn after Telegram's own (the check and the Premium
+// status), in this order: the Komaru faces and the emoji status KomaruGram
+// gives, then the arrow of exteraGram and AyuGram, or the custom emoji it
+// gives. A click on one tells what it means through tell, nil for the chat
+// list's toast.
 func (a *App) peerMarks(b model.Badges, name string, size unit.Dp, tell func(text string)) []layout.Widget {
 	if a.peerBadges == nil {
 		return nil
@@ -313,7 +316,7 @@ func (a *App) layoutKomaruMark(gtx layout.Context, size unit.Dp, developer bool,
 	a.layoutTintedEmoji(faceGtx, id, inner, faceColor(face.Color, face.Theme))
 	t.Pop()
 	var now time.Duration
-	if a.window != nil && a.window.Motion.AnimationsEnabled() {
+	if a.window != nil && a.window.Motion.AnimationEnabled(wdk.AnimationBadge) {
 		now = time.Duration(gtx.Now.UnixNano())
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(komaruFrame)})
 	}

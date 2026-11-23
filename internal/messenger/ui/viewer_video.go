@@ -750,13 +750,15 @@ func (v *viewerVideo) toggleMute() {
 
 // playVideo plays m from at, below 0 from the start: a video in the
 // viewer, when the settings choose it, and anything else, a GIF too large
-// to play in the chat say, in the external player.
-func (p *chatPage) playVideo(gtx layout.Context, m model.Message, at time.Duration, l localization.Catalog) {
+// to play in the chat say, in the external player. It reports whether the
+// viewer was used.
+func (p *chatPage) playVideo(gtx layout.Context, m model.Message, at time.Duration, l localization.Catalog) bool {
 	if m.Kind == model.MessageVideo && p.openVideo != nil && p.videoEngine != nil && p.videoEngine(m) != videoExternal {
 		p.openVideo(m, at)
-		return
+		return true
 	}
 	p.playFrom(gtx, m, at, p.reportMedia, l)
+	return false
 }
 
 // configureViewerDecoders gives the media managers of v the decoders chosen, its GIFs
@@ -777,7 +779,10 @@ func (a *App) videoEngine(m model.Message) string {
 // configureViewer lets v play videos as the settings choose, at the volume
 // the client's sound has, pausing the window's audio player as one starts.
 func (a *App) configureViewer(v *mediaViewer) {
+	v.share.picker.navigate = a.openForwarded
 	v.videoEngine = a.videoEngine
+	// Its plates blur with the toasts.
+	v.overlays = a.overlayPrefs
 	// What it shows of its own, GIFs playing in the sandbox whatever is chosen for the
 	// chat's: they are small, and it is what the viewer gives them. A GIF the sandbox
 	// does not take falls to the FFmpeg chosen. Read in the viewer's own frames.

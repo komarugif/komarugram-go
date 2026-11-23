@@ -9,15 +9,18 @@ import (
 	"math"
 	"strconv"
 
+	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/chattheme"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"komarugram/pkg/resample"
 
 	"gio-mw/token"
+	"gio-mw/wdk"
 	"gio-mw/widget/scroll"
 
 	"gioui.org/f32"
+	"gioui.org/gesture"
 	"gioui.org/io/pointer"
 	"gioui.org/io/semantic"
 	"gioui.org/layout"
@@ -34,12 +37,13 @@ type giftRow struct {
 	patternSource, patternTint image.Image
 }
 type giftDialog struct {
-	message model.Message
-	list    scroll.List
-	close   surface
-	retry   surface
-	terms   widget.Clickable
-	modal   modal
+	message  model.Message
+	list     scroll.List
+	close    surface
+	retry    surface
+	terms    widget.Clickable
+	artHover gesture.Hover
+	modal    modal
 	// told is the failure to load the gift told in the toast last.
 	told error
 }
@@ -81,13 +85,15 @@ func tintGiftPattern(im image.Image, rgb uint32) image.Image {
 	}
 	return out
 }
-func (p *chatInfo) giftArt(gtx layout.Context, m model.Message, animate bool) layout.Dimensions {
+func (p *chatInfo) drawGiftArt(gtx layout.Context, m model.Message, target any, animate, hovered bool) chatmedia.Status {
 	size := gtx.Constraints.Max
 	if m.Media == nil {
-		return layout.Dimensions{Size: size}
+		return chatmedia.Status{}
 	}
 	// As Telegram Desktop plays gifts: up to 60 pictures a second.
-	st := p.renderer.media.StatusFullRate(m, animate, size, false)
+	hover := mediaHover(gtx, target, animate && wdk.AnimationAllowed(gtx, wdk.AnimationGift), hovered)
+	hover.FullRate, hover.VideoLoop = true, true
+	st := p.renderer.media.StatusHover(m, size, false, hover)
 	im := st.Frame
 	if im == nil {
 		im = st.Preview
@@ -97,12 +103,26 @@ func (p *chatInfo) giftArt(gtx layout.Context, m model.Message, animate bool) la
 	} else if st.Loading {
 		diameter := min(gtx.Dp(36), min(size.X, size.Y))
 		offset(gtx, image.Pt((size.X-diameter)/2, (size.Y-diameter)/2), func(gtx layout.Context) layout.Dimensions {
-			ring(gtx, diameter, 0, animate)
+			ring(gtx, diameter, 0, animate, wdk.AnimationAttachmentLoading)
 			return layout.Dimensions{}
 		})
 	}
-	return layout.Dimensions{Size: size}
+	return st
 }
+
+func (p *chatInfo) layoutGiftTarget(gtx layout.Context, target *widget.Clickable, draw layout.Widget) layout.Dimensions {
+	if p.gift != nil || !gtx.Enabled() {
+		// A covered target can lose its Leave event while input is disabled.
+		// Register it again with fresh pointer state when it is visible.
+		*target = widget.Clickable{}
+		return draw(gtx.Disabled())
+	}
+	return target.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		pointer.CursorPointer.Add(gtx.Ops)
+		return draw(gtx)
+	})
+}
+
 func (p *chatInfo) giftCard(gtx layout.Context, m model.Message, l localization.Catalog, animate bool) layout.Dimensions {
 	g := m.Gift
 	if g == nil {
@@ -114,11 +134,10 @@ func (p *chatInfo) giftCard(gtx layout.Context, m model.Message, l localization.
 		p.giftRows[m.Key] = r
 	}
 	r.seen = p.giftGeneration
-	if r.click.Clicked(gtx) {
+	if p.gift == nil && r.click.Clicked(gtx) {
 		p.gift = newGiftDialog(m)
 	}
-	return r.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		pointer.CursorPointer.Add(gtx.Ops)
+	return p.layoutGiftTarget(gtx, &r.click, func(gtx layout.Context) layout.Dimensions {
 		size := gtx.Constraints.Max
 		bounds := image.Rectangle{Max: size}
 		defer clip.UniformRRect(bounds, gtx.Dp(12)).Push(gtx.Ops).Pop()
@@ -154,7 +173,10 @@ func (p *chatInfo) giftCard(gtx layout.Context, m model.Message, l localization.
 		art := max(1, min(size.X, size.Y)*65/100)
 		box := gtx
 		box.Constraints = layout.Exact(image.Pt(art, art))
-		offset(box, image.Pt((size.X-art)/2, (size.Y-art)/2+gtx.Dp(4)), func(gtx layout.Context) layout.Dimensions { return p.giftArt(gtx, m, animate) })
+		offset(box, image.Pt((size.X-art)/2, (size.Y-art)/2+gtx.Dp(4)), func(gtx layout.Context) layout.Dimensions {
+			p.drawGiftArt(gtx, m, r, animate, r.click.Hovered())
+			return layout.Dimensions{Size: gtx.Constraints.Max}
+		})
 		if g.Unique {
 			ribbon := image.Pt(gtx.Dp(76), gtx.Dp(18))
 			rgtx := gtx
@@ -188,20 +210,25 @@ func (p *chatInfo) giftCard(gtx layout.Context, m model.Message, l localization.
 	})
 }
 func (p *chatInfo) giftsGrid(gtx layout.Context, l localization.Catalog, animate bool) layout.Dimensions {
-	return layout.Inset{Left: 16, Right: 16, Top: 4, Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	// The grid's sides are inside the list, whose scrollbar is at the edge.
+	side := p.margin + gtx.Dp(16)
+	return layout.Inset{Top: 4, Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		gap := gtx.Dp(12)
-		cols := max(1, gtx.Constraints.Max.X/max(1, gtx.Dp(170)))
+		width := max(0, gtx.Constraints.Max.X-2*side)
+		cols := max(1, width/max(1, gtx.Dp(170)))
 		rows := (len(p.messages) + cols - 1) / cols
-		w := max(1, (gtx.Constraints.Max.X-gap*(cols-1))/cols)
+		w := max(1, (width-gap*(cols-1))/cols)
 		h := w
 		dims := p.list.Layout(gtx, rows+1, func(gtx layout.Context, i int) layout.Dimensions {
 			if i == rows {
-				return layout.UniformInset(12).Layout(gtx, func(gtx layout.Context) layout.Dimensions { return p.status(gtx, l) })
+				return p.inColumn(gtx, func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{Top: 12, Bottom: 12, Left: 28, Right: 28}.Layout(gtx, func(gtx layout.Context) layout.Dimensions { return p.status(gtx, l) })
+				})
 			}
 			for j := 0; j < cols && i*cols+j < len(p.messages); j++ {
 				box := gtx
 				box.Constraints = layout.Exact(image.Pt(w, h))
-				offset(box, image.Pt(j*(w+gap), gap), func(gtx layout.Context) layout.Dimensions { return p.giftCard(gtx, p.messages[i*cols+j], l, animate) })
+				offset(box, image.Pt(side+j*(w+gap), gap), func(gtx layout.Context) layout.Dimensions { return p.giftCard(gtx, p.messages[i*cols+j], l, animate) })
 			}
 			return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, h+gap)}
 		})
@@ -211,7 +238,7 @@ func (p *chatInfo) giftsGrid(gtx layout.Context, l localization.Catalog, animate
 		return dims
 	})
 }
-func (p *chatInfo) layoutGiftDialog(gtx layout.Context, l localization.Catalog, animate bool) {
+func (p *chatInfo) updateGiftDialog(gtx layout.Context) {
 	d := p.gift
 	if d == nil {
 		return
@@ -225,11 +252,67 @@ func (p *chatInfo) layoutGiftDialog(gtx layout.Context, l localization.Catalog, 
 	if d.retry.Clicked(gtx) {
 		p.renderer.media.Retry(d.message)
 	}
+	d.modal.Update(gtx, p.renderer.link != "")
+	if d.modal.closing {
+		// Retire the dialog before laying out the gifts, so their pointer
+		// handlers are ready on the frame the scrim disappears.
+		d.modal.advanceVisibility(gtx)
+		if !d.modal.Shown() {
+			p.gift = nil
+		}
+	}
+}
+
+const giftDialogRadius = unit.Dp(20)
+
+func giftDialogSize(gtx layout.Context, viewport image.Point) image.Point {
+	return image.Pt(min(viewport.X, gtx.Dp(500)), min(viewport.Y, gtx.Dp(710)))
+}
+
+// layoutGiftUnderlay draws only the parts of the info that an opaque gift
+// dialog leaves visible. The full view is laid out once so its list keeps
+// the same viewport. Rectangular clips avoid a stencil mask on the grid.
+func (p *chatInfo) layoutGiftUnderlay(gtx layout.Context, viewport image.Point, l localization.Catalog, animate bool) layout.Dimensions {
+	if p.gift == nil || !p.gift.modal.Entered() || scheme(gtx).Surface.Color.A != 255 {
+		return p.layoutBody(gtx, l, animate)
+	}
+	size := gtx.Constraints.Max
+	giftSize := giftDialogSize(gtx, viewport)
+	at := viewport.Sub(giftSize).Div(2).Sub(viewport.Sub(size).Div(2))
+	// Keep the rounded corners and an extra pixel for edge antialiasing.
+	bounds := image.Rectangle{Max: size}
+	covered := image.Rectangle{Min: at, Max: at.Add(giftSize)}.Inset(gtx.Dp(giftDialogRadius) + 1).Intersect(bounds)
+	if covered.Empty() {
+		return p.layoutBody(gtx, l, animate)
+	}
+	record := op.Record(gtx.Ops)
+	dims := p.layoutBody(gtx, l, animate)
+	call := record.Stop()
+	for _, r := range [...]image.Rectangle{
+		image.Rect(0, 0, size.X, covered.Min.Y),
+		image.Rect(0, covered.Max.Y, size.X, size.Y),
+		image.Rect(0, covered.Min.Y, covered.Min.X, covered.Max.Y),
+		image.Rect(covered.Max.X, covered.Min.Y, size.X, covered.Max.Y),
+	} {
+		if !r.Empty() {
+			visible := clip.Rect(r).Push(gtx.Ops)
+			call.Add(gtx.Ops)
+			visible.Pop()
+		}
+	}
+	return dims
+}
+
+func (p *chatInfo) layoutGiftDialog(gtx layout.Context, l localization.Catalog, animate bool) {
+	d := p.gift
+	if d == nil {
+		return
+	}
 	covered := p.renderer.link != ""
 	shown := d.modal.Layout(gtx, covered, func(gtx layout.Context) layout.Dimensions {
-		size := image.Pt(min(gtx.Constraints.Max.X, gtx.Dp(500)), min(gtx.Constraints.Max.Y, gtx.Dp(710)))
+		size := giftDialogSize(gtx, gtx.Constraints.Max)
 		gtx.Constraints = layout.Exact(size)
-		defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(20)).Push(gtx.Ops).Pop()
+		defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(giftDialogRadius)).Push(gtx.Ops).Pop()
 		fillRect(gtx, scheme(gtx).Surface.Color, size)
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -261,11 +344,23 @@ func (p *chatInfo) giftDetails(gtx layout.Context, d *giftDialog, l localization
 		return layout.Dimensions{}
 	}
 	return layout.Inset{Left: 24, Right: 24, Bottom: 24}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		var art chatmedia.Status
 		rows := []layout.FlexChild{layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.N.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				n := min(gtx.Constraints.Max.X, gtx.Dp(224))
 				gtx.Constraints = layout.Exact(image.Pt(n, n))
-				return p.giftArt(gtx, m, animate)
+				hovered := d.artHover.Update(gtx.Source)
+				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+				defer pointer.PassOp{}.Push(gtx.Ops).Pop()
+				d.artHover.Add(gtx.Ops)
+				art = p.drawGiftArt(gtx, m, d, animate, hovered)
+				if art.PlayingFullRate {
+					// Keep the display's frame loop running during fast
+					// playback. Waiting for the media tick before requesting
+					// a frame can miss the next refresh.
+					gtx.Execute(op.InvalidateCmd{})
+				}
+				return layout.Dimensions{Size: gtx.Constraints.Max}
 			})
 		}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -316,15 +411,12 @@ func (p *chatInfo) giftDetails(gtx layout.Context, d *giftDialog, l localization
 				return centeredLabel(gtx, text, token.TypestyleBodySmall, scheme(gtx).Primary.Color, 0)
 			})
 		}), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			if m.Media != nil {
-				st := p.renderer.media.StatusFullRate(m, animate, image.Pt(gtx.Dp(224), gtx.Dp(224)), false)
-				if st.Err != nil && st.Err != d.told {
-					d.modal.Toast(mediaErrorText(st.Err))
-				}
-				d.told = st.Err
-				if st.Err != nil {
-					return textButton(gtx, &d.retry, l.T("history.retry"))
-				}
+			if art.Err != nil && art.Err != d.told {
+				d.modal.Toast(mediaErrorText(art.Err))
+			}
+			d.told = art.Err
+			if art.Err != nil {
+				return textButton(gtx, &d.retry, l.T("history.retry"))
 			}
 			return layout.Dimensions{}
 		}))

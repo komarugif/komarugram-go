@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"komarugram/internal/testenv"
 )
 
 // unpack reads 5-bit bars as Telegram does: bar i is the 16-bit little
@@ -116,6 +118,7 @@ func ffmpeg(t *testing.T) string {
 // A tone stands in for the microphone; an input that fails is passed over
 // for the next.
 func TestRecordAndEncode(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	path := ffmpeg(t)
 	tone := []string{"-re", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000"}
 	r := startWith(context.Background(), path, fixed([][]string{{"-f", "no-such-format", "-i", "x"}, tone}))

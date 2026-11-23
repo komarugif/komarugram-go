@@ -341,6 +341,9 @@
 "info.collectible_more" = "lng_collectible_learn_more";
 "info.collectible_title" = "lng_collectible_username_title";
 "info.description" = "lng_info_about_label";
+"info.qr" = "lng_group_invite_context_qr";
+"info.qr_copied" = "lng_group_invite_qr_copied";
+"info.qr_copy" = "lng_group_invite_context_copy";
 
 "links.channel_not_accessible" = "lng_channel_not_accessible";
 "links.group_not_accessible" = "lng_group_not_accessible";
@@ -392,6 +395,8 @@
 "menu.forward_selected" = "lng_context_forward_selected";
 "menu.go_to_message" = "lng_context_to_msg";
 "menu.link_copied" = "lng_channel_public_link_copied";
+"menu.music_removed" = "lng_saved_music_removed";
+"menu.music_saved" = "lng_saved_music_added";
 "menu.private_link" = "lng_context_about_private_link";
 "menu.reacted" = "lng_context_seen_reacted";
 "menu.reply" = "lng_context_reply_msg";
@@ -703,6 +708,7 @@
 "shared.empty.links" = "lng_media_link_empty";
 "shared.empty.music" = "lng_media_song_empty";
 "shared.empty.photos" = "lng_media_photo_empty";
+"shared.empty.story_archive" = "lng_stories_archive_about";
 "shared.empty.videos" = "lng_media_video_empty";
 "shared.empty.voice" = "lng_media_audio_empty";
 "shared.files" = "lng_media_type_files";
@@ -715,11 +721,15 @@
 "shared.photos" = "lng_media_type_photos";
 "shared.polls" = "lng_media_type_polls";
 "shared.saved" = "lng_saved_messages";
+"shared.saved_music" = "lng_media_saved_music_title";
+"shared.saved_music_own" = "lng_media_saved_music_your";
 "shared.stories" = "lng_media_type_posts";
+"shared.story_archive" = "lng_stories_archive_title";
 "shared.videos" = "lng_media_type_videos";
 "shared.voice" = "lng_media_type_audios";
 
 "status.bot" = "lng_status_bot";
+"status.channel" = "lng_channel_status";
 "status.last_month" = "lng_status_last_month";
 "status.last_week" = "lng_status_last_week";
 "status.lastseen_date" = "lng_status_lastseen_date";
@@ -738,9 +748,11 @@
 "status.user_online" = "lng_status_online";
 
 "stickers.add" = "lng_stickers_add_pack";
+"stickers.add_emoji" = "lng_stickers_add_emoji";
 "stickers.count" = "lng_stickers_count";
 "stickers.emoji_count" = "lng_custom_emoji_count";
-"stickers.remove" = "lng_stickers_remove_pack_confirm";
+"stickers.remove" = "lng_stickers_remove_pack_button";
+"stickers.remove_emoji" = "lng_custom_emoji_remove_pack_button";
 
 "stories.my" = "lng_stories_my_name";
 

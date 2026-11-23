@@ -67,6 +67,13 @@ func (s *Store) ProfilePhoto(chat int64) (model.Message, bool) {
 // page's first photo, where Telegram goes on, and the photos counted beside
 // Telegram's (a group's current photo whose service message is gone).
 func (s *Store) ProfilePhotos(ctx context.Context, chat int64, offset string, limit int) (model.GalleryPage, error) {
+	// Read once for those who ask together or soon after: see profilePages.
+	return s.profilePages.get(ctx, profilePageKey{chat, offset, limit}, func(ctx context.Context) (model.GalleryPage, error) {
+		return s.readProfilePhotos(ctx, chat, offset, limit)
+	})
+}
+
+func (s *Store) readProfilePhotos(ctx context.Context, chat int64, offset string, limit int) (model.GalleryPage, error) {
 	var index, extra int
 	var past int64
 	if offset != "" {

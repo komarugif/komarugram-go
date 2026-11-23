@@ -4,6 +4,7 @@ package tgstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -77,9 +78,15 @@ func (s *Store) SharedCollection(ctx context.Context, chat int64, kind model.Sha
 	out := model.SharedCollectionPage{}
 	limit = min(100, max(1, limit))
 	switch kind {
-	case model.SharedStories:
+	case model.SharedStories, model.SharedStoryArchive:
 		offset, _ := strconv.Atoi(cursor)
-		res, e := api.StoriesGetPinnedStories(ctx, &tg.StoriesGetPinnedStoriesRequest{Peer: peer.input(), OffsetID: offset, Limit: limit})
+		var res *tg.StoriesStories
+		var e error
+		if kind == model.SharedStoryArchive {
+			res, e = api.StoriesGetStoriesArchive(ctx, &tg.StoriesGetStoriesArchiveRequest{Peer: peer.input(), OffsetID: offset, Limit: limit})
+		} else {
+			res, e = api.StoriesGetPinnedStories(ctx, &tg.StoriesGetPinnedStoriesRequest{Peer: peer.input(), OffsetID: offset, Limit: limit})
+		}
 		if e != nil {
 			return out, e
 		}
@@ -114,6 +121,30 @@ func (s *Store) SharedCollection(ctx context.Context, chat int64, kind model.Sha
 				return out, e
 			}
 			out.Messages = append(out.Messages, m)
+		}
+	case model.SharedSavedMusic:
+		if peer.Kind != "user" {
+			return out, nil
+		}
+		offset, _ := strconv.Atoi(cursor)
+		res, e := api.UsersGetSavedMusic(ctx, &tg.UsersGetSavedMusicRequest{ID: &tg.InputUser{UserID: peer.ID, AccessHash: peer.Hash}, Offset: offset, Limit: limit})
+		if e != nil {
+			return out, e
+		}
+		music, ok := res.(*tg.UsersSavedMusic)
+		if !ok {
+			return out, nil
+		}
+		out.Total = music.Count
+		for i, doc := range music.Documents {
+			m, e := s.savedMusicMessage(ctx, peer, doc, offset+i)
+			if e != nil {
+				return out, e
+			}
+			out.Messages = append(out.Messages, m)
+		}
+		if next := offset + len(music.Documents); len(music.Documents) > 0 && next < music.Count {
+			out.Next = strconv.Itoa(next)
 		}
 	case model.SharedGroups:
 		if peer.Kind != "user" {
@@ -162,4 +193,64 @@ func (s *Store) SharedCollection(ctx context.Context, chat int64, kind model.Sha
 		return out, fmt.Errorf("unknown collection: %s", kind)
 	}
 	return out, nil
+}
+
+// savedMusicMessage is song i of the playlist of peer's profile as a
+// message, keyed by its place in the playlist: the playlist has no
+// messages, and a song's document ID does not fit a message's.
+func (s *Store) savedMusicMessage(ctx context.Context, peer peerRecord, doc tg.DocumentClass, i int) (model.Message, error) {
+	m, err := s.collectionMessage(ctx, peer, &tg.Message{ID: -(i + 1), Media: &tg.MessageMediaDocument{Document: doc}})
+	m.Playlist = true
+	if err != nil || m.Media == nil {
+		return m, err
+	}
+	// The playlist renews the song's file reference, and its cover's: no
+	// message of the history, nor story, has it.
+	ids := []string{m.Media.ID}
+	if thumb := m.Media.Thumbnail; thumb != nil {
+		ids = append(ids, thumb.ID)
+	}
+	c := s.history
+	values := map[string]any{}
+	c.mu.Lock()
+	for _, id := range ids {
+		if ref, ok := c.refs[id]; ok {
+			ref.SavedMusicUser = peer.ID
+			c.refs[id] = ref
+			values["ref/"+id] = ref
+		}
+	}
+	cache := c.cache
+	c.mu.Unlock()
+	if cache != nil && len(values) > 0 {
+		err = cache.PutAll(ctx, values)
+	}
+	return m, err
+}
+
+// refreshSavedMusic renews the file reference of the song of ref, on the
+// playlist of user's profile, as Telegram Desktop asks for a saved music
+// item: by users.getSavedMusicByID.
+func (s *Store) refreshSavedMusic(ctx context.Context, api *tg.Client, ref fileLocation) error {
+	c := s.history
+	c.mu.Lock()
+	peer, ok := c.peers[ref.SavedMusicUser]
+	c.mu.Unlock()
+	if !ok || peer.Kind != "user" {
+		return errors.New("song of an unknown user")
+	}
+	res, err := api.UsersGetSavedMusicByID(ctx, &tg.UsersGetSavedMusicByIDRequest{
+		ID:        &tg.InputUser{UserID: peer.ID, AccessHash: peer.Hash},
+		Documents: []tg.InputDocumentClass{&tg.InputDocument{ID: ref.ID, AccessHash: ref.Hash, FileReference: ref.Reference}},
+	})
+	if err != nil {
+		return err
+	}
+	music, ok := res.(*tg.UsersSavedMusic)
+	if !ok || len(music.Documents) == 0 {
+		return errors.New("song no longer on the profile")
+	}
+	// Its place does not matter: the references are kept by its media.
+	_, err = s.savedMusicMessage(ctx, peer, music.Documents[0], 0)
+	return err
 }

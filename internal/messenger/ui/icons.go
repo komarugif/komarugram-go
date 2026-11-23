@@ -3,7 +3,13 @@
 package ui
 
 import (
+	"gio-mw/token"
 	"gio-mw/wdk"
+
+	"gioui.org/f32"
+	"gioui.org/layout"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
 
 	"golang.org/x/exp/shiny/materialdesign/icons"
 
@@ -164,3 +170,33 @@ func folderIcon(f model.Folder) wdk.IconWidget {
 
 // iconExternalPlayer opens a video in the external player.
 var iconExternalPlayer = wdk.RequireIconWidget(icons.ActionLaunch)
+
+// iconQRCode opens a profile's QR code: Material Symbols' qr_code, which
+// the icons of golang.org/x/exp/shiny lack, drawn from its squares on the
+// icon's grid of 24: three frames in the corners, and the modules of the
+// fourth.
+func iconQRCode(gtx layout.Context, c token.MatColor) layout.Dimensions {
+	side := min(gtx.Constraints.Max.X, gtx.Constraints.Max.Y)
+	unit := float32(side) / 24
+	var path clip.Path
+	path.Begin(gtx.Ops)
+	rect := func(x, y, w, h float32) {
+		path.MoveTo(f32.Pt(x*unit, y*unit))
+		path.LineTo(f32.Pt((x+w)*unit, y*unit))
+		path.LineTo(f32.Pt((x+w)*unit, (y+h)*unit))
+		path.LineTo(f32.Pt(x*unit, (y+h)*unit))
+		path.Close()
+	}
+	for _, at := range [][2]float32{{3, 3}, {13, 3}, {3, 13}} {
+		x, y := at[0], at[1]
+		rect(x, y, 8, 2)
+		rect(x, y+6, 8, 2)
+		rect(x, y+2, 2, 4)
+		rect(x+6, y+2, 2, 4)
+	}
+	for _, at := range [][2]float32{{13, 13}, {17, 13}, {15, 15}, {19, 15}, {13, 17}, {17, 17}, {15, 19}, {19, 19}} {
+		rect(at[0], at[1], 2, 2)
+	}
+	paint.FillShape(gtx.Ops, c.AsNRGBA(), clip.Outline{Path: path.End()}.Op())
+	return layout.Dimensions{Size: gtx.Constraints.Max}
+}

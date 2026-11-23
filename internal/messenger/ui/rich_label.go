@@ -129,7 +129,7 @@ func (r richLabel) Layout(gtx layout.Context) layout.Dimensions {
 		if run.Emoji != 0 && r.media != nil && r.images != nil {
 			st.Box = emojiBox(gtx, ty.Size)
 			if !run.Spoiler || r.revealed {
-				frames[i] = customEmoji(r.media, r.images, run.Emoji, st.Box.Size.X, r.animate, fg)
+				frames[i] = customEmoji(r.media, r.images, run.Emoji, st.Box.Size.X, r.animate && wdk.AnimationAllowed(gtx, wdk.AnimationEmoji), fg)
 			}
 		}
 		styles[i] = st
@@ -145,7 +145,7 @@ func (r richLabel) Layout(gtx layout.Context) layout.Dimensions {
 		run, size := r.runs[f.Index], f.Bounds.Size()
 		if run.Spoiler && !r.revealed {
 			// Covered as the history's spoilers are before a click.
-			paintLineSpoiler(gtx, f, f32.Point{}, 0, r.color.SetOpacity(.35).AsNRGBA(), fragmentJoin(r.runs, edges, f.Index, f), nil)
+			paintLineSpoiler(gtx, f, f32.Point{}, 0, r.color.SetOpacity(.35).AsNRGBA(), r.color.AsNRGBA(), fragmentJoin(r.runs, edges, f.Index, f), nil)
 			return
 		}
 		draw()

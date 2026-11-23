@@ -13,7 +13,6 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -37,6 +36,7 @@ type interactionHarness struct {
 
 func newInteractionHarness(t *testing.T, runs []model.TextRun) *interactionHarness {
 	t.Helper()
+	skipFrames(t)
 	h := &interactionHarness{page: newChatPage(benchmarkHistory{}, func() {}), now: time.Unix(1000, 0), size: image.Pt(240, 500), row: &messageRow{runs: runs}, animate: true}
 	t.Cleanup(h.page.Close)
 	h.frame()
@@ -44,7 +44,7 @@ func newInteractionHarness(t *testing.T, runs []model.TextRun) *interactionHarne
 }
 func (h *interactionHarness) frame() {
 	gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Constraints{Max: h.size}, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	h.page.keyboardEvents(gtx)
 	h.page.richText(gtx, h.row, localization.For("en"), h.animate)
 	h.router.Frame(gtx.Ops)
@@ -200,7 +200,7 @@ func TestGutterDragRoutesToSelectionAndChatSwitchClears(t *testing.T) {
 	var router input.Router
 	render := func(chat int64) {
 		gtx := layout.Context{Ops: new(op.Ops), Source: router.Source(), Now: now, Constraints: layout.Exact(image.Pt(400, 600)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		p.Layout(gtx, model.Chat{ID: chat}, localization.For("en"), true)
 		router.Frame(gtx.Ops)
 		now = now.Add(16 * time.Millisecond)
@@ -271,7 +271,7 @@ func TestGutterDragAutoscrollExtendsRange(t *testing.T) {
 	var router input.Router
 	render := func() {
 		gtx := layout.Context{Ops: new(op.Ops), Source: router.Source(), Now: now, Constraints: layout.Exact(image.Pt(400, 600)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		p.Layout(gtx, model.Chat{ID: 1}, localization.For("en"), true)
 		router.Frame(gtx.Ops)
 		now = now.Add(16 * time.Millisecond)
@@ -307,7 +307,7 @@ func TestSelectionActionsFollowRights(t *testing.T) {
 	p.actions.snapshot.click.Click()
 	p.actions.forward.click.Click()
 	gtx := layout.Context{Ops: new(op.Ops), Now: time.Unix(1000, 0), Constraints: layout.Exact(image.Pt(340, 56)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	p.selectionHeader(gtx, localization.For("en"))
 	if !p.shot.modal.Shown() || p.forwarding.modal.Shown() || p.selectionCount() != 1 {
 		t.Fatal("the header acted beyond the rights")

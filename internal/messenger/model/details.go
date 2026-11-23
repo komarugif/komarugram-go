@@ -13,6 +13,9 @@ type ChatDetails struct {
 	// PhotoDC is the data center that keeps the chat's photo, 0 without a
 	// photo.
 	PhotoDC int
+	// Members is the latest member or subscriber count, when known.
+	Members      int
+	MembersKnown bool
 }
 
 // ChatDetailer tells the details of chats.

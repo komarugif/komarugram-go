@@ -55,8 +55,21 @@ func (p *chatPage) chatStatusLine(gtx layout.Context, c model.Chat, full bool, l
 // chatStatusOnline is chatStatus with the members online, when more than
 // the account is.
 func (p *chatPage) chatStatusOnline(c model.Chat, now time.Time, l localization.Catalog) string {
-	status := chatStatus(c, l)
 	details, ok := p.source.(model.ChatDetailer)
+	if c.Kind == model.KindChannel || c.Kind == model.KindGroup {
+		// A chat opened from a link may stay outside the dialog list. Its
+		// header must use peer details as they arrive after it has opened.
+		known := c.Members > 0
+		if ok {
+			if live := details.ChatDetails(c.ID); live.MembersKnown {
+				c.Members, known = live.Members, true
+			}
+		}
+		if c.Kind == model.KindChannel && !known {
+			return l.T("status.channel")
+		}
+	}
+	status := chatStatus(c, l)
 	if !ok || c.Kind != model.KindGroup || c.Members <= 0 {
 		return status
 	}

@@ -70,6 +70,27 @@
 "animations.never" = "Низкий заряд: не учитывать";
 "animations.no_battery" = "нет батареи";
 "animations.off" = "выкл";
+"animations.options" = "Настройка анимаций";
+"animations.option.gif" = "Автопроигрывание GIF";
+"animations.option.sticker" = "Автопроигрывание стикеров";
+"animations.option.avatar" = "Анимированные аватары";
+"animations.option.emoji" = "Анимированные эмодзи";
+"animations.option.badge" = "Анимированные статусы и бейджи";
+"animations.option.gift" = "Анимированные подарки";
+"animations.option.message" = "Анимации сообщений";
+"animations.option.chat_action" = "Индикаторы действий в чате";
+"animations.option.attachment_loading" = "Индикаторы загрузки вложений";
+"animations.option.loading" = "Обычные индикаторы загрузки";
+"animations.option.height" = "Изменение высоты поверхностей";
+"animations.option.viewer_attachment" = "Анимация вложений в просмотрщике";
+"animations.option.viewer" = "Другие анимации просмотрщика";
+"animations.option.menu" = "Анимации меню и оверлеев";
+"animations.option.dialog" = "Анимации диалогов";
+"animations.option.ripple" = "Волна при нажатии";
+"animations.option.checkbox_slider" = "Плавный чекбокс и слайдер";
+"animations.option.progress" = "Плавный индикатор прогресса";
+"animations.option.scrollbar" = "Плавная полоса прокрутки";
+"animations.option.list_scroll" = "Плавная прокрутка списков";
 "animations.on" = "вкл";
 "animations.plugged" = "от сети";
 "animations.status" = "Система: энергосбережение %s, %s, системные анимации %s. Анимации сейчас %s.";
@@ -961,6 +982,12 @@
 "history.file" = "Файл";
 "history.forward" = "Пересланное сообщение";
 "history.forward_failed" = "Не удалось переслать";
+"history.forward_back" = "Вернуться";
+"history.forward_confirm" = "Переслать в «{chat}»?";
+"history.forward_go_to" = "Перейти к пересланному сообщению";
+"history.forward_go_to_sent" = "Перейти к отправленному сообщению";
+"history.forward_no_author" = "Без имени отправителя";
+"history.forward_no_caption" = "Без описания";
 "history.forward_to" = "Переслать в…";
 "history.forwarded" = "Переслано в «{chat}»";
 "history.forwarded_from" = "Переслано от {name}";
@@ -1001,6 +1028,7 @@
 "info.about" = "О себе";
 "info.collectible_copy" = "Копировать ссылку";
 "info.collectible_info" = "Это имя было куплено на **Fragment** {date} за {price}";
+"info.collectible_hint" = "коллекционное имя";
 "info.collectible_more" = "Подробнее";
 "info.collectible_title" = "{username} — коллекционное имя, которое принадлежит";
 "info.copied" = "Скопировано.";
@@ -1021,6 +1049,10 @@
 "info.open_chat" = "Перейти в личный чат с пользователем";
 "info.open_chat_new" = "Вы ещё не переписывались";
 "info.phone" = "Телефон · нажмите, чтобы скопировать";
+"info.qr" = "Получить QR-код";
+"info.qr_background" = "Выберите фон";
+"info.qr_copied" = "QR-код скопирован в буфер обмена.";
+"info.qr_copy" = "Копировать";
 "info.registered_about" = "~ {date}";
 "info.registered_after" = "позже {date}";
 "info.registered_before" = "раньше {date}";
@@ -1230,6 +1262,8 @@
 "menu.forward_selected" = "Переслать выбранные";
 "menu.go_to_message" = "Перейти к сообщению";
 "menu.link_copied" = "Ссылка скопирована в буфер обмена.";
+"menu.music_removed" = "Аудио удалено из Вашего профиля.";
+"menu.music_saved" = "Аудио добавлено в Ваш профиль.";
 "menu.private_link" = "Эта ссылка будет работать только для участников чата.";
 "menu.reacted#few" = "{count} реакции";
 "menu.reacted#many" = "{count} реакций";
@@ -1241,6 +1275,7 @@
 "menu.save_album" = "Сохранить альбом";
 "menu.save_as" = "Сохранить как…";
 "menu.save_files" = "Файлы {ext}";
+"menu.save_music" = "Сохранить в профиль";
 "menu.save_to_pictures" = "Сохранить в изображения";
 "menu.saved" = "Сохранено: {path}";
 "menu.select" = "Выделить";
@@ -1318,15 +1353,9 @@
 "number.decimal" = ",";
 
 "page.bio" = "О себе";
-"page.bio_empty" = "Не заполнено";
 "page.cancel" = "Отмена";
 "page.choose_chat" = "Выберите чат, чтобы начать общение";
 "page.dc" = "Дата-центр";
-"page.dc_1" = "Майами";
-"page.dc_2" = "Амстердам";
-"page.dc_3" = "Майами";
-"page.dc_4" = "Амстердам";
-"page.dc_5" = "Сингапур";
 "page.edit" = "Изменить профиль";
 "page.err_bio" = "«О себе» — не длиннее %d символов.";
 "page.err_failed" = "Не удалось сохранить: %s";
@@ -1336,13 +1365,9 @@
 "page.err_username" = "Имя пользователя: 5–32 символа, латинские буквы, цифры и _, начинается с буквы и не заканчивается на _.";
 "page.first_name" = "Имя";
 "page.history_later" = "Переписка появится в следующих версиях";
-"page.id" = "ID";
 "page.last_name" = "Фамилия";
-"page.not_set" = "Не задано";
-"page.phone" = "Телефон";
 "page.save" = "Сохранить";
 "page.saving" = "Сохраняем…";
-"page.telegram_account" = "Аккаунт Telegram";
 "page.username" = "Имя пользователя";
 "page.username_hint" = "5–32 символа: латинские буквы, цифры и _. Можно оставить пустым.";
 
@@ -1553,6 +1578,7 @@
 "program.old_version" = "версия {version} не поддерживается, нужна {want}";
 "program.rejected" = "Файл не подошёл";
 "program.reset" = "Искать автоматически";
+"program.searching" = "ищем…";
 "program.snap" = "плееры из snap пока не поддерживаются";
 "program.unsupported_system" = "на этой системе он пока не поддерживается";
 "program.wrong" = "программа не отвечает как {program}";
@@ -1935,6 +1961,10 @@
 "settings.confirm" = "Подтверждать отправку";
 "settings.confirm_gif" = "GIF";
 "settings.confirm_sticker" = "Стикеров";
+"settings.delete_dissolve" = "Танос: рассыпается в пыль";
+"settings.delete_effect" = "Удаление сообщений";
+"settings.delete_effect_hint" = "Как исчезает удалённое сообщение, пока включены анимации.";
+"settings.delete_fade" = "Затухание и сдвиг";
 "settings.graphics" = "Аппаратное ускорение";
 "settings.input" = "Ввод";
 "settings.input_manual_focus" = "Фокус поля ввода только по клику";
@@ -1949,6 +1979,7 @@
 "settings.motion_auto" = "авто";
 "settings.motion_off" = "выключены";
 "settings.motion_on" = "всегда включены";
+"settings.neutral_surfaces" = "Нейтральный цвет поверхностей";
 "settings.no_accounts" = "Нет подключённых аккаунтов.";
 "settings.notify" = "Уведомления и звуки";
 "settings.now_off" = "сейчас выключены";
@@ -1974,6 +2005,7 @@
 "settings.storage_none" = "ничего не хранить";
 "settings.storage_per_app" = "отдельно для каждого приложения";
 "settings.storage_shared" = "общее хранилище аккаунта";
+"settings.system_accent" = "Системный акцентный цвет";
 "settings.system_dark" = "Система сообщает тёмную тему.";
 "settings.system_light" = "Система сообщает светлую тему.";
 "settings.system_unknown" = "Система не сообщает свою тему, в режиме «Авто» используется светлая.";
@@ -1987,8 +2019,35 @@
 "settings.visibility" = "Видимость";
 "settings.visibility_hint" = "Призрак, фильтры и удалённые сообщения";
 "settings.window_blur" = "Размытие под основным окном";
+"settings.viewer_blur" = "Размытие под окном просмотрщика";
+"settings.window_blur_compositor" = "Размытие через композитор";
+"settings.window_blur_own" = "Размытие собственными силами";
+"settings.window_color" = "Цвет окна";
+"settings.window_color.blush" = "Багрянец";
+"settings.window_color.chocolate" = "Шоколадный";
+"settings.window_color.frost" = "Иней";
+"settings.window_color.fuchsia" = "Фуксия";
+"settings.window_color.lavender" = "Сиреневый";
+"settings.window_color.leaf" = "Листва";
+"settings.window_color.lime" = "Травяной";
+"settings.window_color.pumpkin" = "Тыква";
+"settings.window_color.ruby" = "Рубиновый";
+"settings.window_color.sea" = "Море";
+"settings.window_color.sky" = "Небо";
+"settings.window_color.slate" = "Синевато-серый";
+"settings.window_color.sun" = "Солнце";
+"settings.window_color.taupe" = "Серо-коричневый";
+"settings.window_color.twilight" = "Сумерки";
+"settings.window_color.violet" = "Фиолетовый";
+"settings.window_color_as_system" = "{name}, как в Windows";
+"settings.window_color_current" = "Текущий цвет: {name}";
+"settings.window_color_custom" = "Настраиваемый";
+"settings.window_color_hint" = "Без Aero Windows 7 не даёт выбрать цвет окон. Этот цвет окрашивает стекло, которое окно рисует само, и, если включён системный акцентный цвет, акцент приложения.";
+"settings.window_color_intensity" = "Интенсивность цвета";
+"settings.window_color_system" = "Как в Windows";
+"settings.window_own_frame" = "Собственный заголовок окна";
 "settings.window_transparency" = "Прозрачность основного окна";
-"settings.window_transparency_hint" = "Фон бокового меню, списка чатов и заголовка чата. Текст и аватарки остаются непрозрачными. Работает на Wayland, Windows и macOS. Размытие на Wayland зависит от композитора, а на Windows 10 и 11 окно с ним рисует свою рамку вместо системной.";
+"settings.window_transparency_hint" = "Фон бокового меню, списка чатов и заголовка чата. Текст и аватарки остаются непрозрачными. Работает на Wayland, Windows и macOS. Размытие на Wayland зависит от композитора, а на Windows 10 и 11 окно с ним рисует свою рамку вместо системной. Размытие собственными силами — это размытые обои рабочего стола, нарисованные самим окном: оно не нагружает композитор и работает на Windows, X11 и Haiku, но не показывает другие окна позади.";
 
 "shared.columns" = "Миниатюр в ряду";
 "shared.count.files" = "{count} · Файлы";
@@ -2001,6 +2060,10 @@
 "shared.count.polls" = "{count} · Опросы";
 "shared.count.saved" = "{count} · Сохранённые сообщения";
 "shared.count.stories" = "{count} · Публикации";
+"shared.count.story_archive#few" = "{count} истории";
+"shared.count.story_archive#many" = "{count} историй";
+"shared.count.story_archive#one" = "{count} история";
+"shared.count.story_archive#other" = "{count} истории";
 "shared.count.videos" = "{count} · Видео";
 "shared.count.voice" = "{count} · Голосовые и видеосообщения";
 "shared.empty" = "В этом разделе пока ничего нет";
@@ -2009,6 +2072,7 @@
 "shared.empty.links" = "В этом разделе пока ничего нет";
 "shared.empty.music" = "В этом разделе пока ничего нет";
 "shared.empty.photos" = "В этом разделе пока ничего нет";
+"shared.empty.story_archive" = "Архивные истории видите только Вы, если не решите опубликовать их в профиле.";
 "shared.empty.videos" = "В этом разделе пока ничего нет";
 "shared.empty.voice" = "В этом разделе пока ничего нет";
 "shared.files" = "Файлы";
@@ -2021,10 +2085,13 @@
 "shared.photos" = "Фото";
 "shared.polls" = "Опросы";
 "shared.saved" = "Сохранённые сообщения";
+"shared.saved_music" = "Плейлист";
+"shared.saved_music_own" = "Ваш плейлист";
 "shared.select_cursor" = "Выборка вслед за курсором";
 "shared.select_range" = "Последовательная выборка";
 "shared.selection" = "Выборка";
 "shared.stories" = "Публикации";
+"shared.story_archive" = "Архив историй";
 "shared.total" = "Всего: %s";
 "shared.videos" = "Видео";
 "shared.voice" = "Голосовые и видеосообщения";
@@ -2045,6 +2112,7 @@
 "size.megabytes" = "МБ";
 
 "status.bot" = "бот";
+"status.channel" = "канал";
 "status.last_month" = "был(а) в этом месяце";
 "status.last_week" = "был(а) на этой неделе";
 "status.lastseen_date" = "был(а) {date}";
@@ -2108,6 +2176,7 @@
 
 "stickers.action_failed" = "Не удалось изменить набор";
 "stickers.add" = "Добавить стикеры";
+"stickers.add_emoji" = "Добавить эмодзи";
 "stickers.author" = "Автор набора";
 "stickers.author_copied" = "ID автора скопирован: {id}";
 "stickers.close" = "Закрыть";
@@ -2120,7 +2189,8 @@
 "stickers.failed" = "Не удалось загрузить набор";
 "stickers.open" = "Открыть набор стикеров";
 "stickers.options" = "Действия с набором";
-"stickers.remove" = "Удалить";
+"stickers.remove" = "Удалить стикеры";
+"stickers.remove_emoji" = "Удалить эмодзи";
 "stickers.retry" = "Повторить";
 "stickers.saved" = "Архив сохранён: {path}";
 "stickers.title" = "Набор стикеров";

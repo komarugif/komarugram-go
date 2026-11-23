@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -33,6 +32,10 @@ type fakeStorage struct {
 	pass    model.StoragePass
 	sent    int
 	missing bool
+	// now is the clock the test's frames run on, a frame's time at a time:
+	// on the real clock the dialog's animations end, or not, by how fast
+	// frames are drawn.
+	now time.Time
 }
 
 func (f *fakeStorage) FindStorageChannel(context.Context) (model.StorageFound, error) {
@@ -77,10 +80,15 @@ func (f *fakeStorage) setPass(p model.StoragePass) {
 	f.pass = p
 }
 
+// storageFrameTime is how far the test's clock goes for each frame.
+const storageFrameTime = 16 * time.Millisecond
+
 func storageFrame(o *storageOffer, toasts *[]string, size image.Point) *op.Ops {
+	source := o.source.(*fakeStorage)
+	source.now = source.now.Add(storageFrameTime)
 	ops := new(op.Ops)
-	gtx := layout.Context{Ops: ops, Now: time.Now().Add(time.Second), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	gtx := layout.Context{Ops: ops, Now: source.now, Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	fillRect(gtx, scheme(gtx).Surface.Color, size)
 	l := localization.For("ru")
 	o.Update(gtx, func(s string) { *toasts = append(*toasts, s) }, l, func() {})
@@ -184,7 +192,6 @@ func TestRenderStorageOffer(t *testing.T) {
 		var ops *op.Ops
 		for range 40 {
 			ops = storageFrame(o, &toasts, size)
-			time.Sleep(10 * time.Millisecond)
 		}
 		if err := win.Frame(ops); err != nil {
 			t.Fatal(err)
@@ -219,7 +226,6 @@ func TestStorageOfferDeclineUnticks(t *testing.T) {
 			if !o.modal.Shown() {
 				return
 			}
-			time.Sleep(2 * time.Millisecond)
 		}
 	}
 	o.Activated(func() {})

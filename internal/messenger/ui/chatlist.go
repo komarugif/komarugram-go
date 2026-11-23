@@ -121,6 +121,8 @@ type chatPick struct {
 	Chat *model.Chat
 	// Message is the message to open the chat at, 0 for none.
 	Message model.MessageID
+	// End opens the chat at its newest message, ignoring its saved position.
+	End bool
 	// Community is set for the community ID of a chat, picked by its badge.
 	Community bool
 }
@@ -458,12 +460,15 @@ func (l *chatList) layoutResults(gtx layout.Context, selected int64, catalog loc
 		switch {
 		case it.recentHeading:
 			return recent.layoutHeading(gtx, catalog)
-		case it.recent:
-			dims := l.layoutRow(gtx, withMembersLine(*it.chat, catalog), it.chat.ID == selected, false, now, catalog)
-			recent.rowOp(gtx, it.chat.ID, dims.Size)
-			return dims
 		case it.chat != nil:
-			return l.layoutRow(gtx, withMembersLine(*it.chat, catalog), it.chat.ID == selected, false, now, catalog)
+			// Search rows have no community shortcut: the whole row opens
+			// the result, including the corner of its avatar.
+			row := l.row(it.chat.ID)
+			dims := l.layoutRowWith(gtx, &row.surface, &row.line, withMembersLine(*it.chat, catalog), it.chat.ID == selected, false, now, catalog)
+			if it.recent {
+				recent.rowOp(gtx, it.chat.ID, dims.Size)
+			}
+			return dims
 		case it.found != nil:
 			return l.layoutFound(gtx, l.panel, *it.found, false, now, catalog)
 		case it.heading != "":
@@ -533,7 +538,7 @@ func (l *chatList) layoutRowWith(gtx layout.Context, r *surface, line *previewLi
 			}
 			return avatar(gtx, c.ID, c.Kind, catalog.ChatTitle(c), chatAvatarSize)
 		})
-		if l.online(gtx, c) {
+		if chatOnline(gtx, c, l.presence) {
 			ring := sc.Surface.Color
 			if selected {
 				ring = sc.Primary.Color
@@ -695,13 +700,13 @@ func privateChat(c model.Chat) bool {
 	return c.Kind == model.KindUser || c.Kind == model.KindBot || c.Kind == model.KindSaved
 }
 
-// online reports whether the row of c marks its user online, and has the
+// chatOnline reports whether c marks its user online, and has the
 // window drawn again when that changes.
-func (l *chatList) online(gtx layout.Context, c model.Chat) bool {
-	if l.presence == nil || c.Kind != model.KindUser || calmOf(gtx)&calmOnline != 0 {
+func chatOnline(gtx layout.Context, c model.Chat, presence model.PresenceSource) bool {
+	if presence == nil || c.Kind != model.KindUser || calmOf(gtx)&calmOnline != 0 {
 		return false
 	}
-	p, ok := l.presence.Presence(c.ID)
+	p, ok := presence.Presence(c.ID)
 	if !ok || !p.Online(gtx.Now) {
 		return false
 	}

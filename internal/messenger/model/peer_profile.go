@@ -32,6 +32,10 @@ type PeerProfile struct {
 	// with no dialog, which no update reaches.
 	Badges      Badges
 	BadgesKnown bool
+	// Music is the song a user put on the profile, the first of their
+	// playlist (SharedSavedMusic): a message of kind MessageMusic, as
+	// SharedCollection's; nil for none.
+	Music *Message
 }
 
 // MaxCoverGifts is how many pinned gifts the cover shows around the avatar.
@@ -97,4 +101,20 @@ type PeerProfileSource interface {
 	CachedPeerProfile(chat int64) (PeerProfile, bool)
 	// CollectibleUsername tells how the collectible username was bought.
 	CollectibleUsername(ctx context.Context, username string) (CollectibleUsername, error)
+}
+
+// SavedMusicStore puts songs on the account's profile, its playlist
+// (SharedSavedMusic), as Telegram Desktop's Save to... Profile does.
+type SavedMusicStore interface {
+	// SavedMusic reports whether the song m shows is on the profile, as
+	// the store last knew it: false while it does not know yet.
+	SavedMusic(m Message) bool
+	// SaveMusic puts the song m shows first on the profile's playlist,
+	// the profile's song then.
+	SaveMusic(ctx context.Context, m Message) error
+	// RemoveMusic takes the song m shows off the profile.
+	RemoveMusic(ctx context.Context, m Message) error
+	// MoveMusic puts the song m, of the profile's playlist, after the song
+	// after, of it too; first for nil.
+	MoveMusic(ctx context.Context, m Message, after *Message) error
 }

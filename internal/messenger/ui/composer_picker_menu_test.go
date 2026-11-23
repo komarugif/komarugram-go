@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -37,6 +36,7 @@ type pickerMenuHarness struct {
 }
 
 func newPickerMenuHarness(t *testing.T, tab model.PickerTab) *pickerMenuHarness {
+	skipFrames(t)
 	store := mockstore.New(time.Now(), 0)
 	p := newChatPage(store, func() {})
 	t.Cleanup(p.Close)
@@ -60,7 +60,7 @@ func (h *pickerMenuHarness) show(tab model.PickerTab, query string) {
 
 func (h *pickerMenuHarness) frame() {
 	gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: time.Now(), Constraints: layout.Exact(image.Pt(372, 488)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	wdk.SetAnimationsEnabled(gtx, false)
 	l := localization.For("ru")
 	h.p.images.BeginFrame()

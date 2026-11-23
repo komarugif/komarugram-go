@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 
 	"gioui.org/layout"
@@ -73,7 +72,7 @@ func withEmojiPack(t *testing.T, more ...string) {
 // the theme's fonts draw as one glyph, and neither a character no font has
 // nor a sequence that falls apart. It needs a system emoji font.
 func TestPickerLeavesOutEmojiNotDrawn(t *testing.T) {
-	theme := defaults.NewTheme(layout.Context{}, schemes.SchemeBaselineLight())
+	theme := testTheme(layout.Context{}, schemes.SchemeBaselineLight())
 	var d emojiDrawn
 	// Without a theme nothing is left out.
 	if !d.draws("\U0010FFFD") {

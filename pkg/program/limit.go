@@ -4,7 +4,9 @@ package program
 
 import (
 	"errors"
+	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -14,6 +16,13 @@ type Limits struct {
 	// Memory is the most memory the program may take, in bytes; 0 for no
 	// bound.
 	Memory uint64
+	// Reserved is what the program reserves as it starts, before it reads
+	// anything (Reserved measures it). Where the system bounds memory
+	// reserved, not used, it is allowed over Memory: Linux's RLIMIT_DATA
+	// counts a library's .bss whole, though nothing in it is touched, and
+	// a distribution's FFmpeg links one of 128 MiB (SVT-AV1's). What the
+	// program keeps in memory is still bounded by Memory alone.
+	Reserved uint64
 }
 
 // ErrMemory is what a program killed for taking more memory than its
@@ -75,3 +84,44 @@ func watch(pid int, limit uint64, used func(pid int) (uint64, bool), kill func()
 		}
 	}()
 }
+
+// Reserved is the memory the program at path reserves as it starts, where
+// the system counts it in what it bounds (Limits.Reserved): it runs the
+// program with args, which have it wait for its standard input before it
+// reads anything, and looks at what it took once it waits. It is 0 where
+// nothing counts memory reserved, or the program would not wait. What a
+// program reserves depends on the program and its libraries, not on what
+// it reads: it is measured once for a path, until the file changes.
+func Reserved(path string, args ...string) uint64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	key := reservedKey{path: path, args: strings.Join(args, "\x00"), size: info.Size(), modified: info.ModTime()}
+	reservedMu.Lock()
+	defer reservedMu.Unlock()
+	if n, ok := reservedSeen[key]; ok {
+		return n
+	}
+	n := reserved(path, args)
+	reservedSeen[key] = n
+	return n
+}
+
+// reservedKey is a program as Reserved measured it.
+type reservedKey struct {
+	path, args string
+	size       int64
+	modified   time.Time
+}
+
+var (
+	// reservedMu is held while a program is measured: what starts it
+	// again waits for the measure rather than taking another.
+	reservedMu   sync.Mutex
+	reservedSeen = map[reservedKey]uint64{}
+)
+
+// reservedTimeout bounds how long a program measured by Reserved may take
+// to come to wait: a flatpak takes about a second the first time.
+const reservedTimeout = 5 * time.Second

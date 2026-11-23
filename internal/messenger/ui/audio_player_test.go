@@ -20,7 +20,6 @@ import (
 	"komarugram/pkg/audio"
 	"komarugram/pkg/voice"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -175,7 +174,7 @@ func TestSongCoverIsShadedUnderAWhiteIcon(t *testing.T) {
 	ops := new(op.Ops)
 	gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
 	// The dark theme, whose color on the primary one is not white.
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineDark()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineDark()))
 	p.images.BeginFrame()
 	p.audioButton(gtx, &audioRow{}, audioState{}, cover)
 	p.images.EndFrame()
@@ -215,7 +214,7 @@ func TestAudioButtonCancelsOpening(t *testing.T) {
 	vr := &audioRow{}
 	frame := func() {
 		gtx := layout.Context{Ops: new(op.Ops), Source: router.Source(), Now: time.Now(), Constraints: layout.Exact(image.Pt(100, 100)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		state, _ := vr.update(gtx, p, m)
 		p.audioButton(gtx, vr, state, nil)
 		router.Frame(gtx.Ops)

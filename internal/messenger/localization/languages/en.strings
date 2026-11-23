@@ -61,6 +61,27 @@
 "animations.never" = "Low battery: never";
 "animations.no_battery" = "no battery";
 "animations.off" = "off";
+"animations.options" = "Animation options";
+"animations.option.gif" = "Autoplay GIFs";
+"animations.option.sticker" = "Autoplay stickers";
+"animations.option.avatar" = "Animated avatars";
+"animations.option.emoji" = "Animated emoji";
+"animations.option.badge" = "Animated statuses and badges";
+"animations.option.gift" = "Animated gifts";
+"animations.option.message" = "Message animations";
+"animations.option.chat_action" = "Chat action indicators";
+"animations.option.attachment_loading" = "Attachment loading indicators";
+"animations.option.loading" = "General loading indicators";
+"animations.option.height" = "Surface height transitions";
+"animations.option.viewer_attachment" = "Media viewer attachment transitions";
+"animations.option.viewer" = "Other media viewer animations";
+"animations.option.menu" = "Menu and overlay animations";
+"animations.option.dialog" = "Dialog animations";
+"animations.option.ripple" = "Press ripple";
+"animations.option.checkbox_slider" = "Smooth checkboxes and sliders";
+"animations.option.progress" = "Smooth progress indicator";
+"animations.option.scrollbar" = "Smooth scrollbar";
+"animations.option.list_scroll" = "Smooth list scrolling";
 "animations.on" = "on";
 "animations.plugged" = "on AC";
 "animations.status" = "System: power saver %s, %s, system animations %s. Animations are %s.";
@@ -912,6 +933,12 @@
 "history.file" = "File";
 "history.forward" = "Forwarded message";
 "history.forward_failed" = "Could not forward";
+"history.forward_back" = "Go back";
+"history.forward_confirm" = "Forward to “{chat}”?";
+"history.forward_go_to" = "Go to forwarded message";
+"history.forward_go_to_sent" = "Go to sent message";
+"history.forward_no_author" = "Without sender name";
+"history.forward_no_caption" = "Without caption";
 "history.forward_to" = "Forward to…";
 "history.forwarded" = "Forwarded to “{chat}”";
 "history.forwarded_from" = "Forwarded from {name}";
@@ -952,6 +979,7 @@
 "info.about" = "Bio";
 "info.collectible_copy" = "Copy Link";
 "info.collectible_info" = "This username was bought on **Fragment** on {date} for {price}";
+"info.collectible_hint" = "collectible username";
 "info.collectible_more" = "Learn More";
 "info.collectible_title" = "{username} is a collectible username that belongs to";
 "info.copied" = "Copied to clipboard.";
@@ -968,6 +996,10 @@
 "info.open_chat" = "Go to private chat with user";
 "info.open_chat_new" = "You have no chat yet";
 "info.phone" = "Phone · click to copy";
+"info.qr" = "Get QR Code";
+"info.qr_background" = "Choose background";
+"info.qr_copied" = "QR Code copied to clipboard.";
+"info.qr_copy" = "Copy";
 "info.registered_about" = "~ {date}";
 "info.registered_after" = "after {date}";
 "info.registered_before" = "before {date}";
@@ -1173,6 +1205,8 @@
 "menu.forward_selected" = "Forward Selected";
 "menu.go_to_message" = "Go To Message";
 "menu.link_copied" = "Link copied to clipboard.";
+"menu.music_removed" = "Audio removed from your Profile.";
+"menu.music_saved" = "Audio added to your Profile.";
 "menu.private_link" = "This link will only work for members of this chat.";
 "menu.reacted#one" = "{count} Reacted";
 "menu.reacted#other" = "{count} Reacted";
@@ -1183,6 +1217,7 @@
 "menu.save_album" = "Save Album";
 "menu.save_as" = "Save As...";
 "menu.save_files" = "{ext} files";
+"menu.save_music" = "Save to Profile";
 "menu.save_to_pictures" = "Save to Pictures";
 "menu.saved" = "Saved: {path}";
 "menu.select" = "Select";
@@ -1260,15 +1295,9 @@
 "number.decimal" = ".";
 
 "page.bio" = "Bio";
-"page.bio_empty" = "Empty";
 "page.cancel" = "Cancel";
 "page.choose_chat" = "Choose a chat to start messaging";
 "page.dc" = "Data center";
-"page.dc_1" = "Miami";
-"page.dc_2" = "Amsterdam";
-"page.dc_3" = "Miami";
-"page.dc_4" = "Amsterdam";
-"page.dc_5" = "Singapore";
 "page.edit" = "Edit profile";
 "page.err_bio" = "The bio is at most %d characters.";
 "page.err_failed" = "Could not save: %s";
@@ -1278,13 +1307,9 @@
 "page.err_username" = "A username has 5–32 Latin letters, digits and _, starts with a letter and does not end with _.";
 "page.first_name" = "First name";
 "page.history_later" = "Conversation history will appear in a future version";
-"page.id" = "ID";
 "page.last_name" = "Last name";
-"page.not_set" = "Not set";
-"page.phone" = "Phone";
 "page.save" = "Save";
 "page.saving" = "Saving…";
-"page.telegram_account" = "Telegram account";
 "page.username" = "Username";
 "page.username_hint" = "5–32 characters: Latin letters, digits and _. May be left empty.";
 
@@ -1475,6 +1500,7 @@
 "program.old_version" = "version {version} is not supported, {want} is needed";
 "program.rejected" = "The file was not accepted";
 "program.reset" = "Find automatically";
+"program.searching" = "looking…";
 "program.snap" = "players installed as snaps are not supported yet";
 "program.unsupported_system" = "it is not supported on this system yet";
 "program.wrong" = "the program does not answer as {program}";
@@ -1845,6 +1871,10 @@
 "settings.confirm" = "Confirm sending";
 "settings.confirm_gif" = "GIFs";
 "settings.confirm_sticker" = "Stickers";
+"settings.delete_dissolve" = "Thanos: crumbles into dust";
+"settings.delete_effect" = "Deleting messages";
+"settings.delete_effect_hint" = "How a deleted message leaves the chat while animations are on.";
+"settings.delete_fade" = "Fade and move";
 "settings.graphics" = "Hardware acceleration";
 "settings.input" = "Input";
 "settings.input_manual_focus" = "Focus the message field only on click";
@@ -1859,6 +1889,7 @@
 "settings.motion_auto" = "auto";
 "settings.motion_off" = "disabled";
 "settings.motion_on" = "always enabled";
+"settings.neutral_surfaces" = "Neutral surface colors";
 "settings.no_accounts" = "No connected accounts.";
 "settings.notify" = "Notifications and Sounds";
 "settings.now_off" = "currently disabled";
@@ -1884,6 +1915,7 @@
 "settings.storage_none" = "store nothing";
 "settings.storage_per_app" = "separate for every app";
 "settings.storage_shared" = "shared account storage";
+"settings.system_accent" = "System accent color";
 "settings.system_dark" = "The system reports a dark theme.";
 "settings.system_light" = "The system reports a light theme.";
 "settings.system_unknown" = "The system does not report its theme; Auto uses light.";
@@ -1897,8 +1929,35 @@
 "settings.visibility" = "Visibility";
 "settings.visibility_hint" = "Ghost mode, filters and deleted messages";
 "settings.window_blur" = "Blur behind the main window";
+"settings.viewer_blur" = "Blur behind the media viewer window";
+"settings.window_blur_compositor" = "Blur by the compositor";
+"settings.window_blur_own" = "Blur by the app itself";
+"settings.window_color" = "Window color";
+"settings.window_color.blush" = "Blush";
+"settings.window_color.chocolate" = "Chocolate";
+"settings.window_color.frost" = "Frost";
+"settings.window_color.fuchsia" = "Fuchsia";
+"settings.window_color.lavender" = "Lavender";
+"settings.window_color.leaf" = "Leaf";
+"settings.window_color.lime" = "Lime";
+"settings.window_color.pumpkin" = "Pumpkin";
+"settings.window_color.ruby" = "Ruby";
+"settings.window_color.sea" = "Sea";
+"settings.window_color.sky" = "Sky";
+"settings.window_color.slate" = "Slate";
+"settings.window_color.sun" = "Sun";
+"settings.window_color.taupe" = "Taupe";
+"settings.window_color.twilight" = "Twilight";
+"settings.window_color.violet" = "Violet";
+"settings.window_color_as_system" = "{name}, as in Windows";
+"settings.window_color_current" = "Current color: {name}";
+"settings.window_color_custom" = "Custom";
+"settings.window_color_hint" = "Without Aero, Windows 7 does not let you pick the color of windows. This color tints the glass the window draws by itself and, with the system accent color, the app's accent.";
+"settings.window_color_intensity" = "Color intensity";
+"settings.window_color_system" = "As in Windows";
+"settings.window_own_frame" = "Window title bar drawn by the app";
 "settings.window_transparency" = "Main window transparency";
-"settings.window_transparency_hint" = "The backgrounds of the sidebar, chat list and chat header. Text and avatars stay opaque. Works on Wayland, Windows and macOS. On Wayland blur depends on the compositor; on Windows 10 and 11 a window with it draws its own frame in place of the system one.";
+"settings.window_transparency_hint" = "The backgrounds of the sidebar, chat list and chat header. Text and avatars stay opaque. Works on Wayland, Windows and macOS. On Wayland blur depends on the compositor; on Windows 10 and 11 a window with it draws its own frame in place of the system one. Blur by the app itself is the blurred desktop wallpaper drawn by the window: it costs the compositor nothing and works on Windows, X11 and Haiku, but does not show other windows behind.";
 
 "shared.columns" = "Thumbnails per Row";
 "shared.count.files" = "{count} · Files";
@@ -1911,6 +1970,8 @@
 "shared.count.polls" = "{count} · Polls";
 "shared.count.saved" = "{count} · Saved messages";
 "shared.count.stories" = "{count} · Stories";
+"shared.count.story_archive#one" = "{count} story";
+"shared.count.story_archive#other" = "{count} stories";
 "shared.count.videos" = "{count} · Videos";
 "shared.count.voice" = "{count} · Voice and video messages";
 "shared.empty" = "Nothing in this section yet";
@@ -1919,6 +1980,7 @@
 "shared.empty.links" = "Nothing in this section yet";
 "shared.empty.music" = "Nothing in this section yet";
 "shared.empty.photos" = "Nothing in this section yet";
+"shared.empty.story_archive" = "Only you can see archived stories unless you choose to post them to your profile.";
 "shared.empty.videos" = "Nothing in this section yet";
 "shared.empty.voice" = "Nothing in this section yet";
 "shared.files" = "Files";
@@ -1931,10 +1993,13 @@
 "shared.photos" = "Photos";
 "shared.polls" = "Polls";
 "shared.saved" = "Saved messages";
+"shared.saved_music" = "Playlist";
+"shared.saved_music_own" = "Your playlist";
 "shared.select_cursor" = "Select after the Cursor";
 "shared.select_range" = "Select in Order";
 "shared.selection" = "Selection";
 "shared.stories" = "Stories";
+"shared.story_archive" = "Story Archive";
 "shared.total" = "Total: %s";
 "shared.videos" = "Videos";
 "shared.voice" = "Voice and video messages";
@@ -1955,6 +2020,7 @@
 "size.megabytes" = "MB";
 
 "status.bot" = "bot";
+"status.channel" = "channel";
 "status.last_month" = "last seen within a month";
 "status.last_week" = "last seen within a week";
 "status.lastseen_date" = "last seen {date}";
@@ -2010,6 +2076,7 @@
 
 "stickers.action_failed" = "Could not change sticker set";
 "stickers.add" = "Add stickers";
+"stickers.add_emoji" = "Add emoji";
 "stickers.author" = "Sticker set creator";
 "stickers.author_copied" = "Author's ID copied: {id}";
 "stickers.close" = "Close";
@@ -2021,7 +2088,8 @@
 "stickers.failed" = "Could not load sticker set";
 "stickers.open" = "Open sticker set";
 "stickers.options" = "Sticker set options";
-"stickers.remove" = "Remove";
+"stickers.remove" = "Remove Stickers";
+"stickers.remove_emoji" = "Remove Emoji";
 "stickers.retry" = "Retry";
 "stickers.saved" = "Archive saved: {path}";
 "stickers.title" = "Sticker set";

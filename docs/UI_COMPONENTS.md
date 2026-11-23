@@ -18,7 +18,10 @@ put it next to these, and add it to this page.
   active tab of a `tabRow`, the section of the chat list or the text of a
   message come from the caller or the `Store`.
 - **Colors and type come from the theme.** `scheme(gtx)` returns the MD3
-  color scheme; text uses `token.Typestyle…`. No literal colors.
+  color scheme. The messenger derives its light and dark palettes from
+  `#3DAEE9` by default. The system accent preference can supply the seed
+  for the main window. Components draw with scheme colors and use
+  `token.Typestyle…` for text.
 - **Text comes from the catalog.** Every string is a key of
   `localization.Catalog` (`l.T`, `l.Format`, `l.Count`), with a value in
   each file of `localization/languages`. When Telegram Desktop shows the
@@ -43,7 +46,7 @@ put it next to these, and add it to this page.
 | `surface` + `surfaceStyle` | Anything clickable: background of the selected state, hover and press state layer, ripple, pointer cursor, accessibility label. Rows, chips, tabs and text buttons all embed it. |
 | `textButton(gtx, *surface, text)` | A text-only button in the primary color, as in dialogs and status lines. |
 | `tonalButton(gtx, *surface, text, count)` | A filled button in the secondary container color with an optional count, as the actions over selected messages. |
-| `navigationButton` | Icon and title with a 48 dp target, for navigation controls. |
+| `navigationButton` | Icon and title with a 48 dp target, for navigation controls. Header back buttons keep `backButtonGap` (8 dp) before the following title or avatar, as settings and comments do. |
 | `revealButton` (`reveal_button.go`) | An icon whose text shows beside it, in the same line, while the pointer is on it or it has the focus: the button widens to the text and the text fades in (`token.DurationMedium2`, at once without animations). The actions of a channel's bottom bar, where the account does not post (direct messages, discussion, notifications, a gift), are these; `COMPOSER_VIEW=channel-readonly-hover` renders one open. |
 | `button.Filled()` / `button.Text()` (gio-mw) | The main and the secondary action of a dialog or a card, side by side with a `layout.Spacer{Width: 8}`. |
 | `label`, `centeredLabel` | Text in a typestyle and color, limited to a number of lines (0 is unlimited). |
@@ -64,6 +67,7 @@ put it next to these, and add it to this page.
 | `qrView` (`login_qr.go`) | The first step of the sign-in, as Telegram Desktop's (`intro_qr.cpp`): the QR code of a login token to scan with a device where the account is signed in, black on a white plate in a light theme and light on a dark one in a dark theme, which Telegram reads, with a button beside it that makes it black on white for scanners that read only that (`rsc.io/qr`, Quartile correction as tdesktop's). The square logo in its middle is `assets/logo.svg` drawn by oksvg at the SVG's own size and scaled down (oksvg widens strokes at other scales; it reads a gradient's stops only from its own `stop-color` attributes), 44 dp wide as tdesktop's round one, in a hole of whole modules around it (`qrHole`), which Quartile correction makes up for, the title, the three numbered steps of scanning it, and the button to the phone number, whose step has the button back. A loading ring stands in for the code until its token comes; `account` replaces the token when it expires and when it is accepted. In a window too low for the card the code shrinks, to `qrMinSize`. `PHONE_PNG_DIR` renders it too (`qr`, `qr-waiting`, and `qr-dark…` in a dark theme). |
 | `proxyView` (`proxy_view.go`) | The proxies of `internal/messenger/proxy`, as a list and a field: "No proxy", Telegram over WebSocket and the user's own, each with how long it takes to answer (`proxy.Ping`, measured when the view opens, when one is added and on "Check"; `Services.PingProxy` replaces it in the demo) and, where it is the user's, a button that removes it. A link typed in the field is read as it is typed (what it is is told under it) and added with the button or Enter; the one added is the one in use. `LayoutForm`, `LayoutList` and `LayoutCheck` are its parts, for a dialog that keeps the field in sight while the list scrolls; `Layout` is all of them, for the settings' section of the proxies. |
 | `proxyDialog` (`login_corner.go`) | `proxyView` in a dialog, which the sign-in has to hold the proxies: it has no settings. |
+| `qrPage` (`profile_qr.go`) | The page of a profile's QR code in its info (`chatInfo.OpenQR`), as Telegram Desktop's box of it was before it took Telegram's themes (`peer_qr_box.cpp`): the button in the info's header opposite the one that closes or edits it, where the loading ring is while the info loads (`iconQRCode`, Material Symbols' `qr_code` drawn from its squares), for a chat that has a username. The code of `https://t.me/<username>` is drawn with the sign-in's shape of the modules (`qrShape`), without its logo, which is the sign-in's only, in the colors of a gradient, on a card that is white in every theme, for a scanner to read, under the avatar and over the username in the same colors (`gradientLabel`); below are the gradients to choose from, `qrGradients`, four colors each for `chattheme.Gradient`, none of them light, and the button that copies the card on its gradient as a PNG (rendered off the frame, as a snapshot is). The choice lasts while the window does. `PROFILE_PNG_DIR` renders it (`profile-qr`, `profile-qr-dark`). |
 | `loginCorner` (`login_corner.go`) | The three buttons in the top corner of the sign-in: the language, the theme (each goes on to the next at a click) and the proxy, which opens `proxyDialog` and has a dot where one is in use. The card keeps `cornerMargin` away from the corner, above and below. |
 | `strengthMeter` (`password_strength.go`) | How strong the master password being typed is: five segments and the level in words under them, from `internal/messenger/passwordstrength`, beside the password field of the offer to protect local data and of the settings. It is an indicator and nothing more: a weak password holds nothing back, though the segments are colored by level, from red to green (`strengthColors`, one set for the light themes and one for the dark ones). The estimate is lowered by what is common, the passwords, words and first names of the dictionaries (English and Russian, typed in the other layout too, in capitals or with digits for letters), runs of one character, sequences, walks over the keyboard, keys pressed at random in a small area of it (a mash, such as `dfssfdsdfsfd`) and strings of a few different characters, and dates, and raised by what is none of them. It is not strict about length: eight random characters of every kind are the highest level, and four or five random words are not asked for. The highest level is given only to a password with the usual kinds of characters, lower and upper case, a digit and a special character (`passwordstrength.KindsOf`), however many bits it has; the letters of a script without case count as both cases. The list of the 1000 commonest passwords is SecLists' (MIT; `docs/THIRD_PARTY_LICENSES.md`), the other words are written for it, and words of a language that are in no dictionary are told by how their letters read. |
 | `openBrowser` | Opening a link in the system browser; call it off the frame goroutine. |
@@ -77,6 +81,7 @@ put it next to these, and add it to this page.
 | `richLabel` (`rich_label.go`) | A label of `model.TextRun`s: bold and italic parts, custom emoji drawn as their pictures in a square of their own. A custom emoji Telegram marks of the text's color (`MessageMedia.TextColor`, `chatmedia.Manager.TextColored`) is its shape in the text's color, as Telegram Desktop draws it, here and wherever custom emoji are drawn: `emojiFrame`, `imageOps.Colored`. `maxLines: 1` cuts one line with an ellipsis. `markedRuns` makes the runs of a catalog's text whose bold parts are between `**`, as Telegram Desktop's `lng_…` texts mark them. |
 | `motionTrack`, `drawStreak` (`motion_blur.go`) | Motion blur, as a camera's 180° shutter: `motionTrack.Streak` is how far a picture moved while the shutter was open (none on its first frame or after it stood still), and `drawStreak` draws the picture as the average of where it was, in premultiplied colors, which blending lays over the background exactly (drawing copies half transparent would not). It asks for the next frame, in which a picture that stopped is sharp. Only with `animate`; the picture must be an image: `App.avatarSprite` makes one of an avatar, a photo cut to its shape or the initials drawn once by the GPU off the frame. The cover's gifts streak in flight, its avatar as it moves into the header. |
 | `modal` (`modal.go`) | A dialog over a scrim: animates in and out, closes on Escape or a click beside it, takes the focus: for its `field`, a search or a caption the owner sets before `Open`, or for itself, which keeps what is typed out of the message field under it. A field focused before `Open` loses to the dialog's own request. The owner keeps what it shows until `Layout` reports it closed. Examples: `sessionEndedDialog`, `connectionFailedDialog`, `emojiOffer`, `frozenView`, the delete dialog. |
+| `chatInfo` (`shared.go`, `profile_cover.go`) | A profile: the cover, the cards, the sections of media. Another's is a dialog (`Layout`); the account's own is the same info drawn as a page (`LayoutPage`, `profilePage` in `profile.go`), whose pencil puts the form of the name, username and bio in a card in place of the cards that show them, and whose sections are the archive of its stories and its gifts. Its phone number, username and ID are covered in visual privacy mode. The song a user put on the profile (`PeerProfile.Music`) is a card over their channel's, its cover as big as the channel's avatar (`cardAvatarSize`), which opens their playlist (`SharedSavedMusic`, `users.getSavedMusic`) as a section; its songs play in the window's player, and a click on the bar of one goes back to the playlist (`App.openPlaylist`), the songs being in no chat (`Message.Playlist`). A song in a chat goes on the account's profile from its menu, Save to Profile, while it is not there (`model.SavedMusicStore`, `account.saveMusic`). The account's own playlist is reordered by handles at the songs' right (`reorderRows`, the drag the settings' menus reorder with too); a song's menu has Forward, which sends it anew, and on the account's own Delete (`shared_music.go`). |
 | `contextMenu` (`contextmenu.go`) | A menu that grows from a corner of a rectangle, such as the attachment menu. Draws its own shadow. |
 | `drawShadow` (`shadow.go`) | The soft shadow of a rounded rectangle, with `dialogShadow` and `menuShadow`: `modal` and `contextMenu` draw them, so a dialog or a menu built on those needs nothing more. Its intensity is a setting of the appearance section (`preferences.Overlays.Shadow`, in percent of the usual shadow, put in the frame by `withShadowIntensity`). Darker on dark themes; faint where the page is nearly black already. It is a picture made once per radius, blur and color and drawn in nine pieces: a shadow made of a fill per layer cost 20 times the frame without it on a rasterizer without a GPU (`BenchmarkDialogShadowFrame`). |
 | `scrollPage` (`pages.go`) | A centered scrollable column for a page, such as the profile. |
@@ -88,7 +93,10 @@ put it next to these, and add it to this page.
 | `navButton`, `sidebar` | The sidebar's sections and folders. |
 | `splitter` | The draggable edge between the chat list and the page. |
 | `spoiler` | Covering a value, such as a phone number in visual privacy mode, until it is clicked. |
-| `loadingIndicator` | The circular progress indicator, labeled for accessibility: `page` fills a page, `sized` draws it d wide, `centered` in the middle of a line. Each place that loads keeps its own. |
+| `paintSpoiler`, `paintLineSpoiler` (`history_text.go`) | The cover of a text under a spoiler, in a message, a `richLabel` or the `spoiler` above: a rounded plate, the dust of `paintDust` drifting over it in the text's color, cut by the circle of the wave that uncovers it. The chat list's previews draw the same plate and dust. |
+| `effects`, `paintDust`, `paintMediaDust` (`spoiler_dust.go`) | The particles of spoilers, as Telegram for Android's (`docs/PORT_ANDROID_EFFECTS.md`): a dust of points over text, one square of 150 dp that repeats, drawn in the color asked; and white points a slow flow carries over media, one square of 320 dp repeated at native resolution over each attachment, turned or mirrored by its index. Both are moved and drawn by the CPU about 30 times a second into one picture a window, kept in its `effects` (`withEffects` puts them in the frame's `Values`; a window without them shows plain covers) and let go of five seconds after the last spoiler drew them. With animations off the text has no dust and the media's stands still. In a window paused while inactive both stand still. Message snapshots own a frozen copy of the particles, and pictures of deleted messages use `withoutEffects`. `paintMediaDust` goes inside the clip of the media, over its blurred picture: the tiles of the box of files, the history's attachments and the chat list's thumbnails have it. In the history a click reveals one attachment with the same circular wave as the text. `EFFECTS_PNG_DIR` saves frames of both. |
+| `leaving`, `rowMoves`, `dissolve` (`history_leave.go`) | A message erased while in view leaving the history, as in Telegram for Android: `leavers` finds the rows gone from the snapshot whose messages the store says were erased (`model.ErasedMessages`; all the parts of an album), before `rebuild` forgets them, and `startLeaving` sets them leaving and the rows that stay moving from where they were into their places (250 ms, Android's curve, after a wait: `leaveHold`, 1 s, while a message dissolves, so its dust is seen over the place it left and not over the rows that take it, and 250 ms while one fades, until it is gone; `moveShift` is how far a row is from its place, which the list's rows and the sticky avatars are drawn by). The rows that left are drawn over the history where their bubbles were, following it as it scrolls: fading out in the same 250 ms, or, by the chats' setting (`preferences.DeleteEffect`), dissolving: the GPU draws their bubbles off the frame (`askPicture`, `renderSnapshot`), and once the picture comes `dissolve` cuts it into pieces of about a pixel, at most 100 000 for the messages that left together, which fly off from the left edge of each bubble to its right, rise and fade, moved and drawn by the CPU into one picture; until then, and if the picture does not come in half a second, the rows stand, then fade. Not for a message on its way, one kept deleted, one younger than 2 s in a group or a bot's chat, or with animations off: those go at once. A panic in their layout drops them (`recoverLeaving`). `EFFECTS_PNG_DIR` saves the frames. |
+| `loadingIndicator` | The [Material 3 Expressive loading indicator](https://m3.material.io/components/loading-indicator/specs), labeled for accessibility. Seven shapes morph as they rotate. The classic ring stands still with animations off. `page` fills a page, `sized` draws it d wide, and `centered` puts it in the middle of a line. `LOADING_PNG` renders both modes. |
 | `selectionMark` (`common.go`) | The round mark of a thing that can be picked: a check on the primary color when picked, an outline when not. A row that has one draws it, and its buttons, over the row's `surface`, not in it: the row's area would take their clicks. The Downloads section's rows pick files with it. |
 | `downloadsPage` (`downloads_page.go`) | The Downloads section of the sidebar and the drawer, as Telegram Desktop's: the files on their way (the window's `attachmentFiles`, which its pages share, so a download goes on in another chat), each with its `downloadRing`, a click cancelling; then the files downloaded, newest or largest first (two `folderChip`s), with their size, date and what became of them (deleted or moved, changed since), the count and size of those there above. A row opens its file and its button goes to the message; the header's button shows the folder they are all downloaded into (made if it is not there yet); marks pick files, which "Delete from disk" deletes after a dialog, as Telegram Desktop asks. A file is the user's: nothing else deletes it. `DOWNLOADS_PNG` renders it, sorted and picked, the dialog and empty. |
 | `downloadRing` | A download in a circle (`download_ring.go`): an arc as long as the part received over a faint track, turning while the size is not known, around the mark of what a click does (cancel, load again). The media tiles and the file rows draw theirs in their own circle; each row keeps its own, for the arc to grow smoothly. |
@@ -99,6 +107,14 @@ put it next to these, and add it to this page.
 
 The history is drawn as materialgram draws it:
 
+- Edits and reaction changes animate the bubble's height through
+  `messageResize` (`history_resize.go`), whose state survives message
+  revisions. The list follows the visible height; only settled heights
+  enter the layout cache. Quotes and accordions keep their own transitions
+  without another animation around them. Initial layouts, width changes
+  and disabled motion use the final height immediately.
+  `MESSAGE_RESIZE_PNG_DIR` renders frames of edits, first reactions and
+  reaction wrapping, including messages without a bubble.
 - `messageJoins` groups a sender's messages in a row (same sender, same
   day, less than 15 minutes apart): the group shows the sender's name at
   its top and one avatar, which sticks to the bottom of the view while the
@@ -158,11 +174,12 @@ The history is drawn as materialgram draws it:
   video's own plate does; on a GIF that plays here it fades in, as the
   GIF's time does. A video's own plate, or a GIF's time, that does not go
   beside it moves to the top corner. The time over the corner of a
-  sticker the account sent fades out under the pointer too. A video
+  sticker or lone emoji the account sent shows only under the pointer.
+  Time beside them stays visible. A video
   message has the time it was sent inside, under the circle's right, for
   anyone's, as its duration is under its left (Telegram Desktop's).
   `TestTimeOnVideo`, `TestTimeOnGIF`, `TestTimeOnPhotoHides`,
-  `TestStickerTimeHides`, `TestRoundTimeInside`; `MEDIA_TIME_PNG` renders
+  `TestStickerTimeOnHover`, `TestRoundTimeInside`; `MEDIA_TIME_PNG` renders
   them.
 - `bubbleContent` lists what a bubble holds as `bubblePart`s, and
   `bubbleBody` lays them out itself, not in a `layout.Flex`: what takes
@@ -400,6 +417,22 @@ size-stability fixes remain in place.
   (`model.ChatStoryGallery`), not the profile's; a reply's opens the story
   alone (`OpenStory`). The store asks for those Telegram left out of the
   messages once, a peer's together (`tgstore/chat_stories.go`).
+- **Opening the media viewer from a chat** (`viewer_opening.go`): a photo,
+  video preview or GIF moves from the clicked tile to the viewer's stage, and
+  the controls and the source tile in the chat fade in once it arrives. The
+  same thumbnail covers the stage while the full picture loads. With
+  animations off the viewer opens at once. Dismissing it during the
+  entrance plays the transition back to the tile from the last drawn
+  frame. Once open, the controls fade out and the picture shrinks and
+  fades in place. While the viewer closes, the chat receives input and
+  the overlay keeps requesting frames. `VIEWER_OPEN_PNG_DIR` renders an
+  album's opening, closing and interrupted transitions frame by frame.
+  Avatars use the same transition from the chat or forum header, the info
+  dialog and the account's profile. Their mask opens from the avatar's
+  configured roundness to square corners. Set `VIEWER_OPEN_AVATAR` to
+  `header`, `forum`, `info` or `profile` to render those sources.
+  Reopening the same avatar after an interrupted entrance resumes its
+  gallery, including any page still loading.
 - **Held preview** (`hold_preview.go`): an emoji, a sticker or a GIF of the
   composer's panel or of the box of a set, held half a second, shows large
   over the whole window on the viewer's backdrop, as Telegram Desktop's
@@ -424,6 +457,28 @@ size-stability fixes remain in place.
   the media viewer, whose button beside copy forwards what it shows, a
   message or a story (`viewer_share.go`), unless it protects its content;
   a story has its heart there too, red once put, with how many put theirs.
+  Online users have the chat list's green dot on their avatars, respecting
+  the setting that hides online status. `COMPOSER_VIEW=forward` with
+  `COMPOSER_PNG` renders the dialog.
+  Choosing a recipient opens a confirmation step, without navigating to
+  their chat or showing a preview. Back (or Escape) restores the picker.
+  Message forwards can omit the author and, with that selected, media
+  captions; omitting the author changes Forward to Send. The choices are
+  kept in the outgoing queue across retries and restarts. Stories and
+  profile music ask for confirmation without message-forwarding options.
+  In the history's selection mode, a click on a standalone attachment
+  toggles its message. A click on an album member toggles that attachment,
+  and a click in a gap or gutter toggles the whole album. The
+  confirmation locks the caption checkbox when an album is only partly
+  selected. The outgoing queue strips those captions and keeps the
+  captions of complete albums in the same forward.
+  `ALBUM_SELECTION_PNG_DIR` renders the selection and its confirmation.
+  An optional Go to forwarded message checkbox opens the recipient at the
+  end of its history after success, ignoring the saved scroll position;
+  with the author hidden its label changes to Go to sent message. A media
+  viewer closes when making this transition, including its separate window.
+  `COMPOSER_VIEW=forward-confirm`, `forward-send` and `forward-text`
+  render the confirmation's default, selected and text-only states.
 - **Saving a video as a GIF** (`viewer_gif.go`): the viewer's GIF button,
   beside forwarding, on a video that does not protect its content, saves it
   among the saved GIFs (`model.GIFMaker`): `video.ConvertGIF` encodes it
@@ -522,12 +577,13 @@ size-stability fixes remain in place.
   history while nothing is typed, with a menu on a right click that takes
   the keyboard for its Escape (`key.FocusFilter`, then `key.FocusCmd`).
 - **Box for sending files** (`composer_send_files.go`): a `modal` of what was
-  chosen in the attachment menu, as Telegram Desktop's: media as a grid of
-  squares (one picture alone keeps its shape), other files and, with "Send as
-  documents", everything as rows with a thumbnail, a caption editor that takes
-  the composer's text and Enter to send, and the checkboxes that
-  `sendfiles` says apply (`HasGroupOption`, `HasDocumentsOption`,
-  `HasHighQualityOption`). Files are looked at in the background
+  chosen in the attachment menu. Photos and videos offer Attachment and File
+  tabs along the card's top edge, like the reactions dialog. The selected tab
+  determines how the files are sent and how they are shown: media as a grid
+  (one picture alone keeps its shape), documents as rows with a thumbnail.
+  Ordinary files keep the title and rows. The caption takes the composer's
+  text and Enter to send. The group and quality checkboxes depend on what
+  `sendfiles` says applies. Files are looked at in the background
   (`sendfiles.Inspect`, `Thumbnail`; a click on a photo, a video or a GIF
   opens them in a viewer of their own, which reads them from the disk and
   knows no chat, with nothing to forward or save: `viewer_box.go`; music as
@@ -542,8 +598,9 @@ size-stability fixes remain in place.
   page of the open chat when it takes files (`chatPage.takesFiles`): one
   for documents, and one for photos or media when `sendfiles.DropStateOf`
   says the files are pictures, or pictures and videos. A drop goes to the
-  box above, as documents or not by the area; over an open box the files
-  join it. Where the page is comes from the last frame.
+  box above with the Attachment or File tab selected by the drop area. Files
+  dropped over an open box join it in its current mode. Where the page is
+  comes from the last frame.
 - **Editing a message** (`composer_edit.go`): "Edit" in the message menu, or
   the Up arrow in an empty field (the last message `model.Editable` allows),
   puts the message in the field as Telegram Desktop does: the reply strip
@@ -594,13 +651,21 @@ size-stability fixes remain in place.
   fill over it at the chosen opacity. An overlay whose owner gives none is
   opaque. A toast is never less than 80% opaque (`toastMinOpacity`): its
   light text is only readable on its dark plate. A new overlay: take `p.menuBackdrop()` / `p.toastBackdrop()` (or the
-  list's), fill with `overlayFill`. Not covered: forms, dialogs' toasts, the media viewer,
+  list's), fill with `overlayFill`. The media viewer's plates over the
+  picture, of the caption and of a video's controls, blur what is under
+  them with the toasts' switch (`mediaViewer.plateFill`: the picture is
+  recorded as it is drawn, and drawn again blurred under the plate's dark
+  fill, which stays as it is for its white text; `VIEWER_BLUR` in the
+  viewer's render test). Not covered: forms, dialogs' toasts, the viewer's
+  own toast and bar, the viewer of an article's window,
   and the toast of the search results.
 - **Main window surfaces** (`window_surface.go`): on Wayland and Windows the
   sidebar, chat list (including the compact folder bar) and chat header let
   the desktop show through at `preferences.Global.WindowTransparency`. The
   compositor supplies blur through the same effects as the media viewer's
-  window: `appwindow.Options.Transparent` / `BlurBehind`, and
+  window, which follows the same settings (blur, the window's own blur and
+  frame; `windowEffects`, `WindowEffectOptions`) and not a blur of its own:
+  `appwindow.Options.Transparent` / `BlurBehind`, and
   `Window.SetEffects` to change them; do not pass `app.Transparent` or
   `app.BlurBehind` to a window yourself. `fillWindowSurface` changes only the fill alpha; text, avatars and
   history stay opaque. Other backends retain opaque surfaces. Never paint an
@@ -609,8 +674,201 @@ size-stability fixes remain in place.
   slider is in Appearance → Transparency and blur; zero disables compositor
   blur and keeps the window opaque. `WindowBlur`, a separate checkbox in the
   same card, can turn compositor blur off without changing transparency; it
-  does not depend on animation settings. `TestWindowSurfacePixels` checks actual
+  does not depend on animation settings. The media viewer's window has a
+  checkbox of its own, `ViewerBlur`, on by default and not tied to the main
+  window's blur or transparency (`viewerWindowBlur`; its backdrop has its
+  own alphas). The viewer's window draws a frame only for an event or an
+  animation, so it subscribes to the settings and asks for a redraw
+  (`Window.Invalidate`, safe from any goroutine) when they change anywhere;
+  its state is still changed by its own goroutine, in `Update`.
+  `TestWindowSurfacePixels` checks actual
   frame alpha, with `WINDOW_SURFACES_PNG_DIR` saving the frames.
+- **The window's own blur** (`internal/wallpaper`, `internal/appwindow/backdrop.go`):
+  the window can blur the desktop by itself, without the compositor. It
+  reads the wallpaper, makes a picture of each screen several times smaller
+  and blurred once on the CPU (`wallpaper.Render`: 320 px on the longer
+  side, three passes of a box), and draws the part of it the window is over
+  under its surfaces (`Window.LayoutDesktop`, called first in
+  `App.layoutWindow`), stretched by the GPU. The window is then opaque to
+  the system, with the system's frame, and the surfaces are filled as those
+  of a transparent window are. The picture stays where it is on the screen
+  while the window moves, so it looks as the compositor's blur does while
+  only the wallpaper is behind the window; other windows behind it do not
+  show. The picture is not drawn as it is blurred: `wallpaper.Acrylic`
+  makes of it, for the color of the surfaces and how much they show, the
+  one under which they look as over the acrylic of Windows, which lifts
+  dark colors toward a gray, and whose compositor adds what shows through
+  to the window's pixel as bytes, where Gio mixes in linear light. Its
+  numbers are measured on Windows 10: a window drawn both ways at the same
+  places differs by a level of 255 on average at 35% and 70%, light and
+  dark, and by 4 to 9 at a point, where the blurs differ in shape; the
+  noise of acrylic is not drawn. The picture is made anew when the
+  theme or the transparency changes (320 px, under a millisecond). `Window.OwnBlurSupported` tells whether it can be done,
+  `CompositorBlurs` whether the compositor could; `App.updateWindowEffects`
+  picks: the window's own where the compositor has none (X11), the
+  compositor's otherwise unless `preferences.Global.WindowBlurOwn`, which
+  the two radio buttons at the end of the card set for the main window and
+  the viewer's alike, shown where both can, and never locked. Where
+  the wallpaper comes from and how its change and the window's moves are
+  noticed is the system's (`wallpaper_*.go`): on Windows the file
+  `SystemParametersInfo` names, placed on each monitor as
+  `Control Panel\Desktop` tells, a change of that key and of the file's
+  folder (Windows 7's themes write the file in place, with the key left
+  as it is; `TestWatcherSeesTheFileWrittenInPlace`), and the window's
+  place asked at every frame (Gio draws one at every move); on X11 the
+  pixmap of the root window (`_XROOTPMAP_ID`), its `PropertyNotify`, and
+  the window's `ConfigureNotify`, on a connection of the watcher's own; on
+  Haiku Gio's driver tells both in events (`app.HaikuPlaceEvent`,
+  `app.HaikuDesktopEvent`: Tracker's wallpaper of the current workspace),
+  which the window gives its watcher (`Window.desktopEvent`), and the
+  picture is read only once the desktop is drawn. A
+  desktop that keeps no such pixmap (Plasma) has nothing to draw, and
+  Wayland tells a window nothing of its place: there the compositor's blur
+  is all there is. macOS is not done. A wallpaper per monitor
+  (Windows 8 and later) is not read: every monitor gets the one
+  `SystemParametersInfo` names. `TestDesktopStaysInPlaceUnderAMovingWindow`
+  checks the drawing under a window that moves.
+- **Aero's glass of Windows 7, measured** (2026-11-15, Windows 7 SP1 in a
+  VM, one monitor of 1920×953): the glass of `DwmEnableBlurBehindWindow`,
+  which a Gio window asks for there, photographed over windows of known
+  colors, at 23 places and sizes, under 21 settings of the colorization
+  for a window without the system's frame and 18 for one with it, active
+  and not, each written in `HKCU\Software\Microsoft\Windows\DWM` with the
+  DWM restarted after (`net stop uxsms`, `net start uxsms`). The values of the
+  key: `ColorizationColor` C and `ColorizationAfterglow` A, colors whose
+  alpha does nothing (0x20, 0x80 and 0xFF give the same glass), and
+  `ColorizationColorBalance` cb, `ColorizationAfterglowBalance` ab,
+  `ColorizationBlurBalance` bb and `ColorizationGlassReflectionIntensity`
+  ri, percents taken here as 0 to 1. Everything is in sRGB bytes, not in
+  linear light, and clamped to 0..255 before the next step. Every formula
+  below is within two levels of 255 of what the DWM drew (the
+  coefficients fitted to each setting alone, within half a level, are
+  near the round numbers given: 0.7794 for 0.6 + 0.4·0.44). **The glass
+  is of three kinds**, and the first measures, of windows without the
+  system's frame, missed the one that matters most: a window with the
+  system's frame has another glass while it is active, a popup without
+  it (`WS_POPUP`) has the inactive one's, active or not. "With the
+  system's frame" is the window's style, not what it shows: Gio's window
+  that draws its own frame keeps `WS_OVERLAPPEDWINDOW` and takes the frame
+  off its client area only, and the DWM gives it the glass of a framed
+  window; Gio's window is a popup only full screen:
+  - **Blur:** a Gaussian of σ ≈ 2.4 px reaching ±7 px, at the screen's
+    pixels: about a tenth of acrylic's. The detail of the backdrop shows
+    through it.
+  - **Color:** with B the blurred backdrop and luma its Rec. 709 luma
+    (0.2126, 0.7152, 0.0722), and s the share of the colorization, 1 for
+    the active window with the system's frame and 0.4 for the others,
+    `glass = (1 − s)·B + s·(bb·B + cb·C) + ab·A·luma(B)`: the active
+    window's is `bb·B + cb·C + ab·A·luma(B)`, the others'
+    `(0.6 + 0.4·bb)·B + 0.4·cb·C + ab·A·luma(B)`. Checked with each balance
+    alone at 0 to 100 (bb 0, 44, 80, 100; cb 0, 24, 50, 100; ab 0, 32, 64),
+    all three at 0 (black, and 0.6·B), and another color and afterglow.
+  - **Opaque** (`ColorizationOpaqueBlend` 1, the personalization's
+    "Enable transparency" off): the backdrop is not seen;
+    `glass = 221·(1 − s·cb) + s·cb·C` (223 without the system's frame),
+    whatever bb and ab are.
+  - **The reflection** (the diagonal streaks): part 40 of the theme's class
+    `DWMWINDOW`, an image in the atlas of the current theme (in Aero's,
+    802×604 at 555,0 of a PNG of 1357×780, which also has the frames'
+    highlights, parts 34 and 43, and the caption's buttons). A program
+    reads it from uxtheme: `OpenThemeData(hwnd, "DWMWINDOW")` (in a process
+    that has made a window, or the process is not themed yet),
+    `GetThemeRect(theme, 40, 0, TMT_ATLASRECT = 8002)`, and the atlas from
+    `GetThemeStream(theme, 0, 0, TMT_DISKSTREAM = 213, …)` with the theme's
+    file (`GetCurrentThemeName`) loaded as a module of data. It is
+    stretched over the screen, stays in its place vertically, and moves
+    with the window horizontally by an eighth of how far the window's
+    center is from the screen's: at the screen's pixel X, Y, with cx the
+    window's center, W×H the screen and w×h the image,
+    `u = (X − (cx − W/2)/8)·w/W`, `v = Y·h/H` (R² 0.994 over the 23
+    windows; a window at the screen's center sees it as stretched). It is
+    laid over the glass in its own colors,
+    `out = glass·(1 − k·a) + k·a·T` with a its alpha and T its color, and
+    k by the window: `0.745·min(1, 1.79·ri)` for the active window with the
+    system's frame (ri 0.25 → 0.34, 0.5 → 0.67, 1 → 0.74),
+    `0.745·min(1, 1.49·ri)` for another (0.27, 0.56, 0.75), and
+    `min(1, 1.49·ri)` without the frame (0.37, 0.745, and 1 from 0.75).
+    It is laid over the opaque color as well. The streaks of a window with
+    the frame are where they are without it, within a few pixels.
+  - **A window's own pixels** go over all of it as acrylic's compositor
+    has them: `out = P + (1 − α)·glass`, P the premultiplied bytes Gio
+    wrote (a surface of 200 at α 0.6, and of 40, 60, 90 at 0.3, within 0.6
+    over every glass).
+  - **Without Aero:** the Basic theme turns composition off and keeps
+    `Aero.msstyles`, part 40 is read as with Aero; the Classic theme has no
+    visual styles, `OpenThemeData` fails, and there is no reflection to
+    read. Applying a theme writes its colorization in the key (Basic and
+    Classic: Sky, 0x6b74b8fc), which stays there while composition is off.
+  Not measured: a second monitor (the reflection's screen may be the
+  monitor or the whole desktop), and other themes' reflections.
+  On Windows 7 the window's own blur draws this glass instead of acrylic
+  (`wallpaper/glass.go`; `aeroGlass` in `glass_windows.go`): the watcher
+  reads the key (`glassSettings`, Sky where it lacks a value) and the
+  theme's streaks (`reflectionStreaks`), follows the key and
+  `ThemeManager`'s besides the wallpaper's, and makes each screen's
+  picture with `RenderGlass` (about half the screen, 960 px on the longer
+  side of 1920, and the Gaussian at that scale) with the streaks
+  stretched to the picture's size (`StretchReflection`); the Desktop has
+  the colorization (`Desktop.Glass`). The window draws `GlassUnder`, the
+  glass with the streaks, made for its surfaces as `Acrylic` is (tables of
+  the bytes to draw, not a power per pixel: 12 ms for 960×540), of the
+  kind the window has (`GlassState`, from `app.Config`'s `Focused`, and
+  `Mode` for a full-screen window): it keeps a picture of each kind it has
+  had, and is redrawn at once when it is activated or not. The
+  colorization is the DWM's as it is now (`DwmGetColorizationParameters`,
+  ordinal 127 of dwmapi.dll, the values of the key in its order), the key
+  only where the DWM does not tell: the personalization's Window Color
+  previews a color on the frames and the taskbar before it is saved, and
+  the key has it only then, and the two differ after a program wrote the
+  key. The watcher asks the DWM once a second besides following the keys;
+  a change of the colorization alone gives a Desktop of the same pictures
+  (the wallpaper is not read again, as a slider dragged in the preview
+  would have it every second). The theme's accent on Windows 7 is the
+  DWM's color now too (gio-mw's `appearance`, `DwmGetColorizationColor`),
+  polled every 5 s. The
+  streaks move with the window (`ReflectionShift`), so a window that moved
+  far enough for them to move by a pixel of the picture (16 px at 1920)
+  has its picture made anew in the background, and draws the one it has
+  meanwhile; the first is made in the frame. Under the Basic and Classic
+  themes composition is off, `CompositorBlurs` is false, and the window
+  blurs by itself whatever the radio buttons say; the Classic theme's
+  glass has no streaks. Other systems keep acrylic: the glass of Windows 7
+  is its own, and Plasma's blur is close enough to acrylic.
+- **The color of the windows without Aero** (`settings_window_color.go`,
+  `preferences.Global.WindowColor`): under Windows 7's Basic and Classic
+  themes Windows offers no color for the windows (Window Color is the
+  classic dialog there), and the glass keeps the one the theme wrote, Sky,
+  its reflection at 0. The Appearance section then has a card of
+  Window color (`appwindow.WindowColorOffered`: Windows 7, the desktop not
+  composed): the personalization's sixteen colors (`wallpaper.WindowColors`,
+  each at the intensity it starts with, measured from the DWM's
+  colorization once each was clicked), the name of the one the windows
+  have, "As in Windows" back to the system's, and the intensity, 10 to 85 %
+  in steps of 5, the alpha of the color as Windows' slider has it
+  (`wallpaper.IntensityMin`, `IntensityMax`: 0x1a to 0xd9). The glass is
+  `wallpaper.GlassOfColor`: the color and the afterglow alike, the balances
+  as the personalization makes them of the intensity, checked against what
+  it wrote for every color and both ends of its slider; the reflection at
+  half. The color is the settings' only, Windows is not told of it; the
+  window draws it (`Window.SetWindowColor`, from the windows' effects) and,
+  with the system accent color, the accent is it (`App.accent`). With Aero
+  the card is not shown, and the colors are the system's.
+- **The window's own frame by choice**: `preferences.Global.WindowOwnFrame`,
+  the last checkbox of the Transparency and blur card, has the main window
+  draw the frame below in place of the system's (`Window.SetOwnFrame`,
+  `appwindow.OwnFrameSupported`: Windows and Haiku; the box is not shown
+  elsewhere). A window the compositor of Windows 10 or 11 blurs behind has
+  it anyway (`Window.OwnFrameForced`): the box is then checked and
+  disabled, and shows what the user chose again once that blur is off. With
+  the window's own blur the blurred desktop is under the caption too: the
+  window draws it before its frame (`layoutBackdrop`), for the look the
+  content asked for in the frame before (`LayoutDesktop`). On Haiku the
+  window has no frame of the system's then (`B_NO_BORDER_WINDOW_LOOK`), and
+  Gio's driver moves it by the caption, zooms it by a double click there and
+  resizes it by its right and bottom edges. The window stays where it is
+  seen when the frame changes: its content takes the place of the system's
+  tab and border, and gives it back (checked on Haiku: a window at 5,29 to
+  1018,741 is at 0,0 to 1023,746 with its own frame, and back).
 - **The window's own frame** (`internal/appwindow/frame.go`): on Windows blur
   is acrylic, which is drawn right only behind a window without the system's
   frame, so a window that blurs has none and `appwindow` draws one: a caption
@@ -660,6 +918,14 @@ size-stability fixes remain in place.
   click opens their Fragment dialog (a `modal` of its own,
   `filledButton`), the details, the theme and the sections.
   `model.PeerProfileSource` gives the profile; `SHARED_PNG` saves it.
+  On the account's own profile page, the cover background and its fade
+  span the page's full width while the avatar and cards stay in their
+  centered column. `PROFILE_PNG_DIR` includes light and dark own-cover
+  variants for checking this on a wide page.
+  A profile's song, personal channel and bio share one reusable card
+  (`chatInfo.layoutSummary`) in both dialogs and the account's page, with
+  an animated height. Missing rows are omitted; editing replaces the bio
+  with the profile's form while the song and channel stay available.
 - **Forum page** (`forum.go`): the topics of a forum chat in place of its
   history, under the chat's header (which opens its info). A row is drawn as the
   chat list's: `surface`, icon plate (`fillRounded`, the topic's colour, a house
@@ -901,7 +1167,8 @@ size-stability fixes remain in place.
 - **Comments** (`comments.go`): `commentsBar` ends a channel post's bubble,
   clipped to its shape; the comments open in a second `chatPage` under a
   `chatHead` — `layoutChatPageHead` with a back button in place of the
-  avatar — over their channel.
+  avatar — over their channel. An empty discussion shows a service plate
+  under the post, within the scrolling history.
 - **Service messages** (`history_service.go`): an action, as a user added or
   a message pinned, is its words on a plate across the middle of the
   history (`servicePill`), worded in the UI's language by
@@ -933,7 +1200,11 @@ size-stability fixes remain in place.
   button opens, as AyuGram's message shot box: a preview rendered off the
   frame (`buildSnapshot`, `renderSnapshot`), the theme and what it shows,
   and buttons that save the PNG or copy it (`clipboard.WriteCmd` with
-  `image/png`).
+  `image/png`). The PNG is at most 1,000 pixels wide including its margins.
+  The message columns fit their contents within that limit independently
+  of the window width. The reveal option controls text and attachment
+  spoilers in the snapshot independently of the history.
+  `SHOT_SPOILERS_PNG_DIR` saves examples of both states.
 - **Pinned bar** (`pinned_bar.go`): under the chat's header, the latest
   pinned message above the history's bottom (`model.PinnedSource`); a click
   goes to it and shows the one before, as Telegram Desktop's does. Its line
@@ -966,7 +1237,7 @@ new piece sits next to its neighbours.
   and emoji pack states; `TestRenderMessageMenu`, the message menu over a
   reply, with a floating and a classic composer. They are skipped unless their
   variable (`COMPOSER_PNG`, `COMPOSER_MOTION_PNG`, `SETTINGS_PNG`,
-  `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `POLL_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `BUBBLE_FIT_PNG`, `MEDIA_INSET_PNG`, `MEDIA_TIME_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `COMMUNITY_PNG`, `CHAT_PREVIEW_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
+  `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `STICKER_SET_PNG_DIR`, `MENU_PNG`, `SAVED_EMPTY_PNG`, `VIEWER_PNG`, `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`, `SERVICE_PNG`, `POLL_PNG`, `JUMP_PNG_DIR`, `PINNED_PNG`, `BUBBLE_FIT_PNG`, `MEDIA_INSET_PNG`, `MEDIA_TIME_PNG`, `REACTED_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `PROFILE_PNG_DIR`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `COMMUNITY_PNG`, `CHAT_PREVIEW_PNG`, `SHARED_PNG`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`, `EFFECTS_PNG_DIR`) is set; `go run ./cmd/render-all` runs them all. `TOAST_PNG_DIR` gets a toast in every place that has one, light and dark. The last one shows Saved Messages before its
   first dialog exists. `COMPOSER_VIEW=emoji-search`, the picker's emoji found for a word;
   `COMPOSER_VIEW=featured-stickers` or `featured-emoji`
   with `COMPOSER_PNG` shows the picker's recommendations; `COMPOSER_VIEW=voice`,
@@ -980,6 +1251,13 @@ new piece sits next to its neighbours.
   the composer of a half-transparent window over stripes, as over a desktop:
   the classic bar is a surface of the window and shows them, the history
   and the floating capsule, which casts a shadow, do not.
+  The settings' renders draw the window as the client builds it:
+  `newSettingsApp` (`settings_app_test.go`) is `New` on the demo's store,
+  so what `app.go` connects to the settings is in them without a word in
+  the test. What a section shows is set where the user sets it, in the
+  preferences (`newSettingsPrefs`); only what comes from the system or
+  Telegram (the players found, the keys the desktop takes, Premium) is set
+  on the page, and a section opens as a click opens it (`settingsPage.show`).
   `SETTINGS_SECTION=premium` with `SETTINGS_PNG` shows the Premium section of
   an account without Premium and with Local Premium on (`LOCAL_PREMIUM=off`,
   off).
@@ -988,7 +1266,8 @@ new piece sits next to its neighbours.
   `wallpapers`, the gallery of wallpapers over it. `SHARED_PNG` saves the
   page of a chat's theme (`-themes`) and the chat in the theme (`-chat`).
   `SETTINGS_SECTION=power` with `SETTINGS_PNG` shows Power Saving: the
-  animations, and the switch that pauses them in an inactive window.
+  animation mode, the switch that pauses media in an inactive window, and
+  the card that enables or disables individual effects.
   `SETTINGS_SECTION=graphics` with `SETTINGS_PNG` shows Hardware
   Acceleration on Wayland with two GPUs, the automatic choice of Vulkan
   having remembered the Intel one; `graphics-discrete`, the NVIDIA one
@@ -998,7 +1277,7 @@ new piece sits next to its neighbours.
   external player; `PLAYER_PNG`, the dialog that asks for it. `MENU_PNG` also
   saves the menu with reactions (`-reactions*.png`), and the menu of a
   recent sticker and of a saved GIF over the picker (`-picker*.png`); `COMMENTS_PNG`, the
-  header of the comments page; `UNWRAPPED_PNG`, stickers and lone emoji; `SERVICE_PNG`, service messages
+  header and an empty discussion; `UNWRAPPED_PNG`, stickers and lone emoji; `SERVICE_PNG`, service messages
   and calls; `POLL_PNG`, polls, a quiz and checklists in their states (and
   `.2.png`, the rest of them; `.reveal.png`, a poll a moment after a vote, its
   results coming in; `.votes.png`, the dialog of who voted).

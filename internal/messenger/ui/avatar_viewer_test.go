@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"context"
 	"image"
 	"testing"
 	"time"
@@ -17,7 +18,94 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
+	"gioui.org/widget"
 )
+
+type pausedProfileGallery struct {
+	*mockstore.Store
+	requested chan context.Context
+	deliver   chan struct{}
+}
+
+func (s pausedProfileGallery) ProfilePhotos(ctx context.Context, chat int64, offset string, limit int) (model.GalleryPage, error) {
+	select {
+	case s.requested <- ctx:
+	case <-ctx.Done():
+		return model.GalleryPage{}, ctx.Err()
+	}
+	select {
+	case <-s.deliver:
+		return s.Store.ProfilePhotos(ctx, chat, offset, limit)
+	case <-ctx.Done():
+		return model.GalleryPage{}, ctx.Err()
+	}
+}
+
+func TestProfileGallerySurvivesInterruptedOpening(t *testing.T) {
+	store := pausedProfileGallery{
+		Store:     mockstore.New(time.Now(), 0),
+		requested: make(chan context.Context, 2),
+		deliver:   make(chan struct{}),
+	}
+	changed := make(chan struct{}, 1)
+	v := newMediaViewer(store, new(imageOps), func() {
+		select {
+		case changed <- struct{}{}:
+		default:
+		}
+	})
+	defer v.Destroy()
+	if !v.OpenProfile(2) {
+		t.Fatal("profile did not open")
+	}
+	var request context.Context
+	select {
+	case request = <-store.requested:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the gallery was not requested")
+	}
+
+	gtx := layout.Context{Ops: new(op.Ops), Now: time.Unix(0, 0)}
+	v.opening.start, v.opening.source = gtx.Now, new(widget.Clickable)
+	gtx.Now = gtx.Now.Add(viewerOpenMove / 2)
+	v.opening.step(gtx, true)
+	v.backdrop.Click()
+	v.updateOpening(gtx, true)
+	gtx.Now = gtx.Now.Add(viewerOpenMove / 2)
+	v.updateOpening(gtx, true)
+	if v.open {
+		t.Fatal("interrupted viewer did not close")
+	}
+	if err := request.Err(); err != nil {
+		t.Fatalf("closing the interrupted viewer cancelled the gallery request: %v", err)
+	}
+	if !v.OpenProfile(2) {
+		t.Fatal("profile did not reopen")
+	}
+	close(store.deliver)
+	timeout := time.After(5 * time.Second)
+	for {
+		items, _, _, _, _ := v.snapshot()
+		if len(items) > 1 {
+			i := indexOf(items, v.current)
+			if i+1 >= len(items) {
+				t.Fatal("reopened viewer put the current photo after all its neighbours")
+			}
+			v.show(items, i+1, true)
+			if v.current != items[i+1].Key.MessageID {
+				t.Fatal("reopened viewer could not advance to the next photo")
+			}
+			return
+		}
+		select {
+		case <-store.requested:
+			t.Fatal("reopening did not reuse the pending gallery request")
+		case <-changed:
+		case <-timeout:
+			t.Fatal("the reopened viewer did not receive the other profile photos")
+		}
+	}
+}
 
 // The avatar in a chat's header opens its photo; the rest of the header
 // still opens the chat's info.
@@ -63,6 +151,7 @@ func TestChatHeaderAvatarOpensPhoto(t *testing.T) {
 // of its profile after them, page by page as the strip comes to its end,
 // placed among all of them as Telegram counts them.
 func TestViewerOpensProfilePhotos(t *testing.T) {
+	skipFrames(t)
 	store := mockstore.New(time.Now(), 0)
 	var images imageOps
 	changed := make(chan struct{}, 1)
@@ -185,7 +274,7 @@ func TestChatInfoAvatarOpensPhoto(t *testing.T) {
 	p := newChatInfo(store, &images, func() {})
 	defer p.Destroy()
 	var asked int64
-	p.openAvatar = func(chat int64) { asked = chat }
+	p.openAvatar = func(_ layout.Context, chat model.Chat) { asked = chat.ID }
 	p.drawAvatar = func(gtx layout.Context, _ int64, _ model.ChatKind, _ string, size unit.Dp) layout.Dimensions {
 		return layout.Dimensions{Size: image.Pt(gtx.Dp(size), gtx.Dp(size))}
 	}
@@ -220,18 +309,18 @@ func TestChatInfoAvatarOpensPhoto(t *testing.T) {
 // profile.
 func TestProfileAvatarOpensPhoto(t *testing.T) {
 	store := mockstore.New(time.Now(), 0)
-	p := newProfilePage(store)
+	p := newOwnProfile(t, store, func() {})
 	var asked int64
-	p.openAvatar = func(chat int64) { asked = chat }
+	p.info.openAvatar = func(_ layout.Context, chat model.Chat) { asked = chat.ID }
 	h := &focusHarness{draw: func(gtx layout.Context) {
 		p.Update(gtx, store.Me(), func() {})
-		p.Layout(gtx, store.Me(), localization.For("en"), func(gtx layout.Context, _ int64, _ model.ChatKind, _ string, size unit.Dp) layout.Dimensions {
-			return layout.Dimensions{Size: image.Pt(gtx.Dp(size), gtx.Dp(size))}
-		}, false, false)
+		p.Layout(gtx, store.Me(), localization.For("en"), false, false)
 	}}
 	h.frame()
-	// The avatar is 96 dp, centred, under the page's 24 dp of padding.
-	at := f32.Pt(450, 24+48)
+	h.frame()
+	// The avatar is where the cover put it.
+	at := layout.FPt(p.info.cover.avatar.Min.Add(p.info.cover.avatar.Max).Div(2))
+	at.X += float32(900-min(900, infoPageWidth)) / 2
 	h.router.Queue(pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: at}, pointer.Event{Kind: pointer.Release, Source: pointer.Mouse, Position: at})
 	h.frame()
 	h.frame()

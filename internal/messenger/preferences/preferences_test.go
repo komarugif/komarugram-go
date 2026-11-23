@@ -9,10 +9,40 @@ import (
 	"testing"
 
 	"gio-mw/exp/powersave"
+	"gio-mw/wdk"
 
 	"komarugram/pkg/miniapp"
 	"komarugram/pkg/player"
 )
+
+func TestDisabledAnimationsPersistIndependently(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"global":{"motion_mode":1}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Global().DisabledAnimations; got != 0 {
+		t.Fatalf("old settings have disabled animations: %v", got)
+	}
+	for _, kind := range []wdk.AnimationKind{wdk.AnimationGIF, wdk.AnimationBadge} {
+		if err := s.SetDisabledAnimations(kind, kind); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetDisabledAnimations(wdk.AnimationGIF, 0); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.Global().DisabledAnimations; got != wdk.AnimationBadge {
+		t.Fatalf("disabled animations = %v, want only badges", got)
+	}
+}
 
 // A video without sound goes as a GIF until chosen otherwise, which stays.
 func TestSilentVideoChoice(t *testing.T) {
@@ -92,7 +122,7 @@ func TestPersistsAndNotifies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Global{WindowBlur: true, Theme: ThemeLight, Language: "en", LastAccountID: "account-b", MotionMode: powersave.ModeOff, MotionSet: true, LowBattery: 25, MiniAppStorage: miniapp.PerApp, Composer: ComposerClassic, AudioVolume: 100, Player: player.VLC, VLCPath: "/opt/vlc/vlc", BrowserPath: "/opt/chromium/chrome", Ghost: Ghost{ReadOnInteract: true}, Overlays: Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true, Shadow: ShadowDefault}, Keep: Keep{Deleted: true, Edits: true}, Notify: Notify{Desktop: true, Sound: true, Name: true, Text: true, Private: true, Groups: true, Channels: true, AllAccounts: true}, Look: Look{BubbleRadius: BubbleRadiusMax, AvatarCorners: AvatarRound}}
+	want := Global{WindowBlur: true, ViewerBlur: true, Theme: ThemeLight, Language: "en", LastAccountID: "account-b", MotionMode: powersave.ModeOff, MotionSet: true, LowBattery: 25, MiniAppStorage: miniapp.PerApp, Composer: ComposerClassic, AudioVolume: 100, Player: player.VLC, VLCPath: "/opt/vlc/vlc", BrowserPath: "/opt/chromium/chrome", Ghost: Ghost{ReadOnInteract: true}, Overlays: Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true, Shadow: ShadowDefault}, Keep: Keep{Deleted: true, Edits: true}, Notify: Notify{Desktop: true, Sound: true, Name: true, Text: true, Private: true, Groups: true, Channels: true, AllAccounts: true}, Look: Look{BubbleRadius: BubbleRadiusMax, AvatarCorners: AvatarRound}}
 	if got := loaded.Global(); !got.Equal(want) {
 		t.Fatalf("loaded %+v, want %+v", got, want)
 	}
@@ -719,5 +749,31 @@ func TestStorageChannelIsEachAccounts(t *testing.T) {
 	}
 	if again.StorageChannelOf("a") != (StorageChannel{}) {
 		t.Fatal("not forgotten")
+	}
+}
+
+// The viewer's blur is on for settings saved before it was there, and stays
+// off once the user takes it off.
+func TestViewerBlurIsOnUntilTakenOff(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"version": 1, "global": {"window_blur": false}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.Global().ViewerBlur || s.Global().WindowBlur {
+		t.Fatalf("old settings: viewer blur %t, window blur %t", s.Global().ViewerBlur, s.Global().WindowBlur)
+	}
+	if err := s.SetViewerBlur(false); err != nil {
+		t.Fatal(err)
+	}
+	s, err = OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Global().ViewerBlur {
+		t.Error("the viewer's blur taken off came back")
 	}
 }

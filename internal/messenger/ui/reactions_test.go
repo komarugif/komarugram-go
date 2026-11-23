@@ -39,6 +39,7 @@ func (s *reactionMenuStore) ToggleReaction(msg model.Message, r model.Reaction, 
 }
 
 func newReactionHarness(t *testing.T, available int) (*menuHarness, *reactionMenuStore) {
+	skipFrames(t)
 	var store *reactionMenuStore
 	h := newMenuHarnessOn(t, func(_ *menuStore, messages []model.Message) {
 		messages[2].Reactions = []model.Reaction{{Emoji: "❤", Count: 3}, {Emoji: "👍", Count: 1, Chosen: true}}

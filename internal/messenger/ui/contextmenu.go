@@ -83,7 +83,7 @@ func (m *contextMenu) Layout(gtx layout.Context, open bool, rect image.Rectangle
 	}
 	height := m.height.Value(geometry, rect.Dy(), !resized)
 	m.top.Duration, m.top.Easing = heightDuration, &token.EasingStandard
-	y := int(math.Round(float64(m.top.Animate(gtx, float32(rect.Min.Y)))))
+	y := int(math.Round(float64(m.top.AnimateFor(gtx, wdk.AnimationHeight, float32(rect.Min.Y)))))
 	m.bounds = image.Rect(rect.Min.X, y, rect.Max.X, y+height)
 	rect = m.bounds
 	if !open {
@@ -127,7 +127,7 @@ func (m *contextMenu) Layout(gtx layout.Context, open bool, rect image.Rectangle
 func (m *contextMenu) animate(gtx layout.Context, open bool) float32 {
 	if m.visibility.Duration == 0 {
 		// Start closed, so that the menu animates in when it first opens.
-		m.visibility.Animate(gtx, 0)
+		m.visibility.AnimateFor(gtx, wdk.AnimationMenu, 0)
 	}
 	target := float32(0)
 	m.visibility.Duration = menuExitDuration
@@ -137,7 +137,7 @@ func (m *contextMenu) animate(gtx layout.Context, open bool) float32 {
 		m.visibility.Duration = menuEnterDuration
 		m.visibility.Easing = &token.EasingEmphasizedDecelerate
 	}
-	return m.visibility.Animate(gtx, target)
+	return m.visibility.AnimateFor(gtx, wdk.AnimationMenu, target)
 }
 
 // Place chooses the opening side once. Resizing an open menu must not flip

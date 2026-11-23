@@ -224,7 +224,7 @@ func (p *chatInfo) coverColors(gtx layout.Context) []uint32 {
 // layoutCover draws the cover across the width it is given.
 func (p *chatInfo) layoutCover(gtx layout.Context, l localization.Catalog, animate bool) layout.Dimensions {
 	for i := range p.cover.gifts {
-		if i < len(p.profile.Gifts) && p.cover.gifts[i].Clicked(gtx) {
+		if p.gift == nil && i < len(p.profile.Gifts) && p.cover.gifts[i].Clicked(gtx) {
 			p.gift = newGiftDialog(p.profile.Gifts[i])
 		}
 	}
@@ -249,6 +249,10 @@ func (p *chatInfo) layoutCover(gtx layout.Context, l localization.Catalog, anima
 	name := macro.Stop()
 	macro = op.Record(gtx.Ops)
 	statusLine, _ := p.renderer.chatStatusLine(gtx, p.chat, true, l)
+	if p.own != nil {
+		// The account is online where it looks at its own profile.
+		statusLine = l.T("status.user_online")
+	}
 	statusDims := centeredStatus(textGtx, statusLine, textColor.SetOpacity(.75))
 	status := macro.Stop()
 
@@ -259,14 +263,26 @@ func (p *chatInfo) layoutCover(gtx layout.Context, l localization.Catalog, anima
 	size := image.Pt(width, statusY+statusDims.Size.Y+gtx.Dp(16))
 	p.cover.nameBottom = statusY
 
+	// The background fades out under the first cards (profile_cover_edge.go).
+	// Without one of its own the cover is the info's color, with no edge.
 	if covered && shown > 0 {
 		opacity := paint.PushOpacity(gtx.Ops, shown)
-		p.layoutCoverBackground(gtx, size, avatarAt, avatar)
+		// The page keeps its cards in a column, but the cover's background
+		// reaches both page edges. The avatar remains at the column's center.
+		backgroundSize := image.Pt(width+2*p.margin, size.Y)
+		background := op.Offset(image.Pt(-p.margin, 0)).Push(gtx.Ops)
+		p.layoutCoverBackground(gtx, backgroundSize, coverBackgroundHeight(gtx, size.Y), avatarAt.Add(image.Pt(p.margin, 0)), avatar)
+		background.Pop()
 		opacity.Pop()
 	}
 	userpic := image.Rectangle{Min: avatarAt, Max: avatarAt.Add(image.Pt(avatar, avatar))}
 	if p.profile.Cover.Pattern != 0 {
 		p.layoutCoverPattern(gtx, userpic)
+	}
+	if covered && shown > 0 {
+		background := op.Offset(image.Pt(-p.margin, 0)).Push(gtx.Ops)
+		layoutCoverFade(gtx, width+2*p.margin, size.Y, scheme(gtx).SurfaceContainerLow.AsNRGBA())
+		background.Pop()
 	}
 	p.layoutCoverGifts(gtx, userpic, animate)
 	p.fades.primed = true
@@ -288,9 +304,12 @@ func centeredStatus(gtx layout.Context, text string, col token.MatColor) layout.
 	return label(gtx, text, token.TypestyleBodyMedium, col, 1)
 }
 
-// layoutCoverBackground fills size with the cover's background: solid, or
-// a radial gradient around the avatar, as Telegram Desktop's.
-func (p *chatInfo) layoutCoverBackground(gtx layout.Context, size, avatarAt image.Point, avatar int) {
+// layoutCoverBackground fills the cover of size with its background, down
+// to height: solid, or a radial gradient around the avatar, as Telegram
+// Desktop's, as wide as the cover is high.
+func (p *chatInfo) layoutCoverBackground(gtx layout.Context, size image.Point, height int, avatarAt image.Point, avatar int) {
+	radius := math.Max(float64(size.X)/2, float64(size.Y)) * 1.1 / 4
+	size.Y = height
 	c := p.profile.Cover
 	center, edge := uint32(0), uint32(0)
 	switch colors := p.coverColors(gtx); {
@@ -307,19 +326,18 @@ func (p *chatInfo) layoutCoverBackground(gtx layout.Context, size, avatarAt imag
 	// A quarter of the pixels is enough for a gradient, stretched smooth.
 	small := image.Pt(max(1, size.X/4), max(1, size.Y/4))
 	focus := image.Pt((avatarAt.X+avatar/2)/4, (avatarAt.Y+avatar/2)/4)
-	key := fmt.Sprintf("%x/%x/%v/%v", center, edge, small, focus)
+	key := fmt.Sprintf("%x/%x/%v/%v/%.1f", center, edge, small, focus, radius)
 	if p.cover.gradientKey != key {
 		p.cover.gradientKey = key
-		p.cover.gradient = coverGradient(small, focus, chattheme.RGB(center), chattheme.RGB(edge))
+		p.cover.gradient = coverGradient(small, focus, radius, chattheme.RGB(center), chattheme.RGB(edge))
 	}
 	widget.Image{Src: p.renderer.images.Op(p.cover.gradient), Fit: widget.Fill}.Layout(withSize(gtx, size))
 }
 
 // coverGradient is a radial gradient of size from center at focus to
-// edge, out to the farther side.
-func coverGradient(size, focus image.Point, center, edge color.NRGBA) image.Image {
+// edge at radius.
+func coverGradient(size, focus image.Point, radius float64, center, edge color.NRGBA) image.Image {
 	im := image.NewNRGBA(image.Rectangle{Max: size})
-	radius := math.Max(float64(size.X)/2, float64(size.Y)) * 1.1
 	for y := 0; y < size.Y; y++ {
 		for x := 0; x < size.X; x++ {
 			t := min(1, math.Hypot(float64(x-focus.X), float64(y-focus.Y))/radius)
@@ -509,7 +527,7 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 		if i >= len(statuses) {
 			break
 		}
-		statuses[i] = p.renderer.media.StatusFullRate(m, animate, image.Pt(art, art), false)
+		statuses[i] = p.renderer.media.StatusFullRate(m, animate && wdk.AnimationAllowed(gtx, wdk.AnimationGift), image.Pt(art, art), false)
 		shown = i + 1
 	}
 	if p.fades.primed && p.modal.Entered() && coverGiftsLoaded(statuses[:shown]) {
@@ -531,7 +549,7 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 		if p.fades.launched && (st.Frame != nil || st.Preview != nil) {
 			target = 1
 		}
-		progress := flight.Animate(gtx, target)
+		progress := flight.AnimateFor(gtx, wdk.AnimationGift, target)
 		if progress <= 0 {
 			continue
 		}
@@ -540,7 +558,7 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 		// Its flight streaks it; the cover's scrolling, which moves all of
 		// the info, does not.
 		streak := p.motion.gifts[i].Streak(gtx, layout.FPt(at))
-		blurred := animate && moving(streak)
+		blurred := animate && wdk.AnimationAllowed(gtx, wdk.AnimationGift) && moving(streak)
 		p.motion.giftStreaks = p.motion.giftStreaks || blurred
 		opacity := paint.PushOpacity(gtx.Ops, progress)
 		if g := m.Gift; g != nil && g.HasBackdrop && m.Media != nil {
@@ -567,12 +585,12 @@ func (p *chatInfo) layoutCoverGifts(gtx layout.Context, userpic image.Rectangle,
 			drawStreak(gtx, p.renderer.images, resample.Resize(frame, fit.X, fit.Y), at.Sub(fit.Div(2)), streak)
 		}
 		offset(withSize(gtx, image.Pt(art, art)), at.Sub(image.Pt(art/2, art/2)), func(gtx layout.Context) layout.Dimensions {
-			return p.cover.gifts[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				pointer.CursorPointer.Add(gtx.Ops)
+			return p.layoutGiftTarget(gtx, &p.cover.gifts[i], func(gtx layout.Context) layout.Dimensions {
 				if blurred && frame != nil {
 					return layout.Dimensions{Size: gtx.Constraints.Max}
 				}
-				return p.giftArt(gtx, m, animate)
+				p.drawGiftArt(gtx, m, &p.cover.gifts[i], animate, p.cover.gifts[i].Hovered())
+				return layout.Dimensions{Size: gtx.Constraints.Max}
 			})
 		})
 		opacity.Pop()
@@ -610,8 +628,9 @@ const (
 // the header's corner, beside the name, where it stays; the header's
 // background and the name come in at the end of its way, once the cover's
 // name goes under the header. The ring in the corner opposite the close
-// button tells the info is loading, moving nothing when it goes; it gives
-// the corner up to the avatar.
+// button tells the info is loading, moving nothing when it goes; once it
+// has gone, the button of the chat's QR code is there, for a chat that has
+// one. Both give the corner up to the avatar.
 func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog, animate bool) {
 	sc := scheme(gtx)
 	width := gtx.Constraints.Max.X
@@ -625,7 +644,9 @@ func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog, 
 	own := max(0, min(1, (t-.7)/.3))
 	if own > 0 {
 		opacity := paint.PushOpacity(gtx.Ops, own)
-		fillRect(gtx, sc.SurfaceContainerLow, image.Pt(width, header))
+		background := op.Offset(image.Pt(-p.margin, 0)).Push(gtx.Ops)
+		fillRect(gtx, sc.SurfaceContainerLow, image.Pt(width+2*p.margin, header))
+		background.Pop()
 		opacity.Pop()
 	}
 	content := lerpColor(p.cover.text, sc.Surface.OnColor, own)
@@ -635,6 +656,17 @@ func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog, 
 		opacity := paint.PushOpacity(gtx.Ops, 1-own)
 		offset(withSize(gtx, image.Pt(ringSize, ringSize)), image.Pt(pad+(slot-ringSize)/2, (header-ringSize)/2), func(gtx layout.Context) layout.Dimensions {
 			return p.loader.Layout(gtx, l)
+		})
+		opacity.Pop()
+	} else if own < 1 && p.qrLink() != "" && !p.editing() {
+		buttonGtx := gtx
+		if own > 0 {
+			// Fading out under the avatar, it takes no clicks.
+			buttonGtx = gtx.Disabled()
+		}
+		opacity := paint.PushOpacity(gtx.Ops, 1-own)
+		offset(buttonGtx, image.Pt(pad, (header-slot)/2), func(gtx layout.Context) layout.Dimensions {
+			return navigationButtonColor(gtx, &p.qr.open, iconQRCode, l.T("info.qr"), content)
 		})
 		opacity.Pop()
 	}
@@ -655,7 +687,7 @@ func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog, 
 	// Moving, it streaks: as a picture of its own, when there is one.
 	streak := p.motion.avatar.Streak(gtx, at)
 	var sprite image.Image
-	if animate && moving(streak) && p.avatarSprite != nil {
+	if animate && wdk.AnimationAllowed(gtx, wdk.AnimationAvatar) && moving(streak) && p.avatarSprite != nil && p.avatar.opacity(gtx, animate) == 1 {
 		sprite = p.avatarSprite(gtx, p.chat.ID, p.chat.Kind, p.chat.Title, int(side+.5))
 	}
 	p.motion.avatarStreak = sprite != nil
@@ -665,12 +697,12 @@ func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog, 
 	stack := op.Affine(f32.Affine2D{}.Scale(f32.Point{}, f32.Pt(scale, scale)).Offset(at)).Push(gtx.Ops)
 	if sprite != nil {
 		// Where it is, it still takes the clicks.
-		p.avatar.Layout(withSize(gtx, image.Pt(full, full)), func(gtx layout.Context) layout.Dimensions {
+		p.avatar.layout(withSize(gtx, image.Pt(full, full)), scale, func(gtx layout.Context) layout.Dimensions {
 			pointer.CursorPointer.Add(gtx.Ops)
 			return layout.Dimensions{Size: gtx.Constraints.Max}
 		})
 	} else {
-		p.layoutAvatar(withSize(gtx, image.Pt(full, full)))
+		p.layoutAvatar(withSize(gtx, image.Pt(full, full)), scale)
 	}
 	stack.Pop()
 
@@ -690,6 +722,13 @@ func (p *chatInfo) layoutInfoHeader(gtx layout.Context, l localization.Catalog, 
 		opacity.Pop()
 	}
 	offset(gtx, closeAt, func(gtx layout.Context) layout.Dimensions {
+		if p.own != nil {
+			// The account's own page has nothing to close: its pencil edits it.
+			if !p.own.canEdit() {
+				return layout.Dimensions{}
+			}
+			return navigationButtonColor(gtx, &p.own.edit, iconEdit, l.T("page.edit"), content)
+		}
 		return navigationButtonColor(gtx, &p.close, iconClear, l.T("viewer.close"), content)
 	})
 }

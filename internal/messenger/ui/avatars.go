@@ -4,6 +4,9 @@ package ui
 
 import (
 	"image"
+
+	"gio-mw/wdk"
+
 	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/model"
 
@@ -35,9 +38,6 @@ func newAvatarImages(source model.ConversationStore, changed func()) *avatarImag
 // avatarPhoto is the picture of id's avatar as it shows now, a frame of
 // its video when it plays; nil without one, or until it has loaded.
 func (a *App) avatarPhoto(id int64) image.Image {
-	if !a.window.Motion.AnimationsEnabled() {
-		a.avatars.media.PauseAnimations()
-	}
 	msg, ok := a.avatars.source.Avatar(id)
 	if !ok {
 		return nil
@@ -47,7 +47,7 @@ func (a *App) avatarPhoto(id int64) image.Image {
 	if im == nil {
 		im = status.Preview
 	}
-	if msg.Media.Thumbnail != nil && a.window.Motion.AnimationsEnabled() {
+	if msg.Media.Thumbnail != nil && a.window.Motion.AnimationEnabled(wdk.AnimationAvatar) {
 		video := model.Message{Kind: model.MessageGIF, Media: msg.Media.Thumbnail}
 		if frame, _ := a.avatars.media.Frame(video, true); frame != nil {
 			im = frame
@@ -220,7 +220,8 @@ func (p *chatPage) stickyAvatars(gtx layout.Context, cover int) {
 	visible := max(0, gtx.Constraints.Max.Y-cover)
 	size := gtx.Dp(34)
 	top := func(i int) int {
-		return int(p.heights.Prefix(above+i)-p.heights.Prefix(p.list.Position.First)) - p.list.Position.Offset
+		// Where the row is drawn, on its way to its place or in it.
+		return int(p.heights.Prefix(above+i)-p.heights.Prefix(p.list.Position.First)) - p.list.Position.Offset + p.moveShift(gtx, p.messages[i].Key.MessageID)
 	}
 	joined := func(i int, flag bubbleJoin) bool { return i < len(p.joins) && p.joins[i]&flag != 0 }
 	for i := first; i < len(p.messages) && top(i) < gtx.Constraints.Max.Y; i++ {

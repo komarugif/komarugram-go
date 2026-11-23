@@ -251,7 +251,7 @@ func (l *List) rect(m0, m1, c0, c1 int) image.Rectangle {
 // ScrollBy scrolls smoothly by distance pixels, like a wheel does.
 func (l *List) ScrollBy(gtx layout.Context, distance float32) {
 	l.lastActive = gtx.Now
-	if !wdk.AnimationsEnabled(gtx) || gtx.Now.IsZero() {
+	if !wdk.AnimationEnabled(gtx, wdk.AnimationListScroll) || gtx.Now.IsZero() {
 		l.stopWheel()
 		l.addOffset(distance)
 		return
@@ -282,7 +282,7 @@ func (l *List) applyWheel(gtx layout.Context) int {
 		return 0
 	}
 	progress := float64(gtx.Now.Sub(l.wheelStart)) / float64(wheelDuration)
-	done := progress >= 1 || !wdk.AnimationsEnabled(gtx)
+	done := progress >= 1 || !wdk.AnimationEnabled(gtx, wdk.AnimationListScroll)
 	target := l.wheelTotal
 	if !done {
 		target = l.wheelTotal * float32(token.EasingStandard.Ease(progress))
@@ -506,7 +506,7 @@ func (l *List) layoutScrollbar(gtx layout.Context, n int, size image.Point) {
 		target = 1
 	}
 	l.visibility.Duration = token.DurationShort4
-	visibility := l.visibility.Animate(gtx, target)
+	visibility := l.visibility.AnimateFor(gtx, wdk.AnimationScrollbar, target)
 	if !overflows {
 		return
 	}
@@ -517,7 +517,7 @@ func (l *List) layoutScrollbar(gtx layout.Context, n int, size image.Point) {
 		widthTarget = float32(gtx.Dp(thumbWideWidth))
 	}
 	l.width.Duration = token.DurationShort3
-	width := l.width.Animate(gtx, widthTarget)
+	width := l.width.AnimateFor(gtx, wdk.AnimationScrollbar, widthTarget)
 
 	l.inset = gtx.Dp(thumbInset)
 	l.elements = n
@@ -540,7 +540,7 @@ func (l *List) layoutScrollbar(gtx layout.Context, n int, size image.Point) {
 	}
 	if !l.pageStart.IsZero() {
 		progress := float64(gtx.Now.Sub(l.pageStart)) / float64(pageDuration)
-		if progress >= 1 || l.dragging || !wdk.AnimationsEnabled(gtx) {
+		if progress >= 1 || l.dragging || !wdk.AnimationEnabled(gtx, wdk.AnimationScrollbar) {
 			l.pageStart = time.Time{}
 		} else {
 			position = l.pageFrom + (position-l.pageFrom)*float32(token.EasingStandard.Ease(progress))

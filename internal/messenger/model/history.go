@@ -59,6 +59,9 @@ func (m *MessageMedia) Whole() bool {
 type MessageMedia struct {
 	Preview   []byte
 	Thumbnail *MessageMedia
+	// LocalPreview is a cached still made before upload. It keeps its ID
+	// when Telegram gives the attachment its own media and thumbnail IDs.
+	LocalPreview *MessageMedia `json:",omitempty"`
 	// StickerSet identifies the pack of a sticker or custom emoji. It is nil
 	// for documents without a usable pack reference.
 	StickerSet *StickerSetRef `json:",omitempty"`
@@ -192,6 +195,10 @@ type Message struct {
 	Rich *RichPage `json:",omitempty"`
 	// Story is what a story has beyond a message: see StoryMessage.
 	Story *Story `json:",omitempty"`
+	// Playlist is set for a song of the playlist of a user's profile
+	// (SharedSavedMusic), no message of a chat: Key.ChatID is the user,
+	// Key.MessageID its place in the playlist, counted from -1 down.
+	Playlist bool `json:",omitempty"`
 	// StoryOf is the story a message of a chat carries, forwarded to it or
 	// one the account was mentioned in: its media is the story's, a photo
 	// or a video, its text the story's caption. ReplyToStory is the story

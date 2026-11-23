@@ -10,10 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/exp"
-	"gio-mw/exp/appearance"
 	"gio-mw/token"
 	"gio-mw/wdk"
 
@@ -27,9 +25,6 @@ import (
 	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/security"
-	"komarugram/internal/miniappprefs"
-	"komarugram/internal/motion"
-	"komarugram/pkg/miniapp"
 )
 
 // renderTPM is a TPM for screenshots: it works, or fails as access says.
@@ -62,7 +57,7 @@ func renderPNG(t *testing.T, path string, size image.Point, frames int, draw fun
 	for i := 0; i < frames; i++ {
 		ops.Reset()
 		gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		exp.Background(gtx)
 		draw(gtx)
 	}
@@ -162,7 +157,7 @@ func TestRenderAccountScreens(t *testing.T) {
 		"profile-private": {private: true},
 		"profile-edit":    {editing: true},
 	} {
-		page := newProfilePage(store)
+		page := newOwnProfile(t, store, func() {})
 		if state.editing {
 			me := store.Me()
 			page.editing = true
@@ -172,50 +167,50 @@ func TestRenderAccountScreens(t *testing.T) {
 			page.bio.editor.SetText(me.Bio)
 		}
 		renderPNG(t, filepath.Join(dir, name+".png"), size, 1, func(gtx layout.Context) {
-			page.Layout(gtx, store.Me(), l, avatar, state.private, false)
+			page.Update(gtx, store.Me(), func() {})
+			page.Layout(gtx, store.Me(), l, state.private, false)
 		})
 	}
 
 	// The privacy section with visual privacy on.
-	privacy := newSettingsPage(motion.New(func() {}), miniappprefs.New(miniapp.Ephemeral), nil, func() {}, nil,
-		func() string { return "" }, themeAuto, "ru", func(themeMode) {}, func(string) {})
-	privacy.private = func() bool { return true }
-	privacy.setPrivate = func(bool) {}
-	privacy.section = settingsPrivacy
-	renderPNG(t, filepath.Join(dir, "privacy.png"), size, 2, func(gtx layout.Context) {
-		privacy.Update(gtx, themeAuto, "ru")
-		privacy.Layout(gtx, themeAuto, appearance.Light, false, l)
-	})
+	prefs := newSettingsPrefs(t)
+	if err := prefs.SetVisualPrivacy(true); err != nil {
+		t.Fatal(err)
+	}
+	privacy := newSettingsApp(t, prefs, Services{}, false, size)
+	privacy.show(settingsPrivacy)
+	privacy.ready()
+	renderPNG(t, filepath.Join(dir, "privacy.png"), size, 2, privacy.draw)
 
 	// Premium: the section with and without a subscription, the chat list
 	// and the profile with the star.
 	// Without media, custom emoji do not load: the star and the status are blank.
 	badges := (&App{}).badges
 	for name, active := range map[string]bool{"premium-on": true, "premium-off": false} {
-		page := newSettingsPage(motion.New(func() {}), miniappprefs.New(miniapp.Ephemeral), nil, func() {}, nil,
-			func() string { return "" }, themeAuto, "ru", func(themeMode) {}, func(string) {})
-		page.premium = fixedPremium(model.PremiumFromConfig(active, map[string]any{"premium_purchase_blocked": false, "premium_bot_username": "PremiumBot"}))
-		page.section = settingsPremium
-		renderPNG(t, filepath.Join(dir, name+".png"), size, 2, func(gtx layout.Context) {
-			page.Update(gtx, themeAuto, "ru")
-			page.Layout(gtx, themeAuto, appearance.Light, false, l)
-		})
+		h := newSettingsApp(t, newSettingsPrefs(t), Services{}, false, size)
+		h.app.settings.premium = fixedPremium(model.PremiumFromConfig(active, map[string]any{"premium_purchase_blocked": false, "premium_bot_username": "PremiumBot"}))
+		h.show(settingsPremium)
+		h.ready()
+		renderPNG(t, filepath.Join(dir, name+".png"), size, 2, h.draw)
 	}
 	list := newChatList()
 	list.badges = badges
 	renderPNG(t, filepath.Join(dir, "chats-premium.png"), image.Pt(420, 1100), 2, func(gtx layout.Context) {
 		list.Layout(gtx, section{kind: sectionAll}, store.Folders(), store.Chats(), 0, false, l)
 	})
-	profile := newProfilePage(store)
-	profile.badges = badges
+	profile := newOwnProfile(t, store, func() {})
+	profile.info.badges = badges
 	renderPNG(t, filepath.Join(dir, "profile-premium.png"), image.Pt(900, 320), 1, func(gtx layout.Context) {
-		profile.Layout(gtx, store.Me(), l, avatar, false, false)
+		profile.Update(gtx, store.Me(), func() {})
+		profile.Layout(gtx, store.Me(), l, false, false)
 	})
 
 	// The marks themselves, large, to compare with Telegram's; and each
 	// kind beside a name.
 	renderPNG(t, filepath.Join(dir, "badge-shapes.png"), image.Pt(480, 200), 1, func(gtx layout.Context) {
-		offset(gtx, image.Pt(20, 20), func(gtx layout.Context) layout.Dimensions { return premiumStarIcon(gtx, token.MatColor(telegramBlue), 128) })
+		offset(gtx, image.Pt(20, 20), func(gtx layout.Context) layout.Dimensions {
+			return premiumStarIcon(gtx, token.MatColor(telegramBlue), 128)
+		})
 		offset(gtx, image.Pt(220, 20), func(gtx layout.Context) layout.Dimensions { return layoutVerified(gtx, 128) })
 	})
 	renderPNG(t, filepath.Join(dir, "badge-names.png"), image.Pt(420, 220), 1, func(gtx layout.Context) {
@@ -231,14 +226,13 @@ func TestRenderAccountScreens(t *testing.T) {
 
 	// Settings asking to confirm logging out.
 	accounts := staticAccounts{{ID: "1", UserID: 1, Name: "Ада Лавлейс", Username: "ada"}}
-	p := newSettingsPage(motion.New(func() {}), miniappprefs.New(miniapp.Ephemeral), nil, func() {}, accounts,
-		func() string { return "1" }, themeAuto, "ru", func(themeMode) {}, func(string) {})
-	p.images = new(imageOps)
+	logOut := newSettingsApp(t, newSettingsPrefs(t), Services{Accounts: accounts, AccountID: "1"}, false, size)
+	logOut.ready()
 	// As a click on the row asks it: the page scrolls to the card.
-	p.confirmingLogOut, p.revealLogOut = true, true
-	renderPNG(t, filepath.Join(dir, "logout.png"), size, 3, func(gtx layout.Context) {
-		p.Layout(gtx, themeAuto, appearance.Light, false, l)
-	})
+	logOut.app.settings.confirmingLogOut, logOut.app.settings.revealLogOut = true, true
+	// The page scrolls to the card for as long as that takes.
+	logOut.settle(600 * time.Millisecond)
+	renderPNG(t, filepath.Join(dir, "logout.png"), size, 3, logOut.draw)
 }
 
 type fixedPremium model.Premium

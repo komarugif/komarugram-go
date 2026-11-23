@@ -276,9 +276,10 @@ func (p *previewLine) layoutThumb(gtx layout.Context, pm *previewMedia, i, px in
 		widget.Image{Src: pm.images.Op(im), Fit: widget.Cover}.Layout(gtx)
 	}
 	if t.Spoiler {
-		// Telegram Desktop covers it with its spoiler's dots; here the
-		// blurred picture is dimmed.
+		// As Telegram's clients cover it: the blurred picture dimmed,
+		// the spoiler's dust over it.
 		paint.Fill(gtx.Ops, color.NRGBA{A: 0x50})
+		paintMediaDust(gtx, size, i)
 	}
 	if t.Video {
 		drawMiniPlay(gtx, size)
@@ -385,7 +386,7 @@ func (p *previewLine) layoutText(gtx layout.Context, pm *previewMedia, fg, accen
 			// Drawn in place of its fallback emoji, which shows until it
 			// has loaded.
 			px := p.emojiPx
-			if frame := pm.media.StatusFit(msg, animate, image.Pt(px, px), false).Frame; frame != nil {
+			if frame := pm.media.StatusFit(msg, animate && wdk.AnimationAllowed(gtx, wdk.AnimationEmoji), image.Pt(px, px), false).Frame; frame != nil {
 				if px > room {
 					x += p.ellipsis(gtx, x, f, ty, col)
 					break
@@ -430,7 +431,10 @@ func (p *previewLine) layoutText(gtx layout.Context, pm *previewMedia, fg, accen
 				// whatever the run's own height, a custom emoji's fallback
 				// lower than the text, and goes on in the runs beside it.
 				join := spoilerJoin{left: i > 0 && p.runs[i-1].Spoiler, right: i+1 < len(p.runs) && p.runs[i+1].Spoiler}
-				paint.FillShape(gtx.Ops, fg.SetOpacity(.28).AsNRGBA(), spoilerShape(gtx, image.Pt(size.X, lineHeight), join).Op(gtx.Ops))
+				cover := image.Pt(size.X, lineHeight)
+				defer spoilerShape(gtx, cover, join).Push(gtx.Ops).Pop()
+				paint.Fill(gtx.Ops, fg.SetOpacity(.28).AsNRGBA())
+				paintDust(gtx, cover, image.Pt(x, 0), fg.AsNRGBA(), 1)
 				return dims
 			}
 			call.Add(gtx.Ops)

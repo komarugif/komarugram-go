@@ -9,11 +9,14 @@ import (
 	"io"
 	"testing"
 	"time"
+
+	"komarugram/internal/testenv"
 )
 
 // The demo's video, 36 seconds of 720×1280 with sound, is probed, and its
 // pictures and sound are decoded from a time on, at the rate asked for.
 func TestProbeFramesSound(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	if ResolveFFmpeg("") == "" || ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
 	}

@@ -12,6 +12,7 @@ import (
 	"unicode/utf16"
 
 	"komarugram/internal/crash"
+	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
@@ -534,7 +535,7 @@ func (c *messageComposer) pickerRow(gtx layout.Context, n int, rows []pickerRow,
 	// each tile its part of it over its still; one by one where it cannot.
 	var rowPicture *image.RGBA
 	rowPlays := false
-	if c.tab == model.PickerGIF && animate && p.media != nil {
+	if c.tab == model.PickerGIF && animate && wdk.AnimationAllowed(gtx, wdk.AnimationGIF) && p.media != nil {
 		msgs := make([]model.Message, len(row.items))
 		for i, item := range row.items {
 			msgs[i] = item.Media
@@ -564,7 +565,7 @@ func (c *messageComposer) pickerRow(gtx layout.Context, n int, rows []pickerRow,
 			style := surfaceStyle{radius: gtx.Dp(8), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor}
 			return click.Layout(gtx, gtx.Constraints.Max, style, func(gtx layout.Context) layout.Dimensions {
 				if rowPlays {
-					dims := c.drawItem(gtx, item, p, false)
+					dims := c.drawItem(gtx, item, p, chatmedia.HoverPlayback{})
 					if rowPicture != nil {
 						drawRowTile(gtx, p, rowPicture, rowX)
 					}
@@ -572,7 +573,9 @@ func (c *messageComposer) pickerRow(gtx layout.Context, n int, rows []pickerRow,
 				}
 				hovered := click.click.Hovered()
 				cheap := hovered && p.media.CheapToPlay(item.Media, gtx.Constraints.Max, c.tab == model.PickerGIF)
-				return c.drawItem(gtx, item, p, animate || c.hover.Play(gtx, key, hovered, cheap))
+				auto := mediaAutoplays(gtx, item.Media, animate)
+				hover := mediaHover(gtx, click, auto, !auto && c.hover.Play(gtx, key, hovered, cheap))
+				return c.drawItem(gtx, item, p, hover)
 			})
 		})
 		rowX += widths[i]
@@ -699,7 +702,9 @@ func (c *messageComposer) pickerFooter(gtx layout.Context, rows []pickerRow, siz
 				return layout.UniformInset(6).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					hovered := click.click.Hovered()
 					cheap := hovered && p.media.CheapToPlay(e.item.Media, gtx.Constraints.Max, c.tab == model.PickerGIF)
-					return c.drawItem(gtx, e.item, p, animate || c.hover.Play(gtx, pickerStripKey(e.id), hovered, cheap))
+					auto := mediaAutoplays(gtx, e.item.Media, animate)
+					hover := mediaHover(gtx, click, auto, !auto && c.hover.Play(gtx, pickerStripKey(e.id), hovered, cheap))
+					return c.drawItem(gtx, e.item, p, hover)
 				})
 			})
 		})
@@ -757,10 +762,35 @@ func drawRowTile(gtx layout.Context, p *chatPage, row *image.RGBA, x int) {
 	paint.PaintOp{}.Add(gtx.Ops)
 }
 
-func (c *messageComposer) drawItem(gtx layout.Context, item model.PickerItem, p *chatPage, animate bool) layout.Dimensions {
+// mediaAutoplays applies the media preferences to automatic playback.
+func mediaAutoplays(gtx layout.Context, m model.Message, animate bool) bool {
+	return animate && wdk.AnimationAllowed(gtx, mediaAnimationKind(m))
+}
+
+func mediaAnimationKind(m model.Message) wdk.AnimationKind {
+	switch {
+	case m.Kind == model.MessageGIF:
+		return wdk.AnimationGIF
+	case m.Media != nil && m.Media.MIMEType == "application/x-custom-emoji":
+		return wdk.AnimationEmoji
+	case m.Kind == model.MessageSticker:
+		return wdk.AnimationSticker
+	default:
+		return 0
+	}
+}
+
+func mediaHover(gtx layout.Context, target any, autoplay, hovered bool) chatmedia.HoverPlayback {
+	if !gtx.Enabled() {
+		target, hovered = nil, false
+	}
+	return chatmedia.HoverPlayback{Target: target, Autoplay: autoplay, Hovered: hovered}
+}
+
+func (c *messageComposer) drawItem(gtx layout.Context, item model.PickerItem, p *chatPage, hover chatmedia.HoverPlayback) layout.Dimensions {
 	size := gtx.Constraints.Max
 	if item.Media.Media != nil && p.media != nil {
-		status := p.media.StatusFit(item.Media, animate, size, c.tab == model.PickerGIF)
+		status := p.media.StatusHover(item.Media, size, c.tab == model.PickerGIF, hover)
 		im := status.Frame
 		if im == nil {
 			im = status.Preview

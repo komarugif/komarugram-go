@@ -10,11 +10,14 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"komarugram/internal/testenv"
 )
 
 // Each format comes out an MP4 with its movie box first, in H.264, of the length and
 // size it had, with its sound.
 func TestConvertToMP4(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg unavailable")
@@ -35,6 +38,7 @@ func TestConvertToMP4(t *testing.T) {
 		{"theora.ogv", []string{"-c:v", "libtheora", "-c:a", "libvorbis"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			testenv.Integration(t, "runs FFmpeg")
 			dir := t.TempDir()
 			in, out := filepath.Join(dir, c.name), filepath.Join(dir, "out.mp4")
 			args := append([]string{"-hide_banner", "-loglevel", "error", "-y"}, input...)
@@ -74,6 +78,7 @@ func TestConvertToMP4(t *testing.T) {
 // A conversion stopped leaves nothing behind, and says so; what is no video is
 // told as an error and makes no file.
 func TestConvertToMP4Stops(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg unavailable")

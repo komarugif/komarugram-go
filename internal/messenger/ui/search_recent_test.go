@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -21,6 +20,7 @@ import (
 
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/mockstore"
+	"komarugram/internal/messenger/model"
 )
 
 // searchHarness is the chat list searching, on the demo store.
@@ -34,6 +34,7 @@ type searchHarness struct {
 }
 
 func newSearchHarness(t *testing.T) *searchHarness {
+	skipFrames(t)
 	store := mockstore.New(time.Now(), 0)
 	l := newChatList()
 	l.panel = newSearchPanel(store)
@@ -42,7 +43,7 @@ func newSearchHarness(t *testing.T) *searchHarness {
 
 func (h *searchHarness) frame() {
 	gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(360, 700)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	l := localization.For("ru")
 	sec := section{kind: sectionSearch}
 	if pick, ok := h.list.Update(gtx, sec, l); ok {
@@ -71,6 +72,28 @@ func (h *searchHarness) press(button pointer.Buttons, pos f32.Point) {
 // and the capsules.
 func (h *searchHarness) resultsTop() float32 {
 	return float32(int(searchHeader) + int(searchTabsHeight) + int(searchChipsHeight))
+}
+
+// The avatar's corner in search opens the chat, including when it belongs
+// to a community; search has no shortcut to that community.
+func TestSearchCommunityAvatar(t *testing.T) {
+	h := newSearchHarness(t)
+	var chat model.Chat
+	for _, c := range h.store.Chats() {
+		if c.Community != 0 && c.Kind != model.KindCommunity {
+			chat = c
+			break
+		}
+	}
+	if chat.ID == 0 {
+		t.Fatal("demo has no chat belonging to a community")
+	}
+	h.list.search.SetText(chat.Title)
+	h.frames(10)
+	h.press(pointer.ButtonPrimary, f32.Pt(59, h.resultsTop()+51))
+	if len(h.picks) != 1 || h.picks[0].ID != chat.ID || h.picks[0].Community {
+		t.Fatalf("a click on the avatar's corner picked %+v, want chat %d", h.picks, chat.ID)
+	}
 }
 
 func TestSearchHistory(t *testing.T) {

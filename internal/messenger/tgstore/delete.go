@@ -94,3 +94,12 @@ func (s *Store) keptDeleted(ctx context.Context, chat int64, id model.MessageID)
 	m, ok, err := cache.Message(ctx, chat, int(id))
 	return err == nil && ok && m.Deleted
 }
+
+// MessageErased implements model.ErasedMessages: the message was deleted
+// and is no longer in its history. One kept deleted is still there.
+func (s *Store) MessageErased(key model.MessageKey) bool {
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.deleted[key] || key.ChatID > -1000000000000 && c.globalDeleted[int(key.MessageID)]
+}

@@ -143,7 +143,7 @@ func TestComposerRejectsVoiceFile(t *testing.T) {
 	c.voice.record = func(context.Context, string) (voiceRecorder, error) { return nil, voice.ErrNoFFmpeg }
 	c.voice.choose = func(context.Context, string) fileChoice { return fileChoice{} }
 	c.micClick.click.Click()
-	h.frames(4)
+	waitFor(t, "the chooser cancelled", func() { h.frames(1) }, func() bool { return !c.choosing })
 	if c.draft(1).err != nil || c.choosing {
 		t.Fatalf("a cancelled chooser left %v, choosing %t", c.draft(1).err, c.choosing)
 	}

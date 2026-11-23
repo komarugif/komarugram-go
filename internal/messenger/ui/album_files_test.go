@@ -9,6 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"gio-mw/wdk"
+
+	"gioui.org/layout"
+
 	"komarugram/internal/messenger/model"
 )
 
@@ -87,13 +91,26 @@ func TestLargeGIFIsNotReadWhole(t *testing.T) {
 // With animations off, a GIF plays while the pointer is on it, as a
 // sticker does; a photo or a video does not.
 func TestTileAnimatesOnHover(t *testing.T) {
-	for _, kind := range []model.MessageKind{model.MessageGIF, model.MessageSticker} {
-		if !tileAnimates(kind, false, true) || tileAnimates(kind, false, false) || !tileAnimates(kind, true, false) {
-			t.Errorf("kind %v", kind)
+	gtx := layout.Context{Values: make(map[string]any)}
+	for _, media := range []struct {
+		kind     model.MessageKind
+		autoplay wdk.AnimationKind
+	}{
+		{model.MessageGIF, wdk.AnimationGIF},
+		{model.MessageSticker, wdk.AnimationSticker},
+	} {
+		msg := model.Message{Kind: media.kind}
+		wdk.SetDisabledAnimations(gtx, 0)
+		if tileAnimates(gtx, msg, false, false) || !tileAnimates(gtx, msg, false, true) || !tileAnimates(gtx, msg, true, false) {
+			t.Errorf("kind %v did not follow the global autoplay setting", media.kind)
+		}
+		wdk.SetDisabledAnimations(gtx, media.autoplay)
+		if tileAnimates(gtx, msg, true, false) || !tileAnimates(gtx, msg, true, true) {
+			t.Errorf("kind %v did not preserve hover with autoplay disabled", media.kind)
 		}
 	}
 	for _, kind := range []model.MessageKind{model.MessagePhoto, model.MessageVideo} {
-		if tileAnimates(kind, false, true) {
+		if tileAnimates(gtx, model.Message{Kind: kind}, false, true) {
 			t.Errorf("kind %v plays on hover", kind)
 		}
 	}

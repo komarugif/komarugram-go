@@ -18,7 +18,30 @@ import (
 // time, up to a GiB, and tells how much it took after each step.
 const hogEnv = "KOMARUGRAM_TEST_HOG"
 
+// idleEnv makes the test binary a program that waits for a line on its
+// standard input, then takes idleTakes and says "done".
+const idleEnv = "KOMARUGRAM_TEST_IDLE"
+
+const idleTakes = 80 << 20
+
+// reservedForTest is a .bss of the test binary's, of the kind a library of
+// FFmpeg's has: reserved, never touched, and counted by RLIMIT_DATA.
+var reservedForTest [64 << 20]byte
+
 func TestMain(m *testing.M) {
+	if os.Getenv(idleEnv) != "" {
+		runtime.KeepAlive(&reservedForTest)
+		if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
+			os.Exit(3)
+		}
+		b := make([]byte, idleTakes)
+		for i := 0; i < len(b); i += 4096 {
+			b[i] = 1
+		}
+		runtime.KeepAlive(b)
+		fmt.Println("done")
+		os.Exit(0)
+	}
 	if os.Getenv(hogEnv) != "" {
 		var kept [][]byte
 		for mib := 32; mib <= 1024; mib += 32 {
@@ -97,5 +120,50 @@ func TestStartLimitedLetsAProgramBe(t *testing.T) {
 	}
 	if err := cmd.Wait(); err != nil || exceeded.Load() {
 		t.Fatalf("a program within its limit: %v, told %v", err, exceeded.Load())
+	}
+}
+
+// What a program reserves as it starts, its libraries' .bss, is measured,
+// and is not counted in its bound: a program that takes less than its
+// bound runs, however much its libraries reserve.
+func TestReservedIsNotCounted(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("nothing counts memory reserved here")
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(idleEnv, "1")
+	reserved := Reserved(self, "-test.run=^$")
+	if reserved < uint64(len(reservedForTest)) {
+		t.Fatalf("reserved %d MiB, the .bss alone is %d", reserved>>20, len(reservedForTest)>>20)
+	}
+	run := func(limits Limits) error {
+		cmd := Command(self, "-test.run=^$")
+		in, err := cmd.StdinPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out strings.Builder
+		cmd.Stdout = &out
+		if err := StartLimited(cmd, limits, nil); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = in.Write([]byte("\n"))
+		_ = in.Close()
+		err = cmd.Wait()
+		if err == nil && strings.TrimSpace(out.String()) != "done" {
+			err = fmt.Errorf("said %q", out.String())
+		}
+		return err
+	}
+	// It takes 80 MiB, of a bound of 128, and its .bss is 64 more.
+	memory := uint64(128 << 20)
+	if err := run(Limits{Memory: memory, Reserved: reserved}); err != nil {
+		t.Fatalf("a program within its bound, its .bss aside: %v", err)
+	}
+	if err := run(Limits{Memory: memory}); err == nil {
+		t.Fatal("the .bss counted in the bound left room: the test shows nothing")
 	}
 }

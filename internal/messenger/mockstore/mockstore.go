@@ -23,6 +23,9 @@ type Store struct {
 	registration registrationState
 
 	sent map[int64]bool
+	// music is the playlist of the demo's account, as it changed it; nil
+	// until it does (ownMusicLocked).
+	music []model.MessageMedia
 	// archived are the messages the demo's saving of a chat brought.
 	archived map[int64]int
 	// downloads are the files downloaded in the demo.
@@ -64,6 +67,8 @@ type Store struct {
 
 	// stories are the demo's stories, by peer, made when first asked for.
 	stories map[int64]*demoStories
+	// erased are the messages deleted (delete.go).
+	erased map[model.MessageKey]bool
 
 	// gifs are the saved GIFs, once one was saved or deleted; recentGone,
 	// the recent stickers taken off the list (composer.go).

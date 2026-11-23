@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"komarugram/internal/crash"
+	"komarugram/internal/messenger/chatmedia"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
@@ -45,7 +46,12 @@ type stickerSetDialog struct {
 	ref   model.StickerSetRef
 	pack  *model.StickerSet
 	chat  int64
-	busy  bool
+	// busy is set while there is no set to show: it loads, or an action
+	// over it, a saving or the search of its author, goes on.
+	busy bool
+	// changing is set while the set shown is added or removed: it stays
+	// shown, as nothing is to be loaded, and the button waits.
+	changing bool
 	// refreshing is set while a set shown from the cache is fetched again.
 	refreshing bool
 	// err is why the set did not load; it has no pack then.
@@ -68,6 +74,24 @@ type stickerSetDialog struct {
 	// preview shows an item of the set held large.
 	preview holdPreview
 }
+
+// actionText is the text of the button that adds the set, or removes it
+// once added, naming what it holds, as Telegram Desktop's does.
+func (d *stickerSetDialog) actionText(l localization.Catalog) string {
+	switch {
+	case d.pack.Installed && d.pack.Emoji:
+		return l.T("stickers.remove_emoji")
+	case d.pack.Installed:
+		return l.T("stickers.remove")
+	case d.pack.Emoji:
+		return l.T("stickers.add_emoji")
+	}
+	return l.T("stickers.add")
+}
+
+// working tells whether the dialog waits for what it asked: what it shows
+// takes no action meanwhile.
+func (d *stickerSetDialog) working() bool { return d.busy || d.changing }
 
 func (d *stickerSetDialog) stop() {
 	if d.cancel != nil {
@@ -125,7 +149,7 @@ func (d *stickerSetDialog) change(p *chatPage, installed bool) {
 	d.stopRefresh()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	d.cancel = cancel
-	d.busy, d.err = true, nil
+	d.changing, d.err = true, nil
 	d.results = make(chan stickerSetResult, 1)
 	results, ref := d.results, d.pack.Ref
 	go func() {
@@ -137,7 +161,7 @@ func (d *stickerSetDialog) change(p *chatPage, installed bool) {
 }
 
 func (d *stickerSetDialog) export(p *chatPage) {
-	if d.pack == nil || d.busy {
+	if d.pack == nil || d.working() {
 		return
 	}
 	d.stopRefresh()
@@ -185,7 +209,7 @@ func (d *stickerSetDialog) update(l localization.Catalog) {
 			return
 		}
 		refreshing := d.refreshing
-		d.busy, d.results, d.refreshing = false, nil, false
+		d.busy, d.changing, d.results, d.refreshing = false, false, nil, false
 		if refreshing && result.err != nil {
 			// Offline, or the fetch failed: the set shown stays.
 			if d.cancel != nil {
@@ -284,20 +308,20 @@ func (d *stickerSetDialog) layout(gtx layout.Context, p *chatPage, l localizatio
 				d.menuOpen = false
 			}
 		}
-		if !d.busy && d.pack != nil && d.more.Clicked(gtx) {
+		if !d.working() && d.pack != nil && d.more.Clicked(gtx) {
 			d.menuOpen = !d.menuOpen
 		}
-		if d.menuVisible("author") && d.author.Clicked(gtx) && !d.busy && d.menuOpen && d.pack != nil && d.pack.AuthorID != 0 {
+		if d.menuVisible("author") && d.author.Clicked(gtx) && !d.working() && d.menuOpen && d.pack != nil && d.pack.AuthorID != 0 {
 			d.menuOpen = false
 			d.findAuthor(p)
 		}
 		chosen := d.menuVisible("download") && d.download.Clicked(gtx)
-		if !d.busy && d.menuOpen && chosen {
+		if !d.working() && d.menuOpen && chosen {
 			d.menuOpen = false
 			d.export(p)
 		}
 	}
-	if !d.busy && !d.modal.closing {
+	if !d.working() && !d.modal.closing {
 		if d.pack != nil && d.action.Clicked(gtx) {
 			d.change(p, !d.pack.Installed)
 		}
@@ -305,7 +329,7 @@ func (d *stickerSetDialog) layout(gtx layout.Context, p *chatPage, l localizatio
 			d.fetch(p)
 		}
 	}
-	shown := d.modal.Layout(gtx, d.busy, func(gtx layout.Context) layout.Dimensions {
+	shown := d.modal.Layout(gtx, d.working(), func(gtx layout.Context) layout.Dimensions {
 		width := min(gtx.Constraints.Max.X, gtx.Dp(420))
 		height := gtx.Dp(300)
 		if d.pack != nil {
@@ -373,11 +397,7 @@ func (d *stickerSetDialog) layout(gtx layout.Context, p *chatPage, l localizatio
 							if d.pack == nil {
 								return textButton(gtx, &d.retry, l.T("stickers.retry"))
 							}
-							text := l.T("stickers.add")
-							if d.pack.Installed {
-								text = l.T("stickers.remove")
-							}
-							return tonalButton(gtx, &d.action, text, 0)
+							return tonalButton(gtx, &d.action, d.actionText(l), 0)
 						}),
 					)
 				}),
@@ -557,7 +577,9 @@ func (d *stickerSetDialog) gridRow(gtx layout.Context, p *chatPage, row, columns
 				return layout.UniformInset(4).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					hovered := d.cells[index].click.Hovered()
 					cheap := hovered && p.media.CheapToPlay(item.Media, gtx.Constraints.Max, false)
-					return d.item(gtx, p, item, p.animate || d.hover.Play(gtx, index, hovered, cheap))
+					auto := mediaAutoplays(gtx, item.Media, p.animate)
+					hover := mediaHover(gtx, &d.cells[index], auto, !auto && d.hover.Play(gtx, index, hovered, cheap))
+					return d.item(gtx, p, item, hover)
 				})
 			}
 			if index >= len(d.cells) {
@@ -571,8 +593,8 @@ func (d *stickerSetDialog) gridRow(gtx layout.Context, p *chatPage, row, columns
 	return layout.Dimensions{Size: image.Pt(width, cell.Y)}
 }
 
-func (d *stickerSetDialog) item(gtx layout.Context, p *chatPage, item model.PickerItem, animate bool) layout.Dimensions {
-	status := p.media.StatusFit(item.Media, animate, gtx.Constraints.Max, false)
+func (d *stickerSetDialog) item(gtx layout.Context, p *chatPage, item model.PickerItem, hover chatmedia.HoverPlayback) layout.Dimensions {
+	status := p.media.StatusHover(item.Media, gtx.Constraints.Max, false, hover)
 	im := status.Frame
 	if im == nil {
 		im = status.Preview

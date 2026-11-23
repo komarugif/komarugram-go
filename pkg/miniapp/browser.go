@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"komarugram/pkg/program"
@@ -121,6 +122,33 @@ func Browser() string {
 	return found.ref
 }
 
+// KnownBrowser is Browser when the browser has been looked for already, and
+// does not wait for the search: known is false while it has not run, or
+// runs, as it may for a second, starting programs to ask their versions.
+// A frame asks this, and leaves the search to a goroutine that calls Browser.
+func KnownBrowser() (ref string, known bool) {
+	if BrowserChoice() == "" {
+		// The lock is held while the browser the user picked is asked.
+		if !customMu.TryLock() {
+			return "", false
+		}
+		picked, probed, found := custom, customProbed, customFound
+		customMu.Unlock()
+		if picked != "" {
+			if probed != picked {
+				return "", false
+			}
+			if found.found {
+				return found.ref, true
+			}
+		}
+	}
+	if !browserSearched.Load() {
+		return "", false
+	}
+	return browserFound.ref, true
+}
+
 // BrowserVersion is what the browser a launch will run printed for
 // --version, such as "Chromium 152.0.7977.82". It is empty when nothing was
 // found or the browser would not say.
@@ -129,6 +157,8 @@ func BrowserVersion() string { return findBrowser().banner }
 var (
 	browserOnce  sync.Once
 	browserFound browser
+	// browserSearched is set once browserFound holds what was found.
+	browserSearched atomic.Bool
 
 	// custom is the browser the user picked, and customFound what it said
 	// for --version, asked once per path.
@@ -407,6 +437,7 @@ func FoundBrowser() (ref, banner string) {
 // autoBrowser is findBrowser without the browser the user picked.
 func autoBrowser() browser {
 	browserOnce.Do(func() {
+		defer browserSearched.Store(true)
 		if choice := BrowserChoice(); choice != "" {
 			if strings.Contains(choice, ".") && flatpakInstalled(choice) {
 				browserFound = probe(browser{ref: choice, flatpak: true, found: true})

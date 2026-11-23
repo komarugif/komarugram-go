@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -31,6 +30,8 @@ type stickerHover struct {
 	view   string
 	msg    model.Message
 	row    messageRow
+	// A nonzero mask keeps global animations on and disables only autoplay.
+	disabledAutoplay wdk.AnimationKind
 	// scroll, if set, runs before each frame.
 	scroll func()
 }
@@ -38,6 +39,7 @@ type stickerHover struct {
 // newStickerHover shows count items of codec in view: chat, pack,
 // readonly-pack, picker or emoji-picker.
 func newStickerHover(t *testing.T, codec, view string, count int) *stickerHover {
+	skipFrames(t)
 	p := newChatPage(mockstore.New(time.Now(), 0), func() {})
 	t.Cleanup(p.Close)
 	p.images = &imageOps{}
@@ -83,17 +85,20 @@ func (h *stickerHover) frame() image.Image {
 	}
 	ops := new(op.Ops)
 	gtx := layout.Context{Ops: ops, Source: h.router.Source(), Now: time.Now(), Constraints: layout.Exact(image.Pt(220, 260)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
-	wdk.SetAnimationsEnabled(gtx, false)
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
+	animate := h.disabledAutoplay != 0
+	wdk.SetAnimationsEnabled(gtx, animate)
+	wdk.SetDisabledAnimations(gtx, h.disabledAutoplay)
+	p.animate = animate
 	p.images.BeginFrame()
 	p.media.BeginFrame()
 	switch h.view {
 	case "chat":
-		p.mediaTile(gtx, &h.row, h.msg, image.Pt(64, 64), false, localization.For("ru"), false)
+		p.mediaTile(gtx, &h.row, h.msg, image.Pt(64, 64), false, localization.For("ru"), animate)
 	case "pack", "readonly-pack":
 		p.stickers.grid(gtx, p)
 	default:
-		p.composer.pickerLayout(gtx, localization.For("ru"), p, false, image.Point{})
+		p.composer.pickerLayout(gtx, localization.For("ru"), p, animate, image.Point{})
 	}
 	p.media.EndFrame()
 	p.images.EndFrame()
@@ -106,16 +111,20 @@ func (h *stickerHover) frame() image.Image {
 	return nil
 }
 
-// still waits for the static preview.
+// still waits for the static preview: on a slow machine, as Haiku in a
+// virtual machine, behind what the tests before left decoding, it took over
+// five seconds.
 func (h *stickerHover) still(t *testing.T) image.Image {
 	var still image.Image
-	until := time.Now().Add(5 * time.Second)
+	until := time.Now().Add(20 * time.Second)
 	for time.Now().Before(until) && still == nil {
 		still = h.frame()
 		time.Sleep(10 * time.Millisecond)
 	}
 	if still == nil {
-		t.Fatal("no static preview")
+		// What the media came to tells why: a decode over the sandbox's
+		// time limit fails with an error, not a picture.
+		t.Fatalf("no static preview: %v", h.p.media.Status(h.msg, false).Err)
 	}
 	return still
 }
@@ -164,9 +173,56 @@ func TestStickerHoverSurfaces(t *testing.T) {
 				}
 				h.point(f32.Pt(500, 500))
 				h.frame()
+				if codec == "tgs" {
+					// The picker can draw another copy in its pack strip.
+					// Sample more than one frame so the still copy cannot
+					// hide the moving one in the texture map.
+					if !h.moves(still, 250*time.Millisecond) {
+						t.Fatal("leaving hover cut the Lottie loop short")
+					}
+					return
+				}
 				time.Sleep(60 * time.Millisecond)
 				if im := h.frame(); im != still {
 					t.Fatal("leaving hover did not restore the still frame")
+				}
+			})
+		}
+	}
+}
+
+func TestMediaHoverWithAutoplayOff(t *testing.T) {
+	t.Chdir("../../..")
+	for _, media := range []struct {
+		codec string
+		kind  wdk.AnimationKind
+		views []string
+	}{
+		{"tgs", wdk.AnimationSticker, []string{"chat", "pack", "picker"}},
+		{"gif", wdk.AnimationGIF, []string{"chat", "picker"}},
+	} {
+		for _, view := range media.views {
+			t.Run(media.codec+"/"+view, func(t *testing.T) {
+				if media.codec == "gif" && video.ResolveFFmpeg("") == "" {
+					t.Skip("no FFmpeg")
+				}
+				h := newStickerHover(t, media.codec, view, 1)
+				h.disabledAutoplay = media.kind
+				still := h.still(t)
+				if h.moves(still, 300*time.Millisecond) {
+					t.Fatal("media started without hovering while autoplay was off")
+				}
+				h.point(stickerAt(view))
+				if !h.moves(still, 3*time.Second) {
+					t.Fatal("media stayed static on hover while autoplay was off")
+				}
+				h.point(f32.Pt(500, 500))
+				h.frame()
+				if media.codec == "tgs" && !h.moves(still, 250*time.Millisecond) {
+					t.Fatal("leaving hover cut the Lottie loop short")
+				}
+				if media.codec == "gif" && h.frame() != still {
+					t.Fatal("leaving hover did not restore the still GIF frame")
 				}
 			})
 		}

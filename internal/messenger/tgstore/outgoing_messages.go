@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gotd/td/tg"
+	"komarugram/internal/messenger/historycache"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/sendfiles"
 	"komarugram/pkg/video"
@@ -77,9 +78,11 @@ func (s *Store) outgoingMessages(ctx context.Context, chat int64, msg model.Outg
 						m.Kind = model.MessagePhoto
 					case sendfiles.KindVideo:
 						m.Kind = model.MessageVideo
-						s.showOutgoingVideo(ctx, media, msg.RandomID, index, f, msg.FFmpeg)
 					case sendfiles.KindAnimation:
 						m.Kind = model.MessageGIF
+					}
+					if strings.HasPrefix(f.MIME, "video/") && (m.Kind == model.MessageVideo || m.Kind == model.MessageGIF) {
+						s.showOutgoingVideo(ctx, media, f, msg.FFmpeg)
 					}
 				}
 				if f.Kind == sendfiles.KindMusic {
@@ -87,7 +90,10 @@ func (s *Store) outgoingMessages(ctx context.Context, chat int64, msg model.Outg
 					// What its button shows until Telegram has it: the file's
 					// own cover may be many times larger.
 					if thumb, err := sendfiles.DocumentThumbnail(f.Cover); err == nil {
-						media.Preview = thumb
+						media.LocalPreview = s.saveOutgoingPreview(ctx, media.ID, thumb)
+						if media.LocalPreview == nil {
+							media.Preview = thumb
+						}
 					}
 				}
 				if msg.Voice != nil {
@@ -95,9 +101,14 @@ func (s *Store) outgoingMessages(ctx context.Context, chat int64, msg model.Outg
 					media.Duration = msg.Voice.Duration
 					media.Waveform = msg.Voice.Waveform
 				}
-				if f.Kind == sendfiles.KindPhoto {
-					if photo, err := sendfiles.PreparePhoto(f.Path, false); err == nil {
-						media.Preview = photo.JPEG
+				if f.Kind == sendfiles.KindPhoto || m.Kind == model.MessageGIF && f.MIME == "image/gif" {
+					if photo, err := sendfiles.PreparePhoto(f.Path, way.HighQuality); err == nil {
+						if m.Kind != model.MessageFile {
+							media.LocalPreview = s.saveOutgoingPreview(ctx, media.ID, photo.JPEG)
+						}
+						if media.LocalPreview == nil {
+							media.Preview = photo.JPEG
+						}
 					}
 				}
 				m.Media = media
@@ -139,33 +150,95 @@ func (s *Store) outgoingMessages(ctx context.Context, chat int64, msg model.Outg
 // video: it does not show until then.
 const outgoingVideoPatience = 5 * time.Second
 
-// showOutgoingVideo gives media, file index of the message randomID, what its
-// video shows while it is sent: its shape and length, and its first picture,
-// kept as Telegram's thumbnails are. What cannot be told is left out.
-func (s *Store) showOutgoingVideo(ctx context.Context, media *model.MessageMedia, randomID int64, index int, f sendfiles.File, ffmpeg string) {
+// showOutgoingVideo records the shape, length and first picture of a video.
+func (s *Store) showOutgoingVideo(ctx context.Context, media *model.MessageMedia, f sendfiles.File, ffmpeg string) {
 	ctx, cancel := context.WithTimeout(ctx, outgoingVideoPatience)
 	defer cancel()
-	if attrs, err := uploadAttributes(ctx, f.Path, f.MIME, true, ffmpeg); err == nil {
-		for _, a := range attrs {
-			if v, ok := a.(*tg.DocumentAttributeVideo); ok {
-				media.Width, media.Height = v.W, v.H
-				media.Duration = time.Duration(v.Duration * float64(time.Second))
+	if v, err := videoAttribute(ctx, f.Path, ffmpeg); err == nil {
+		media.Width, media.Height = v.W, v.H
+		media.Duration = time.Duration(v.Duration * float64(time.Second))
+	}
+	thumb, err := sendfiles.VideoDocumentThumbnail(ctx, video.ResolveFFmpeg(ffmpeg), f.Path)
+	if err == nil {
+		media.LocalPreview = s.saveOutgoingPreview(ctx, media.ID, thumb)
+		media.Thumbnail = media.LocalPreview
+	}
+}
+
+func (s *Store) saveOutgoingPreview(ctx context.Context, mediaID string, thumb []byte) *model.MessageMedia {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(thumb))
+	if err != nil {
+		return nil
+	}
+	id := "outbox-thumb/" + strings.TrimPrefix(mediaID, "outbox/")
+	if cache := s.Cache(); cache == nil || cache.SaveMedia(ctx, id, thumb) != nil {
+		return nil
+	}
+	return &model.MessageMedia{ID: id, MIMEType: "image/jpeg", Size: int64(len(thumb)), Width: cfg.Width, Height: cfg.Height}
+}
+
+// restoreOutgoingPreview upgrades the presentation of older queued files.
+func (s *Store) restoreOutgoingPreview(ctx context.Context, media *model.MessageMedia) {
+	if media == nil || media.LocalPreview != nil || !strings.HasPrefix(media.ID, "outbox/") {
+		return
+	}
+	if media.Thumbnail != nil {
+		media.LocalPreview = media.Thumbnail
+	} else if len(media.Preview) > 0 {
+		media.LocalPreview = s.saveOutgoingPreview(ctx, media.ID, media.Preview)
+	}
+}
+
+// keepOutgoingPreview attaches the still from the acknowledged outbox file.
+// History refreshes retain it while the message refers to the same media.
+func (s *Store) keepOutgoingPreview(ctx context.Context, cache *historycache.Cache, m model.Message, own bool) {
+	switch m.Kind {
+	case model.MessagePhoto, model.MessageVideo, model.MessageGIF, model.MessageMusic:
+	default:
+		return
+	}
+	if m.Media == nil {
+		return
+	}
+	var local *model.MessageMedia
+	if cache != nil && own {
+		old, ok, err := cache.Message(ctx, m.Key.ChatID, int(m.Key.MessageID))
+		if err == nil && ok && old.Media != nil {
+			if old.Media.ID != m.Media.ID {
+				return
+			}
+			if old.Media.LocalPreview != nil {
+				local = old.Media
 			}
 		}
 	}
-	thumb, err := sendfiles.VideoDocumentThumbnail(ctx, video.ResolveFFmpeg(ffmpeg), f.Path)
-	if err != nil {
+	if local == nil {
+		c := s.history
+		c.mu.Lock()
+		for _, p := range c.pending.list {
+			if p.id != m.Key.MessageID || p.id <= 0 {
+				continue
+			}
+			if chat, _ := c.threadChat(p.chat); chat == m.Key.ChatID {
+				local = p.msg.Media
+				break
+			}
+		}
+		c.mu.Unlock()
+	}
+	if local == nil || local.LocalPreview == nil {
 		return
 	}
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(thumb))
-	if err != nil {
-		return
+	m.Media.LocalPreview = local.LocalPreview
+	if m.Kind == model.MessageVideo || m.Kind == model.MessageGIF {
+		// Some documents come back without attributes, notably WebM.
+		if m.Media.Width <= 0 || m.Media.Height <= 0 {
+			m.Media.Width, m.Media.Height = local.Width, local.Height
+		}
+		if m.Media.Duration <= 0 {
+			m.Media.Duration = local.Duration
+		}
 	}
-	id := fmt.Sprintf("outbox-thumb/%d/%d", randomID, index)
-	if cache := s.Cache(); cache == nil || cache.SaveMedia(ctx, id, thumb) != nil {
-		return
-	}
-	media.Thumbnail = &model.MessageMedia{ID: id, MIMEType: "image/jpeg", Size: int64(len(thumb)), Width: cfg.Width, Height: cfg.Height}
 }
 
 // acceptOutgoing records an acknowledgement before applying updates or sending
@@ -175,6 +248,7 @@ func (s *Store) acceptOutgoing(ctx context.Context, e *outgoingEntry, res tg.Upd
 		return fmt.Errorf("outbox: missing pending message")
 	}
 	q := &s.outbox
+	confirmed := make([]int, len(e.pending))
 	for _, random := range randomIDs {
 		id := sentID(res, random)
 		index := 0
@@ -197,11 +271,17 @@ func (s *Store) acceptOutgoing(ctx context.Context, e *outgoingEntry, res tg.Upd
 					return err
 				}
 			}
-			s.history.mu.Lock()
-			s.history.sentPending(e.pending[index], id)
-			s.history.mu.Unlock()
+			confirmed[index] = id
 		}
 	}
+	c := s.history
+	c.mu.Lock()
+	for index, id := range confirmed {
+		if id > 0 {
+			c.sentPending(e.pending[index], id)
+		}
+	}
+	c.mu.Unlock()
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return s.Cache().PutOutgoing(ctx, e.Request.RandomID, e, nil)

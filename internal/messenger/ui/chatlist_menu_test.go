@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -90,6 +89,7 @@ type listHarness struct {
 
 func newListHarness(t *testing.T, chats []model.Chat) *listHarness {
 	t.Helper()
+	skipFrames(t)
 	h := &listHarness{t: t, list: newChatList(), store: &pinStore{}, chats: chats, now: time.Unix(100000, 0), l: localization.For("en")}
 	h.store.premium = model.PremiumFromConfig(false, nil)
 	h.list.menu.store, h.list.menu.premium = h.store, h.store
@@ -100,7 +100,7 @@ func newListHarness(t *testing.T, chats []model.Chat) *listHarness {
 func (h *listHarness) frames(n int) {
 	for range n {
 		gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(320, 700)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		if p, ok := h.list.Update(gtx, h.sec, h.l); ok {
 			h.picks = append(h.picks, p.ID)
 		}
@@ -282,7 +282,7 @@ func TestChatRowMenuOverWindow(t *testing.T) {
 	frames := func(n int) {
 		for range n {
 			gtx := layout.Context{Ops: new(op.Ops), Source: router.Source(), Now: now, Constraints: layout.Exact(window), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-			wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+			wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 			listGtx := gtx
 			listGtx.Constraints = layout.Exact(image.Pt(listWidth, window.Y))
 			offset(listGtx, listAt, func(gtx layout.Context) layout.Dimensions {

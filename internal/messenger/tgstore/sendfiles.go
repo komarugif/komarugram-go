@@ -103,18 +103,29 @@ func (s *Store) sendFiles(ctx context.Context, api *tg.Client, chat int64, peer 
 				text, ents := captionOf(place)
 				items = append(items, tg.InputSingleMedia{Media: ready[place], RandomID: ids[i], Message: text, Entities: ents})
 			}
-			res, err := api.MessagesSendMultiMedia(ctx, &tg.MessagesSendMultiMediaRequest{Peer: peer.input(), MultiMedia: items, ReplyTo: replyTo, ClearDraft: clearDraft})
-			if err != nil {
-				return fmt.Errorf("send: %w", err)
-			}
-			if err := s.acceptOutgoing(ctx, outgoing, res, ids); err != nil {
+			req := &tg.MessagesSendMultiMediaRequest{Peer: peer.input(), MultiMedia: items, ReplyTo: replyTo, ClearDraft: clearDraft}
+			if err := s.sendAlbum(ctx, api, outgoing, order, ids, req); err != nil {
 				return err
 			}
-			s.draftCleared(chat, &clearDraft, outgoing)
-			_ = s.Handle(ctx, res)
 		}
 	}
 	s.readOnInteract(chat)
+	return nil
+}
+
+func (s *Store) sendAlbum(ctx context.Context, api *tg.Client, outgoing *outgoingEntry, order []int, ids []int64, req *tg.MessagesSendMultiMediaRequest) error {
+	s.history.trackPendingAlbum(outgoing, order, req.MultiMedia)
+	defer s.history.untrackPendingAlbum()
+	res, err := api.MessagesSendMultiMedia(ctx, req)
+	if err != nil {
+		return fmt.Errorf("send: %w", err)
+	}
+	if err := s.acceptOutgoing(ctx, outgoing, res, ids); err != nil {
+		return err
+	}
+	clearDraft := req.ClearDraft
+	s.draftCleared(outgoing.Chat, &clearDraft, outgoing)
+	_ = s.Handle(ctx, res)
 	return nil
 }
 
@@ -211,7 +222,17 @@ func inspectOutgoing(ctx context.Context, path, ffmpeg string, documents bool) (
 // document. chat is told meanwhile that the account sends it.
 func (s *Store) uploadFile(ctx context.Context, api *tg.Client, chat int64, f sendfiles.File, way sendfiles.Way, ffmpeg string, outgoing *outgoingEntry, place int) (tg.InputMediaClass, error) {
 	up := s.fileUploader(api, chat, uploadAction(f, way), outgoing, place)
-	return s.uploadMedia(ctx, api, f, way, ffmpeg, up)
+	var thumbnail []byte
+	if strings.HasPrefix(f.MIME, "video/") {
+		c := s.history
+		c.mu.Lock()
+		media, cache := outgoing.pending[place].msg.Media, c.cache
+		c.mu.Unlock()
+		if media != nil && media.Thumbnail != nil && cache != nil {
+			thumbnail, _ = cache.Media(ctx, media.Thumbnail.ID)
+		}
+	}
+	return s.uploadMedia(ctx, api, f, way, ffmpeg, up, thumbnail)
 }
 
 // uploadAction is what a chat is told the account does as f goes the way asked.
@@ -226,7 +247,7 @@ func uploadAction(f sendfiles.File, way sendfiles.Way) model.ChatAction {
 }
 
 // uploadMedia uploads f with up, as its kind and the way ask.
-func (s *Store) uploadMedia(ctx context.Context, api *tg.Client, f sendfiles.File, way sendfiles.Way, ffmpeg string, up *uploader.Uploader) (tg.InputMediaClass, error) {
+func (s *Store) uploadMedia(ctx context.Context, api *tg.Client, f sendfiles.File, way sendfiles.Way, ffmpeg string, up *uploader.Uploader, thumbnail []byte) (tg.InputMediaClass, error) {
 	asMedia := !way.Documents
 	// A thumbnail goes apart: its bytes are none of the file's progress.
 	thumbs := uploader.NewUploader(api)
@@ -275,11 +296,13 @@ func (s *Store) uploadMedia(ctx context.Context, api *tg.Client, f sendfiles.Fil
 		// A video sent as a file shows its picture too, as in Telegram
 		// Desktop. One that gives no picture goes without: Telegram makes none of
 		// a large file, and it shows gray.
-		thumbCtx, cancel := context.WithTimeout(ctx, videoThumbnailPatience)
-		jpeg, err := sendfiles.VideoDocumentThumbnail(thumbCtx, video.ResolveFFmpeg(ffmpeg), f.Path)
-		cancel()
-		if err == nil {
-			thumb, err := thumbs.FromBytes(ctx, "thumb.jpg", jpeg)
+		if len(thumbnail) == 0 {
+			thumbCtx, cancel := context.WithTimeout(ctx, videoThumbnailPatience)
+			thumbnail, _ = sendfiles.VideoDocumentThumbnail(thumbCtx, video.ResolveFFmpeg(ffmpeg), f.Path)
+			cancel()
+		}
+		if len(thumbnail) > 0 {
+			thumb, err := thumbs.FromBytes(ctx, "thumb.jpg", thumbnail)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", f.Name, err)
 			}

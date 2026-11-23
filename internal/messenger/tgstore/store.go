@@ -67,6 +67,8 @@ type Store struct {
 	stories storyState
 	// communities are the communities opened.
 	communities communityState
+	// profilePages are the pages of profile photos read lately.
+	profilePages profilePages
 
 	themeRevisions map[int64]uint64
 	// appearances are the states of the chats' cached appearances.
@@ -81,7 +83,9 @@ type Store struct {
 	reconnect     chan struct{}
 	search        searchState
 	profiles      profileColors
-	freeze        model.Freeze
+	// music is what the account keeps on its profile's playlist.
+	music  savedMusic
+	freeze model.Freeze
 	// freezeChecked is when a refused request last read the configuration
 	// again: see Middleware.
 	freezeChecked time.Time
@@ -127,7 +131,7 @@ func (s *Store) Chats() []model.Chat {
 	s.mu.RLock()
 	chats := s.chats
 	s.mu.RUnlock()
-	return s.withLocalCollections(s.withOutgoingPreviews(chats))
+	return s.withLocalCollections(s.withOutgoingPreviews(s.withForumUnread(chats)))
 }
 
 // Load reads the profile, the folders and every dialog of the main list,
@@ -297,6 +301,7 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) (er
 		return err
 	}
 	s.dialogsRead()
+	s.preloadForums()
 	s.resync(0)
 	return nil
 }

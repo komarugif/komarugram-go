@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	"komarugram/internal/crash"
 	"komarugram/internal/diagnostics"
 	"log"
@@ -19,6 +20,7 @@ import (
 	"gio-mw/defaults/schemes"
 	"gio-mw/exp/powersave"
 	"gio-mw/token"
+	"gio-mw/wdk"
 	"gio-mw/widget/button"
 	"gio-mw/widget/overlay"
 
@@ -44,8 +46,10 @@ import (
 	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/messenger/security"
 	"komarugram/internal/miniappprefs"
+	"komarugram/internal/wallpaper"
 	"komarugram/pkg/miniapp"
 	"komarugram/pkg/player"
+	"komarugram/pkg/sandbox"
 )
 
 // App is the messenger window content.
@@ -53,12 +57,14 @@ type App struct {
 	images imageOps
 	// sprites are avatars as pictures, for motion blur.
 	sprites avatarSprites
+	// effects are the particles of the window's spoilers.
+	effects effects
 	window  *appwindow.Window
 	// currentAccount is the ID of the account the window shows.
 	currentAccount func() string
 	store          model.Store
 
-	windowEffectsSet, windowBlurWanted, windowTransparentWanted bool
+	windowFx windowEffects
 
 	preferences *preferences.Store
 	// softwareChecked is set once the window was found drawn by a software
@@ -114,8 +120,10 @@ type App struct {
 	filter     *messageFilter
 	lightTheme *token.Theme
 	darkTheme  *token.Theme
-	// themeFonts is the version of the fonts the themes were made with.
-	themeFonts uint64
+	// themeFonts is the version of the fonts the themes were made with,
+	// and themeColors the colors they were made of.
+	themeFonts  uint64
+	themeColors appColors
 	// emojiPacks keeps the emoji packs installed, beside the settings.
 	emojiPacks *emojipacks.Store
 
@@ -156,7 +164,10 @@ type App struct {
 	// of its files found to go to.
 	downloads        *downloadsPage
 	downloadMessages chan downloadMessage
-	thread           *commentsView
+	// playlists are the chats found of users whose playlist is to open:
+	// see openPlaylist.
+	playlists chan model.Chat
+	thread    *commentsView
 	// toast tells over the window what the chat list told, when no chat
 	// is open to tell it in: see relayListToast.
 	toast toast
@@ -276,7 +287,6 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	editor, _ := store.(model.ProfileEditor)
 	a.profile = newProfilePage(editor)
 	a.profile.premium, _ = store.(model.PremiumSource)
-	a.profile.badges = a.badges
 	a.chats.badges = a.badges
 	a.chats.menu.store, _ = store.(model.ChatListActions)
 	a.chats.menu.premium, _ = store.(model.PremiumSource)
@@ -293,8 +303,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	}
 	a.drawer.badges = a.badges
 	global := services.Preferences.Global()
-	w.Motion.SetMode(global.MotionMode)
-	w.Motion.SetLowBattery(global.LowBattery)
+	w.Motion.ApplyPreferences(global.MotionMode, global.LowBattery, global.DisabledAnimations)
 	w.Motion.SetPreferenceChanged(func(mode powersave.Mode, lowBattery int) {
 		if err := services.Preferences.SetMotion(mode, lowBattery); err != nil {
 			log.Printf("save settings: %v", err)
@@ -302,8 +311,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	})
 	a.unsubscribe = append(a.unsubscribe, services.Preferences.Subscribe(func() {
 		global := services.Preferences.Global()
-		w.Motion.SetMode(global.MotionMode)
-		w.Motion.SetLowBattery(global.LowBattery)
+		w.Motion.ApplyPreferences(global.MotionMode, global.LowBattery, global.DisabledAnimations)
 		services.MiniApps.SetStorage(global.MiniAppStorage)
 		miniapp.SetBrowser(global.BrowserPath)
 		applyFonts(global.Fonts, a.emojiPacks)
@@ -355,11 +363,6 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	}
 	a.frozen = newFrozenView(store)
 	a.profile.frozen = a.frozen
-	a.profile.openAvatar = func(chat int64) {
-		if a.viewer != nil {
-			a.viewer.OpenProfile(chat)
-		}
-	}
 	a.settings = newSettingsPage(w.Motion, services.MiniApps, services.Security, w.Invalidate, services.Accounts, currentAccount, themeMode(global.Theme), global.Language, a.setThemeMode, a.setLanguage)
 	a.proxies = newProxyView(services.Proxies, services.PingProxy, w.Invalidate)
 	a.settings.proxy = a.proxies
@@ -513,9 +516,31 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			log.Printf("save settings: %v", err)
 		}
 	}
+	a.settings.deleteEffect = func() preferences.DeleteEffect { return a.preferences.Global().DeleteEffect }
+	a.settings.setDeleteEffect = func(effect preferences.DeleteEffect) {
+		if err := services.Preferences.SetDeleteEffect(effect); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
 	a.settings.composerStyle = a.composerStyle
 	a.settings.setComposerStyle = func(style preferences.ComposerStyle) {
 		if err := services.Preferences.SetComposer(style); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.systemAccent = func() bool { return a.preferences.Global().SystemAccent }
+	a.settings.setSystemAccent = func(on bool) {
+		if err := services.Preferences.SetSystemAccent(on); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.systemAccentAvailable = func() bool {
+		_, ok := a.window.Appearance.Accent()
+		return ok
+	}
+	a.settings.neutralSurfaces = func() bool { return a.preferences.Global().NeutralSurfaces }
+	a.settings.setNeutralSurfaces = func(on bool) {
+		if err := services.Preferences.SetNeutralSurfaces(on); err != nil {
 			log.Printf("save settings: %v", err)
 		}
 	}
@@ -526,6 +551,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		}
 	}
 	a.settings.pauseInactive = func() bool { return a.preferences.Global().PauseInactive }
+	a.settings.animationOptions = newAnimationOptions(a.preferences)
 	a.settings.setPauseInactive = func(on bool) {
 		if err := services.Preferences.SetPauseInactive(on); err != nil {
 			log.Printf("save settings: %v", err)
@@ -548,6 +574,12 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 			log.Printf("save settings: %v", err)
 		}
 	}
+	a.settings.viewerBlur = func() bool { return a.preferences.Global().ViewerBlur }
+	a.settings.setViewerBlur = func(on bool) {
+		if err := services.Preferences.SetViewerBlur(on); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
 	a.settings.windowTransparency = func() int { return a.preferences.Global().WindowTransparency }
 	a.settings.setWindowTransparency = func(value int) {
 		if err := services.Preferences.SetWindowTransparency(value); err != nil {
@@ -555,7 +587,34 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		}
 	}
 	a.settings.windowTransparencyAvailable = func() bool {
-		return w.CanBeTransparent()
+		return w.CanBeTransparent() || w.OwnBlurSupported()
+	}
+	a.settings.windowBlurOwn = func() bool { return a.preferences.Global().WindowBlurOwn }
+	a.settings.setWindowBlurOwn = func(own bool) {
+		if err := services.Preferences.SetWindowBlurOwn(own); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.windowOwnFrame = func() (own, forced bool) {
+		forced = w.OwnFrameForced()
+		return forced || a.preferences.Global().WindowOwnFrame, forced
+	}
+	a.settings.setWindowOwnFrame = func(own bool) {
+		if err := services.Preferences.SetWindowOwnFrame(own); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.windowOwnFrameSupported = appwindow.OwnFrameSupported
+	a.settings.windowColor.color = func() uint32 { return a.preferences.Global().WindowColor }
+	a.settings.windowColor.setColor = func(argb uint32) {
+		if err := services.Preferences.SetWindowColor(argb); err != nil {
+			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.windowColor.system = wallpaper.SystemWindowColor
+	a.settings.windowColor.offered = appwindow.WindowColorOffered
+	a.settings.windowBlurChoice = func() bool {
+		return w.OwnBlurSupported() && w.CompositorBlurs()
 	}
 	a.settings.overlays = func() preferences.Overlays { return a.preferences.Global().Overlays }
 	a.settings.setOverlays = func(o preferences.Overlays) {
@@ -661,7 +720,8 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		chats.thumbs = newWallpaperThumbs(source, w.Invalidate)
 		a.info = newChatInfo(source, &a.images, w.Invalidate)
 		a.info.themes = a.themes
-		a.info.drawAvatar = a.layoutAvatar
+		// The account's own profile is the same info, drawn as a page.
+		a.profile.attach(newChatInfo(source, &a.images, w.Invalidate))
 		a.avatars = newAvatarImages(source, w.Invalidate)
 		a.chats.avatar = a.layoutAvatar
 		a.chats.previews = &previewMedia{media: chatmedia.NewPreviews(source, w.Invalidate), images: &a.images}
@@ -679,6 +739,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.downloads.files = func() *attachmentFiles { return a.attachments }
 		a.downloads.media, a.downloads.images = chatmedia.New(source, w.Invalidate), &a.images
 		a.downloadMessages = make(chan downloadMessage, 1)
+		a.playlists = make(chan model.Chat, 1)
 		a.downloads.openMessage = a.openDownloaded
 		a.viewer.play = func(gtx layout.Context, m model.Message, start time.Duration, l localization.Catalog) {
 			a.history.playFrom(gtx, m, start, a.viewer.reportPlay, l)
@@ -706,15 +767,7 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		if source, ok := store.(model.CommunitySource); ok {
 			a.history.communityOf = source.LinkedCommunity
 		}
-		// A user's channel in their info opens with a way back, as a
-		// channel's discussion does.
-		a.info.openChannel = a.history.openReturning
-		// What a click on a mark in the info tells shows under the dialog,
-		// not in the chat behind it.
-		a.info.badges = a.badgesTelling(func(text string) { a.info.modal.Toast(text) })
 		a.statusClicked = a.info.openEmojiSet
-		a.info.renderer.stickers.menus = a.menuPrefs
-		a.info.avatarSprite = a.avatarSprite
 		if _, ok := store.(model.CommentsStore); ok {
 			a.history.openComments = a.openComments
 			a.comments = a.newChatPage(source, store, w)
@@ -753,43 +806,8 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 				a.comments.openSender = func(m model.Message) { a.openSender(senders, m, a.thread) }
 			}
 		}
-		// The audio of the info's sections plays in the same player as the
-		// chat's, told in the chat's bar.
-		a.info.renderer.audio = a.history.audio
-		// The files of the sections are selected, forwarded and deleted as
-		// the chat's messages are, and a file goes to its message.
-		a.info.renderer.chats = store.Chats
-		a.info.renderer.avatar = a.layoutAvatar
-		a.info.renderer.menus = a.menuPrefs
-		a.info.renderer.frozen = a.frozen
-		a.info.renderer.files = a.attachments
-		a.info.selectionMode = func() string { return a.preferences.Global().SharedSelection }
-		a.info.setSelectionMode = a.preferences.SetSharedSelection
-		a.info.columns = func() int { return a.preferences.Global().SharedGridColumns() }
-		a.info.setColumns = a.preferences.SetSharedColumns
-		// A mention or a link in the info, as its bio has, opens its chat
-		// over the dialog, which closes, with the way back.
-		a.info.renderer.openChat = func(chat model.Chat, post model.MessageID) {
-			a.info.modal.Close()
-			a.history.openChat(chat, post)
-		}
-		a.info.openMessage = func(m model.Message) {
-			chat := a.info.chat
-			a.openFromHere(chatPick{ID: chat.ID, Chat: &chat, Message: m.Key.MessageID})
-			a.window.Invalidate()
-		}
-		// A section's photo or video goes through the section's kind alone.
-		a.info.renderer.openPhoto = func(m model.Message) {
-			a.viewer.OpenShared(m.Key.ChatID, m, a.info.messages, a.info.section, -1)
-		}
-		a.info.renderer.openGIF = func(m model.Message) { a.viewer.OpenGIF(m.Key.ChatID, m, a.info.messages) }
-		// A video of the section plays where one of the chat does: in the
-		// viewer, when the settings choose it.
-		a.info.renderer.openVideo = func(m model.Message, at time.Duration) {
-			a.viewer.OpenShared(m.Key.ChatID, m, a.info.messages, a.info.section, at)
-		}
-		a.info.renderer.videoEngine = a.videoEngine
-		a.info.openAvatar = func(chat int64) { a.viewer.OpenProfile(chat) }
+		a.configureInfo(a.info, store)
+		a.configureInfo(a.profile.info, store)
 		if services.OpenWindow != nil {
 			a.openWindow = services.OpenWindow
 			a.viewer.popout = a.openViewerWindow
@@ -832,6 +850,7 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 	p.chats = store.Chats
 	p.images = &a.images
 	p.classic = func() bool { return a.composerStyle() == preferences.ComposerClassic }
+	p.deleteEffect = func() preferences.DeleteEffect { return a.preferences.Global().DeleteEffect }
 	p.blur = func() bool { return a.preferences.Global().ComposerBlur && w.Motion.AnimationsEnabled() }
 	p.overlays = a.overlayPrefs
 	p.player = a.settings.players.chosen
@@ -840,6 +859,7 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 	p.audioExternal = func() bool { return a.preferences.Global().AudioPlayer == "external" }
 	p.appearance = a.themes
 	p.avatar = a.layoutAvatar
+	p.forwarding.navigate = a.openForwarded
 	if a.avatars != nil {
 		p.quietAvatars = a.avatars.media.SetQuiet
 	}
@@ -853,6 +873,8 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 		a.openFromHere(chatPick{ID: m.Key.ChatID, Message: m.Key.MessageID})
 		a.window.Invalidate()
 	}
+	p.openPlaylist = a.openPlaylist
+	p.tileViewer = a.viewer
 	p.openPhoto = func(m model.Message) { a.viewer.Open(p.chat, m, p.viewerItems()) }
 	p.openVideo = func(m model.Message, at time.Duration) { a.viewer.OpenVideo(p.chat, m, p.viewerItems(), at) }
 	p.videoEngine = a.videoEngine
@@ -919,6 +941,9 @@ func (a *App) Close() {
 	}
 	if a.info != nil {
 		a.info.Destroy()
+	}
+	if a.profile != nil && a.profile.info != nil {
+		a.profile.info.Destroy()
 	}
 	if a.themes != nil {
 		a.themes.Close()
@@ -1031,15 +1056,18 @@ func (a *App) Theme(gtx layout.Context) *token.Theme {
 	if v := defaults.FontsVersion(); v != a.themeFonts {
 		a.themeFonts, a.darkTheme, a.lightTheme = v, nil, nil
 	}
+	if colors := (appColors{a.accent(), a.preferences.Global().NeutralSurfaces}); colors != a.themeColors {
+		a.themeColors, a.darkTheme, a.lightTheme = colors, nil, nil
+	}
 	theme := a.lightTheme
 	if a.dark() {
 		if a.darkTheme == nil {
-			a.darkTheme = defaults.NewTheme(gtx, schemes.SchemeBaselineDark())
+			a.darkTheme = defaults.NewTheme(gtx, a.themeColors.scheme(true))
 		}
 		theme = a.darkTheme
 	} else {
 		if a.lightTheme == nil {
-			a.lightTheme = defaults.NewTheme(gtx, schemes.SchemeBaselineLight())
+			a.lightTheme = defaults.NewTheme(gtx, a.themeColors.scheme(false))
 		}
 		theme = a.lightTheme
 	}
@@ -1047,6 +1075,43 @@ func (a *App) Theme(gtx layout.Context) *token.Theme {
 	a.window.SetFrameColor(theme.Scheme.Surface.Color.AsNRGBA())
 	a.window.SetTheme(hostTheme(a.themeMode()))
 	return theme
+}
+
+// accent returns the system's accent color when the application's colors
+// follow it, else transparent.
+func (a *App) accent() color.NRGBA {
+	prefs := a.preferences.Global()
+	if !prefs.SystemAccent {
+		return color.NRGBA{}
+	}
+	// Windows 7 without Aero has the color of the windows the settings
+	// chose, as the glass does.
+	if c := prefs.WindowColor; c != 0 && appwindow.WindowColorOffered() {
+		return color.NRGBA{R: uint8(c >> 16), G: uint8(c >> 8), B: uint8(c), A: 0xff}
+	}
+	c, _ := a.window.Appearance.Accent()
+	return c
+}
+
+// defaultAppAccent is the seed for the messenger's light and dark schemes.
+var defaultAppAccent = color.NRGBA{R: 61, G: 174, B: 233, A: 255}
+
+// appColors holds the optional system accent and neutral surfaces preference.
+type appColors struct {
+	accent  color.NRGBA
+	neutral bool
+}
+
+// scheme derives the palette from the active accent for the selected theme.
+func (c appColors) scheme(dark bool) *token.Scheme {
+	seed := c.accent
+	if seed.A == 0 {
+		seed = defaultAppAccent
+	}
+	if c.neutral {
+		return schemes.SchemeFromSeedNeutral(seed, dark)
+	}
+	return schemes.SchemeFromSeed(seed, dark)
 }
 
 // hostTheme is the theme the host draws its own windows in, the panic's.
@@ -1117,6 +1182,13 @@ func (a *App) Update(gtx layout.Context) {
 		a.takeDownloadMessage(r)
 	default:
 	}
+	select {
+	case chat := <-a.playlists:
+		if a.info != nil {
+			a.openPlaylistOf(chat)
+		}
+	default:
+	}
 	a.updateReturn(gtx)
 	a.shownChat.Store(a.selected)
 	a.shortcutEvents(gtx)
@@ -1155,6 +1227,8 @@ func (a *App) Update(gtx layout.Context) {
 	}
 	if a.section.kind == sectionProfile {
 		a.profile.Update(gtx, a.store.Me(), a.window.Invalidate)
+	} else if a.profile != nil {
+		a.profile.close()
 	}
 	if a.section.kind == sectionSettings {
 		global := a.preferences.Global()
@@ -1218,7 +1292,7 @@ func (a *App) openSection(gtx layout.Context, sec section) {
 	case sectionSettings:
 		a.settings.open()
 	case sectionProfile:
-		a.profile.open()
+		a.profile.open(a.store.Me())
 	case sectionDownloads:
 		if a.downloads != nil {
 			a.downloads.open()
@@ -1269,6 +1343,15 @@ func (a *App) selectedChat() (model.Chat, bool) {
 // open opens the chat picked in the chat list, at the message picked when a
 // search found one.
 func (a *App) open(pick chatPick) {
+	if pick.End {
+		a.closeComments()
+		if a.info != nil {
+			a.info.Close()
+		}
+		if a.history != nil {
+			a.history.openEnd = pick.ID
+		}
+	}
 	if !a.section.showsChats() {
 		a.section = section{kind: sectionAll}
 	}
@@ -1289,6 +1372,13 @@ func (a *App) open(pick chatPick) {
 			a.history.forget()
 		}
 	}
+}
+
+// openForwarded may be called from another window's goroutine.
+func (a *App) openForwarded(chat model.Chat) {
+	a.openChat.Store(&chatPick{ID: chat.ID, Chat: &chat, End: true})
+	a.window.PerformLater(system.ActionRaise)
+	a.window.Invalidate()
 }
 
 // Layout implements appwindow.Content.
@@ -1312,12 +1402,20 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	}
 	if !a.softwareChecked && app.SoftwareRendered() {
 		a.softwareChecked = true
+		// The rasterizer takes much of the CPU the decoders of stickers and
+		// sound need: their operations are allowed longer.
+		sandbox.SetSoftwareRendered(true)
 		if err := a.preferences.DefaultMotionOff(); err != nil {
 			log.Printf("save settings: %v", err)
 		}
 		if err := a.preferences.DefaultVideoExternal(); err != nil {
 			log.Printf("save settings: %v", err)
 		}
+	}
+	if a.window.OwnBlur() && a.preferences.Global().WindowTransparency > 0 {
+		// The window blurs by itself: the blurred wallpaper is under the
+		// surfaces, as the desktop is under those of a transparent window.
+		transparent = a.window.LayoutDesktop(gtx, scheme(gtx).Surface.Color.AsNRGBA(), float32(a.preferences.Global().WindowTransparency)/100)
 	}
 	withWindowSurfaceOpacity(gtx, a.preferences.Global().WindowTransparency, transparent)
 	withLook(gtx, a.preferences.Global().Look)
@@ -1346,6 +1444,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	}
 	decoderPrefs := a.preferences.Global()
 	paused := decoderPrefs.PauseInactive && !a.focused
+	withEffects(gtx, &a.effects, paused)
 	configureMedia := func(m *chatmedia.Manager) {
 		m.ConfigureDecoders(decoderPrefs.StickerPlayer == "wasm", decoderPrefs.AnimationPlayer == "wasm", decoderPrefs.FFmpegPath)
 		m.SetHardware(hardwareVideoFor(decoderPrefs.Graphics))
@@ -1353,6 +1452,9 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	}
 	if a.info != nil {
 		configureMedia(a.info.renderer.media)
+	}
+	if a.profile != nil && a.profile.info != nil {
+		configureMedia(a.profile.info.renderer.media)
 	}
 	a.images.BeginFrame()
 	defer a.images.EndFrame()
@@ -1422,14 +1524,20 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 			}
 		}
 	}
+	animate := a.window.Motion.AnimationsEnabled()
+	if a.viewer != nil && animate && wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment) {
+		a.viewer.openPointer.update(gtx)
+	}
 	if a.viewer != nil && a.history.headAvatar.Clicked(gtx) {
 		if c, ok := a.selectedChat(); ok {
-			openHeadAvatar(a.viewer, a.history, c)
+			if openHeadAvatar(a.viewer, a.history, c) {
+				a.animateAvatarOpening(gtx, &a.history.headAvatar, c, animate)
+			}
 		}
 	}
 	if a.viewer != nil && a.forum != nil && a.forum.avatar.Clicked(gtx) {
-		if c, ok := a.selectedChat(); ok {
-			a.viewer.OpenProfile(c.ID)
+		if c, ok := a.selectedChat(); ok && a.viewer.OpenProfile(c.ID) {
+			a.animateAvatarOpening(gtx, &a.forum.avatar, c, animate)
 		}
 	}
 	if a.info != nil && (a.history.header.Clicked(gtx) || a.history.takeInfoAsked() || a.forum != nil && a.forum.header.Clicked(gtx)) {
@@ -1442,6 +1550,10 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 		a.history.themeShown = false
 	}
 	overlayGtx := gtx
+	if a.viewer != nil {
+		a.viewer.updateOpening(gtx, animate)
+		a.viewer.updateClosingInput(gtx)
+	}
 	if a.info != nil && a.info.visible {
 		gtx = gtx.Disabled()
 	}
@@ -1557,10 +1669,18 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	}
 	a.overlay.Layout(gtx)
 	if a.info != nil {
-		a.info.Layout(overlayGtx, a.catalog(), a.window.Motion.AnimationsEnabled())
+		infoGtx := overlayGtx
+		if a.viewer != nil && a.viewer.blocksInput() {
+			// Escape belongs to the viewer over the info dialog.
+			infoGtx = infoGtx.Disabled()
+		}
+		a.info.Layout(infoGtx, a.catalog(), animate)
 	}
 	if a.viewer != nil {
-		a.viewer.Layout(overlayGtx, a.catalog(), a.window.Motion.AnimationsEnabled())
+		if animate && wdk.AnimationAllowed(gtx, wdk.AnimationViewerAttachment) {
+			trackViewerRelease(overlayGtx, &a.viewer.openPointer, size)
+		}
+		a.viewer.Layout(overlayGtx, a.catalog(), animate)
 	}
 	a.layoutBoxViewer(overlayGtx)
 	// An emoji, a sticker or a GIF held, over everything, taking nothing.
@@ -1648,7 +1768,7 @@ func (a *App) layoutPage(gtx layout.Context) layout.Dimensions {
 		if a.history.takesFiles() {
 			a.drop.page = a.history
 		}
-		return layoutChatPage(gtx, c, l, a.layoutAvatar, a.badges, a.returnButton(), func(gtx layout.Context) layout.Dimensions {
+		return layoutChatPage(gtx, c, l, a.viewerAvatar(&a.history.headAvatar), a.badges, a.returnButton(), func(gtx layout.Context) layout.Dimensions {
 			if a.history != nil {
 				return a.history.Layout(gtx, c, l, a.window.Motion.AnimationsEnabled())
 			}
@@ -1658,7 +1778,7 @@ func (a *App) layoutPage(gtx layout.Context) layout.Dimensions {
 	return a.withAudioBar(gtx, l, func(gtx layout.Context) layout.Dimensions {
 		switch {
 		case a.section.kind == sectionProfile:
-			return a.profile.Layout(gtx, a.store.Me(), l, a.layoutAvatar, a.private(), a.window.Motion.AnimationsEnabled())
+			return a.profile.Layout(gtx, a.store.Me(), l, a.private(), a.window.Motion.AnimationsEnabled())
 		case a.section.kind == sectionSettings:
 			return a.settings.Layout(gtx, a.themeMode(), a.window.Appearance.Scheme(), a.dark(), l)
 		case a.section.kind == sectionDownloads && a.downloads != nil:
@@ -1765,6 +1885,9 @@ func (a *App) SetSuspended(hidden bool) {
 	if a.info != nil {
 		a.info.Release()
 	}
+	if a.profile != nil && a.profile.info != nil {
+		a.profile.info.Release()
+	}
 	if a.themes != nil {
 		a.themes.Release()
 	}
@@ -1781,6 +1904,7 @@ func (a *App) SetSuspended(hidden bool) {
 		a.downloads.media.Release()
 	}
 	a.images.Release()
+	a.effects = effects{}
 }
 
 // mediaFrame begins the frame of m on the frame's clock and returns what
@@ -2008,3 +2132,122 @@ func (a *App) takeUsername(r usernameResult) {
 }
 
 func (a *App) menuPrefs() preferences.Menus { return a.preferences.Global().Menus }
+
+// configureInfo wires p, the info of a profile, to the window: the
+// dialog of a chat's, or the page of the account's own.
+func (a *App) configureInfo(p *chatInfo, store model.Store) {
+	p.drawAvatar = a.viewerAvatar(&p.avatar)
+	// A user's channel in their info opens with a way back, as a
+	// channel's discussion does.
+	p.openChannel = a.history.openReturning
+	// What a click on a mark in the info tells shows under the dialog,
+	// not in the chat behind it.
+	p.badges = a.badgesTelling(func(text string) { p.modal.Toast(text) })
+	p.renderer.stickers.menus = a.menuPrefs
+	p.avatarSprite = a.avatarSprite
+	// The audio of the info's sections plays in the same player as the
+	// chat's, told in the chat's bar.
+	p.renderer.audio = a.history.audio
+	// The files of the sections are selected, forwarded and deleted as
+	// the chat's messages are, and a file goes to its message.
+	p.renderer.chats = store.Chats
+	p.renderer.forwarding.navigate = func(chat model.Chat) {
+		p.modal.Close()
+		a.openForwarded(chat)
+	}
+	p.renderer.avatar = a.layoutAvatar
+	p.renderer.menus = a.menuPrefs
+	p.renderer.frozen = a.frozen
+	p.renderer.files = a.attachments
+	p.selectionMode = func() string { return a.preferences.Global().SharedSelection }
+	p.setSelectionMode = a.preferences.SetSharedSelection
+	p.columns = func() int { return a.preferences.Global().SharedGridColumns() }
+	p.setColumns = a.preferences.SetSharedColumns
+	// A mention or a link in the info, as its bio has, opens its chat
+	// over the dialog, which closes, with the way back.
+	p.renderer.openChat = func(chat model.Chat, post model.MessageID) {
+		p.modal.Close()
+		a.history.openChat(chat, post)
+	}
+	p.openMessage = func(m model.Message) {
+		chat := p.chat
+		a.openFromHere(chatPick{ID: chat.ID, Chat: &chat, Message: m.Key.MessageID})
+		a.window.Invalidate()
+	}
+	// A section's photo or video goes through the section's kind alone.
+	p.renderer.openPhoto = func(m model.Message) {
+		a.viewer.OpenShared(m.Key.ChatID, m, p.messages, p.section, -1)
+	}
+	p.renderer.openGIF = func(m model.Message) { a.viewer.OpenGIF(m.Key.ChatID, m, p.messages) }
+	// A video of the section plays where one of the chat does: in the
+	// viewer, when the settings choose it.
+	p.renderer.openVideo = func(m model.Message, at time.Duration) {
+		a.viewer.OpenShared(m.Key.ChatID, m, p.messages, p.section, at)
+	}
+	p.renderer.videoEngine = a.videoEngine
+	p.openAvatar = func(gtx layout.Context, chat model.Chat) {
+		if a.viewer.OpenProfile(chat.ID) {
+			a.animateAvatarOpening(gtx, &p.avatar, chat, a.window.Motion.AnimationsEnabled())
+		}
+	}
+}
+
+// openPlaylist opens the playlist of user's profile: the account's own on
+// its profile page, another's in the info, over what is open. The user's
+// chat is the list's, the info's shown last, or, for one of neither, as
+// someone with no dialog yet, asked for by its ID.
+func (a *App) openPlaylist(user int64) {
+	defer a.window.Invalidate()
+	if me := a.store.Me(); user == me.ID {
+		if a.profile.info == nil {
+			return
+		}
+		if a.section.kind != sectionProfile {
+			a.section = section{kind: sectionProfile}
+			a.profile.open(me)
+		}
+		showPlaylist(a.profile.info)
+		return
+	}
+	if a.info == nil {
+		return
+	}
+	chat, ok := chatByID(a.store.Chats(), user)
+	if !ok && a.info.chat.ID == user {
+		chat, ok = a.info.chat, true
+	}
+	if ok {
+		a.openPlaylistOf(chat)
+		return
+	}
+	results, invalidate, store := a.playlists, a.window.Invalidate, a.store
+	go func() {
+		defer crash.Recover("open playlist", nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		chat, err := findChat(ctx, store, user)
+		if err != nil {
+			return
+		}
+		select {
+		case results <- chat:
+			invalidate()
+		default:
+		}
+	}()
+}
+
+// openPlaylistOf shows the playlist of chat's profile in the info.
+func (a *App) openPlaylistOf(chat model.Chat) {
+	if !a.info.visible || a.info.chat.ID != chat.ID {
+		a.info.Open(chat)
+	}
+	showPlaylist(a.info)
+}
+
+// showPlaylist shows the playlist in info, as it is when it is shown already.
+func showPlaylist(info *chatInfo) {
+	if info.section != model.SharedSavedMusic {
+		info.selectSection(model.SharedSavedMusic)
+	}
+}

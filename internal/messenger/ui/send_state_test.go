@@ -9,7 +9,6 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -22,7 +21,7 @@ import (
 // read: the clock takes the square of the checks, though drawn smaller.
 func TestSendStateFooterWidth(t *testing.T) {
 	gtx := layout.Context{Ops: new(op.Ops), Constraints: layout.Constraints{Max: image.Pt(500, 100)}, Metric: unit.Metric{PxPerDp: 2, PxPerSp: 2}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	m := model.Message{Key: model.MessageKey{ChatID: 1, MessageID: 5}, Text: "Hi", Outgoing: true}
 	l := localization.For("en")
 	widths := map[model.SendState]int{}

@@ -35,6 +35,7 @@ import (
 
 	"komarugram/internal/appicon"
 	"komarugram/internal/motion"
+	"komarugram/internal/wallpaper"
 )
 
 // Content is what a window shows. It may also implement RecoverFrame() bool
@@ -67,6 +68,9 @@ type Options struct {
 	// shows. Where either is unsupported the window is opaque or unblurred;
 	// Window.Translucency reports what was granted.
 	Transparent, BlurBehind bool
+	// OwnFrame asks for the window's own frame in place of the system's,
+	// where OwnFrameSupported.
+	OwnFrame bool
 }
 
 // Spec describes one independent application window. Closed is called after
@@ -105,6 +109,10 @@ type Window struct {
 	// own frame, drawn where the blur leaves it without the system's.
 	blurAsked bool
 	frame     frame
+	// transparentAsked and blurWanted are the effects as they were asked
+	// for last, and ownFrame whether the window draws its own frame because
+	// the user would rather have it.
+	transparentAsked, blurWanted, ownFrame bool
 	// view is the native window, once there is one; captureExcluded is
 	// whether it is hidden from screen capture, once captureApplied.
 	view                            uintptr
@@ -112,12 +120,22 @@ type Window struct {
 	// caption is the height of the window's own frame over the content,
 	// in pixels, as the last frame drew it.
 	caption int
+	// backdrop is the desktop the window draws behind its content, when it
+	// blurs it by itself.
+	backdrop backdrop
 }
 
 // Translucency reports whether the window is transparent and whether the
 // compositor blurs behind it. It is meant for the window's own goroutine.
 func (w *Window) Translucency() (transparent, blurred bool) {
 	return w.transparent, w.blurred
+}
+
+// SetTranslucency sets what Translucency reports for a window that no
+// system window shows, as in tests and renders, which draw it on their own:
+// the window that has one learns it from the system, which overrides it.
+func (w *Window) SetTranslucency(transparent, blurred bool) {
+	w.transparent, w.blurred = transparent, blurred
 }
 
 // CanBeTransparent reports whether the window can be made transparent: it is
@@ -453,6 +471,7 @@ func (h *Host) Open(spec Spec) {
 	h.remaining++
 	w := &Window{Window: new(app.Window), host: h, title: spec.Options.Title}
 	w.blurAsked = spec.Options.Transparent && spec.Options.BlurBehind
+	w.transparentAsked, w.blurWanted, w.ownFrame = spec.Options.Transparent, spec.Options.BlurBehind, spec.Options.OwnFrame
 	if h.windows == nil {
 		h.windows = map[*Window]struct{}{}
 	}
@@ -462,7 +481,7 @@ func (h *Host) Open(spec Spec) {
 		opts := spec.Options
 		w.Option(app.Title(opts.Title), app.Size(opts.Width, opts.Height))
 		w.Option(windowIcon())
-		w.Option(effectOptions(opts.Transparent, opts.BlurBehind)...)
+		w.Option(effectOptions(opts.Transparent, opts.BlurBehind, opts.OwnFrame)...)
 		if opts.TopMost {
 			w.Option(app.TopMost(true))
 		}
@@ -532,6 +551,7 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 	if closer, ok := content.(interface{ Close() }); ok {
 		defer closer.Close()
 	}
+	defer w.setDesktopView(wallpaper.View{})
 
 	var ops op.Ops
 	var fallback panicScreen
@@ -554,6 +574,10 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 		if handle, ok := viewHandle(ev); ok {
 			w.view, w.captureApplied = handle, false
 		}
+		if view, ok := desktopView(ev); ok {
+			w.setDesktopView(view)
+		}
+		w.desktopEvent(ev)
 		switch e := ev.(type) {
 		case app.DestroyEvent:
 			return e.Err
@@ -561,10 +585,14 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 			w.fullscreen = e.Config.Mode == app.Fullscreen
 			w.transparent, w.blurred = e.Config.Transparent, e.Config.BlurBehind
 			w.frame.configure(e.Config)
+			w.backdrop.glass = glassState(e.Config)
 			if ownsFrame() && w.blurAsked && !e.Config.Decorated && !e.Config.BlurBehind {
-				// No blur was granted: the system's frame is the better one.
+				// No blur was granted: the system's frame is the better
+				// one, unless the user would rather have the window's.
 				w.blurAsked = false
-				w.Option(app.Decorated(true))
+				if !w.ownFrame {
+					w.Option(app.Decorated(true))
+				}
 			}
 			hidden := e.Config.Suspended || e.Config.Mode == app.Minimized
 			if observer, ok := content.(interface{ SetMinimized(bool) }); ok {
@@ -648,10 +676,11 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 				}
 				theme = content.Theme(gtx)
 				wdk.InitMaterialThemeInContext(gtx, theme)
-				wdk.SetAnimationsEnabled(gtx, w.Motion.AnimationsEnabled())
+				w.Motion.Frame(gtx)
 
 				area = clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
 				event.Op(gtx.Ops, w.Window)
+				w.layoutBackdrop(gtx, gtx.Constraints.Max)
 				if quit = w.handleKeys(gtx, opts); quit {
 					return
 				}

@@ -4,11 +4,13 @@ package vp9
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"time"
 
 	"komarugram/pkg/resample"
+	"komarugram/pkg/sandbox"
 	"komarugram/pkg/webm"
 )
 
@@ -149,6 +151,10 @@ func (s *Sticker) seek(ctx context.Context, elapsed time.Duration) error {
 	if frames == 0 {
 		return fmt.Errorf("%s: no frames", s.Name)
 	}
+	if s.colour == nil {
+		// Closed, or its decoders could not be made again (reopen).
+		return fmt.Errorf("%s: closed", s.Name)
+	}
 	target := 0
 	if s.File.FrameDuration > 0 {
 		target = int(elapsed/s.File.FrameDuration) % frames
@@ -160,14 +166,54 @@ func (s *Sticker) seek(ctx context.Context, elapsed time.Duration) error {
 	if target < s.index || s.index < 0 {
 		start = 0
 	}
+	for retried := false; ; retried = true {
+		err := s.decodeTo(ctx, start, target)
+		if err == nil {
+			s.index = target
+			return nil
+		}
+		// The planes are those of no frame now.
+		s.index, s.composed = -1, -1
+		// An operation over the time limit closed its decoder. On a slow
+		// machine, under other work, an ordinary frame can take that long:
+		// it is decoded once more, from the first frame, in new decoders. A
+		// hostile file takes the limit twice, no more.
+		if retried || !errors.Is(err, sandbox.ErrSlow) {
+			return err
+		}
+		if reopenErr := s.reopen(ctx); reopenErr != nil {
+			return err
+		}
+		start = 0
+	}
+}
+
+// decodeTo decodes frames from start to target, in order.
+func (s *Sticker) decodeTo(ctx context.Context, start, target int) error {
 	for i := start; i <= target; i++ {
 		if err := s.decode(ctx, i); err != nil {
-			// The planes are those of no frame now.
-			s.index, s.composed = -1, -1
 			return err
 		}
 	}
-	s.index = target
+	return nil
+}
+
+// reopen replaces the sticker's decoders with new ones, of the same runtime.
+func (s *Sticker) reopen(ctx context.Context) error {
+	rt := s.colour.runtime
+	alpha := s.alpha != nil
+	s.Close(ctx)
+	var err error
+	if s.colour, err = rt.NewDecoder(ctx); err != nil {
+		return err
+	}
+	if alpha {
+		if s.alpha, err = rt.NewDecoder(ctx); err != nil {
+			s.colour.Close(ctx)
+			s.colour = nil
+			return err
+		}
+	}
 	return nil
 }
 

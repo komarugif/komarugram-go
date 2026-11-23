@@ -8,7 +8,6 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -22,7 +21,7 @@ import (
 func skeletonOf(t *testing.T, h *menuHarness, m model.Message) skeletonRow {
 	t.Helper()
 	metric := unit.Metric{PxPerDp: 1, PxPerSp: 1}
-	theme := defaults.NewTheme(layout.Context{Ops: new(op.Ops), Metric: metric, Values: map[string]any{}}, schemes.SchemeBaselineLight())
+	theme := testTheme(layout.Context{Ops: new(op.Ops), Metric: metric, Values: map[string]any{}}, schemes.SchemeBaselineLight())
 	var height int
 	for range 2 {
 		gtx := layout.Context{Ops: new(op.Ops), Now: h.now, Constraints: layout.Constraints{Max: image.Pt(500, 1<<20)}, Metric: metric, Values: map[string]any{}}
@@ -74,7 +73,7 @@ func TestSkeletonBarsNotWithAnimationsOff(t *testing.T) {
 	s := skeletonOf(t, h, m)
 	s.height = 60
 	gtx := layout.Context{Ops: new(op.Ops), Constraints: layout.Exact(image.Pt(500, 60)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	wdk.SetAnimationsEnabled(gtx, false)
 	h.page.shapeCache = nil
 	h.page.skeleton(gtx, h.page.resolveShape(gtx, s))

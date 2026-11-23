@@ -33,6 +33,7 @@ func (s *pinStore) savedOrders() [][]int64 {
 }
 
 func newReorderHarness(t *testing.T, pinned int) *listHarness {
+	skipFrames(t)
 	h := newListHarness(t, testChats(pinned))
 	h.list.reorder.store = h.store
 	h.frames(2)

@@ -12,6 +12,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"gio-mw/wdk"
+
 	"gioui.org/gesture"
 	"github.com/go-text/typesetting/segmenter"
 
@@ -36,9 +38,9 @@ import (
 // shows the wave — any longer and a word opens at a crawl again — and above,
 // so that a long message does not keep the reader waiting.
 const (
-	spoilerSpeed       = 300 // dp per second
-	spoilerMinDuration = 120 * time.Millisecond
-	spoilerMaxDuration = 1500 * time.Millisecond
+	spoilerSpeed       = 360 // dp per second
+	spoilerMinDuration = 100 * time.Millisecond
+	spoilerMaxDuration = 1250 * time.Millisecond
 )
 
 type spoilerReveal struct {
@@ -208,7 +210,7 @@ func (p *chatPage) textEvents(gtx layout.Context, r *messageRow, animate bool) {
 				if s.reveal.started.IsZero() {
 					s.reveal = spoilerReveal{started: gtx.Now, center: s.origin, pxPerDp: gtx.Metric.PxPerDp}
 				}
-				if !animate {
+				if !animate || !wdk.AnimationAllowed(gtx, wdk.AnimationMessage) {
 					r.revealed = true
 				}
 			} else if run.URL != "" || run.Action != "" {
@@ -218,7 +220,7 @@ func (p *chatPage) textEvents(gtx layout.Context, r *messageRow, animate bool) {
 	}
 
 	if !s.reveal.started.IsZero() && !r.revealed {
-		if !animate || s.reveal.done(gtx.Now, s.size) {
+		if !animate || !wdk.AnimationAllowed(gtx, wdk.AnimationMessage) || s.reveal.done(gtx.Now, s.size) {
 			r.revealed = true
 		} else {
 			gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 60)})
@@ -307,27 +309,33 @@ func (p *chatPage) keyboardEvents(gtx layout.Context, catalog ...localization.Ca
 // that the parts make one band.
 type spoilerJoin struct{ left, right bool }
 
-func paintSpoiler(gtx layout.Context, size image.Point, center f32.Point, radius float32, col color.NRGBA, join spoilerJoin, draw func()) {
+// dustOver is the dust over a spoiler's cover (paintDust): its color, the
+// text's, and where the cover lies in the text. The zero value is no dust.
+type dustOver struct {
+	col    color.NRGBA
+	origin image.Point
+}
+
+// paintSpoiler covers size with col, dust drifting over it, but for a
+// circle of radius around center, in which draw draws what is under the
+// spoiler: the wave that uncovers it.
+func paintSpoiler(gtx layout.Context, size image.Point, center f32.Point, radius float32, col color.NRGBA, dust dustOver, join spoilerJoin, draw func()) {
 	defer spoilerShape(gtx, size, join).Push(gtx.Ops).Pop()
 	if radius <= 0 {
 		paint.Fill(gtx.Ops, col)
+		paintDust(gtx, size, dust.origin, dust.col, 1)
 		return
 	}
-	// A clockwise rectangle and counter-clockwise circle form a cover with a
-	// circular hole. Both text and bitmap emoji are revealed by the same clip.
-	var path clip.Path
-	path.Begin(gtx.Ops)
-	path.MoveTo(f32.Pt(0, 0))
-	path.LineTo(f32.Pt(float32(size.X), 0))
-	path.LineTo(f32.Pt(float32(size.X), float32(size.Y)))
-	path.LineTo(f32.Pt(0, float32(size.Y)))
-	path.Close()
-	spoilerCircle(&path, center, radius)
-	paint.FillShape(gtx.Ops, col, clip.Outline{Path: path.End()}.Op())
-	var inner clip.Path
-	inner.Begin(gtx.Ops)
-	spoilerCircle(&inner, center, radius)
-	circle := clip.Outline{Path: inner.End()}.Op().Push(gtx.Ops)
+	cover := spoilerCoverClip(gtx, size, center, radius)
+	paint.FillShape(gtx.Ops, col, cover)
+	// The dust thins out as the wave goes, and is gone when it has
+	// crossed the cover.
+	if reach := (spoilerReveal{center: center}).reach(size); reach > 0 && float64(radius) < reach {
+		rest := cover.Push(gtx.Ops)
+		paintDust(gtx, size, dust.origin, dust.col, 1-radius/float32(reach))
+		rest.Pop()
+	}
+	circle := spoilerWaveClip(gtx, center, radius).Push(gtx.Ops)
 	draw()
 	circle.Pop()
 }
@@ -377,8 +385,9 @@ func runEdges(runs []model.TextRun, edges []int) []int {
 // paintLineSpoiler is paintSpoiler over the fragment f of a text, as high
 // as its line, so that the spoiler over a line is one band where the text's
 // fragments and a custom emoji's differ in height. center is in the text's
-// coordinates, and draw draws the fragment where Decorate does.
-func paintLineSpoiler(gtx layout.Context, f styledtext.Fragment, center f32.Point, radius float32, col color.NRGBA, join spoilerJoin, draw func()) {
+// coordinates, and draw draws the fragment where Decorate does; dust is the
+// color of the dust over the cover, the text's.
+func paintLineSpoiler(gtx layout.Context, f styledtext.Fragment, center f32.Point, radius float32, col, dust color.NRGBA, join spoilerJoin, draw func()) {
 	line := f.Line
 	if line.Empty() {
 		line = f.Bounds
@@ -392,10 +401,31 @@ func paintLineSpoiler(gtx layout.Context, f styledtext.Fragment, center f32.Poin
 			draw()
 		}
 	}
-	paintSpoiler(gtx, image.Pt(f.Bounds.Dx(), line.Dy()), center.Sub(f32.Pt(float32(f.Bounds.Min.X), float32(line.Min.Y))), radius, col, join, shifted)
+	origin := image.Pt(f.Bounds.Min.X, line.Min.Y)
+	paintSpoiler(gtx, image.Pt(f.Bounds.Dx(), line.Dy()), center.Sub(layout.FPt(origin)), radius, col, dustOver{dust, origin}, join, shifted)
 }
 
-// A counter-clockwise circle, shared by the cover hole and text clip.
+func spoilerCoverClip(gtx layout.Context, size image.Point, center f32.Point, radius float32) clip.Op {
+	// The clockwise rectangle and counter-clockwise circle leave a hole.
+	var path clip.Path
+	path.Begin(gtx.Ops)
+	path.MoveTo(f32.Pt(0, 0))
+	path.LineTo(f32.Pt(float32(size.X), 0))
+	path.LineTo(f32.Pt(float32(size.X), float32(size.Y)))
+	path.LineTo(f32.Pt(0, float32(size.Y)))
+	path.Close()
+	spoilerCircle(&path, center, radius)
+	return clip.Outline{Path: path.End()}.Op()
+}
+
+func spoilerWaveClip(gtx layout.Context, center f32.Point, radius float32) clip.Op {
+	var path clip.Path
+	path.Begin(gtx.Ops)
+	spoilerCircle(&path, center, radius)
+	return clip.Outline{Path: path.End()}.Op()
+}
+
+// A counter-clockwise circle, shared by the cover hole and the revealed area.
 func spoilerCircle(path *clip.Path, center f32.Point, radius float32) {
 	const k = float32(0.5522847498)
 	x, y, r := center.X, center.Y, radius

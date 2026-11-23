@@ -11,6 +11,7 @@ import (
 
 	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/unit"
 )
 
 // textButton draws a flat button of txt, which a surface makes react.
@@ -63,6 +64,9 @@ func tonalButton(gtx layout.Context, s *surface, txt string, count int) layout.D
 	})
 	return dims
 }
+
+// backButtonGap separates a header's back button from its title or avatar.
+const backButtonGap = unit.Dp(8)
 
 // Full-size icons and a 48 dp target match the application's navigation controls.
 func navigationButton(gtx layout.Context, s *surface, icon wdk.IconWidget, title string) layout.Dimensions {

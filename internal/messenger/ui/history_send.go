@@ -116,7 +116,7 @@ func (p *chatPage) sentByUser(m model.Message) bool {
 // it is. It does nothing with animations off, or when prev did not show the
 // history's end.
 func (p *chatPage) startFlights(gtx layout.Context, prev []model.Message, animate bool) {
-	if !animate || !wdk.AnimationsEnabled(gtx) || p.composer == nil || len(prev) == 0 {
+	if !animate || !wdk.AnimationEnabled(gtx, wdk.AnimationMessage) || p.composer == nil || len(prev) == 0 {
 		return
 	}
 	var prevLast model.MessageID
@@ -200,7 +200,7 @@ func (p *chatPage) flyingRow(gtx layout.Context, i, composer, end int, draw func
 	record := op.Record(gtx.Ops)
 	dims := draw(gtx)
 	call := record.Stop()
-	t := f.tween.Animate(gtx, 1)
+	t := f.tween.AnimateFor(gtx, wdk.AnimationMessage, 1)
 	if t >= 1 {
 		delete(p.flights, p.messages[i].Key.MessageID)
 		call.Add(gtx.Ops)

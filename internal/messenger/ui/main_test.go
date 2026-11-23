@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"komarugram/internal/messenger/preferences"
+	"komarugram/pkg/sandbox"
 )
 
 // TestMain gives the themes of the tests the fonts the environment names
@@ -18,6 +19,10 @@ import (
 // render test shows a font without the settings. No test opens the
 // browser: the links they click are only noted.
 func TestMain(m *testing.M) {
+	// The tests run close together, and often in a virtual machine: the
+	// decoders of stickers and sound get the limit of a machine that draws
+	// on the CPU (sandbox.FrameSlow).
+	sandbox.SetSoftwareRendered(true)
 	applyFonts(preferences.Fonts{}, nil)
 	openBrowser = func(target string) error {
 		browserOpened.Store(target)

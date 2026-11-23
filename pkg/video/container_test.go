@@ -13,12 +13,14 @@ import (
 	"testing"
 	"time"
 
+	"komarugram/internal/testenv"
 	"komarugram/pkg/mp4"
 )
 
 // Files as FFmpeg makes them are read as ffprobe reads them: each case makes a
 // file, and an encoder this FFmpeg lacks only skips its case.
 func TestReadContainerAsFFprobe(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg unavailable")
@@ -56,6 +58,7 @@ func TestReadContainerAsFFprobe(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			testenv.Integration(t, "runs FFmpeg")
 			path := filepath.Join(t.TempDir(), c.name)
 			args := append([]string{"-hide_banner", "-loglevel", "error", "-y"}, c.args...)
 			if out, err := exec.Command(ffmpeg, append(args, path)...).CombinedOutput(); err != nil {
@@ -82,6 +85,7 @@ func TestReadContainerAsFFprobe(t *testing.T) {
 // The AAC of a MOV, which lies in a wave box of its own, is found: without it the
 // sandbox sends a MOV to the external player.
 func TestSoundOfAMOV(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg unavailable")
@@ -102,6 +106,7 @@ func TestSoundOfAMOV(t *testing.T) {
 // An H.264 file tells its matrix and its range, as its parameter set says, for the
 // sandbox to read it by.
 func TestFileTellsItsColors(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg unavailable")
@@ -120,6 +125,7 @@ func TestFileTellsItsColors(t *testing.T) {
 		{"baseline", []string{"-profile:v", "baseline", "-colorspace", "bt709"}, 1, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			testenv.Integration(t, "runs FFmpeg")
 			path := filepath.Join(t.TempDir(), "clip.mp4")
 			args := append([]string{"-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=0.2", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-bsf:v", "h264_metadata=colour_primaries=2"}, c.args...)
 			if out, err := exec.Command(ffmpeg, append(args, path)...).CombinedOutput(); err != nil {
@@ -142,6 +148,7 @@ func TestFileTellsItsColors(t *testing.T) {
 
 // A recording in a stream, as from a browser, says no length, and is added up.
 func TestReadContainerStreamedWebM(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg unavailable")
@@ -168,6 +175,7 @@ func TestReadContainerStreamedWebM(t *testing.T) {
 // A WebM that says it lasts milliseconds is told as long as its blocks: ffprobe
 // believes it, and the bar of a video would end at once.
 func TestReadContainerWebMThatLies(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg unavailable")
@@ -199,6 +207,7 @@ func TestReadContainerWebMThatLies(t *testing.T) {
 
 // The turn a phone records with swaps the sides, as ffprobe reports them.
 func TestReadContainerTurned(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg unavailable")

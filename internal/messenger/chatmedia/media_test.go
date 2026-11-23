@@ -21,6 +21,8 @@ import (
 	"komarugram/pkg/h264"
 	"komarugram/pkg/vp9"
 	"komarugram/pkg/webm"
+
+	"komarugram/internal/testenv"
 )
 
 type fakeSource struct {
@@ -966,6 +968,7 @@ func TestStatusLoopsPlayOnTheFrameClock(t *testing.T) {
 // wake the window no more, and the frames NextFrame asks for, one per tick
 // for them all, show 30 pictures a second, or 60 at full rate.
 func TestAnimationsShareTheFrameClock(t *testing.T) {
+	testenv.Waits(t, "for seconds of play")
 	data, err := os.ReadFile("../../../assets/stickers/sample.tgs")
 	if err != nil {
 		t.Fatal(err)
@@ -1013,7 +1016,35 @@ func TestAnimationsShareTheFrameClock(t *testing.T) {
 				time.Sleep(200 * time.Microsecond)
 			}
 		}
+		// Each sticker wakes the window once, for its first picture: under
+		// load they may take more than the second to show one, and are
+		// waited for. The frame after the last is drawn, with its wake.
+		ready := func() bool {
+			for _, msg := range msgs {
+				e := m.entries[msg.Media.ID]
+				if e == nil {
+					return false
+				}
+				e.mu.Lock()
+				ok, err := e.frame != nil, e.err
+				e.mu.Unlock()
+				if err != nil {
+					t.Fatalf("%s: %v", msg.Media.ID, err)
+				}
+				if !ok {
+					return false
+				}
+			}
+			return true
+		}
 		run(time.Second, false)
+		for deadline := time.Now().Add(10 * time.Second); !ready(); {
+			if time.Now().After(deadline) {
+				t.Fatal("the stickers showed no first pictures")
+			}
+			run(100*time.Millisecond, false)
+		}
+		run(100*time.Millisecond, false)
 		before := wakes.Load()
 		run(2*time.Second, true)
 		return frames / 2, pictures / 2, wakes.Load() - before
@@ -1040,6 +1071,7 @@ func TestAnimationsShareTheFrameClock(t *testing.T) {
 // ones, so that playing makes next to no garbage, and the pictures shown
 // share a few pixel buffers.
 func TestPicturesReuseTheirPixels(t *testing.T) {
+	testenv.Waits(t, "for seconds of play")
 	file := func(name string) func(t *testing.T) []byte {
 		return func(t *testing.T) []byte {
 			data, err := os.ReadFile("../../../assets/" + name)
@@ -1071,6 +1103,7 @@ func TestPicturesReuseTheirPixels(t *testing.T) {
 		{"ffmpeg", model.Message{Kind: model.MessageGIF, Media: &model.MessageMedia{ID: "gif", MIMEType: "image/gif"}}, image.Pt(100, 100),
 			func(t *testing.T) []byte { return gifData(t, 24) },
 			func(t *testing.T, m *Manager) {
+				testenv.Integration(t, "runs FFmpeg")
 				if _, err := exec.LookPath("ffmpeg"); err != nil {
 					t.Skip("no ffmpeg")
 				}

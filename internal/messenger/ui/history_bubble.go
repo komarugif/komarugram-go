@@ -159,11 +159,26 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 		if p.activeText == r {
 			p.activeText = nil
 		}
+		var resize messageResize
+		if r != nil && r.key == m.Key {
+			resize = r.resize
+			// A streaming draft (and the message it becomes) already grows
+			// through the typing caret's own height transition.
+			resize.changing = resize.height.initialized && !r.streaming && !m.Streaming && p.typing[m.Key.MessageID] == nil
+		}
 		r = newMessageRow(m, l, gtx.Now)
+		r.resize = resize
 		for _, row := range m.Buttons {
 			r.buttons = append(r.buttons, make([]surface, len(row)))
 		}
 		p.rows[m.Key.MessageID] = r
+	}
+	if p.snapshotting {
+		// The snapshot option also applies to rows that were just created.
+		// A reveal wave in the history cannot uncover part of a snapshot.
+		revealed, wave := r.revealed, r.text.reveal
+		r.revealed, r.text.reveal = p.snapshotRevealSpoilers, spoilerReveal{}
+		defer func() { r.revealed, r.text.reveal = revealed, wave }()
 	}
 	r.refreshDates(gtx, m, l)
 	p.refreshStamps(gtx, r, m, l)
@@ -194,8 +209,13 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 		if !ok {
 			break
 		}
-		if e.Kind == gesture.KindClick && e.NumClicks == 2 {
-			p.quickReact(m)
+		if e.Kind == gesture.KindClick {
+			if len(m.Attachments) > 1 && !m.Local() && len(p.selection.selected) > 0 {
+				p.selection.toggleAlbumPart(m, 0)
+				gtx.Execute(op.InvalidateCmd{})
+			} else if e.NumClicks == 2 {
+				p.quickReact(m)
+			}
 		}
 	}
 	if m.Service != nil && m.Service.Kind == model.ServiceHidden && !date {
@@ -243,7 +263,9 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 					gtx.Constraints.Min = image.Point{}
 					bodyDims := p.withSenderAvatar(gtx, m, func(gtx layout.Context) layout.Dimensions {
 						if p.unwrapped(m) {
-							return p.unwrappedBody(gtx, r, m, join, l, animate)
+							return r.resize.layout(gtx, animate && !p.snapshotting, func(gtx layout.Context) layout.Dimensions {
+								return p.unwrappedBody(gtx, r, m, join, l, animate)
+							})
 						}
 						if len(m.Buttons) > 0 {
 							return p.withKeyboard(gtx, r, m, join, l, func(gtx layout.Context) layout.Dimensions {
@@ -259,7 +281,7 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 		)
 	})
 	call := record.Stop()
-	if p.selection.selected[m.Key.MessageID] && !p.snapshotting {
+	if p.selection.selected[m.Key.MessageID] && p.selection.parts[m.Key.MessageID] == nil && !p.snapshotting {
 		fillRect(gtx, scheme(gtx).Primary.Color.SetOpacity(.13), dims.Size)
 	} else if p.highlight == m.Key.MessageID && gtx.Now.Before(p.highlightUntil) && !p.snapshotting {
 		// A message a search went to, which fades out.
@@ -283,6 +305,7 @@ func (p *chatPage) row(gtx layout.Context, m model.Message, date bool, join bubb
 	if r.capture.on {
 		r.capture.rest = dims.Size.Y - r.bodySize.Y
 	}
+	r.resize.rowHeight = dims.Size.Y
 	return dims
 }
 
@@ -333,6 +356,10 @@ func (p *chatPage) bubble(gtx layout.Context, r *messageRow, m model.Message, jo
 			if m.Outgoing {
 				col = scheme(gtx).PrimaryContainer.Color
 			}
+			if p.lifted != (model.MessageKey{}) && m.Key == p.lifted {
+				// Taken by a drag, as a row of the settings' menus is.
+				col = scheme(gtx).SecondaryContainer.Color
+			}
 			paint.FillShape(gtx.Ops, col.AsNRGBA(), shape.rrect(size).Op(gtx.Ops))
 			if p.appearance != nil {
 				p.appearance.Bubble(gtx, m.Outgoing, animate, shape)
@@ -345,28 +372,30 @@ func (p *chatPage) bubble(gtx layout.Context, r *messageRow, m model.Message, jo
 			return layout.Dimensions{Size: size}
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-			content := func(gtx layout.Context) layout.Dimensions {
-				return layout.Inset{Top: bubblePadTop, Bottom: bubblePadBottom, Left: bubblePadSide, Right: bubblePadSide}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return p.bubbleBody(gtx, r, m, join, l, animate)
+			return r.resize.layout(gtx, animate && !p.snapshotting, func(gtx layout.Context) layout.Dimensions {
+				content := func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{Top: bubblePadTop, Bottom: bubblePadBottom, Left: bubblePadSide, Right: bubblePadSide}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return p.bubbleBody(gtx, r, m, join, l, animate)
+					})
+				}
+				if !p.showsComments(m) {
+					return content(gtx)
+				}
+				// The comments bar spans the bubble under what it holds.
+				dims := content(gtx)
+				natural := commentsNatural(gtx, m, l)
+				width := max(dims.Size.X, min(gtx.Constraints.Max.X, natural))
+				bar := gtx.Dp(commentsBarHeight)
+				if r.capture.on {
+					r.capture.bar, r.capture.barNatural = bar, natural
+				}
+				size := image.Pt(width, dims.Size.Y+bar)
+				defer shape.rrect(size).Push(gtx.Ops).Pop()
+				offset(gtx, image.Pt(0, dims.Size.Y), func(gtx layout.Context) layout.Dimensions {
+					return p.commentsBar(gtx, r, m, width, l)
 				})
-			}
-			if !p.showsComments(m) {
-				return content(gtx)
-			}
-			// The comments bar spans the bubble under what it holds.
-			dims := content(gtx)
-			natural := commentsNatural(gtx, m, l)
-			width := max(dims.Size.X, min(gtx.Constraints.Max.X, natural))
-			bar := gtx.Dp(commentsBarHeight)
-			if r.capture.on {
-				r.capture.bar, r.capture.barNatural = bar, natural
-			}
-			size := image.Pt(width, dims.Size.Y+bar)
-			defer shape.rrect(size).Push(gtx.Ops).Pop()
-			offset(gtx, image.Pt(0, dims.Size.Y), func(gtx layout.Context) layout.Dimensions {
-				return p.commentsBar(gtx, r, m, width, l)
+				return layout.Dimensions{Size: size}
 			})
-			return layout.Dimensions{Size: size}
 		}),
 	)
 }
@@ -908,6 +937,10 @@ func (p *chatPage) mediaFooter(gtx layout.Context, r *messageRow, l localization
 // reads from the row, as bubbleContent does.
 func (p *chatPage) bubbleFooter(gtx layout.Context, r *messageRow, l localization.Catalog) layout.Dimensions {
 	msg := &r.shown
+	if msg.Playlist {
+		// A song of a profile's playlist was sent at no time.
+		return layout.Dimensions{}
+	}
 	if msg.Streaming {
 		// A draft a bot streams turns a ring before its time while the
 		// bot writes it.
@@ -1353,7 +1386,7 @@ func reactionChipColors(sc *token.Scheme, chosen, outgoing bool) (background, co
 func (p *chatPage) reactionIcon(gtx layout.Context, reaction model.Reaction, animate bool) layout.Dimensions {
 	size := gtx.Dp(18)
 	if reaction.DocumentID != 0 && p.media != nil {
-		if frame := customEmoji(p.media, p.images, reaction.DocumentID, size, animate, scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
+		if frame := customEmoji(p.media, p.images, reaction.DocumentID, size, animate && wdk.AnimationAllowed(gtx, wdk.AnimationEmoji), scheme(gtx).Surface.OnColor.AsNRGBA()); frame != nil {
 			return drawImage(gtx, p.images, frame, image.Pt(size, size))
 		}
 		return layout.Dimensions{Size: image.Pt(size, size)}

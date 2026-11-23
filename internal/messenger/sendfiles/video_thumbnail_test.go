@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"komarugram/internal/testenv"
 )
 
 // needDecoder skips a test on a machine that has not named the decoder.
@@ -54,6 +56,7 @@ func TestVideoThumbnailOfOthers(t *testing.T) {
 // A VP9 WebM has its first picture without FFmpeg, as FFmpeg gives it, and for it no
 // more of a large file is read than the start; VP8 has none, the module being VP9's.
 func TestWebMThumbnail(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg unavailable")
@@ -117,6 +120,7 @@ func TestWebMGoesApartFromAnAlbum(t *testing.T) {
 // The picture H.264's decoder makes has the colors of the video: its levels read as
 // their range, and not as JPEG's, which makes it pale.
 func TestThumbnailKeepsColors(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	needDecoder(t)
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
@@ -137,6 +141,7 @@ func TestThumbnailKeepsColors(t *testing.T) {
 
 // A turned video's picture is turned, as FFmpeg's own is: the same way.
 func TestVideoThumbnailTurnedAsFFmpeg(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	needDecoder(t)
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {

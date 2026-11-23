@@ -19,6 +19,7 @@ Russian; code, comments and docs are in English.
 | `cmd/haiku-build` | Builds the messenger on Haiku itself, patching the modules that need it (`docs/BUILD_HAIKU.md`) |
 | `cmd/msix-build` | Builds the Windows client as an MSIX package and signs it, by default with a self-signed certificate it keeps (`docs/BUILD_MSIX.md`) |
 | `cmd/registration-table` | Smooths user ids with the days their accounts were registered into the table the info estimates a registration by; the points are kept out of the repository |
+| `cmd/hint-images` | Draws the handwritten hints the client shows as pictures (text in a font given, an arrow drawn by hand), so that it carries no handwritten font |
 | `cmd/emoji-pack` | Makes the catalog of emoji packs built into the client (`official`: Telegram Desktop's emoji sets, pinned to commits), and catalogs of a directory |
 | `internal/messenger/ui` | All messenger UI. Components: `docs/UI_COMPONENTS.md` |
 | `internal/messenger/tgstore` | `model.Store` backed by Telegram (gotd): chats, history, search, updates |
@@ -60,7 +61,7 @@ Russian; code, comments and docs are in English.
 ```sh
 go build -o /dev/null ./cmd/messenger          # never leave binaries in the tree
 go vet ./internal/... ./cmd/... ./pkg/...
-go test ./internal/... ./cmd/... ./pkg/...
+go test -short ./internal/... ./cmd/... ./pkg/...  # between commits; the whole set before a push ("Tests")
 gofmt -l internal cmd pkg
 go vet gioui.org/app                           # the Gio fork, by its import path
 go run ./cmd/messenger -demo                   # no account needed
@@ -86,9 +87,10 @@ otherwise, so `go test` never runs them: `COMPOSER_PNG` (with
 `COMPOSER_VIEW`), `COMPOSER_MOTION_PNG`, `SETTINGS_PNG` (with
 `SETTINGS_SECTION`), `ACCOUNTS_PNG_DIR`, `PHONE_PNG_DIR`, `SESSION_PNG_DIR`, `SESSIONS_PNG`, `DOWNLOADS_PNG`, `FORUM_PNG`, `COMMUNITY_PNG`, `CHAT_PREVIEW_PNG`,
 `STICKER_SET_PNG_DIR`, `MENU_PNG`, `REACTED_PNG`, `VIEWER_PNG` (with
-`VIEWER_ZOOM`, `VIEWER_PROFILE`, `VIEWER_GIFS`, `VIEWER_STORIES`, `VIEWER_SAVE_GIF`, `VIEWER_BOX`, `VIEWER_EDIT`, `VIEWER_TIP`, `VIEWER_AVATAR`, `VIEWER_DARK`), `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`,
-`SERVICE_PNG`, `POLL_PNG`, `JUMP_PNG_DIR`, `RESERVE_PNG`, `SKELETON_PNG_DIR`, `TILE_FIT_PNG`, `PROFILER_PNG_DIR`, `PINNED_PNG`, `BUBBLE_FIT_PNG`, `MEDIA_INSET_PNG`, `MEDIA_TIME_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`,
+`VIEWER_ZOOM`, `VIEWER_PROFILE`, `VIEWER_GIFS`, `VIEWER_STORIES`, `VIEWER_SAVE_GIF`, `VIEWER_BOX`, `VIEWER_EDIT`, `VIEWER_TIP`, `VIEWER_AVATAR`, `VIEWER_DARK`, `VIEWER_BLUR`), `PLAYER_PNG`, `COMMENTS_PNG`, `UNWRAPPED_PNG`,
+`SERVICE_PNG`, `POLL_PNG`, `JUMP_PNG_DIR`, `RESERVE_PNG`, `SKELETON_PNG_DIR`, `TILE_FIT_PNG`, `PROFILER_PNG_DIR`, `PINNED_PNG`, `BUBBLE_FIT_PNG`, `MEDIA_INSET_PNG`, `MEDIA_TIME_PNG`, `CHAT_SEARCH_PNG`, `SHOT_PNG`, `PROFILE_PNG_DIR`,
 `SAVED_EMPTY_PNG`, `SHARED_PNG`, `REGISTRATION_OFFER_PNG`, `STORAGE_PNG_DIR`, `TOAST_PNG_DIR`, `AUDIO_PNG_DIR`,
+`EFFECTS_PNG_DIR` (the spoilers' particles and a deleted message leaving, frame by frame),
 `FRAME_PNG_DIR` (the window's own frame, in `internal/appwindow`), `PANIC_PNG_DIR` (the window of a panic, there too) (see
 `docs/UI_COMPONENTS.md`). Run the one of the screen you changed, and look
 at the PNG. `KOMARUGRAM_FONT`, `KOMARUGRAM_FONT_EXTRA`,
@@ -121,8 +123,55 @@ modules are not in this repository, and the client fetches them
 (`internal/messenger/wasmmodule`; the client also takes them as `.wasm.zst`,
 the tests as they are).
 
+## Tests
+
+Agents run what a change needs, and work out the command for it; the
+maintainer runs the whole set, on a machine faster than an agent's.
+
+- **Between local commits:** the build (and the cross-builds that code of
+  a platform needs), `go vet`, `go test -short`, and the tests and the
+  renders of the place changed, by name (`-run`, `SETTINGS_SECTION=…`).
+  Not the whole set.
+- **Before a push or a pull request:** the whole set: `go test` without
+  `-short`, `go run ./cmd/render-all` and a look at the renders of the
+  places touched, and the integration tests by their variables. Where
+  memory is short, with the settings of `docs/BUILD_LOW_MEMORY.md`.
+- **`-short` skips what is dear.** A test that draws frames, starts a
+  program of the system (a browser, FFmpeg, a player) or waits on the
+  clock skips itself when `testing.Short()`, in its harness's constructor
+  rather than in each test: `skipFrames(t)` in the UI's harnesses,
+  `testenv.Integration(t, …)` and `testenv.Waits(t, …)`
+  (`internal/testenv`) elsewhere. A test that takes over about a second
+  needs a reason.
+
+Writing them:
+
+- **A test of a breakage is for one that reached `main` or a user.** One
+  made and mended in the same session is the work, and needs none. Such a
+  test fails without the fix: break the code, run, restore.
+- **Test behaviour, not the geometry of the moment.** What the user sees
+  or does, and what must hold (no panic, no leak, the right request to
+  Telegram). The look is for the renders, which a person looks at; pixels
+  and clicks at fixed coordinates only for what broke for real.
+- **Tests are not kept for ever.** A feature redone has its tests rewritten
+  or deleted in the same change.
+- **A harness builds what it tests the way the client does**, one for an
+  area, not one for each test: `newSettingsApp` is `New` on the demo's
+  store. A harness of its own drifts from the client.
+- **Frames run on a clock of the test's, a frame's time at a time, with one
+  theme for the test (`testTheme`).** A theme made for each frame makes a
+  text shaper each frame, and lays all text out from scratch, five times as
+  slow. A frame on the real clock passes or fails by how fast frames are
+  drawn; some harnesses still draw on it.
+- **A test waits for what it needs, not for a number of frames**
+  (`waitFor`): what a goroutine does comes when it comes, later on a
+  machine of one core. Check a test that waits with `GOMAXPROCS=1`.
+
 ## Rules
 
+- **OpenAI Codex must generate a description for each commit** and append
+  `Co-authored-by: codex <codex@openai.com>` as the final line of the commit
+  message, separated from the description by a blank line.
 - **The README files in the root (`README.md`, `README_RU.md`) change only
   with the maintainer's consent.** Propose the text instead; when a change
   is agreed, make it in both languages.
@@ -170,7 +219,7 @@ the tests as they are).
 - **SQLite payloads are JSON BLOBs:** `json_extract(CAST(payload AS TEXT), …)`.
   FTS5 is registered for every connection in `historycache` (`AutoExtension`);
   its triggers need it.
-- **A new test must fail without the fix.** Break the code, run, restore.
+- **Tests follow "Tests" above:** what to run when, and which to write.
 - **Programs are started with `program.Command`**, not `os/exec`: on
   Windows a console program started otherwise flashes a console window.
 - **The build scripts run with no flags added, and are the maintainer's.**

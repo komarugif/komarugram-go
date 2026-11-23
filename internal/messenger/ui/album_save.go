@@ -57,13 +57,18 @@ func partPressArea(gtx layout.Context, child *messageRow, size image.Point) {
 // menuPart is the part of album m the menu was opened on, if it was opened
 // on one.
 func (p *chatPage) menuPart(m model.Message) (model.Message, bool) {
+	part, ok := p.menuAlbumMember(m)
+	return part, ok && p.saveWayOf(part) != saveNone
+}
+
+func (p *chatPage) menuAlbumMember(m model.Message) (model.Message, bool) {
 	menu := &p.messageMenu
 	if len(m.Attachments) < 2 || menu.part.album != m.Key.MessageID || menu.part.at != menu.pressed {
 		return model.Message{}, false
 	}
 	for _, part := range m.Attachments {
 		if part.Key.MessageID == menu.part.id {
-			return part, p.saveWayOf(part) != saveNone
+			return part, true
 		}
 	}
 	return model.Message{}, false

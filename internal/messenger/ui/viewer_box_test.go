@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -109,7 +108,7 @@ func TestBoxViewerIsIsolated(t *testing.T) {
 		t.Fatal("it should copy and not save")
 	}
 	gtx := layout.Context{Ops: new(op.Ops), Now: time.Now(), Constraints: layout.Exact(image.Pt(800, 600)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineDark()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineDark()))
 	l := localization.For("en")
 	frame := func() {
 		gtx.Ops.Reset()
@@ -202,7 +201,7 @@ type boxHarness struct {
 
 func (h *boxHarness) frame() {
 	gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(500, 700)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	l := localization.For("en")
 	h.page.images.BeginFrame()
 	h.page.media.BeginFrame()
@@ -223,6 +222,7 @@ func (h *boxHarness) frame() {
 }
 
 func newBoxHarness(t *testing.T, kinds ...string) *boxHarness {
+	skipFrames(t)
 	h := &boxHarness{menuHarness: newMenuHarness(t, nil)}
 	c := h.page.composer
 	h.page.openBoxFiles = func(media *boxMedia, chat int64, current model.Message, items []model.Message, closed func()) {

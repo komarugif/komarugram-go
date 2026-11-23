@@ -4,6 +4,20 @@ package model
 
 import "context"
 
+// ForwardOptions control the attribution and captions of forwarded messages.
+type ForwardOptions struct {
+	DropAuthor   bool
+	DropCaptions bool // Only valid with DropAuthor.
+	// DropAlbumCaptions identifies the forwarded members of partial albums
+	// whose captions must be removed. Telegram also drops their attribution.
+	DropAlbumCaptions map[MessageID]bool `json:",omitempty"`
+}
+
+// MessageForwarderWithOptions supports Telegram's forwarding options.
+type MessageForwarderWithOptions interface {
+	ForwardMessagesWithOptions(ctx context.Context, from int64, ids []MessageID, to int64, options ForwardOptions) error
+}
+
 // MessageRights are what may be done with every one of some messages, as
 // Telegram Desktop decides for the buttons over a selection.
 type MessageRights struct {

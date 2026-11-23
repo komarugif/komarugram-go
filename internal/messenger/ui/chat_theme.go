@@ -404,7 +404,7 @@ func (t *chatThemeController) Bubble(gtx layout.Context, outgoing, animate bool,
 		return
 	}
 	phase := int64(0)
-	if t.style.Animated && animate && len(colors) > 2 {
+	if t.style.Animated && animate && wdk.AnimationAllowed(gtx, wdk.AnimationMessage) && len(colors) > 2 {
 		phase = gtx.Now.UnixMilli() / 100
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(100 * time.Millisecond)})
 	}

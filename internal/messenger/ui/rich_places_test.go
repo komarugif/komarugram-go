@@ -11,7 +11,6 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/token"
 
@@ -150,7 +149,7 @@ func TestBubbleCustomEmojiTakesItsSquare(t *testing.T) {
 		}
 	}
 	gtx := layout.Context{Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}
-	theme := defaults.NewTheme(gtx, schemes.SchemeBaselineLight())
+	theme := testTheme(gtx, schemes.SchemeBaselineLight())
 	want := emojiBox(gtx, theme.Typescale[token.TypestyleBodyLarge].Size).Size
 	found := false
 	for _, f := range row.text.fragments {

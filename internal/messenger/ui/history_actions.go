@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
+	"sync"
 	"time"
 
 	"gio-mw/token"
@@ -38,10 +40,23 @@ func (p *chatPage) selectedParts() []model.Message {
 	var out []model.Message
 	for _, m := range p.messages {
 		if p.selection.selected[m.Key.MessageID] {
-			out = append(out, messageParts(m)...)
+			out = appendSelectedParts(out, m, p.selection.parts[m.Key.MessageID])
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Key.MessageID < out[j].Key.MessageID })
+	return out
+}
+
+func appendSelectedParts(out []model.Message, m model.Message, picked map[model.MessageID]bool) []model.Message {
+	parts := messageParts(m)
+	if picked == nil {
+		return append(out, parts...)
+	}
+	for _, part := range parts {
+		if picked[part.Key.MessageID] {
+			out = append(out, part)
+		}
+	}
 	return out
 }
 
@@ -175,6 +190,29 @@ func (p *chatPage) openForward(gtx layout.Context) {
 	p.openForwardParts(gtx, p.selectedParts(), true)
 }
 
+func (p *chatPage) selectedAlbumCaptions() map[model.MessageID]bool {
+	var omitCaptions map[model.MessageID]bool
+	for _, m := range p.messages {
+		picked := p.selection.parts[m.Key.MessageID]
+		if picked == nil {
+			continue
+		}
+		if omitCaptions == nil {
+			omitCaptions = make(map[model.MessageID]bool)
+		}
+		// Forwarding a subset without its caption needs the API flags
+		// only if a selected member actually carries caption text.
+		if slices.ContainsFunc(m.Attachments, func(part model.Message) bool {
+			return picked[part.Key.MessageID] && part.Text != ""
+		}) {
+			for id := range picked {
+				omitCaptions[id] = true
+			}
+		}
+	}
+	return omitCaptions
+}
+
 // openForwardParts opens the picker to forward parts, messages of the open
 // chat; selection tells that they are the selected ones.
 func (p *chatPage) openForwardParts(gtx layout.Context, parts []model.Message, selection bool) {
@@ -182,15 +220,27 @@ func (p *chatPage) openForwardParts(gtx layout.Context, parts []model.Message, s
 	if f.busy {
 		return
 	}
-	f.ids = f.ids[:0]
+	f.ids, f.songs = f.ids[:0], nil
+	f.hasMedia = false
+	f.omitAlbumCaptions = nil
+	if selection {
+		f.omitAlbumCaptions = p.selectedAlbumCaptions()
+	}
+	_, f.allowOptions = p.source.(model.MessageForwarderWithOptions)
 	for _, m := range parts {
-		f.ids = append(f.ids, m.Key.MessageID)
+		f.hasMedia = f.hasMedia || m.Media != nil
+		if m.Playlist {
+			f.songs = append(f.songs, m)
+		} else {
+			f.ids = append(f.ids, m.Key.MessageID)
+		}
 	}
 	f.selection = selection
-	if len(f.ids) == 0 {
+	if len(f.ids) == 0 && len(f.songs) == 0 {
 		return
 	}
 	f.from = p.chat
+	f.allowOptions = f.allowOptions && len(f.songs) == 0
 	f.open(gtx)
 }
 
@@ -217,17 +267,35 @@ func (p *chatPage) updateForward(l localization.Catalog) {
 
 func (p *chatPage) forward(target model.Chat) {
 	f := &p.forwarding
+	ctx := context.Background()
+	if p.composer != nil {
+		ctx = p.composer.ctx
+	}
+	if songs := slices.Clone(f.songs); len(songs) > 0 {
+		composer, ok := p.source.(model.ComposerStore)
+		if !ok {
+			return
+		}
+		f.send(ctx, target, func(ctx context.Context, to int64) error {
+			for _, song := range songs {
+				item := &model.PickerItem{ID: song.Media.ID, Media: song}
+				if err := composer.Send(ctx, to, model.OutgoingMessage{RandomID: randomMessageID(), Item: item}); err != nil {
+					return err
+				}
+			}
+			return nil
+		}, p.invalidate)
+		return
+	}
 	source, ok := p.source.(model.MessageForwarder)
 	if !ok {
 		return
 	}
 	from, ids := f.from, append([]model.MessageID(nil), f.ids...)
-	ctx := context.Background()
-	if p.composer != nil {
-		ctx = p.composer.ctx
-	}
+	options := f.options
+	options.DropAlbumCaptions = f.omitAlbumCaptions
 	f.send(ctx, target, func(ctx context.Context, to int64) error {
-		return source.ForwardMessages(ctx, from, ids, to)
+		return forwardWithOptions(ctx, source, from, ids, to, options)
 	}, p.invalidate)
 }
 
@@ -244,8 +312,15 @@ func (p *chatPage) forwardDialog(gtx layout.Context, l localization.Catalog) {
 // snapshotMaxHeight bounds a snapshot to what a GPU texture holds.
 const snapshotMaxHeight = 16384
 
+// snapshots lets one snapshot be drawn at a time: with EGL the headless
+// contexts are of one display, which the first of them released ends for
+// the others, in the middle of their frames.
+var snapshots sync.Mutex
+
 // renderSnapshot draws ops of size in a headless GPU context.
 func renderSnapshot(ops *op.Ops, size image.Point) (*image.RGBA, error) {
+	snapshots.Lock()
+	defer snapshots.Unlock()
 	// The context is current on this thread only.
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()

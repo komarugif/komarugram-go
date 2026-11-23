@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"gio-mw/exp/powersave"
+	"gio-mw/wdk"
 
 	"komarugram/internal/messenger/shortcuts"
 	"komarugram/pkg/miniapp"
@@ -44,15 +45,29 @@ const (
 	ComposerClassic
 )
 
+// DeleteEffect is how a message deleted while it is in view leaves the
+// history, while animations are on.
+type DeleteEffect int
+
+const (
+	// DeleteDissolve crumbles the message into dust that drifts away, as
+	// Telegram for Android's "Thanos" effect does.
+	DeleteDissolve DeleteEffect = iota
+	// DeleteFade fades the message out while the messages around it move
+	// into its place.
+	DeleteFade
+)
+
 // Global contains preferences which currently apply to every account and
 // every window.
 type Global struct {
-	Shortcuts     shortcuts.Bindings `json:"shortcuts,omitempty"`
-	Menus         Menus              `json:"menus,omitempty"`
-	Theme         Theme              `json:"theme"`
-	Language      string             `json:"language"`
-	LastAccountID string             `json:"last_account_id,omitempty"`
-	MotionMode    powersave.Mode     `json:"motion_mode"`
+	Shortcuts          shortcuts.Bindings `json:"shortcuts,omitempty"`
+	Menus              Menus              `json:"menus,omitempty"`
+	Theme              Theme              `json:"theme"`
+	Language           string             `json:"language"`
+	LastAccountID      string             `json:"last_account_id,omitempty"`
+	MotionMode         powersave.Mode     `json:"motion_mode"`
+	DisabledAnimations wdk.AnimationKind  `json:"disabled_animations,omitempty"`
 	// MotionSet is true once MotionMode was set: by the user, or to off for
 	// windows drawn by a software rasterizer (DefaultMotionOff).
 	MotionSet      bool            `json:"motion_set,omitempty"`
@@ -64,6 +79,12 @@ type Global struct {
 	// Graphics is how windows are drawn where there is a choice, on
 	// Wayland: the graphics API and the Vulkan device.
 	Graphics Graphics `json:"graphics,omitzero"`
+	// SystemAccent takes the application's accent color from the system's,
+	// where the system has one, in place of the baseline scheme's.
+	SystemAccent bool `json:"system_accent,omitempty"`
+	// NeutralSurfaces makes the surfaces of the application's colors gray,
+	// not tinted with the accent.
+	NeutralSurfaces bool `json:"neutral_surfaces,omitempty"`
 	// VisualPrivacy hides phone numbers from the interface and covers the
 	// account's identifiers in its profile with spoilers, for showing the
 	// screen to others: streams, recordings, screenshots.
@@ -94,6 +115,8 @@ type Global struct {
 	LockOnMinimize  bool          `json:"lock_on_minimize,omitempty"`
 	LockOnClose     bool          `json:"lock_on_close,omitempty"`
 	Composer        ComposerStyle `json:"composer,omitempty"`
+	// DeleteEffect is how a deleted message leaves the history.
+	DeleteEffect DeleteEffect `json:"delete_effect,omitempty"`
 	// SilentVideoAsVideo sends a video without sound as a video: left to itself,
 	// Telegram makes a GIF of one, as it does by default here.
 	SilentVideoAsVideo bool `json:"silent_video_as_video,omitempty"`
@@ -106,9 +129,30 @@ type Global struct {
 	// WindowTransparency lets the desktop show through the main window
 	// surfaces on Wayland and Windows, in percent. Text and media stay opaque.
 	WindowTransparency int `json:"window_transparency,omitempty"`
-	// WindowBlur asks the compositor, of Wayland or Windows, to blur behind translucent
-	// main window surfaces; transparency can also be used on its own.
+	// WindowBlur blurs what is behind the translucent main window surfaces:
+	// the compositor does, of Wayland or Windows, or the window itself (see
+	// WindowBlurOwn); transparency can also be used on its own.
 	WindowBlur bool `json:"window_blur"`
+	// ViewerBlur blurs what is behind the media viewer's window, on its own
+	// and not with WindowBlur or the transparency of the main window; it is
+	// on until the user takes it off.
+	ViewerBlur bool `json:"viewer_blur"`
+	// WindowBlurOwn has the windows, the main one and the viewer's, blur the
+	// desktop by themselves, drawing the blurred wallpaper behind their
+	// surfaces, where the compositor could blur too. Where it cannot (X11),
+	// the window does so whatever this is.
+	WindowBlurOwn bool `json:"window_blur_own,omitempty"`
+	// WindowOwnFrame has the windows draw their own frame, a caption with
+	// the title and the window's buttons, in place of the system's, where
+	// they can (Windows, Haiku). A window the compositor of Windows 10 or
+	// 11 blurs behind has it whatever this is.
+	WindowOwnFrame bool `json:"window_own_frame,omitempty"`
+	// WindowColor is the color of the windows on Windows 7 without Aero,
+	// where Windows offers none, 0xAARRGGBB, its alpha the intensity, as
+	// the personalization of Windows 7 keeps it: it colors the glass the
+	// windows draw by themselves and, with SystemAccent, the accent. 0 is
+	// the system's, the color the theme wrote.
+	WindowColor uint32 `json:"window_color,omitempty"`
 	// Player is the external player videos open in; empty until the user
 	// chooses one, which is asked only when more than one is installed.
 	Player player.Kind `json:"player,omitempty"`
@@ -737,6 +781,7 @@ func defaults() Global {
 		ComposerBlur:   true,
 		AudioVolume:    100,
 		WindowBlur:     true,
+		ViewerBlur:     true,
 		Overlays:       Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true, Shadow: ShadowDefault},
 		Ghost:          Ghost{ReadOnInteract: true},
 		Keep:           Keep{Deleted: true, Edits: true},
@@ -964,6 +1009,18 @@ func (s *Store) SetTheme(value Theme) error {
 	return s.change(func(g *Global) { g.Theme = value })
 }
 
+// SetSystemAccent switches whether the application's colors follow the
+// system's accent color.
+func (s *Store) SetSystemAccent(on bool) error {
+	return s.change(func(g *Global) { g.SystemAccent = on })
+}
+
+// SetNeutralSurfaces switches whether the application's surfaces are gray
+// or tinted with the accent.
+func (s *Store) SetNeutralSurfaces(on bool) error {
+	return s.change(func(g *Global) { g.NeutralSurfaces = on })
+}
+
 // SetLanguage changes the UI language for all windows.
 func (s *Store) SetLanguage(value string) error {
 	return s.change(func(g *Global) { g.Language = value })
@@ -980,6 +1037,12 @@ func (s *Store) SetMotion(mode powersave.Mode, lowBattery int) error {
 		g.MotionMode = mode
 		g.MotionSet = true
 		g.LowBattery = lowBattery
+	})
+}
+
+func (s *Store) SetDisabledAnimations(changed, disabled wdk.AnimationKind) error {
+	return s.change(func(g *Global) {
+		g.DisabledAnimations = g.DisabledAnimations&^changed | disabled&changed
 	})
 }
 
@@ -1338,6 +1401,11 @@ func (s *Store) SetComposer(value ComposerStyle) error {
 	return s.change(func(g *Global) { g.Composer = value })
 }
 
+// SetDeleteEffect chooses how a deleted message leaves the history.
+func (s *Store) SetDeleteEffect(value DeleteEffect) error {
+	return s.change(func(g *Global) { g.DeleteEffect = value })
+}
+
 // SetSilentVideoAsVideo chooses how a video without sound goes: as a video, or
 // as Telegram takes it, a GIF.
 func (s *Store) SetSilentVideoAsVideo(on bool) error {
@@ -1363,6 +1431,28 @@ func (s *Store) SetOverlays(o Overlays) error {
 // SetWindowBlur changes the compositor blur independently of transparency.
 func (s *Store) SetWindowBlur(on bool) error {
 	return s.change(func(g *Global) { g.WindowBlur = on })
+}
+
+// SetViewerBlur switches the blur behind the media viewer's window.
+func (s *Store) SetViewerBlur(on bool) error {
+	return s.change(func(g *Global) { g.ViewerBlur = on })
+}
+
+// SetWindowBlurOwn chooses who blurs behind the windows where both can:
+// the window itself, or the compositor.
+func (s *Store) SetWindowBlurOwn(own bool) error {
+	return s.change(func(g *Global) { g.WindowBlurOwn = own })
+}
+
+// SetWindowColor chooses the color of the windows on Windows 7 without
+// Aero, 0xAARRGGBB; 0 is the system's.
+func (s *Store) SetWindowColor(argb uint32) error {
+	return s.change(func(g *Global) { g.WindowColor = argb })
+}
+
+// SetWindowOwnFrame chooses the window's own frame over the system's.
+func (s *Store) SetWindowOwnFrame(own bool) error {
+	return s.change(func(g *Global) { g.WindowOwnFrame = own })
 }
 
 // SetWindowTransparency changes the window surfaces independently

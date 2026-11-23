@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -35,7 +34,7 @@ func TestCountryListHidesFlagsThatAreBoxes(t *testing.T) {
 	gtx := layout.Context{Ops: new(op.Ops), Constraints: layout.Exact(image.Pt(600, 600)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
 
 	// Fonts with no emoji at all.
-	bare := defaults.NewTheme(gtx, schemes.SchemeBaselineLight())
+	bare := testTheme(gtx, schemes.SchemeBaselineLight())
 	bare.TextShaper = text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
 	wdk.InitMaterialThemeInContext(gtx, bare)
 	if newCountryPicker().showsFlags(gtx) {

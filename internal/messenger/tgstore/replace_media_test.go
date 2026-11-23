@@ -21,6 +21,8 @@ import (
 	"komarugram/internal/messenger/sendfiles"
 	"komarugram/pkg/program"
 	"komarugram/pkg/video"
+
+	"komarugram/internal/testenv"
 )
 
 func editedPhotoFile(t *testing.T) string {
@@ -117,6 +119,7 @@ func TestReplaceMediaReturnsTheNewFile(t *testing.T) {
 // A GIF replaced goes as a GIF, its attributes those a GIF is told by: Telegram
 // would keep it a video otherwise.
 func TestReplaceMediaKeepsAGIF(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg := video.ResolveFFmpeg("")
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
@@ -161,6 +164,7 @@ func TestReplaceMediaKeepsAGIF(t *testing.T) {
 // Files sent together go each as it was asked: the video at a place named Animated
 // as a GIF, the one beside it as a video, and what bans GIFs bans that one.
 func TestSendFilesAnimatedByPlace(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg := video.ResolveFFmpeg("")
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
@@ -214,6 +218,7 @@ func TestSendFilesAnimatedByPlace(t *testing.T) {
 // A video without sound in an album is asked to stay a video; alone, or as a file,
 // it is sent as before.
 func TestAlbumVideoStaysAVideo(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg := video.ResolveFFmpeg("")
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")
@@ -261,6 +266,7 @@ func TestAlbumVideoStaysAVideo(t *testing.T) {
 // A video alone goes as Telegram takes it, a GIF when it has no sound, unless the
 // settings choose a video; one with sound never says it has none.
 func TestSilentVideoAsChosen(t *testing.T) {
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg := video.ResolveFFmpeg("")
 	if ffmpeg == "" || video.ResolveFFprobe("") == "" {
 		t.Skip("no FFmpeg")

@@ -220,6 +220,10 @@ func (p *chatPage) loadedToMeasure() int {
 				continue
 			}
 			msg := p.messages[i]
+			if r := p.rows[msg.Key.MessageID]; r != nil && r.resize.changing {
+				// Measuring without motion would finish a visible transition.
+				continue
+			}
 			if msg.Local() {
 				continue
 			}

@@ -15,12 +15,15 @@ import (
 
 	"komarugram/pkg/vp9"
 	"komarugram/pkg/webm"
+
+	"komarugram/internal/testenv"
 )
 
 // clip makes a WebM with FFmpeg: size pictures of VP9 with keyframes every 25, and
 // sound in Opus.
 func clip(t *testing.T, codec string) []byte {
 	t.Helper()
+	testenv.Integration(t, "runs FFmpeg")
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg unavailable")

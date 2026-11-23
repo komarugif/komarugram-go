@@ -281,7 +281,7 @@ func (v *mediaViewer) layoutVideoControls(gtx layout.Context, m model.Message, s
 		}
 	}
 	c.shown.Duration = token.DurationShort4
-	shown := c.shown.Animate(gtx, boolFloat(visible))
+	shown := c.shown.AnimateFor(gtx, wdk.AnimationViewer, boolFloat(visible))
 	margin, h := gtx.Dp(12), gtx.Dp(videoPlate)
 	width := min(stage.Dx()-2*margin, gtx.Dp(720))
 	plate := image.Rect(stage.Min.X+(stage.Dx()-width)/2, stage.Max.Y-margin-h, stage.Min.X+(stage.Dx()+width)/2, stage.Max.Y-margin)
@@ -301,7 +301,7 @@ func (v *mediaViewer) layoutVideoControls(gtx layout.Context, m model.Message, s
 	offset(gtx, plate.Min, func(gtx layout.Context) layout.Dimensions {
 		size := plate.Size()
 		area := clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(8)).Push(gtx.Ops)
-		paint.FillShape(gtx.Ops, color.NRGBA{A: 160}, clip.Rect{Max: size}.Op())
+		v.plateFill(gtx, size, plate.Min, color.NRGBA{A: 160})
 		event.Op(gtx.Ops, &c.plate)
 		area.Pop()
 		d := gtx.Dp(40)

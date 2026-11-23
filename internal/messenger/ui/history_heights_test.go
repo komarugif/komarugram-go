@@ -9,7 +9,6 @@ import (
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/preferences"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -59,7 +58,7 @@ func TestRowsAsHighPastRowsWidth(t *testing.T) {
 		msgs[i].ContentRevision = uint64(i + 1)
 	}
 	joins := messageJoins(msgs, false)
-	theme := defaults.NewTheme(layout.Context{Ops: new(op.Ops), Metric: metric, Values: map[string]any{}}, schemes.SchemeBaselineLight())
+	theme := testTheme(layout.Context{Ops: new(op.Ops), Metric: metric, Values: map[string]any{}}, schemes.SchemeBaselineLight())
 	heights := func(width int) []int {
 		var hs []int
 		for i, m := range msgs {
@@ -133,7 +132,7 @@ func TestThemeKeepsTheEnvironment(t *testing.T) {
 	h := newMenuHarness(t, nil)
 	env := h.page.env
 	gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(500, 700)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineDark()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineDark()))
 	h.page.images.BeginFrame()
 	h.page.media.BeginFrame()
 	h.page.Layout(gtx, model.Chat{ID: 1, Title: "Chat", Kind: model.KindGroup}, localization.For("en"), false)

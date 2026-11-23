@@ -62,8 +62,8 @@ func (s *widgetStyle) layoutTracks(gtx layout.Context) layout.Dimensions {
 		anim.position.Duration, anim.position.Easing = positionDuration, &positionEasing
 		anim.pressed.Duration = token.DurationShort2
 	}
-	position := anim.position.Animate(gtx, float32(activeStopIndicatorIndex))
-	pressed := anim.pressed.Animate(gtx, boolToFloat(s.Slider.sStartDrag.Dragging()))
+	position := anim.position.AnimateFor(gtx, wdk.AnimationCheckboxSlider, float32(activeStopIndicatorIndex))
+	pressed := anim.pressed.AnimateFor(gtx, wdk.AnimationCheckboxSlider, boolToFloat(s.Slider.sStartDrag.Dragging()))
 	stopIndicatorBox := wdk.Box{
 		Shape:    wdk.FromCornerShapesToken(gtx, s.Theme.SliderStopIndicatorShape),
 		EndPoint: image.Point{X: stopIndicatorSize, Y: stopIndicatorSize},

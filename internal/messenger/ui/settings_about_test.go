@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -192,7 +191,7 @@ func TestMascotStaysOnItsScene(t *testing.T) {
 	start := time.Now()
 	for _, after := range []time.Duration{0, 5 * time.Second, time.Minute} {
 		gtx := layout.Context{Ops: new(op.Ops), Now: start.Add(after), Constraints: layout.Exact(image.Pt(400, 400)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-		wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+		wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 		v.Layout(gtx, localization.For("ru"), true)
 		if v.index != 0 {
 			t.Fatalf("after %v: scene %d", after, v.index)

@@ -9,7 +9,6 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -92,7 +91,7 @@ func (s *measureStore) SaveView(_ model.Viewport, ls []model.MessageLayout) {
 // 500 px, the first with its date.
 func layOut(h *menuHarness, msgs []model.Message) map[model.MessageID]int {
 	metric := unit.Metric{PxPerDp: 1, PxPerSp: 1}
-	theme := defaults.NewTheme(layout.Context{Ops: new(op.Ops), Metric: metric, Values: map[string]any{}}, schemes.SchemeBaselineLight())
+	theme := testTheme(layout.Context{Ops: new(op.Ops), Metric: metric, Values: map[string]any{}}, schemes.SchemeBaselineLight())
 	heights := map[model.MessageID]int{}
 	for _, m := range msgs {
 		gtx := layout.Context{Ops: new(op.Ops), Now: h.now, Constraints: layout.Constraints{Max: image.Pt(500, 1<<20)}, Metric: metric, Values: map[string]any{}}

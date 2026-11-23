@@ -6,6 +6,8 @@ import (
 	"image"
 	"time"
 
+	"gio-mw/wdk"
+
 	"gioui.org/f32"
 	"gioui.org/gesture"
 	"gioui.org/io/pointer"
@@ -49,19 +51,20 @@ func (s *spoiler) Layout(gtx layout.Context, covered, animate bool, w layout.Wid
 	macro := op.Record(gtx.Ops)
 	dims := w(gtx)
 	call := macro.Stop()
-	if s.shown && (!animate || s.reveal.done(gtx.Now, dims.Size)) {
+	if s.shown && (!animate || !wdk.AnimationAllowed(gtx, wdk.AnimationMessage) || s.reveal.done(gtx.Now, dims.Size)) {
 		call.Add(gtx.Ops)
 		return dims
 	}
 	color := scheme(gtx).OutlineVariant.AsNRGBA()
+	dust := dustOver{col: scheme(gtx).Surface.OnColor.AsNRGBA()}
 	if s.shown {
 		radius := s.reveal.radius(gtx.Now, dims.Size)
-		paintSpoiler(gtx, dims.Size, s.reveal.center, radius, color, spoilerJoin{}, func() { call.Add(gtx.Ops) })
+		paintSpoiler(gtx, dims.Size, s.reveal.center, radius, color, dust, spoilerJoin{}, func() { call.Add(gtx.Ops) })
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 60)})
 		return dims
 	}
 	// Nothing of the value is drawn while it is covered.
-	paintSpoiler(gtx, dims.Size, f32.Point{}, 0, color, spoilerJoin{}, nil)
+	paintSpoiler(gtx, dims.Size, f32.Point{}, 0, color, dust, spoilerJoin{}, nil)
 	area := clip.Rect(image.Rectangle{Max: dims.Size}).Push(gtx.Ops)
 	pointer.CursorPointer.Add(gtx.Ops)
 	s.click.Add(gtx.Ops)

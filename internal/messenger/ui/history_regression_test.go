@@ -11,7 +11,6 @@ import (
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 
-	"gio-mw/defaults"
 	"gio-mw/defaults/schemes"
 	"gio-mw/wdk"
 
@@ -34,6 +33,7 @@ type chatInputHarness struct {
 
 func newChatInputHarness(t *testing.T) *chatInputHarness {
 	t.Helper()
+	skipFrames(t)
 	return newChatInputHarnessOf(t, 40, func(h model.History) model.ConversationStore { return benchmarkHistory{h: h} })
 }
 
@@ -41,6 +41,7 @@ func newChatInputHarness(t *testing.T) *chatInputHarness {
 // source makes of them.
 func newChatInputHarnessOf(t *testing.T, n int, source func(model.History) model.ConversationStore) *chatInputHarness {
 	t.Helper()
+	skipFrames(t)
 	h := &chatInputHarness{now: time.Unix(1000, 0)}
 	var messages []model.Message
 	for i := 1; i <= n; i++ {
@@ -55,7 +56,7 @@ func newChatInputHarnessOf(t *testing.T, n int, source func(model.History) model
 }
 func (h *chatInputHarness) frame() {
 	gtx := layout.Context{Ops: new(op.Ops), Source: h.router.Source(), Now: h.now, Constraints: layout.Exact(image.Pt(500, 600)), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
+	wdk.InitMaterialThemeInContext(gtx, testTheme(gtx, schemes.SchemeBaselineLight()))
 	if h.sibling.Clicked(gtx) {
 		h.clicked = true
 	}

@@ -5,39 +5,22 @@ package ui
 import (
 	"context"
 	"errors"
-	"fmt"
-	"gio-mw/exp"
 	"image"
 	"image/color"
-	"image/png"
 	"os"
 	"path/filepath"
-	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"gio-mw/defaults"
-	"gio-mw/defaults/schemes"
-	"gio-mw/exp/appearance"
-	"gio-mw/wdk"
-
 	"gioui.org/gpu"
-	"gioui.org/gpu/headless"
 	"gioui.org/io/key"
-	"gioui.org/layout"
-	"gioui.org/op"
-	"gioui.org/unit"
 	"komarugram/internal/messenger/emojipacks"
-	"komarugram/internal/messenger/localization"
-	"komarugram/internal/messenger/mockstore"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/preferences"
 	"komarugram/internal/messenger/proxy"
 	"komarugram/internal/messenger/shortcuts"
-	"komarugram/internal/miniappprefs"
-	"komarugram/internal/motion"
-	"komarugram/pkg/miniapp"
+	"komarugram/internal/wallpaper"
 	"komarugram/pkg/player"
 )
 
@@ -49,17 +32,25 @@ func (staticAccounts) Add()                       {}
 func (staticAccounts) LogOut(string)              {}
 func (staticAccounts) Subscribe(func()) func()    { return func() {} }
 
-// TestRenderSettingsAccounts draws the main settings page with a list of
-// saved accounts and saves a screenshot, for looking at it. SETTINGS_SECTION=appearance,
-// chats, notify, privacy, visibility, integrations, power or about draws that section instead; wallpapers,
-// the chats' section under the gallery of wallpapers:
+// TestRenderSettingsAccounts draws the settings as a window of the client
+// has them, the main page with a list of saved accounts, and saves a
+// screenshot, for looking at it. SETTINGS_SECTION=appearance, menus,
+// shortcuts, shortcut-record, chats, notify, privacy, visibility,
+// premium, integrations, proxy, power or about draws that section
+// instead; wallpapers, the chats' section under the gallery of
+// wallpapers:
 //
 //	SETTINGS_PNG=/tmp/settings.png go test ./internal/messenger/ui -run RenderSettingsAccounts
+//
+// The window is the client's (newSettingsApp): what a section shows is
+// set in the preferences, as the user sets it, and only what comes from
+// the system or from Telegram is set on the page.
 func TestRenderSettingsAccounts(t *testing.T) {
 	out := os.Getenv("SETTINGS_PNG")
 	if out == "" {
 		t.Skip("set SETTINGS_PNG to a file name")
 	}
+	section := os.Getenv("SETTINGS_SECTION")
 	photo := image.NewRGBA(image.Rect(0, 0, 160, 160))
 	for y := 0; y < 160; y++ {
 		for x := 0; x < 160; x++ {
@@ -71,236 +62,134 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		{ID: "2", UserID: 2, Name: "Чарльз Бэббидж", Phone: "+44 20 0000 0000", Open: true},
 		{ID: "3", UserID: 3, Name: "Аккаунт 3"},
 	}
-	p := newSettingsPage(motion.New(func() {}), miniappprefs.New(miniapp.Ephemeral), nil, func() {}, accounts,
-		func() string { return "1" }, themeAuto, "ru", func(themeMode) {}, func(string) {})
-	var images imageOps
-	p.images = &images
-	p.composerStyle = func() preferences.ComposerStyle { return preferences.ComposerFloating }
-	p.silentAsVideo = func() bool { return false }
-	p.composerBlur = func() bool { return true }
-	overlays := preferences.Overlays{Transparency: 30, MenusBlur: true, Shadow: preferences.ShadowDefault}
-	windowBlur := true
-	p.windowBlur = func() bool { return windowBlur }
-	p.setWindowBlur = func(on bool) { windowBlur = on }
-	windowTransparency := 40
-	p.windowTransparency = func() int { return windowTransparency }
-	p.setWindowTransparency = func(value int) { windowTransparency = value }
-	p.windowTransparencyAvailable = func() bool { return true }
-	p.overlays = func() preferences.Overlays { return overlays }
-	p.setOverlays = func(o preferences.Overlays) { overlays = o }
-	p.uninstall = func() {}
+	prefs := newSettingsPrefs(t)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(prefs.SetComposer(preferences.ComposerFloating))
+	must(prefs.SetComposerBlur(true))
+	must(prefs.SetOverlays(preferences.Overlays{Transparency: 30, MenusBlur: true, Shadow: preferences.ShadowDefault}))
+	must(prefs.SetWindowBlur(true))
+	must(prefs.SetWindowTransparency(40))
+	must(prefs.SetViewerBlur(true))
+	// The window blurs the desktop by itself, where the compositor could too.
+	must(prefs.SetWindowBlurOwn(true))
+	// Sound and channels off, to show both states of a switch.
+	must(prefs.SetNotify(preferences.Notify{Desktop: true, Name: true, Text: true, Private: true, Groups: true, AllAccounts: true}))
+	// A key taken by the desktop, to show the warning.
+	taken := shortcuts.Chord{Key: "T", Modifiers: key.ModCtrl | key.ModAlt}
+	must(prefs.SetShortcuts(shortcuts.Bindings{"app.theme": {taken}}))
+	must(prefs.SetMenus(preferences.Menus{menuMessage: {Order: []string{"delete", "reply"}, Hidden: []string{"repeat"}}, menuSidebar: {Hidden: []string{"profile"}}}))
+
 	proxies := proxy.NewStore("", nil)
 	proxies.Add(proxy.Proxy{Kind: proxy.SOCKS5, Host: "127.0.0.1", Port: 2080})
 	proxies.Add(proxy.Proxy{Kind: proxy.MTProto, Host: "mt.example.org", Port: 443, Secret: "dddf83f4ddaee1f1171b2e7a6e7403c60d"})
 	proxies.Select(proxy.Telegram().ID())
-	p.proxy = newProxyView(proxies, (&pingLog{fail: map[string]error{"mtproto|mt.example.org|443|": context.DeadlineExceeded}}).ping, nil)
+	services := Services{
+		Accounts:  accounts,
+		AccountID: "1",
+		Uninstall: func() {},
+		Proxies:   proxies,
+		PingProxy: (&pingLog{fail: map[string]error{"mtproto|mt.example.org|443|": context.DeadlineExceeded}}).ping,
+	}
 	size := image.Pt(900, 1300)
-	if os.Getenv("SETTINGS_SECTION") == "proxy" {
-		p.section = settingsProxy
-		p.proxy.Open()
-		size.Y = 900
-	}
-	if section := os.Getenv("SETTINGS_SECTION"); section == "shortcuts" || section == "shortcut-record" || section == "main" {
-		prefs := preferences.Memory()
-		_ = prefs.SetShortcuts(shortcuts.Bindings{"example.count": {{Key: "T", Modifiers: key.ModCtrl | key.ModAlt}}})
-		p.shortcuts = newShortcutSettings(func() shortcuts.Bindings { return prefs.Global().Shortcuts }, prefs.SetShortcuts, func() []shortcuts.Command {
-			return append(shortcuts.Commands(), shortcuts.Command{ID: "example.count", Label: "Пример команды", Scope: "history"})
-		}, func() {}, &p.toast)
-		p.shortcuts.check = func(context.Context, []shortcuts.Chord) shortcuts.SystemReport {
-			return shortcuts.SystemReport{KDE: true, PortalVersion: 2, Occupied: map[shortcuts.Chord]bool{{Key: "T", Modifiers: key.ModCtrl | key.ModAlt}: true}}
-		}
-		defer p.shortcuts.Close()
-		if section != "main" {
-			p.section = settingsShortcuts
-			size.Y = 6300
-		}
-		if section == "shortcut-record" {
-			size.Y = 900
-			p.shortcuts.editing = "example.count"
-			c := shortcuts.Chord{Key: "T", Modifiers: key.ModCtrl | key.ModAlt}
-			p.shortcuts.candidate = &c
-			p.shortcuts.report = shortcuts.SystemReport{KDE: true, Occupied: map[shortcuts.Chord]bool{c: true}}
-			p.shortcuts.dialog.Open()
-		}
-	}
-
-	if os.Getenv("SETTINGS_SECTION") == "appearance" {
-		p.section = settingsAppearance
+	var show settingsSection
+	switch section {
+	case "appearance":
+		show, size.Y = settingsAppearance, 2700
 		// One font is picked and gone since, the others are the system's.
-		files := preferences.Fonts{Extra: filepath.Join(t.TempDir(), "NotoSansKR-Regular.ttf")}
-		p.fontsView.files = func() preferences.Fonts { return files }
-		p.fontsView.setFiles = func(f preferences.Fonts) { files = f }
-		// The packs of a catalog: one installed and in use, one to download.
-		catalog := emojiPackCatalog(t)
-		p.emojiView.files, p.emojiView.setFiles = p.fontsView.files, p.fontsView.setFiles
-		p.emojiView.store = emojipacks.Open(filepath.Join(t.TempDir(), "emoji"))
-		p.emojiView.source = emojipacks.NewSource(catalog)
-		if packs, err := emojipacks.ReadIndex(context.Background(), p.emojiView.source); err == nil {
-			p.emojiView.catalog, p.emojiView.asked = packs, true
-			for _, pack := range packs {
-				if pack.ID == "sprites" {
-					if err := p.emojiView.store.Install(context.Background(), p.emojiView.source, pack, nil); err != nil {
-						t.Fatal(err)
-					}
-					files.EmojiPack = pack.ID
-				}
-			}
-		}
-		size.Y = 2700
-	}
-	if section := os.Getenv("SETTINGS_SECTION"); section == "main" || section == "menus" {
-		prefs := preferences.Memory()
-		_ = prefs.SetMenus(preferences.Menus{menuMessage: {Order: []string{"delete", "reply"}, Hidden: []string{"repeat"}}, menuSidebar: {Hidden: []string{"profile"}}})
-		p.menus = newMenuSettings(func() preferences.Menus { return prefs.Global().Menus }, prefs.SetMenus, func(l localization.Catalog) []menuCatalog {
-			return menuCatalogs([]model.Folder{{ID: 1, Title: "Личное"}, {ID: 2, Title: "Работа"}}, "demo", l)
-		}, &p.toast)
-		if section == "menus" {
-			p.section = settingsMenuOrder
-			size.Y = 5700
-		}
-	}
-	if p.shortcuts != nil {
-		var bindings []shortcuts.Chord
-		for _, c := range p.shortcuts.catalog() {
-			if c.ReadOnly {
-				continue
-			}
-			for _, b := range p.shortcuts.get().For(c) {
-				if !slices.Contains(bindings, b) {
-					bindings = append(bindings, b)
-				}
-			}
-		}
-		if p.shortcuts.candidate != nil && !slices.Contains(bindings, *p.shortcuts.candidate) {
-			bindings = append(bindings, *p.shortcuts.candidate)
-		}
-		p.shortcuts.signature = fmt.Sprint(bindings)
-		p.shortcuts.report = shortcuts.SystemReport{KDE: true, PortalVersion: 2, Occupied: map[shortcuts.Chord]bool{{Key: "T", Modifiers: key.ModCtrl | key.ModAlt}: true}}
-		if os.Getenv("SETTINGS_SECTION") == "shortcut-record" {
-			warm := layout.Context{Ops: new(op.Ops), Now: time.Now().Add(-time.Second), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
-			wdk.InitMaterialThemeInContext(warm, defaults.NewTheme(warm, schemes.SchemeBaselineLight()))
-			p.shortcuts.Overlay(warm, localization.For("ru"))
-		}
-	}
-	var chats *preferences.Store
-	if section := os.Getenv("SETTINGS_SECTION"); section == "chats" || section == "wallpapers" {
+		must(prefs.SetFonts(preferences.Fonts{Extra: filepath.Join(t.TempDir(), "NotoSansKR-Regular.ttf")}))
+		// The packs of a catalog: one to download, one installed and in use.
+		t.Setenv(emojipacks.CatalogEnv, emojiPackCatalog(t))
+	case "menus":
+		show, size.Y = settingsMenuOrder, 5700
+	case "shortcuts":
+		show, size.Y = settingsShortcuts, 6300
+	case "shortcut-record":
+		show, size.Y = settingsShortcuts, 900
+	case "chats", "wallpapers":
+		show, size.Y = settingsChats, 1900
+		// The demo's wallpapers and stickers are read from assets.
 		t.Chdir("../../..")
-		p.section = settingsChats
-		chats = preferences.Memory()
-		if err := chats.SetChats(preferences.ChatLook{Day: preferences.ChatMode{Theme: "day", Accent: 0xffd46c99}}); err != nil {
-			t.Fatal(err)
-		}
-		store := mockstore.New(time.Now(), 0)
-		c := p.chats
-		c.chats = func() preferences.ChatLook { return chats.Global().Chats }
-		c.setChats = chats.SetChats
-		c.dark = func() bool { return false }
-		c.store = chats
-		c.wallpapers = store
-		c.media = store
-		c.images = &images
-		c.thumbs = newWallpaperThumbs(store, func() {})
-		defer c.thumbs.Close()
-		p.confirmations = func() (bool, bool) { return true, false }
-		p.setConfirmations = func(bool, bool) {}
-		p.input = func() (bool, bool) { return false, true }
-		p.setInput = func(bool, bool) {}
-		look := preferences.Look{BubbleRadius: 8, AvatarCorners: 10, Seconds: true}
-		p.lookView.look = func() preferences.Look { return look }
-		p.lookView.setLook = func(l preferences.Look) { look = l }
-		size.Y = 1900
+		must(prefs.SetChats(preferences.ChatLook{Day: preferences.ChatMode{Theme: "day", Accent: 0xffd46c99}}))
+		must(prefs.SetConfirmations(true, false))
+		must(prefs.SetComposerInput(false, true))
+		must(prefs.SetLook(preferences.Look{BubbleRadius: 8, AvatarCorners: 10, Seconds: true}))
 		if section == "wallpapers" {
 			size.Y = 900
-			c.gallery.open()
 		}
-		// The thumbnails are rendered in the background.
-		ops := new(op.Ops)
-		for range 60 {
-			ops.Reset()
-			gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
-			wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
-			p.Update(gtx, themeAuto, "ru")
-			p.Layout(gtx, themeAuto, appearance.Light, false, localization.For("ru"))
-			c.layoutDialog(gtx, localization.For("ru"))
-			time.Sleep(50 * time.Millisecond)
-		}
-	}
-	// Sound and channels off, to show both states of a switch.
-	notifyPrefs := preferences.Notify{Desktop: true, Name: true, Text: true, Private: true, Groups: true, AllAccounts: true}
-	p.notifyView.get = func() preferences.Notify { return notifyPrefs }
-	p.notifyView.set = func(n preferences.Notify) { notifyPrefs = n }
-	if os.Getenv("SETTINGS_SECTION") == "notify" {
-		p.section = settingsNotify
-		p.shownAccounts = p.accounts.All()
-		size.Y = 1100
-	}
-	if section := os.Getenv("SETTINGS_SECTION"); section == "privacy" || section == "visibility" {
-		p.section = settingsPrivacy
-		size.Y = 1300
-		if section == "visibility" {
-			p.section = settingsVisibility
-			size.Y = 2500
-		}
-		pinned := true
-		p.visibilityPinned = func() bool { return pinned }
-		p.setVisibilityPinned = func(on bool) { pinned = on }
-		p.hasAccount = func() bool { return true }
-		calm := preferences.Calm{On: true, KeepOnline: true, HidePaid: true}
-		p.calm = func() preferences.Calm { return calm }
-		p.setCalm = func(c preferences.Calm) { calm = c }
-		hideBadges, keepArrows, keepFaces := true, false, true
-		p.hidePeerBadges = func() bool { return hideBadges }
-		p.setHidePeerBadges = func(on bool) { hideBadges = on }
-		p.keepPeerBadges = func() (bool, bool) { return keepArrows, keepFaces }
-		p.setKeepPeerBadges = func(arrows, faces bool) { keepArrows, keepFaces = arrows, faces }
-		ghost := preferences.Ghost{On: true, KeepOnline: true, ReadOnInteract: true}
-		p.ghost = func() preferences.Ghost { return ghost }
-		p.setGhost = func(g preferences.Ghost) { ghost = g }
-		keep := preferences.Keep{Deleted: true, Edits: true}
-		p.keep = func() preferences.Keep { return keep }
-		p.setKeep = func(k preferences.Keep) { keep = k }
-		filters := preferences.Filters{Enabled: true, Patterns: []preferences.FilterPattern{{Text: "реклама|промокод", CaseInsensitive: true}, {Text: "^#", Reversed: true, Chat: 5}}}
-		p.filtersView.filters = func() preferences.Filters { return filters }
-		p.filtersView.setFilters = func(f preferences.Filters) { filters = f }
-		p.filtersView.remove = make([]surface, 2)
-	}
-	if os.Getenv("SETTINGS_SECTION") == "main" {
-		// The main page lists the Visibility section, between the chats'
-		// and the notifications'.
-		calm := preferences.Calm{}
-		p.calm = func() preferences.Calm { return calm }
-	}
-	if os.Getenv("SETTINGS_SECTION") == "premium" {
+	case "notify":
+		show, size.Y = settingsNotify, 1100
+	case "privacy":
+		show = settingsPrivacy
+	case "visibility":
+		show, size.Y = settingsVisibility, 2500
+		must(prefs.PinVisibility("1", true))
+		must(prefs.ChangeVisibility("1", func(v *preferences.Visibility) {
+			v.Calm = preferences.Calm{On: true, KeepOnline: true, HidePaid: true}
+			v.HidePeerBadges, v.KeepPeerArrows, v.KeepPeerFaces = true, false, true
+			v.Ghost = preferences.Ghost{On: true, KeepOnline: true, ReadOnInteract: true}
+			v.Keep = preferences.Keep{Deleted: true, Edits: true}
+			v.Filters = preferences.Filters{Enabled: true, Patterns: []preferences.FilterPattern{{Text: "реклама|промокод", CaseInsensitive: true}, {Text: "^#", Reversed: true, Chat: 5}}}
+		}))
+	case "premium":
 		// An account without Premium that has Local Premium on.
-		p.section = settingsPremium
-		p.premium = plainPremium{}
-		on := model.LocalPremium{Star: true, Media: true, Pins: true}
-		if os.Getenv("LOCAL_PREMIUM") == "off" {
-			on = model.LocalPremium{}
+		show, size.Y = settingsPremium, 1500
+		if os.Getenv("LOCAL_PREMIUM") != "off" {
+			must(prefs.SetLocalPremiumOf("1", preferences.LocalPremium(model.LocalPremium{Star: true, Media: true, Pins: true})))
 		}
-		p.localPremium = func() model.LocalPremium { return on }
-		p.setLocalPremium = func(v model.LocalPremium) { on = v }
+		must(prefs.SetPremiumMediaOf("1", true))
+	case "integrations":
+		show, size.Y = settingsIntegrations, 1650
+		// A VLC the user pointed at, and a file that is not mpv.
+		must(prefs.SetPlayerPath(player.VLC, "/var/lib/flatpak/exports/bin/org.videolan.VLC"))
+		must(prefs.SetPlayerPath(player.MPV, "/usr/bin/ls"))
+	case "proxy":
+		show, size.Y = settingsProxy, 900
+	case "power":
+		show, size.Y = settingsPower, 2140
+		must(prefs.SetPauseInactive(true))
+	case "about":
+		show = settingsAbout
+	}
+
+	h := newSettingsApp(t, prefs, services, true, size)
+	p := h.app.settings
+	// What Telegram says of the account: the premium section draws it
+	// both ways.
+	if section == "premium" {
+		p.premium = plainPremium{}
 		if os.Getenv("PREMIUM_ACTIVE") == "on" {
 			p.premium = activePremium{}
-			media := true
-			p.premiumMedia = func() bool { return media }
-			p.setPremiumMedia = func(v bool) { media = v }
 		}
-		size.Y = 1500
 	}
-	if os.Getenv("SETTINGS_SECTION") == "about" {
-		// Offline: the pictures GitHub gives stay the icons in their place.
-		p.section = settingsAbout
-		p.about.fetch = func(context.Context, string) ([]byte, error) { return nil, errors.New("offline") }
+	// What the desktop takes of the keys: KDE's, with one of them taken.
+	report := shortcuts.SystemReport{KDE: true, PortalVersion: 2, Occupied: map[shortcuts.Chord]bool{taken: true}}
+	p.shortcuts.check = func(context.Context, []shortcuts.Chord) shortcuts.SystemReport { return report }
+	// Offline: the pictures GitHub gives stay the icons in their place.
+	p.about.fetch = func(context.Context, string) ([]byte, error) { return nil, errors.New("offline") }
+	// A system where both the window and the compositor can blur, and
+	// where the window may draw its own frame: every choice of the
+	// appearance shown.
+	p.windowBlurChoice = func() bool { return true }
+	p.windowOwnFrameSupported = func() bool { return true }
+	p.windowTransparencyAvailable = func() bool { return true }
+	// Windows 7 without Aero, its glass as the Basic theme left it: the
+	// color of the windows is offered.
+	p.windowColor.offered = func() bool { return true }
+	p.windowColor.system = func() uint32 { return wallpaper.WindowColors[0] }
+	if p.about.openCommunity == nil {
 		p.about.openCommunity = func() {}
-		p.about.open()
 	}
-	if section := os.Getenv("SETTINGS_SECTION"); section == "graphics" || section == "graphics-discrete" || section == "graphics-auto" {
+	if section == "graphics" || section == "graphics-discrete" || section == "graphics-auto" {
 		// Wayland on a laptop with two GPUs, Vulkan with the automatic
 		// choice, which remembered the Intel one, the devices listed;
 		// graphics-discrete, the NVIDIA one chosen; graphics-auto, the API
 		// chosen automatically, which drew with Vulkan.
-		p.section = settingsGraphics
+		show = settingsGraphics
 		g := preferences.Graphics{API: preferences.GraphicsVulkan, Auto: toVulkanDevice(testIntel)}
 		switch section {
 		case "graphics-discrete":
@@ -325,65 +214,50 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		}
 		size.Y = 1100
 	}
-	if os.Getenv("SETTINGS_SECTION") == "power" {
-		p.section = settingsPower
-		pause := true
-		p.pauseInactive = func() bool { return pause }
-		p.setPauseInactive = func(on bool) { pause = on }
+
+	if show != settingsMain {
+		h.show(show)
 	}
-	if os.Getenv("SETTINGS_SECTION") == "integrations" {
-		p.section = settingsIntegrations
-		size.Y = 1650
-		// A VLC the user pointed at, and a file that is not mpv.
-		custom := map[player.Kind]string{player.VLC: "/var/lib/flatpak/exports/bin/org.videolan.VLC", player.MPV: "/usr/bin/ls"}
-		p.players.paths = func() map[player.Kind]string { return custom }
-		p.invalidate = func() {}
-		p.refreshPrograms()
-		// The programs answer in the background.
-		ops := new(op.Ops)
-		for range 100 {
-			ops.Reset()
-			gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
-			wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
-			p.Update(gtx, themeAuto, "ru")
-			if p.browser.detected != nil && p.players.programs[player.VLC].customAbout != nil && p.players.programs[player.MPV].customAbout != nil {
-				break
+	switch section {
+	case "appearance":
+		// The catalog is read, and the pack used is installed, as the
+		// user installed it before.
+		h.until("the catalog of emoji packs", func() bool { return !p.emojiView.reading })
+		for _, pack := range p.emojiView.catalog {
+			if pack.ID == "sprites" {
+				must(p.emojiView.store.Install(context.Background(), p.emojiView.source, pack, nil))
+				fonts := prefs.Global().Fonts
+				fonts.EmojiPack = pack.ID
+				must(prefs.SetFonts(fonts))
 			}
+		}
+		// The settings read the packs installed again once a second.
+		h.settle(1200 * time.Millisecond)
+	case "shortcuts", "shortcut-record":
+		h.until("the keys the desktop takes", func() bool { return !p.shortcuts.busy })
+		if section == "shortcut-record" {
+			// Pressing the taken key in the dialog that records one.
+			s := p.shortcuts
+			s.editing, s.candidate = "app.theme", &taken
+			s.dialog.Open()
+			h.until("the keys the desktop takes", func() bool { return !s.busy && s.report.Occupied[taken] })
+		}
+	case "chats", "wallpapers":
+		if section == "wallpapers" {
+			p.chats.gallery.open()
+		}
+		// The thumbnails are rendered in the background.
+		for range 60 {
+			h.frame(nil)
 			time.Sleep(50 * time.Millisecond)
 		}
+	case "integrations":
+		// The programs answer in the background.
+		h.until("the programs' answers", func() bool {
+			return p.browser.detected != nil && p.players.programs[player.VLC].customAbout != nil && p.players.programs[player.MPV].customAbout != nil
+		})
 	}
-	win, err := headless.NewWindow(size.X, size.Y)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer win.Release()
-	ops := new(op.Ops)
-	gtx := layout.Context{Ops: ops, Now: time.Now(), Constraints: layout.Exact(size), Metric: unit.Metric{PxPerDp: 1.25, PxPerSp: 1.25}, Values: map[string]any{}}
-	wdk.InitMaterialThemeInContext(gtx, defaults.NewTheme(gtx, schemes.SchemeBaselineLight()))
-	images.BeginFrame()
-	// The root surface, which sections drawn by exp widgets read.
-	exp.Background(gtx)
-	p.Update(gtx, themeAuto, "ru")
-	p.Layout(gtx, themeAuto, appearance.Light, false, localization.For("ru"))
-	if chats != nil {
-		p.chats.layoutDialog(gtx, localization.For("ru"))
-	}
-	images.EndFrame()
-	if err := win.Frame(ops); err != nil {
-		t.Fatal(err)
-	}
-	img := image.NewRGBA(image.Rectangle{Max: size})
-	if err := win.Screenshot(img); err != nil {
-		t.Fatal(err)
-	}
-	f, err := os.Create(out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	if err := png.Encode(f, img); err != nil {
-		t.Fatal(err)
-	}
+	h.render(out)
 }
 
 // activePremium is an account that has Premium.

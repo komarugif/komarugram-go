@@ -13,6 +13,8 @@ import (
 	"github.com/gotd/td/telegram/downloader"
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
+
+	"komarugram/internal/testenv"
 )
 
 // fileServer serves one file over upload.getFile and counts the requests.
@@ -70,6 +72,7 @@ func TestDownloadAsksOncePerPart(t *testing.T) {
 // few: gotd sat out each, and asked again, for as long as the download
 // ran. One refused once is waited for, and goes on.
 func TestDownloadGivesUpOnARefusedFile(t *testing.T) {
+	testenv.Waits(t, "for gotd's waits after FLOOD_WAIT")
 	// gotd sits out a second past what Telegram names.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
