@@ -19,14 +19,6 @@ import (
 // GPU, as the client's binary is with its flag.
 const hardwareHelperEnv = "KOMARUGRAM_CHATMEDIA_TEST_HELPER"
 
-func TestMain(m *testing.M) {
-	if os.Getenv(hardwareHelperEnv) != "" {
-		_ = hwvideo.Serve(os.Stdin, os.Stdout)
-		os.Exit(0)
-	}
-	os.Exit(m.Run())
-}
-
 func hardwareClient(t *testing.T) *hwvideo.Client {
 	t.Helper()
 	self, err := os.Executable()
