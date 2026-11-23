@@ -64,7 +64,7 @@ func TestGhostBoxes(t *testing.T) {
 			t.Errorf("%+v came back as %+v", g, got)
 		}
 	}
-	if got := ghostHiddenOf(preferences.Ghost{KeepUploads: true}); slices.Contains(got, "uploads") || !slices.Contains(got, "read") || !slices.Contains(got, "stories") {
+	if got := ghostHiddenOf(preferences.Ghost{KeepUploads: true}); slices.Contains(got, "uploads") || !slices.Contains(got, "read") || !slices.Contains(got, "offline") || !slices.Contains(got, "stories") {
 		t.Errorf("hidden %v", got)
 	}
 	if got := ghostWithHidden(preferences.Ghost{On: true}, []string{"stories"}); got.KeepStories || !got.KeepRead {

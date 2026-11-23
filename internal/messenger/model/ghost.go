@@ -16,9 +16,17 @@ type Ghost struct {
 	// SendStories tells Telegram the stories the account has seen, which
 	// their posters see in the list of who viewed them.
 	SendStories bool
+	// SendOfflineAfterOnline sends an offline status packet after going
+	// online (as AyuGramDesktop's AyuWorker), keeping the account offline
+	// even when an action or another session brings it online.
+	SendOfflineAfterOnline bool
 	// ReadOnInteract marks a chat read, without SendRead, when the account
 	// sends to it or reacts in it.
 	ReadOnInteract bool
+	// UseScheduled sends outgoing messages as scheduled (12s ahead, 17s for
+	// voice messages) while Ghost Mode is active so Telegram does not mark
+	// the account online (as AyuGramDesktop's applyGhostScheduling).
+	UseScheduled bool
 }
 
 // Sends reports whether g tells others of action.

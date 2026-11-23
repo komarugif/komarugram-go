@@ -408,9 +408,15 @@ type Ghost struct {
 	KeepRecording bool `json:"keep_recording,omitempty"`
 	KeepStickers  bool `json:"keep_stickers,omitempty"`
 	KeepStories   bool `json:"keep_stories,omitempty"`
+	// KeepOffline disables sending an offline packet after going online
+	// while Ghost Mode is on (AyuGram's sendOfflinePacketAfterOnline).
+	KeepOffline bool `json:"keep_offline,omitempty"`
 	// ReadOnInteract marks a chat read on sending to it or reacting in
 	// it, while reads are hidden.
 	ReadOnInteract bool `json:"read_on_interact"`
+	// UseScheduled sends messages as scheduled while Ghost Mode is on so
+	// Telegram does not show the account online.
+	UseScheduled bool `json:"use_scheduled,omitempty"`
 }
 
 // Told is what the accounts tell others: see Ghost's Keep switches.
@@ -422,6 +428,18 @@ type Told struct {
 func (g Ghost) Tells() Told {
 	tells := func(keep bool) bool { return !g.On || keep }
 	return Told{tells(g.KeepRead), tells(g.KeepOnline), tells(g.KeepTyping), tells(g.KeepUploads), tells(g.KeepRecording), tells(g.KeepStickers), tells(g.KeepStories)}
+}
+
+// SendOfflineAfterOnline reports whether Ghost Mode should send an offline
+// packet after going online, as AyuGramDesktop's sendOfflinePacketAfterOnline.
+func (g Ghost) SendOfflineAfterOnline() bool {
+	return g.On && !g.KeepOffline
+}
+
+// UsesScheduled reports whether outgoing messages should be scheduled while
+// Ghost Mode is active, as AyuGramDesktop's isUseScheduledMessages.
+func (g Ghost) UsesScheduled() bool {
+	return g.On && g.UseScheduled
 }
 
 // UnmarshalJSON reads g, and the settings saved before Ghost Mode was one

@@ -43,6 +43,13 @@ func (g *ghostAPI) client() *tg.Client {
 			g.told = append(g.told, "typing")
 			return &tg.BoolTrue{}, nil
 		case *tg.MessagesSendMessageRequest:
+			if r.ScheduleDate > 0 {
+				g.told = append(g.told, "scheduled")
+				return &tg.Updates{Updates: []tg.UpdateClass{
+					&tg.UpdateMessageID{ID: 61, RandomID: r.RandomID},
+					&tg.UpdateNewScheduledMessage{Message: &tg.Message{ID: 61, PeerID: &tg.PeerUser{UserID: 5}, Out: true, Message: r.Message, Date: r.ScheduleDate}},
+				}}, nil
+			}
 			return &tg.UpdateShortSentMessage{ID: 60, Date: 10}, nil
 		}
 		return nil, fmt.Errorf("unexpected %T", in)
@@ -400,5 +407,52 @@ func TestTellOffline(t *testing.T) {
 	s.TellOffline()
 	if told := api.wait(t, 2); len(told) != 2 {
 		t.Fatalf("told twice %q", told)
+	}
+}
+
+// With UseScheduled, Ghost Mode schedules outgoing messages and keeps them
+// pending until Telegram reports them delivered via UpdateDeleteScheduledMessages.
+func TestGhostScheduledSend(t *testing.T) {
+	s := testStore(t)
+	chat := int64(5)
+	s.rememberPeers([]tg.UserClass{&tg.User{ID: 1, Self: true, FirstName: "Me"}, &tg.User{ID: 5, AccessHash: 55, FirstName: "Ann"}}, nil)
+	s.history.histories[chat] = &model.History{}
+	api := &ghostAPI{}
+	s.history.api = api.client()
+	s.SetGhost(model.Ghost{UseScheduled: true, ReadOnInteract: true})
+	if err := s.Send(context.Background(), chat, model.OutgoingMessage{RandomID: 1, Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	if told := api.wait(t, 1); len(told) != 1 || told[0] != "scheduled" {
+		t.Fatalf("told %q, want scheduled without read", told)
+	}
+	if got := s.History(chat).Messages; len(got) != 1 || got[0].Text != "hi" {
+		t.Fatalf("pending scheduled message missing: %+v", got)
+	}
+	if err := s.Handle(context.Background(), &tg.Updates{Updates: []tg.UpdateClass{&tg.UpdateDeleteScheduledMessages{Peer: &tg.PeerUser{UserID: 5}, Messages: []int{61}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.History(chat).Messages; len(got) != 0 {
+		t.Fatalf("scheduled pending not cleared: %+v", got)
+	}
+}
+
+// SendOfflineAfterOnline pushes the account back offline when Ghost Mode is
+// enabled or when Telegram reports the account online.
+func TestGhostOfflineAfterOnline(t *testing.T) {
+	s := testStore(t)
+	defer s.stopGhostOffline()
+	s.me.ID = 1
+	api := &ghostAPI{}
+	s.history.api = api.client()
+	s.SetGhost(model.Ghost{SendOfflineAfterOnline: true})
+	s.offlineTick()
+	if told := api.wait(t, 1); told[0] != "offline true" {
+		t.Fatalf("told %q, want offline true", told)
+	}
+	s.setPresence(1, &tg.UserStatusOnline{Expires: int(time.Now().Add(time.Minute).Unix())})
+	s.offlineTick()
+	if told := api.wait(t, 2); told[1] != "offline true" {
+		t.Fatalf("told %q, want second offline true after online presence", told)
 	}
 }

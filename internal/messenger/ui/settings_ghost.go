@@ -15,11 +15,11 @@ import (
 
 // ghostHidden are the boxes of what Ghost Mode hides, as AyuGram's Ghost
 // Mode has them, an action of the account's to a box.
-var ghostHidden = []string{"read", "online", "typing", "uploads", "recording", "stickers", "stories"}
+var ghostHidden = []string{"read", "online", "offline", "typing", "uploads", "recording", "stickers", "stories"}
 
 // ghostKeeps are the Keep switches of g, in the order of ghostHidden.
 func ghostKeeps(g *preferences.Ghost) []*bool {
-	return []*bool{&g.KeepRead, &g.KeepOnline, &g.KeepTyping, &g.KeepUploads, &g.KeepRecording, &g.KeepStickers, &g.KeepStories}
+	return []*bool{&g.KeepRead, &g.KeepOnline, &g.KeepOffline, &g.KeepTyping, &g.KeepUploads, &g.KeepRecording, &g.KeepStickers, &g.KeepStories}
 }
 
 // ghostWithHidden is g hiding what values name.
@@ -65,6 +65,13 @@ func (p *settingsPage) layoutGhost(gtx layout.Context, l localization.Catalog) l
 			p.ghostInteract.SetValues(nil)
 		}
 	}
+	if g.UseScheduled != (len(p.ghostSchedule.GetValues()) == 1) {
+		if g.UseScheduled {
+			p.ghostSchedule.SetValues([]string{"schedule"})
+		} else {
+			p.ghostSchedule.SetValues(nil)
+		}
+	}
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return p.ghostToggle.Layout(gtx, map[string]string{"ghost": l.T("ghost.title")})
@@ -78,6 +85,7 @@ func (p *settingsPage) layoutGhost(gtx layout.Context, l localization.Catalog) l
 			return p.ghostBoxes.Layout(gtx, map[string]string{
 				"read":      l.T("ghost.read"),
 				"online":    l.T("ghost.online"),
+				"offline":   l.T("ghost.offline"),
 				"typing":    l.T("ghost.typing"),
 				"uploads":   l.T("ghost.uploads"),
 				"recording": l.T("ghost.recording"),
@@ -92,6 +100,14 @@ func (p *settingsPage) layoutGhost(gtx layout.Context, l localization.Catalog) l
 		vspace(4),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, l.T("ghost.interact_body"), token.TypestyleBodySmall, sc.SurfaceVariant.OnColor, 0)
+		}),
+		vspace(8),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return p.ghostSchedule.Layout(gtx, map[string]string{"schedule": l.T("ghost.schedule")})
+		}),
+		vspace(4),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, l.T("ghost.schedule_body"), token.TypestyleBodySmall, sc.SurfaceVariant.OnColor, 0)
 		}),
 	)
 }

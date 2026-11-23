@@ -30,6 +30,19 @@ const (
 	// readAgain is how often a chat read to its end whose unread count
 	// came back is told again that it is read.
 	readAgain = 10 * time.Second
+	// offlineCheckEvery is how often Ghost Mode checks whether the account
+	// went online and sends an offline status packet, as AyuGramDesktop's
+	// AyuWorker (3 seconds).
+	offlineCheckEvery = 3 * time.Second
+	// ghostScheduleDelay is how many seconds ahead Ghost Mode schedules
+	// outgoing messages so Telegram does not mark the account online, as
+	// AyuGramDesktop's applyGhostScheduling (12 seconds, 17 for voice).
+	ghostScheduleDelay      = 12
+	ghostVoiceScheduleDelay = 17
+	// ghostScheduleGrace is how long a scheduled pending message stays in
+	// the list after its scheduled time if UpdateDeleteScheduledMessages
+	// is missed.
+	ghostScheduleGrace = 15 * time.Second
 )
 
 // actionKey is an action in a chat.
@@ -54,10 +67,17 @@ type ghostState struct {
 	// told is when the status was sent last; toldOnline, which one.
 	told       time.Time
 	toldOnline bool
+	// markedOnline and offlineTimer implement AyuGramDesktop's AyuWorker:
+	// while SendOfflineAfterOnline is set, the account is pushed back
+	// offline within offlineCheckEvery whenever an action or Telegram
+	// brings it online.
+	markedOnline bool
+	offlineTimer *time.Timer
 }
 
 // SetGhost implements model.GhostStore. Turning online off while online
-// tells Telegram the account went offline.
+// tells Telegram the account went offline; enabling SendOfflineAfterOnline
+// starts the offline worker as AyuGramDesktop's setGhostModeEnabled does.
 func (s *Store) SetGhost(g model.Ghost) {
 	gs := &s.ghost
 	gs.mu.Lock()
@@ -66,6 +86,21 @@ func (s *Store) SetGhost(g model.Ghost) {
 	offline := was.SendOnline && !g.SendOnline && gs.toldOnline
 	if offline {
 		gs.toldOnline, gs.told = false, time.Now()
+		gs.markedOnline = false
+	}
+	if !g.SendOfflineAfterOnline {
+		gs.markedOnline = false
+		if gs.offlineTimer != nil {
+			gs.offlineTimer.Stop()
+			gs.offlineTimer = nil
+		}
+	} else {
+		if !was.SendOfflineAfterOnline && !offline {
+			gs.markedOnline = true
+		}
+		if gs.offlineTimer == nil {
+			gs.offlineTimer = time.AfterFunc(offlineCheckEvery, s.offlineTick)
+		}
 	}
 	gs.mu.Unlock()
 	if offline {
@@ -74,6 +109,92 @@ func (s *Store) SetGhost(g model.Ghost) {
 			return err
 		})
 	}
+}
+
+// markGhostOnline marks the account as needing an offline status packet,
+// as AyuGramDesktop's AyuWorker::markAsOnline.
+func (s *Store) markGhostOnline() {
+	gs := &s.ghost
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	if !gs.ghost.SendOfflineAfterOnline {
+		return
+	}
+	gs.markedOnline = true
+	if gs.offlineTimer != nil {
+		gs.offlineTimer.Stop()
+	}
+	gs.offlineTimer = time.AfterFunc(offlineCheckEvery, s.offlineTick)
+}
+
+// stopGhostOffline stops the offline worker when the store closes.
+func (s *Store) stopGhostOffline() {
+	gs := &s.ghost
+	gs.mu.Lock()
+	if gs.offlineTimer != nil {
+		gs.offlineTimer.Stop()
+		gs.offlineTimer = nil
+	}
+	gs.markedOnline = false
+	gs.mu.Unlock()
+}
+
+// offlineTick sends an offline packet if Ghost Mode's offline worker is
+// enabled and the account was marked online or Telegram reports it online,
+// as AyuGramDesktop's AyuWorker::runOnce.
+func (s *Store) offlineTick() {
+	c := s.history
+	c.mu.Lock()
+	closing, connected := c.closing, c.api != nil
+	c.mu.Unlock()
+	if closing {
+		return
+	}
+	onlineNow := s.selfIsOnline(time.Now())
+	gs := &s.ghost
+	gs.mu.Lock()
+	if !gs.ghost.SendOfflineAfterOnline {
+		gs.offlineTimer = nil
+		gs.mu.Unlock()
+		return
+	}
+	send := connected && (gs.markedOnline || onlineNow)
+	if send {
+		gs.markedOnline = false
+		gs.toldOnline = false
+		gs.told = time.Now()
+	}
+	gs.offlineTimer = time.AfterFunc(offlineCheckEvery, s.offlineTick)
+	gs.mu.Unlock()
+	if send {
+		s.goSend("status", func(ctx context.Context, api *tg.Client) error {
+			_, err := api.AccountUpdateStatus(ctx, true)
+			return err
+		})
+	}
+}
+
+// selfIsOnline reports whether Telegram's last known presence for the
+// account itself is currently online.
+func (s *Store) selfIsOnline(now time.Time) bool {
+	me := s.Me().ID
+	if me == 0 {
+		return false
+	}
+	p, ok := s.Presence(peerID(&tg.PeerUser{UserID: me}))
+	return ok && p.Seen == model.SeenAt && p.At.After(now)
+}
+
+// ghostScheduleDate returns the Unix schedule timestamp for an outgoing
+// message when Ghost Mode's scheduled sending is active, or 0 otherwise.
+func (s *Store) ghostScheduleDate(delaySeconds int) int {
+	if !s.ghostSettings().UseScheduled {
+		return 0
+	}
+	if delaySeconds <= 0 {
+		delaySeconds = ghostScheduleDelay
+	}
+	return int(time.Now().Unix()) + delaySeconds
 }
 
 // Ghost implements model.GhostStore.
@@ -224,7 +345,7 @@ func (s *Store) tellRead(chat int64, id model.MessageID, send func(context.Conte
 // sent to it or reacted in it, when Ghost.ReadOnInteract asks for that.
 func (s *Store) readOnInteract(chat int64) {
 	g := s.ghostSettings()
-	if g.SendRead || !g.ReadOnInteract {
+	if g.SendRead || !g.ReadOnInteract || g.UseScheduled {
 		return
 	}
 	chat = s.realChat(chat)

@@ -187,12 +187,21 @@ func (s *Store) deliverForward(ctx context.Context, e *outgoingEntry) error {
 		if len(req.ID) == 0 {
 			continue
 		}
+		scheduleDate := s.ghostScheduleDate(ghostScheduleDelay)
+		if scheduleDate > 0 {
+			req.SetScheduleDate(scheduleDate)
+		}
 		res, err := api.MessagesForwardMessages(ctx, req)
 		if err != nil {
 			return fmt.Errorf("forward: %w", err)
 		}
 		if err := s.acceptOutgoing(ctx, e, res, req.RandomID); err != nil {
 			return err
+		}
+		if scheduleDate > 0 {
+			s.markPendingScheduled(e.pending, scheduleDate)
+		} else {
+			s.markGhostOnline()
 		}
 		_ = s.Handle(ctx, res)
 	}

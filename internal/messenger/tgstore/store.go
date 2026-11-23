@@ -155,6 +155,7 @@ func (s *Store) Load(ctx context.Context, api *tg.Client) error {
 		s.me = profile(self, full.FullUser.About)
 		s.me.DC = s.dc
 	})
+	s.markGhostOnline()
 	s.loadAppConfig(ctx, api, self.Premium)
 	if err := s.loadDialogs(ctx, api, self.ID); err != nil {
 		return err

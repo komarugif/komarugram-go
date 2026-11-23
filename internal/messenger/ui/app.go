@@ -2009,7 +2009,18 @@ func (a *App) tellGhost() {
 	}
 	p := a.visibility().Ghost
 	t := p.Tells()
-	g.SetGhost(model.Ghost{SendRead: t.Read, SendOnline: t.Online, SendTyping: t.Typing, SendUploads: t.Uploads, SendRecording: t.Recording, SendStickers: t.Stickers, SendStories: t.Stories, ReadOnInteract: p.ReadOnInteract})
+	g.SetGhost(model.Ghost{
+		SendRead:               t.Read,
+		SendOnline:             t.Online,
+		SendTyping:             t.Typing,
+		SendUploads:            t.Uploads,
+		SendRecording:          t.Recording,
+		SendStickers:           t.Stickers,
+		SendStories:            t.Stories,
+		SendOfflineAfterOnline: p.SendOfflineAfterOnline(),
+		ReadOnInteract:         p.ReadOnInteract,
+		UseScheduled:           p.UsesScheduled(),
+	})
 	g.SetOnline(a.focused)
 	if k, ok := a.store.(model.KeepStore); ok {
 		keep := a.visibility().Keep

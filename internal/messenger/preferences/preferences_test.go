@@ -235,15 +235,21 @@ func TestGhostDefaultsToTelling(t *testing.T) {
 	if told := s.Global().Ghost.Tells(); told != (Told{true, true, true, true, true, true, true}) {
 		t.Fatalf("by default %+v, want everything told", s.Global().Ghost)
 	}
-	if err := s.SetGhost(Ghost{On: true, KeepTyping: true}); err != nil {
+	if s.Global().Ghost.SendOfflineAfterOnline() || s.Global().Ghost.UsesScheduled() {
+		t.Fatalf("by default %+v, want offline worker and scheduled off", s.Global().Ghost)
+	}
+	if err := s.SetGhost(Ghost{On: true, KeepTyping: true, UseScheduled: true}); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := OpenPath(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g := loaded.Global().Ghost; g != (Ghost{On: true, KeepTyping: true}) {
+	if g := loaded.Global().Ghost; g != (Ghost{On: true, KeepTyping: true, UseScheduled: true}) {
 		t.Fatalf("Ghost Mode came back as %+v", g)
+	}
+	if g := loaded.Global().Ghost; !g.SendOfflineAfterOnline() || !g.UsesScheduled() {
+		t.Fatalf("Ghost Mode %+v, want offline worker and scheduled active", g)
 	}
 }
 

@@ -199,6 +199,7 @@ type settingsPage struct {
 	ghostToggle   *toggle.Toggle[string]
 	ghostBoxes    *checkbox.Checkboxes[string]
 	ghostInteract *checkbox.Checkboxes[string]
+	ghostSchedule *checkbox.Checkboxes[string]
 	// keep and setKeep read and change what the cache keeps.
 	keep     func() preferences.Keep
 	setKeep  func(preferences.Keep)
@@ -471,6 +472,19 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 		if p.setGhost != nil {
 			g := p.ghost()
 			g.ReadOnInteract = len(values) == 1
+			if g.ReadOnInteract {
+				g.UseScheduled = false
+			}
+			p.setGhost(g)
+		}
+	})
+	p.ghostSchedule = checkbox.NewCheckboxes([]string{"schedule"}, nil, func(values []string) {
+		if p.setGhost != nil {
+			g := p.ghost()
+			g.UseScheduled = len(values) == 1
+			if g.UseScheduled {
+				g.ReadOnInteract = false
+			}
 			p.setGhost(g)
 		}
 	})
@@ -865,6 +879,7 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		if p.ghost != nil {
 			p.ghostBoxes.Update(gtx)
 			p.ghostInteract.Update(gtx)
+			p.ghostSchedule.Update(gtx)
 		}
 		if p.keepPeerBadges != nil {
 			p.peerBadgeBoxes.Update(gtx)

@@ -371,6 +371,7 @@ func (s *Store) ToggleReaction(msg model.Message, reaction model.Reaction, repor
 		c.mu.Unlock()
 		err := s.sendReaction(ctx, api, peer, id, model.ChosenReactions(after))
 		if err == nil {
+			s.markGhostOnline()
 			s.readOnInteract(chat)
 			return
 		}

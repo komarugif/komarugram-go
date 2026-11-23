@@ -88,12 +88,20 @@ func (s *Store) sendFiles(ctx context.Context, api *tg.Client, chat int64, peer 
 			continue
 		case 1:
 			text, ents := captionOf(order[0])
-			res, err := api.MessagesSendMedia(ctx, &tg.MessagesSendMediaRequest{Peer: peer.input(), RandomID: ids[0], Message: text, Entities: ents, Media: ready[order[0]], ReplyTo: replyTo, ClearDraft: clearDraft})
+			scheduleDate := s.ghostScheduleDate(ghostScheduleDelay)
+			req := &tg.MessagesSendMediaRequest{Peer: peer.input(), RandomID: ids[0], Message: text, Entities: ents, Media: ready[order[0]], ReplyTo: replyTo, ClearDraft: clearDraft}
+			if scheduleDate > 0 {
+				req.SetScheduleDate(scheduleDate)
+			}
+			res, err := api.MessagesSendMedia(ctx, req)
 			if err != nil {
 				return fmt.Errorf("send: %w", err)
 			}
 			if err := s.acceptOutgoing(ctx, outgoing, res, ids); err != nil {
 				return err
+			}
+			if scheduleDate > 0 {
+				s.markPendingScheduled([]*pendingMessage{outgoing.pending[order[0]]}, scheduleDate)
 			}
 			s.draftCleared(chat, &clearDraft, outgoing)
 			s.handleOutgoingMedia(ctx, outgoing, res, ids[0], text)
@@ -103,13 +111,27 @@ func (s *Store) sendFiles(ctx context.Context, api *tg.Client, chat int64, peer 
 				text, ents := captionOf(place)
 				items = append(items, tg.InputSingleMedia{Media: ready[place], RandomID: ids[i], Message: text, Entities: ents})
 			}
+			scheduleDate := s.ghostScheduleDate(ghostScheduleDelay)
 			req := &tg.MessagesSendMultiMediaRequest{Peer: peer.input(), MultiMedia: items, ReplyTo: replyTo, ClearDraft: clearDraft}
+			if scheduleDate > 0 {
+				req.SetScheduleDate(scheduleDate)
+			}
 			if err := s.sendAlbum(ctx, api, outgoing, order, ids, req); err != nil {
 				return err
 			}
+			if scheduleDate > 0 {
+				batch := make([]*pendingMessage, len(order))
+				for i, place := range order {
+					batch[i] = outgoing.pending[place]
+				}
+				s.markPendingScheduled(batch, scheduleDate)
+			}
 		}
 	}
-	s.readOnInteract(chat)
+	if !s.ghostSettings().UseScheduled {
+		s.markGhostOnline()
+		s.readOnInteract(chat)
+	}
 	return nil
 }
 

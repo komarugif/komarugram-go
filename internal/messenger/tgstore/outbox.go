@@ -571,7 +571,7 @@ func (s *Store) finishOutgoing(e *outgoingEntry, err error) {
 		for _, p := range e.pending {
 			q.uploads.remove(p.msg.Key)
 		}
-		s.dropPending(e.pending...)
+		s.dropFinishedPending(e.pending...)
 	} else {
 		e.Attempts++
 		if delay, retry := outgoingRetry(err, e.Attempts); retry {

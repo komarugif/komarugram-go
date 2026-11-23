@@ -705,6 +705,11 @@ func (s *Store) sendOnce(ctx context.Context, chat int64, msg model.OutgoingMess
 	var err error
 	clearDraft := s.outgoingClearDraft(outgoing)
 	wireEntities := outgoing.wireEntities(msg.Entities)
+	delay := ghostScheduleDelay
+	if msg.Voice != nil {
+		delay = ghostVoiceScheduleDelay
+	}
+	scheduleDate := s.ghostScheduleDate(delay)
 	if media != nil {
 		if msg.Path != "" && len(s.claimFiles(outgoing, []int{0})) == 0 {
 			return errOutgoingCancelled
@@ -714,10 +719,17 @@ func (s *Store) sendOnce(ctx context.Context, chat int64, msg model.OutgoingMess
 			caption = ""
 			wireEntities = nil
 		}
-		res, err = api.MessagesSendMedia(ctx, &tg.MessagesSendMediaRequest{Peer: peer.input(), RandomID: msg.RandomID, Message: caption, Entities: inputEntities(wireEntities), Media: media, ReplyTo: replyTo, ClearDraft: clearDraft})
+		req := &tg.MessagesSendMediaRequest{Peer: peer.input(), RandomID: msg.RandomID, Message: caption, Entities: inputEntities(wireEntities), Media: media, ReplyTo: replyTo, ClearDraft: clearDraft}
+		if scheduleDate > 0 {
+			req.SetScheduleDate(scheduleDate)
+		}
+		res, err = api.MessagesSendMedia(ctx, req)
 	} else {
 		req := &tg.MessagesSendMessageRequest{Peer: peer.input(), RandomID: msg.RandomID, Message: msg.Text, ReplyTo: replyTo, NoWebpage: !s.SendPermissions(chat).Allows(model.SendLinkPreview), ClearDraft: clearDraft}
 		req.Entities = inputEntities(wireEntities)
+		if scheduleDate > 0 {
+			req.SetScheduleDate(scheduleDate)
+		}
 		res, err = api.MessagesSendMessage(ctx, req)
 	}
 	if err != nil {
@@ -726,12 +738,18 @@ func (s *Store) sendOnce(ctx context.Context, chat int64, msg model.OutgoingMess
 	if err := s.acceptOutgoing(ctx, outgoing, res, []int64{msg.RandomID}); err != nil {
 		return err
 	}
+	if scheduleDate > 0 {
+		s.markPendingScheduled(outgoing.pending, scheduleDate)
+	}
 	if clearDraft && s.outgoingClearDraft(outgoing) {
 		// Telegram cleared it, and tells the other devices.
 		s.setDraft(chat, nil)
 	}
 	// Once the message is in the history, the chat may be read up to it.
-	defer s.readOnInteract(chat)
+	if scheduleDate == 0 {
+		s.markGhostOnline()
+		defer s.readOnInteract(chat)
+	}
 	if short, ok := res.(*tg.UpdateShortSentMessage); ok {
 		var destination tg.PeerClass
 		switch peer.Kind {

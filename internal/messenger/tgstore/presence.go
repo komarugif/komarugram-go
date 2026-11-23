@@ -54,11 +54,14 @@ func (s *Store) setPresence(user int64, status tg.UserStatusClass) {
 	}
 	id := peerID(&tg.PeerUser{UserID: user})
 	s.presence.mu.Lock()
-	defer s.presence.mu.Unlock()
 	if s.presence.known == nil {
 		s.presence.known = map[int64]model.Presence{}
 	}
 	s.presence.known[id] = p
+	s.presence.mu.Unlock()
+	if _, online := status.(*tg.UserStatusOnline); online && user == s.Me().ID {
+		s.markGhostOnline()
+	}
 }
 
 func (s *Store) Presence(chat int64) (model.Presence, bool) {

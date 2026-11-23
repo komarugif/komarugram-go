@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"time"
 
 	"github.com/gotd/td/tg"
 
@@ -30,6 +31,10 @@ type pendingMessage struct {
 	// id is the id Telegram gave it, 0 before: once the history has it,
 	// the message stands in for nothing.
 	id model.MessageID
+	// scheduled keeps a ghost-scheduled message visible in pending until
+	// UpdateDeleteScheduledMessages arrives or scheduledUntil passes.
+	scheduled      bool
+	scheduledUntil time.Time
 }
 
 // pendingMessages are the account's messages on their way, oldest first.
@@ -165,6 +170,62 @@ func (s *Store) dropPending(pending ...*pendingMessage) {
 	})
 }
 
+// markPendingScheduled keeps pending entries visible while a ghost-scheduled
+// message waits for Telegram to deliver it.
+func (s *Store) markPendingScheduled(pending []*pendingMessage, scheduleDate int) {
+	if scheduleDate <= 0 || len(pending) == 0 {
+		return
+	}
+	until := time.Unix(int64(scheduleDate), 0).Add(ghostScheduleGrace)
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, p := range pending {
+		p.scheduled = true
+		p.scheduledUntil = until
+		c.touchPending(p.chat)
+	}
+}
+
+// dropFinishedPending removes completed non-scheduled pending rows.
+func (s *Store) dropFinishedPending(pending ...*pendingMessage) {
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pending.list = slices.DeleteFunc(c.pending.list, func(p *pendingMessage) bool {
+		if !p.scheduled && slices.Contains(pending, p) {
+			c.touchPending(p.chat)
+			return true
+		}
+		return false
+	})
+}
+
+// dropScheduledPending removes ghost-scheduled pending rows once Telegram
+// reports them delivered or deleted.
+func (s *Store) dropScheduledPending(chat int64, ids []int) bool {
+	if len(ids) == 0 {
+		return false
+	}
+	c := s.history
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	removed := false
+	c.pending.list = slices.DeleteFunc(c.pending.list, func(p *pendingMessage) bool {
+		if !p.scheduled || !slices.Contains(ids, int(p.id)) {
+			return false
+		}
+		real, _ := c.threadChat(p.chat)
+		if real != chat {
+			return false
+		}
+		c.touchPending(p.chat)
+		removed = true
+		return true
+	})
+	return removed
+}
+
 // touchPending tells the history of chat that its messages on their way
 // changed. The caller holds c.mu.
 func (c *conversation) touchPending(chat int64) {
@@ -178,8 +239,12 @@ func (c *conversation) touchPending(chat int64) {
 // one of have's ids yet. The caller holds c.mu.
 func (c *conversation) pendingMessagesOf(chat int64, have []model.Message) []model.Message {
 	var out []model.Message
+	now := time.Now()
 	for _, p := range c.pending.list {
 		if p.chat != chat || (p.id != 0 && holds(have, p.id)) {
+			continue
+		}
+		if p.scheduled && !p.scheduledUntil.IsZero() && now.After(p.scheduledUntil) {
 			continue
 		}
 		out = append(out, p.msg)

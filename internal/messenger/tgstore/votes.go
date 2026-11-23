@@ -27,6 +27,7 @@ func (s *Store) Vote(msg model.Message, options [][]byte, report func(error)) {
 		if err != nil {
 			return err
 		}
+		s.markGhostOnline()
 		s.readOnInteract(msg.Key.ChatID)
 		return s.Handle(ctx, updates)
 	})
@@ -289,6 +290,7 @@ func (s *Store) ToggleTodo(msg model.Message, id int, done bool, report func(err
 			var updates tg.UpdatesClass
 			if updates, err = api.MessagesToggleTodoCompleted(ctx, req); err == nil {
 				err = s.Handle(ctx, updates)
+				s.markGhostOnline()
 				s.readOnInteract(chat)
 			}
 		}

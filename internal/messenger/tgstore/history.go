@@ -313,6 +313,7 @@ func (s *Store) configureCache(ctx context.Context, account, path string, p *sec
 }
 func (s *Store) Close() (err error) {
 	s.stopOutgoing()
+	s.stopGhostOffline()
 	c := s.history
 	c.mu.Lock()
 	if c.closing {
@@ -1747,6 +1748,10 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 		case *tg.UpdateDeleteChannelMessages:
 			ids = u.Messages
 			chat = peerID(&tg.PeerChannel{ChannelID: u.ChannelID})
+		case *tg.UpdateDeleteScheduledMessages:
+			if s.dropScheduledPending(peerID(u.Peer), u.Messages) {
+				s.changed()
+			}
 		case *tg.UpdateMessageReactions:
 			s.applyReactions(peerID(u.Peer), u.MsgID, u.Reactions)
 		case *tg.UpdateMessagePoll:
