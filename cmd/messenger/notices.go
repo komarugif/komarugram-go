@@ -3,12 +3,19 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"strconv"
 	"strings"
+	"time"
 
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/preferences"
+	"komarugram/internal/messenger/tgstore"
 	"komarugram/internal/messenger/ui"
 	"komarugram/internal/notify"
 )
@@ -24,7 +31,39 @@ func (h *accountWindows) notice(s *accountSession, n model.MessageNotice) {
 		app = nil
 	}
 	chat := n.Chat.ID
-	showNotice(h.notifier, h.preferences.Global(), id, viewOf(app, s.locked.Load()), n, func(token string) { h.openChat(id, chat, token) })
+	g := h.preferences.Global()
+	view := viewOf(app, s.locked.Load())
+	var avatar image.Image
+	if !view.locked && g.Notify.Name && s.store != nil {
+		avatar = noticeAvatar(s.store, chat)
+	}
+	if note, ok := noticeFor(g, id, view, n, localization.For(g.Language)); ok {
+		note.Icon = avatar
+		note.Open = func(token string) { h.openChat(id, chat, token) }
+		h.notifier.Show(note)
+	}
+}
+
+// noticeAvatar decodes the peer's cached/available avatar for a desktop
+// notification without blocking for long.
+func noticeAvatar(store *tgstore.Store, chat int64) image.Image {
+	msg, ok := store.Avatar(chat)
+	if !ok {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	if data, err := store.Media(ctx, msg); err == nil && len(data) > 0 {
+		if im, _, err := image.Decode(bytes.NewReader(data)); err == nil {
+			return im
+		}
+	}
+	if msg.Media != nil && len(msg.Media.Preview) > 0 {
+		if im, _, err := image.Decode(bytes.NewReader(msg.Media.Preview)); err == nil {
+			return im
+		}
+	}
+	return nil
 }
 
 // noticeView is what the account's window shows: the chat open while it

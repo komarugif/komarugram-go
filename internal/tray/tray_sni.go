@@ -6,6 +6,7 @@ package tray
 
 import (
 	"fmt"
+	"image"
 	"os"
 	"sync"
 
@@ -494,4 +495,4 @@ const menuIntrospection = `<node>
 
 // Notify is not the tray's on these desktops: notifications have their own
 // D-Bus service (internal/notify).
-func (*Tray) Notify(string, string, bool) error { return ErrUnsupported }
+func (*Tray) Notify(string, string, bool, image.Image) error { return ErrUnsupported }

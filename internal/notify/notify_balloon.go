@@ -25,7 +25,7 @@ func (b *balloon) Show(n Notification) {
 	b.open = n.Open
 	b.mu.Unlock()
 	// The balloon's fields hold 63 and 255 characters.
-	if err := b.tray.Notify(clip(n.Title, 60), clip(n.Body, 250), n.Sound); err != nil {
+	if err := b.tray.Notify(clip(n.Title, 60), clip(n.Body, 250), n.Sound, n.Icon); err != nil {
 		log.Printf("notify: %v", err)
 	}
 }

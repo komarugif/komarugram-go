@@ -5,7 +5,10 @@ package tray
 import (
 	"errors"
 	"fmt"
+	"image"
+	"math"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -13,6 +16,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"komarugram/internal/appicon"
+	"komarugram/pkg/resample"
 )
 
 var (
@@ -61,6 +65,7 @@ const (
 	nifInfo         = 0x10
 	niifUser        = 0x4
 	niifNoSound     = 0x10
+	niifLargeIcon   = 0x20
 	niifQuietTime   = 0x80
 	ninBalloonClick = 0x405
 	nifMessage      = 0x1
@@ -156,6 +161,9 @@ type Tray struct {
 	wnd            windows.HWND
 	menu           windows.Handle
 	icon           windows.Handle
+	balloonMu      sync.Mutex
+	balloonIcon    windows.Handle
+	lastBalloon    windows.Handle
 	taskbarCreated uint32
 	added          atomic.Bool
 	done           chan struct{}
@@ -207,6 +215,16 @@ func (t *Tray) loop(ready chan<- error) {
 	}
 	procDestroyMenu.Call(uintptr(t.menu))
 	procDestroyIcon.Call(uintptr(t.icon))
+	t.balloonMu.Lock()
+	if t.balloonIcon != 0 {
+		procDestroyIcon.Call(uintptr(t.balloonIcon))
+		t.balloonIcon = 0
+	}
+	if t.lastBalloon != 0 {
+		procDestroyIcon.Call(uintptr(t.lastBalloon))
+		t.lastBalloon = 0
+	}
+	t.balloonMu.Unlock()
 }
 
 // create makes the hidden window that receives the icon's messages. It is a
@@ -251,6 +269,9 @@ func (t *Tray) create() error {
 	if t.icon, err = createIcon(size); err != nil {
 		return err
 	}
+	if t.balloonIcon, err = createHICON(appicon.Image(128)); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -273,9 +294,14 @@ func (t *Tray) createMenu() (windows.Handle, error) {
 	return windows.Handle(m), nil
 }
 
-// createIcon makes an icon of size pixels square with an alpha channel.
+// createIcon makes the monochrome tray icon of size pixels square.
 func createIcon(size int) (windows.Handle, error) {
-	im := appicon.TrayImage(size)
+	return createHICON(appicon.TrayImage(size))
+}
+
+// createHICON converts a square NRGBA image into a Win32 HICON with alpha.
+func createHICON(im *image.NRGBA) (windows.Handle, error) {
+	size := im.Bounds().Dx()
 	header := bitmapInfoHeader{
 		Width:    int32(size),
 		Height:   -int32(size), // top-down rows
@@ -327,25 +353,95 @@ func (t *Tray) notifyData() notifyIconData {
 	return nid
 }
 
+// circularNotificationIcon crops src to a centered circle of size x size pixels
+// so peer avatars look crisp in Windows toast notifications.
+func circularNotificationIcon(src image.Image, size int) *image.NRGBA {
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= 0 || h <= 0 {
+		return appicon.Image(size)
+	}
+	// Scale so the shorter side fills size, then center-crop to square.
+	scaleW, scaleH := size, size
+	if w > h {
+		scaleW = max(size*w/h, size)
+	} else if h > w {
+		scaleH = max(size*h/w, size)
+	}
+	scaled := resample.Resize(src, scaleW, scaleH)
+	ox := (scaleW - size) / 2
+	oy := (scaleH - size) / 2
+	out := image.NewNRGBA(image.Rect(0, 0, size, size))
+	cx := float64(size) / 2
+	r := cx - 0.5
+	for y := 0; y < size; y++ {
+		dy := float64(y) + 0.5 - cx
+		for x := 0; x < size; x++ {
+			dx := float64(x) + 0.5 - cx
+			d := math.Hypot(dx, dy)
+			if d > r+0.5 {
+				continue
+			}
+			cov := 1.0
+			if d > r-0.5 {
+				cov = r + 0.5 - d
+			}
+			p := scaled.RGBAAt(ox+x, oy+y)
+			if p.A == 0 {
+				continue
+			}
+			// Convert premultiplied RGBA to straight NRGBA and apply circle AA.
+			a := uint8(math.Round(float64(p.A) * cov))
+			if a == 0 {
+				continue
+			}
+			out.Pix[(y*size+x)*4+0] = uint8(min(int(p.R)*255/int(p.A), 255))
+			out.Pix[(y*size+x)*4+1] = uint8(min(int(p.G)*255/int(p.A), 255))
+			out.Pix[(y*size+x)*4+2] = uint8(min(int(p.B)*255/int(p.A), 255))
+			out.Pix[(y*size+x)*4+3] = a
+		}
+	}
+	return out
+}
+
 // Notify shows a notification by the icon: a balloon, which Windows 10 and
 // later show as a toast. A new one takes the place of the last.
-func (t *Tray) Notify(title, text string, sound bool) error {
+func (t *Tray) Notify(title, text string, sound bool, icon image.Image) error {
 	if !t.added.Load() {
 		return ErrUnsupported
 	}
 	nid := t.notifyData()
 	nid.Flags |= nifInfo
-	nid.InfoFlags = niifUser | niifQuietTime
+	nid.InfoFlags = niifUser | niifLargeIcon | niifQuietTime
 	if !sound {
 		nid.InfoFlags |= niifNoSound
 	}
-	nid.BalloonIcon = t.icon
+	var custom windows.Handle
+	if icon != nil {
+		if h, err := createHICON(circularNotificationIcon(icon, 128)); err == nil {
+			custom = h
+		}
+	}
+	t.balloonMu.Lock()
+	old := t.lastBalloon
+	if custom != 0 {
+		t.lastBalloon = custom
+		nid.BalloonIcon = custom
+	} else {
+		t.lastBalloon = 0
+		nid.BalloonIcon = t.balloonIcon
+	}
+	t.balloonMu.Unlock()
 	t16, _ := windows.UTF16FromString(title)
 	copy(nid.InfoTitle[:len(nid.InfoTitle)-1], t16)
 	b16, _ := windows.UTF16FromString(text)
 	copy(nid.Info[:len(nid.Info)-1], b16)
-	if r, _, err := procShellNotifyIconW.Call(nimModify, uintptr(unsafe.Pointer(&nid))); r == 0 {
-		return fmt.Errorf("tray: notify: %w", err)
+	r, _, callErr := procShellNotifyIconW.Call(nimModify, uintptr(unsafe.Pointer(&nid)))
+	if old != 0 {
+		procDestroyIcon.Call(uintptr(old))
+	}
+	if r == 0 {
+		return fmt.Errorf("tray: notify: %w", callErr)
 	}
 	return nil
 }

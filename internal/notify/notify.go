@@ -5,12 +5,18 @@
 // and as the tray icon's balloon on Windows, which shows them as toasts.
 package notify
 
-import "unicode/utf8"
+import (
+	"image"
+	"unicode/utf8"
+)
 
 // Notification is one notification.
 type Notification struct {
 	Title, Body string
 	Sound       bool
+	// Icon is the optional peer avatar shown in the notification (Windows
+	// toasts fall back to the high-resolution application icon when nil).
+	Icon image.Image
 	// Tag names what the notification is about; a new one with the same tag
 	// takes the place of the old.
 	Tag string
@@ -21,7 +27,7 @@ type Notification struct {
 
 // Balloon is the tray icon, which shows notifications on Windows.
 type Balloon interface {
-	Notify(title, text string, sound bool) error
+	Notify(title, text string, sound bool, icon image.Image) error
 }
 
 // Notifier shows notifications. Show never blocks for long and fails

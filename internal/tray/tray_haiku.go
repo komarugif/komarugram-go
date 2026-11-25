@@ -46,6 +46,7 @@ import "C"
 import (
 	"encoding/binary"
 	"fmt"
+	"image"
 	"os"
 	"path/filepath"
 	"strings"
@@ -194,4 +195,4 @@ func (t *Tray) Close() {
 	})
 }
 
-func (*Tray) Notify(string, string, bool) error { return ErrUnsupported }
+func (*Tray) Notify(string, string, bool, image.Image) error { return ErrUnsupported }

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"image"
 	"log"
 	"os"
 	"os/signal"
@@ -729,9 +730,9 @@ func printSummary(store *tgstore.Store) {
 // trayBalloon shows notifications by the tray icon once there is one.
 type trayBalloon struct{ icon atomic.Pointer[tray.Tray] }
 
-func (b *trayBalloon) Notify(title, text string, sound bool) error {
-	if icon := b.icon.Load(); icon != nil {
-		return icon.Notify(title, text, sound)
+func (b *trayBalloon) Notify(title, text string, sound bool, icon image.Image) error {
+	if tray := b.icon.Load(); tray != nil {
+		return tray.Notify(title, text, sound, icon)
 	}
 	return tray.ErrUnsupported
 }
