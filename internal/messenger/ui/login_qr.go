@@ -5,8 +5,10 @@ package ui
 import (
 	"bytes"
 	"image"
+	"image/color"
 	"math"
 	"strconv"
+	"sync"
 
 	"github.com/srwiley/oksvg"
 	"github.com/srwiley/rasterx"
@@ -23,6 +25,7 @@ import (
 	"gioui.org/unit"
 
 	"komarugram/assets"
+	"komarugram/internal/appicon"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/login"
 	"komarugram/pkg/resample"
@@ -161,18 +164,60 @@ func qrStep(gtx layout.Context, n int, text string) layout.Dimensions {
 	)
 }
 
-// qrColors are the plate and the modules: black on white in a light theme
-// or inverted, the text's color on a container's in a dark one.
-func (v *qrView) qrColors(gtx layout.Context) (plate, modules token.MatColor) {
-	if !isDark(gtx) || v.inverted {
-		return white, token.NewMatColorFromHexRGB(0x000000)
-	}
-	sc := scheme(gtx)
-	return sc.SurfaceContainerHighest, sc.Surface.OnColor
+// komaruQRPalette holds the adaptive MD3 colors for a Komaru QR card.
+type komaruQRPalette struct {
+	accent      color.NRGBA
+	cardBg      color.NRGBA
+	qrSurface   color.NRGBA
+	dotFg       color.NRGBA
+	border      color.NRGBA
+	innerBorder color.NRGBA
+	pillBg      color.NRGBA
 }
 
-// layoutCode draws the code of link on its plate; "" is the plate with a
-// loading ring.
+func mixNRGBA(a, b color.NRGBA, t float32) color.NRGBA {
+	lerp := func(x, y uint8) uint8 {
+		return uint8(math.Round(float64(x)*(1-float64(t)) + float64(y)*float64(t)))
+	}
+	return color.NRGBA{R: lerp(a.R, b.R), G: lerp(a.G, b.G), B: lerp(a.B, b.B), A: 255}
+}
+
+func computeKomaruQRPalette(baseBg, accent color.NRGBA, dark bool) komaruQRPalette {
+	if dark {
+		return komaruQRPalette{
+			accent:      accent,
+			cardBg:      mixNRGBA(baseBg, accent, 0.14),
+			qrSurface:   mixNRGBA(baseBg, color.NRGBA{R: 0, G: 0, B: 0, A: 255}, 0.22),
+			dotFg:       mixNRGBA(color.NRGBA{R: 255, G: 255, B: 255, A: 255}, accent, 0.14),
+			border:      color.NRGBA{R: 255, G: 255, B: 255, A: 30},
+			innerBorder: color.NRGBA{R: 255, G: 255, B: 255, A: 20},
+			pillBg:      color.NRGBA{R: accent.R, G: accent.G, B: accent.B, A: 38},
+		}
+	}
+	return komaruQRPalette{
+		accent:      accent,
+		cardBg:      mixNRGBA(baseBg, accent, 0.10),
+		qrSurface:   color.NRGBA{R: 255, G: 255, B: 255, A: 255},
+		dotFg:       mixNRGBA(color.NRGBA{R: 0x11, G: 0x24, B: 0x24, A: 255}, accent, 0.16),
+		border:      color.NRGBA{R: 0, G: 0, B: 0, A: 22},
+		innerBorder: color.NRGBA{R: 0, G: 0, B: 0, A: 14},
+		pillBg:      color.NRGBA{R: accent.R, G: accent.G, B: accent.B, A: 32},
+	}
+}
+
+func (v *qrView) loginPalette(gtx layout.Context) komaruQRPalette {
+	sc := scheme(gtx)
+	dark := isDark(gtx) && !v.inverted
+	baseBg := sc.Surface.Color.AsNRGBA()
+	if !dark {
+		baseBg = color.NRGBA{R: 248, G: 250, B: 252, A: 255}
+	}
+	accent := sc.Primary.Color.AsNRGBA()
+	return computeKomaruQRPalette(baseBg, accent, dark)
+}
+
+// layoutCode draws the code of link on its adaptive Komaru MD3 card; "" is
+// the card with a loading ring.
 func (v *qrView) layoutCode(gtx layout.Context, link string, l localization.Catalog) layout.Dimensions {
 	if link != v.link {
 		v.link = link
@@ -187,9 +232,17 @@ func (v *qrView) layoutCode(gtx layout.Context, link string, l localization.Cata
 	maxSize := min(gtx.Dp(qrMaxSize), max(gtx.Constraints.Max.Y-2*pad, gtx.Dp(qrMinSize)))
 	// The plate keeps its size as the code comes, for the card not to jump.
 	plate := maxSize + 2*pad
-	plateColor, moduleColor := v.qrColors(gtx)
+	pal := v.loginPalette(gtx)
 	semantic.LabelOp(l.T("login.title_qr")).Add(gtx.Ops)
-	fillRounded(gtx, plateColor, image.Pt(plate, plate), gtx.Dp(qrPlateRadius))
+	outerR := gtx.Dp(qrPlateRadius)
+	drawRoundedCard(gtx, image.Pt(plate, plate), outerR, pal.cardBg, pal.border)
+	innerPad := max(pad/2, gtx.Dp(6))
+	innerSize := plate - 2*innerPad
+	innerR := max(outerR-innerPad/2, gtx.Dp(12))
+	offset(gtx, image.Pt(innerPad, innerPad), func(gtx layout.Context) layout.Dimensions {
+		drawRoundedCard(gtx, image.Pt(innerSize, innerSize), innerR, pal.qrSurface, pal.innerBorder)
+		return layout.Dimensions{}
+	})
 	if v.code == nil {
 		ring := gtx.Dp(qrLoadingSize)
 		offset(gtx, image.Pt((plate-ring)/2, (plate-ring)/2), func(gtx layout.Context) layout.Dimensions {
@@ -203,19 +256,143 @@ func (v *qrView) layoutCode(gtx layout.Context, link string, l localization.Cata
 	corner := (plate - size) / 2
 	logo, gap := qrLogoPx(gtx, size)
 	hole := qrHole(v.code.Size, modulePx, logo+2*gap)
-	drawQR(gtx, v.code, image.Pt(corner, corner), modulePx, hole, moduleColor)
-	// The logo fills the hole but for the gap, square as logo.svg is.
+	drawKomaruQR(gtx, v.code, image.Pt(corner, corner), modulePx, hole, pal.accent, pal.dotFg)
 	holePx := hole.Dx() * modulePx
-	logoPx := holePx - 2*gap
-	at := image.Pt(corner+hole.Min.X*modulePx+(holePx-logoPx)/2, corner+hole.Min.Y*modulePx+(holePx-logoPx)/2)
-	if img, ok := v.logoAt(logoPx); ok {
+	logoPx := max(holePx-2*gap, 1)
+	holeOrigin := image.Pt(corner+hole.Min.X*modulePx, corner+hole.Min.Y*modulePx)
+	drawKomaruCenterLogo(gtx, holeOrigin, holePx, logoPx, pal.qrSurface, pal.accent)
+	return layout.Dimensions{Size: image.Pt(plate, plate)}
+}
+
+func drawRoundedCard(gtx layout.Context, size image.Point, radius int, fill, border color.NRGBA) {
+	rr := clip.UniformRRect(image.Rectangle{Max: size}, radius)
+	paint.FillShape(gtx.Ops, fill, rr.Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, border, clip.Stroke{Path: rr.Path(gtx.Ops), Width: 1}.Op())
+}
+
+// drawKomaruQR draws code in the Komaru MD3 style: accent-colored rounded
+// finder patterns in the three corners and circular dots for data modules.
+func drawKomaruQR(gtx layout.Context, code *qr.Code, origin image.Point, px int, hole image.Rectangle, accent, dotFg color.NRGBA) {
+	cell := float32(px)
+	count := code.Size
+	inFinder := func(col, row int) bool {
+		return (row < 7 && col < 7) || (row < 7 && col >= count-7) || (row >= count-7 && col < 7)
+	}
+	// Three corner finder patterns.
+	corners := [3]image.Point{{0, 0}, {count - 7, 0}, {0, count - 7}}
+	for _, c := range corners {
+		ox := float32(origin.X) + float32(c.X)*cell
+		oy := float32(origin.Y) + float32(c.Y)*cell
+		outer := clip.RRect{
+			Rect: image.Rect(
+				int(math.Round(float64(ox+0.5*cell))),
+				int(math.Round(float64(oy+0.5*cell))),
+				int(math.Round(float64(ox+6.5*cell))),
+				int(math.Round(float64(oy+6.5*cell))),
+			),
+			NE: int(math.Round(float64(1.55 * cell))),
+			NW: int(math.Round(float64(1.55 * cell))),
+			SE: int(math.Round(float64(1.55 * cell))),
+			SW: int(math.Round(float64(1.55 * cell))),
+		}
+		paint.FillShape(gtx.Ops, accent, clip.Stroke{Path: outer.Path(gtx.Ops), Width: cell}.Op())
+
+		inner := clip.RRect{
+			Rect: image.Rect(
+				int(math.Round(float64(ox+2.0*cell))),
+				int(math.Round(float64(oy+2.0*cell))),
+				int(math.Round(float64(ox+5.0*cell))),
+				int(math.Round(float64(oy+5.0*cell))),
+			),
+			NE: int(math.Round(float64(0.85 * cell))),
+			NW: int(math.Round(float64(0.85 * cell))),
+			SE: int(math.Round(float64(0.85 * cell))),
+			SW: int(math.Round(float64(0.85 * cell))),
+		}
+		paint.FillShape(gtx.Ops, accent, inner.Op(gtx.Ops))
+	}
+
+	// Circular data dots.
+	r := 0.41 * cell
+	var dots clip.Path
+	dots.Begin(gtx.Ops)
+	for row := 0; row < count; row++ {
+		for col := 0; col < count; col++ {
+			if inFinder(col, row) || image.Pt(col, row).In(hole) || !code.Black(col, row) {
+				continue
+			}
+			cx := float32(origin.X) + (float32(col)+0.5)*cell
+			cy := float32(origin.Y) + (float32(row)+0.5)*cell
+			// Circle from 4 cubic/arc segments via Arc.
+			dots.MoveTo(f32.Pt(cx+r, cy))
+			dots.ArcTo(f32.Pt(cx, cy), f32.Pt(cx, cy), 2*math.Pi)
+			dots.Close()
+		}
+	}
+	paint.FillShape(gtx.Ops, dotFg, clip.Outline{Path: dots.End()}.Op())
+}
+
+var (
+	komaruQRCacheMu sync.Mutex
+	komaruQRCache   = map[komaruQRCacheKey]paint.ImageOp{}
+)
+
+type komaruQRCacheKey struct {
+	px int
+	c  color.NRGBA
+}
+
+func komaruQRCenterOp(px int, c color.NRGBA) (paint.ImageOp, bool) {
+	if px <= 0 {
+		return paint.ImageOp{}, false
+	}
+	key := komaruQRCacheKey{px: px, c: c}
+	komaruQRCacheMu.Lock()
+	if op, ok := komaruQRCache[key]; ok {
+		komaruQRCacheMu.Unlock()
+		return op, true
+	}
+	komaruQRCacheMu.Unlock()
+
+	base := appicon.TrayImage(px)
+	tinted := image.NewNRGBA(base.Bounds())
+	for i := 0; i < len(base.Pix); i += 4 {
+		a := base.Pix[i+3]
+		if a == 0 {
+			continue
+		}
+		tinted.Pix[i] = c.R
+		tinted.Pix[i+1] = c.G
+		tinted.Pix[i+2] = c.B
+		tinted.Pix[i+3] = uint8((uint16(a) * uint16(c.A)) / 255)
+	}
+	op := paint.NewImageOp(tinted)
+	komaruQRCacheMu.Lock()
+	if len(komaruQRCache) > 32 {
+		clear(komaruQRCache)
+	}
+	komaruQRCache[key] = op
+	komaruQRCacheMu.Unlock()
+	return op, true
+}
+
+// drawKomaruCenterLogo draws the rounded center cutout and accent-tinted
+// Komaru monochrome SVG logo.
+func drawKomaruCenterLogo(gtx layout.Context, holeOrigin image.Point, holePx, logoPx int, surface, accent color.NRGBA) {
+	cutoutR := max(int(math.Round(float64(holePx)*0.28)), 4)
+	offset(gtx, holeOrigin, func(gtx layout.Context) layout.Dimensions {
+		rr := clip.UniformRRect(image.Rectangle{Max: image.Pt(holePx, holePx)}, cutoutR)
+		paint.FillShape(gtx.Ops, surface, rr.Op(gtx.Ops))
+		return layout.Dimensions{}
+	})
+	if img, ok := komaruQRCenterOp(logoPx, accent); ok {
+		at := image.Pt(holeOrigin.X+(holePx-logoPx)/2, holeOrigin.Y+(holePx-logoPx)/2)
 		offset(gtx, at, func(gtx layout.Context) layout.Dimensions {
 			img.Add(gtx.Ops)
 			paint.PaintOp{}.Add(gtx.Ops)
 			return layout.Dimensions{}
 		})
 	}
-	return layout.Dimensions{Size: image.Pt(plate, plate)}
 }
 
 // qrLogoPx is the logo and the gap around it for a code size pixels wide:

@@ -2,7 +2,34 @@
 
 package appicon
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestAutoNewYearSeason(t *testing.T) {
+	cases := []struct {
+		date time.Time
+		want string
+	}{
+		{time.Date(2026, time.November, 30, 23, 59, 0, 0, time.UTC), Default},
+		{time.Date(2026, time.December, 1, 0, 0, 0, 0, time.UTC), NewYear},
+		{time.Date(2026, time.December, 31, 23, 59, 0, 0, time.UTC), NewYear},
+		{time.Date(2027, time.January, 1, 12, 0, 0, 0, time.UTC), NewYear},
+		{time.Date(2027, time.January, 2, 0, 0, 0, 0, time.UTC), Default},
+	}
+	for _, tc := range cases {
+		if got := Resolve(Auto, tc.date); got != tc.want {
+			t.Errorf("Resolve(Auto, %s) = %q, want %q", tc.date.Format("2006-01-02"), got, tc.want)
+		}
+		if got := Resolve(Default, tc.date); got != Default {
+			t.Errorf("Resolve(Default, %s) = %q, want %q", tc.date.Format("2006-01-02"), got, Default)
+		}
+		if got := Resolve(NewYear, tc.date); got != NewYear {
+			t.Errorf("Resolve(NewYear, %s) = %q, want %q", tc.date.Format("2006-01-02"), got, NewYear)
+		}
+	}
+}
 
 func TestImages(t *testing.T) {
 	sizes := []int{16, 32, 256}

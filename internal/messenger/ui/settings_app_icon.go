@@ -4,6 +4,7 @@ package ui
 
 import (
 	"image"
+	"time"
 
 	"gio-mw/token"
 
@@ -75,10 +76,7 @@ func appIconLabel(name string, l localization.Catalog) string {
 
 func (a *appIconSettings) Layout(gtx layout.Context, height *heightTransition, l localization.Catalog) layout.Dimensions {
 	sc := scheme(gtx)
-	current := a.icon()
-	if current != appicon.NewYear {
-		current = appicon.Default
-	}
+	current := appicon.Resolve(a.icon(), time.Now())
 	return height.Card(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {

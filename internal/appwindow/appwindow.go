@@ -835,17 +835,16 @@ func (h *Host) CloseAll() {
 	}
 }
 
-// SetAppIcon updates the window's taskbar and titlebar icon when name changes.
+// SetAppIcon updates the window's taskbar and titlebar icon when the resolved
+// icon changes.
 func (w *Window) SetAppIcon(name string) {
-	if name != appicon.NewYear {
-		name = appicon.Default
-	}
-	if w.appIconSet && w.appIcon == name {
+	resolved := appicon.Resolve(name, time.Now())
+	if w.appIconSet && w.appIcon == resolved {
 		return
 	}
-	w.appIconSet, w.appIcon = true, name
+	w.appIconSet, w.appIcon = true, resolved
 	if w.Window != nil {
-		w.Option(windowIconFor(name))
+		w.Option(windowIconFor(resolved))
 	}
 }
 

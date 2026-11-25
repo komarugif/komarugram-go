@@ -12,6 +12,7 @@ import (
 	"math"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/srwiley/oksvg"
 	"github.com/srwiley/rasterx"
@@ -21,8 +22,11 @@ import (
 )
 
 const (
+	// Auto picks NewYear automatically from December 1 through January 1,
+	// and Default the rest of the year.
+	Auto = ""
 	// Default is the standard KomaruGram application icon.
-	Default = ""
+	Default = "default"
 	// NewYear is the winter/snowflake KomaruGram application icon.
 	NewYear = "newyear"
 )
@@ -30,26 +34,48 @@ const (
 // All lists the selectable application icons in display order.
 var All = []string{Default, NewYear}
 
+// IsNewYearSeason reports whether now falls in the automatic New Year icon
+// window: December 1 through January 1 (inclusive).
+func IsNewYearSeason(now time.Time) bool {
+	return now.Month() == time.December || (now.Month() == time.January && now.Day() == 1)
+}
+
+// Resolve turns a stored preference (Auto, Default, or NewYear) into the
+// concrete icon name for now.
+func Resolve(name string, now time.Time) string {
+	switch name {
+	case Default, NewYear:
+		return name
+	default:
+		if IsNewYearSeason(now) {
+			return NewYear
+		}
+		return Default
+	}
+}
+
 var (
 	currentMu sync.RWMutex
-	current   = Default
+	current   = Auto
 )
 
-// Set selects the active application icon for new windows and default calls.
+// Set selects the active application icon preference for new windows and
+// default calls.
 func Set(name string) {
-	if name != NewYear {
-		name = Default
+	if name != Default && name != NewYear {
+		name = Auto
 	}
 	currentMu.Lock()
 	current = name
 	currentMu.Unlock()
 }
 
-// Current returns the currently selected application icon name.
+// Current returns the currently active resolved application icon name.
 func Current() string {
 	currentMu.RLock()
-	defer currentMu.RUnlock()
-	return current
+	name := current
+	currentMu.RUnlock()
+	return Resolve(name, time.Now())
 }
 
 // WindowSizes are the sizes a window's icon is given in, from the taskbar's

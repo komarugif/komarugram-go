@@ -5,6 +5,7 @@ package ui
 import (
 	"bytes"
 	"image"
+	"image/color"
 	"image/png"
 	"io"
 	"strconv"
@@ -249,20 +250,27 @@ func (p *chatInfo) layoutQR(gtx layout.Context, l localization.Catalog) layout.D
 	)
 }
 
-// layoutQRCard draws the card width wide: the code of the chat's link and
-// its username in the colors of grad, on white whatever the theme, for a
-// scanner to read, and the avatar on the card's top edge. It is the same
-// on the page and in the picture copied.
+// layoutQRCard draws the card width wide in adaptive Komaru MD3 style:
+// concentric QR surface, rounded accent finder patterns, circular dots,
+// Komaru SVG center cutout, and username pill.
 func (p *chatInfo) layoutQRCard(gtx layout.Context, grad paint.ImageOp, width int) layout.Dimensions {
 	q := &p.qr
 	if link := p.qrLink(); link != q.link {
 		q.link, q.code = link, nil
 		if link != "" {
-			// Medium: nothing covers the code, which has no logo, the
-			// sign-in's own.
-			q.code, _ = qr.Encode(link, qr.M)
+			// Quartile so the center Komaru logo cutout stays reliably scannable.
+			q.code, _ = qr.Encode(link, qr.Q)
 		}
 	}
+	sc := scheme(gtx)
+	dark := isDark(gtx)
+	baseBg := sc.Surface.Color.AsNRGBA()
+	if !dark {
+		baseBg = color.NRGBA{R: 248, G: 250, B: 252, A: 255}
+	}
+	accent := token.NewMatColorFromHexRGB(qrGradients[q.choice][2]).AsNRGBA()
+	pal := computeKomaruQRPalette(baseBg, accent, dark)
+
 	avatar, ring, pad := gtx.Dp(qrCardAvatar), gtx.Dp(qrAvatarRing), gtx.Dp(qrCardPad)
 	// The card starts at the avatar's middle.
 	top := ring + avatar/2
@@ -271,32 +279,57 @@ func (p *chatInfo) layoutQRCard(gtx layout.Context, grad paint.ImageOp, width in
 	macro := op.Record(gtx.Ops)
 	if q.code != nil {
 		// Whole pixels a module, for a sharp code.
-		modulePx := max((width-2*pad)/q.code.Size, 1)
+		qrPad := max((width-2*pad)/16, gtx.Dp(10))
+		modulePx := max((width-2*pad-2*qrPad)/q.code.Size, 1)
 		size := modulePx * q.code.Size
-		corner := image.Pt((width-size)/2, y)
-		func() {
-			defer op.Offset(corner).Push(gtx.Ops).Pop()
-			defer qrShape(gtx, q.code, image.Point{}, modulePx, image.Rectangle{}).Push(gtx.Ops).Pop()
-			fillGradient(gtx.Ops, grad, image.Pt(size, size))
-		}()
-		y += size + gtx.Dp(12)
+		boxSize := size + 2*qrPad
+		boxOrigin := image.Pt((width-boxSize)/2, y)
+		innerR := max(gtx.Dp(qrCardRadius)-qrPad*2/3, gtx.Dp(14))
+		offset(gtx, boxOrigin, func(gtx layout.Context) layout.Dimensions {
+			drawRoundedCard(gtx, image.Pt(boxSize, boxSize), innerR, pal.qrSurface, pal.innerBorder)
+			return layout.Dimensions{}
+		})
+		corner := image.Pt(boxOrigin.X+qrPad, boxOrigin.Y+qrPad)
+		logo, gap := qrLogoPx(gtx, size)
+		hole := qrHole(q.code.Size, modulePx, logo+2*gap)
+		drawKomaruQR(gtx, q.code, corner, modulePx, hole, pal.accent, pal.dotFg)
+		holePx := hole.Dx() * modulePx
+		logoPx := max(holePx-2*gap, 1)
+		holeOrigin := image.Pt(corner.X+hole.Min.X*modulePx, corner.Y+hole.Min.Y*modulePx)
+		drawKomaruCenterLogo(gtx, holeOrigin, holePx, logoPx, pal.qrSurface, pal.accent)
+		y += boxSize + gtx.Dp(14)
 	}
-	nameGtx := gtx
-	nameGtx.Constraints = layout.Constraints{Min: image.Pt(width-2*pad, 0), Max: image.Pt(width-2*pad, gtx.Constraints.Max.Y)}
-	name := offset(nameGtx, image.Pt(pad, y), func(gtx layout.Context) layout.Dimensions {
-		return gradientLabel(gtx, "@"+strings.ToUpper(p.chatUsername()), token.TypestyleHeadlineSmall, grad)
+	// Username inside an accent-tinted pill.
+	nameText := "@" + strings.ToUpper(p.chatUsername())
+	pillPadX, pillPadY := gtx.Dp(14), gtx.Dp(5)
+	textMacro := op.Record(gtx.Ops)
+	textGtx := gtx
+	textGtx.Constraints = layout.Constraints{Max: image.Pt(max(width-2*pad-2*pillPadX, 1), gtx.Constraints.Max.Y)}
+	nameDims := label(textGtx, nameText, token.TypestyleTitleMediumEmphasized, token.NewMatColorFromHexRGB(qrGradients[q.choice][2]), 1)
+	textCall := textMacro.Stop()
+	pillW := min(width-2*pad, nameDims.Size.X+2*pillPadX)
+	pillH := nameDims.Size.Y + 2*pillPadY
+	pillOrigin := image.Pt((width-pillW)/2, y)
+	offset(gtx, pillOrigin, func(gtx layout.Context) layout.Dimensions {
+		rr := clip.UniformRRect(image.Rectangle{Max: image.Pt(pillW, pillH)}, pillH/2)
+		paint.FillShape(gtx.Ops, pal.pillBg, rr.Op(gtx.Ops))
+		offset(gtx, image.Pt((pillW-nameDims.Size.X)/2, pillPadY), func(gtx layout.Context) layout.Dimensions {
+			textCall.Add(gtx.Ops)
+			return nameDims
+		})
+		return layout.Dimensions{Size: image.Pt(pillW, pillH)}
 	})
-	y += name.Size.Y + gtx.Dp(20)
+	y += pillH + gtx.Dp(20)
 	content := macro.Stop()
 
 	offset(gtx, image.Pt(0, top), func(gtx layout.Context) layout.Dimensions {
-		fillRounded(gtx, white, image.Pt(width, y-top), gtx.Dp(qrCardRadius))
+		drawRoundedCard(gtx, image.Pt(width, y-top), gtx.Dp(qrCardRadius), pal.cardBg, pal.border)
 		return layout.Dimensions{}
 	})
 	content.Add(gtx.Ops)
 	around := avatar + 2*ring
 	offset(gtx, image.Pt((width-around)/2, 0), func(gtx layout.Context) layout.Dimensions {
-		paint.FillShape(gtx.Ops, white.AsNRGBA(), clip.Ellipse{Max: image.Pt(around, around)}.Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, pal.cardBg, clip.Ellipse{Max: image.Pt(around, around)}.Op(gtx.Ops))
 		return layout.Dimensions{}
 	})
 	if p.drawAvatar != nil {
