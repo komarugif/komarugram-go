@@ -1952,6 +1952,9 @@
 "settings.add_account" = "Добавить аккаунт";
 "settings.add_account_hint" = "Войти по номеру телефона в новом окне";
 "settings.animations" = "Анимации";
+"settings.app_icon" = "Иконка приложения";
+"settings.app_icon_default" = "Обычная";
+"settings.app_icon_newyear" = "Новогодняя";
 "settings.appearance" = "Оформление";
 "settings.auto_dark" = "Авто, сейчас тёмная";
 "settings.auto_light" = "Авто, сейчас светлая";

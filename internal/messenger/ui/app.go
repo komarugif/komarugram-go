@@ -613,6 +613,12 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	}
 	a.settings.windowColor.system = wallpaper.SystemWindowColor
 	a.settings.windowColor.offered = appwindow.WindowColorOffered
+	a.settings.appIcon.icon = func() string { return a.preferences.Global().AppIcon }
+	a.settings.appIcon.setIcon = func(icon string) {
+		if err := services.Preferences.SetAppIcon(icon); err != nil {
+			a.settings.toast.Show(a.catalog().T("error.save_settings"))
+		}
+	}
 	a.settings.windowBlurChoice = func() bool {
 		return w.OwnBlurSupported() && w.CompositorBlurs()
 	}

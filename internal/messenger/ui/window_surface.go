@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 
+	"komarugram/internal/appicon"
 	"komarugram/internal/appwindow"
 	"komarugram/internal/messenger/preferences"
 
@@ -78,6 +79,8 @@ func (e *windowEffects) update(w *appwindow.Window, prefs preferences.Global, as
 	transparent := !own && appwindow.WantsTransparent(translucent)
 	w.SetOwnFrame(prefs.WindowOwnFrame)
 	w.SetWindowColor(prefs.WindowColor)
+	appicon.Set(prefs.AppIcon)
+	w.SetAppIcon(prefs.AppIcon)
 	if e.set && e.blur == want && e.transparent == transparent && w.OwnBlur() == own {
 		return own
 	}

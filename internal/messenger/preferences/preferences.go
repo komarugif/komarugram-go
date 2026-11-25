@@ -153,6 +153,8 @@ type Global struct {
 	// windows draw by themselves and, with SystemAccent, the accent. 0 is
 	// the system's, the color the theme wrote.
 	WindowColor uint32 `json:"window_color,omitempty"`
+	// AppIcon is the chosen application icon ("", "newyear").
+	AppIcon string `json:"app_icon,omitempty"`
 	// Player is the external player videos open in; empty until the user
 	// chooses one, which is asked only when more than one is installed.
 	Player player.Kind `json:"player,omitempty"`
@@ -1466,6 +1468,11 @@ func (s *Store) SetWindowBlurOwn(own bool) error {
 // Aero, 0xAARRGGBB; 0 is the system's.
 func (s *Store) SetWindowColor(argb uint32) error {
 	return s.change(func(g *Global) { g.WindowColor = argb })
+}
+
+// SetAppIcon chooses the application icon ("", "newyear").
+func (s *Store) SetAppIcon(icon string) error {
+	return s.change(func(g *Global) { g.AppIcon = icon })
 }
 
 // SetWindowOwnFrame chooses the window's own frame over the system's.

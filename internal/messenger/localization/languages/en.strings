@@ -1862,6 +1862,9 @@
 "settings.add_account" = "Add account";
 "settings.add_account_hint" = "Sign in with a phone number in a new window";
 "settings.animations" = "Animations";
+"settings.app_icon" = "App icon";
+"settings.app_icon_default" = "Default";
+"settings.app_icon_newyear" = "New Year";
 "settings.appearance" = "Appearance";
 "settings.auto_dark" = "Auto, currently dark";
 "settings.auto_light" = "Auto, currently light";

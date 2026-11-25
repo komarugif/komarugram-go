@@ -8,10 +8,20 @@ import (
 	"strings"
 )
 
-// LogoRound is logo_round.png, the application's icon.
+// LogoRound is logo_round.png, the default application icon.
 //
 //go:embed logo_round.png
 var LogoRound []byte
+
+// LogoRoundNewYear is logo_round_newyear.png, the New Year application icon.
+//
+//go:embed logo_round_newyear.png
+var LogoRoundNewYear []byte
+
+// TrayMonochrome is tray_monochrome.svg, the monochrome system tray icon.
+//
+//go:embed tray_monochrome.svg
+var TrayMonochrome []byte
 
 // Logo is logo.svg, the square logo, for drawing at any size. Its shapes
 // are what oksvg reads: a gradient keeps its stops itself, not through

@@ -292,6 +292,8 @@ type settingsPage struct {
 	// windowColor is the card of the color of the windows, on Windows 7
 	// without Aero (settings_window_color.go).
 	windowColor *windowColorSettings
+	// appIcon is the card that chooses the application icon.
+	appIcon *appIconSettings
 	// confirmations and setConfirmations read and change whether stickers
 	// and GIFs are sent only once confirmed.
 	confirmations    func() (sticker, gif bool)
@@ -575,6 +577,7 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 		}
 	})
 	p.windowColor = newWindowColorSettings()
+	p.appIcon = newAppIconSettings()
 	p.windowTransparencySlider = slider.StandardSlider(steps, 0, func(v int) {
 		if p.setWindowTransparency != nil {
 			p.setWindowTransparency(v)
@@ -805,6 +808,7 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		p.windowBlurBy.Update(gtx)
 	}
 	p.windowColor.Update(gtx)
+	p.appIcon.Update(gtx)
 	if p.windowTransparency != nil {
 		// Imported preferences may be between the slider stops.
 		v := (p.windowTransparency() + 2) / 5 * 5
@@ -1424,6 +1428,11 @@ func (p *settingsPage) layoutAppearance(gtx layout.Context, mode themeMode, syst
 				return p.language.Layout(gtx, radio.LeadingKind, languageNames())
 			})
 		}),
+	}
+	if p.appIcon.shown() {
+		cards = append(cards, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return p.appIcon.Layout(gtx, p.cardHeight("layoutAppIcon"), l)
+		}))
 	}
 	if p.composerBlur != nil {
 		cards = append(cards, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.layoutOverlays(gtx, l) }))

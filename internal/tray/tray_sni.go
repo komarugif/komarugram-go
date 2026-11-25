@@ -139,7 +139,7 @@ type tooltip struct {
 
 func pixmaps() []pixmap {
 	var out []pixmap
-	for _, im := range appicon.Images(16, 22, 24, 32, 48, 64) {
+	for _, im := range appicon.TrayImages(16, 22, 24, 32, 48, 64) {
 		size := im.Rect.Dx()
 		data := make([]byte, 0, size*size*4)
 		for i := 0; i < len(im.Pix); i += 4 {

@@ -275,7 +275,7 @@ func (t *Tray) createMenu() (windows.Handle, error) {
 
 // createIcon makes an icon of size pixels square with an alpha channel.
 func createIcon(size int) (windows.Handle, error) {
-	im := appicon.Image(size)
+	im := appicon.TrayImage(size)
 	header := bitmapInfoHeader{
 		Width:    int32(size),
 		Height:   -int32(size), // top-down rows

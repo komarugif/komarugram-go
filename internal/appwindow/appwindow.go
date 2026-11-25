@@ -117,6 +117,9 @@ type Window struct {
 	// whether it is hidden from screen capture, once captureApplied.
 	view                            uintptr
 	captureApplied, captureExcluded bool
+	// appIcon is the application icon last set on this window.
+	appIcon    string
+	appIconSet bool
 	// caption is the height of the window's own frame over the content,
 	// in pixels, as the last frame drew it.
 	caption int
@@ -832,10 +835,28 @@ func (h *Host) CloseAll() {
 	}
 }
 
+// SetAppIcon updates the window's taskbar and titlebar icon when name changes.
+func (w *Window) SetAppIcon(name string) {
+	if name != appicon.NewYear {
+		name = appicon.Default
+	}
+	if w.appIconSet && w.appIcon == name {
+		return
+	}
+	w.appIconSet, w.appIcon = true, name
+	if w.Window != nil {
+		w.Option(windowIconFor(name))
+	}
+}
+
 // windowIcon is the application's icon for a window, at the sizes desktops
 // show it. Gio does not keep the images.
 func windowIcon() app.Option {
-	images := appicon.Images(appicon.WindowSizes...)
+	return windowIconFor(appicon.Current())
+}
+
+func windowIconFor(name string) app.Option {
+	images := appicon.ImagesFor(name, appicon.WindowSizes...)
 	icons := make([]image.Image, len(images))
 	for i, im := range images {
 		icons[i] = im
