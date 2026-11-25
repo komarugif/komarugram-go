@@ -139,7 +139,11 @@ func (r *Runner) launch(l Launch) error {
 	}
 	base, params := LaunchParams(view.URL, l.Request.Theme)
 	profile := miniapp.Profile{Storage: r.storage(), Root: r.root, Account: l.Account}
-	profile.App = itoa(l.Request.Bot)
+	if l.Request.Bot != 0 {
+		profile.App = itoa(l.Request.Bot)
+	} else {
+		profile.App = l.Request.BotUsername
+	}
 	app, err := r.open(r.ctx, base, params, profile)
 	if err != nil {
 		return err

@@ -74,7 +74,11 @@ func (a *App) launchWebApp(gtx layout.Context, p *chatPage, req model.WebViewReq
 	}
 	l := a.catalog()
 	if !miniapps.Available() {
-		p.toast.Show(l.T("miniapp.no_browser"))
+		if p != nil {
+			p.toast.Show(l.T("miniapp.no_browser"))
+		} else {
+			a.toast.Show(l.T("miniapp.no_browser"))
+		}
 		return
 	}
 	account := ""

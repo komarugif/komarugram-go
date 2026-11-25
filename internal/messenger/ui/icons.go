@@ -200,3 +200,41 @@ func iconQRCode(gtx layout.Context, c token.MatColor) layout.Dimensions {
 	paint.FillShape(gtx.Ops, c.AsNRGBA(), clip.Outline{Path: path.End()}.Op())
 	return layout.Dimensions{Size: gtx.Constraints.Max}
 }
+
+// iconWallet is Telegram Desktop's Money / Wallet menu icon: an outlined
+// diamond with a four-point sparkle inside, drawn on the 24x24 icon grid.
+func iconWallet(gtx layout.Context, c token.MatColor) layout.Dimensions {
+	side := min(gtx.Constraints.Max.X, gtx.Constraints.Max.Y)
+	u := float32(side) / 24
+	pt := func(x, y float32) f32.Point { return f32.Pt(x*u, y*u) }
+
+	var diamond clip.Path
+	diamond.Begin(gtx.Ops)
+	diamond.MoveTo(pt(6.6, 4.8))
+	diamond.LineTo(pt(17.4, 4.8))
+	diamond.QuadTo(pt(18.5, 4.8), pt(19.1, 5.7))
+	diamond.LineTo(pt(21.1, 8.9))
+	diamond.QuadTo(pt(21.7, 9.8), pt(21.0, 10.7))
+	diamond.LineTo(pt(13.0, 19.3))
+	diamond.QuadTo(pt(12.0, 20.3), pt(11.0, 19.3))
+	diamond.LineTo(pt(3.0, 10.7))
+	diamond.QuadTo(pt(2.3, 9.8), pt(2.9, 8.9))
+	diamond.LineTo(pt(4.9, 5.7))
+	diamond.QuadTo(pt(5.5, 4.8), pt(6.6, 4.8))
+	diamond.Close()
+	paint.FillShape(gtx.Ops, c.AsNRGBA(), clip.Stroke{Path: diamond.End(), Width: 1.8 * u}.Op())
+
+	// Four-point sparkle inside the gem.
+	cx, cy, r := float32(13.6), float32(10.8), float32(3.1)
+	var star clip.Path
+	star.Begin(gtx.Ops)
+	star.MoveTo(pt(cx, cy-r))
+	star.QuadTo(pt(cx, cy), pt(cx+r, cy))
+	star.QuadTo(pt(cx, cy), pt(cx, cy+r))
+	star.QuadTo(pt(cx, cy), pt(cx-r, cy))
+	star.QuadTo(pt(cx, cy), pt(cx, cy-r))
+	star.Close()
+	paint.FillShape(gtx.Ops, c.AsNRGBA(), clip.Outline{Path: star.End()}.Op())
+
+	return layout.Dimensions{Size: gtx.Constraints.Max}
+}

@@ -1204,9 +1204,12 @@ func (a *App) Update(gtx layout.Context) {
 		}
 	} else {
 		a.drawer.close()
-		ev := a.sidebar.Update(gtx, folders)
+		ev := a.sidebar.Update(gtx, folders, a.walletConfig().Available)
 		if ev.toggleTheme {
 			a.toggleTheme()
+		}
+		if ev.openWallet {
+			a.openWallet(gtx)
 		}
 		if ev.section != nil {
 			a.openSection(gtx, *ev.section)
@@ -1257,12 +1260,34 @@ func (a *App) toggleTheme() {
 	}
 }
 
+// walletConfig reports whether Telegram Wallet is available for the account.
+func (a *App) walletConfig() model.WalletConfig {
+	if w, ok := a.store.(model.WalletSource); ok {
+		return w.Wallet()
+	}
+	return model.WalletConfig{}
+}
+
+// openWallet opens the Telegram Wallet Mini App.
+func (a *App) openWallet(gtx layout.Context) {
+	cfg := a.walletConfig()
+	if !cfg.Available {
+		return
+	}
+	a.launchWebApp(gtx, nil, model.WebViewRequest{
+		Kind:        model.WebViewMain,
+		BotUsername: cfg.BotUsername,
+	}, a.catalog().T("nav.wallet"))
+}
+
 // layoutDrawer is the content of the drawer overlay item.
 func (a *App) layoutDrawer(gtx layout.Context) layout.Dimensions {
-	entries := arrangeMenu(a.menuPrefs, menuDrawer, drawerEntries(a.store.Folders(), a.store.Chats(), a.dark(), a.catalog()), func(e drawerEntry) string { return navigationID(e.key, a.currentAccount()) })
+	entries := arrangeMenu(a.menuPrefs, menuDrawer, drawerEntries(a.store.Folders(), a.store.Chats(), a.dark(), a.walletConfig().Available, a.catalog()), func(e drawerEntry) string { return navigationID(e.key, a.currentAccount()) })
 	if key, ok := a.drawer.Update(gtx, entries); ok {
 		if key.theme {
 			a.toggleTheme()
+		} else if key.wallet {
+			a.openWallet(gtx)
 		} else {
 			a.openSection(gtx, key.section)
 		}
@@ -1589,7 +1614,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	x := 0
 	if !a.compact {
 		column(0, 0, sidebarPx, size.Y, func(gtx layout.Context) layout.Dimensions {
-			return a.sidebar.Layout(gtx, a.section, folders, chats, a.dark(), a.catalog())
+			return a.sidebar.Layout(gtx, a.section, folders, chats, a.dark(), a.walletConfig().Available, a.catalog())
 		})
 		x = sidebarPx
 	}

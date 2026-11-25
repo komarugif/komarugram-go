@@ -1270,6 +1270,7 @@
 "nav.menu" = "Menu";
 "nav.profile" = "Profile";
 "nav.saved" = "Saved";
+"nav.wallet" = "Money";
 "nav.search" = "Search";
 "nav.settings" = "Settings";
 "nav.theme_dark" = "Dark";

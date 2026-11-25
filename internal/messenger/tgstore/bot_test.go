@@ -296,3 +296,39 @@ func TestRequestWebView(t *testing.T) {
 		t.Fatal("an unknown bot was asked")
 	}
 }
+
+func TestRequestMainWebViewByUsername(t *testing.T) {
+	s := testStore(t)
+	var resolved string
+	var mainReqs []*tg.MessagesRequestMainWebViewRequest
+	s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
+		switch r := in.(type) {
+		case *tg.ContactsResolveUsernameRequest:
+			resolved = r.Username
+			return &tg.ContactsResolvedPeer{
+				Peer:  &tg.PeerUser{UserID: 777},
+				Users: []tg.UserClass{&tg.User{ID: 777, AccessHash: 888, Bot: true, Username: "wallet"}},
+			}, nil
+		case *tg.MessagesRequestMainWebViewRequest:
+			mainReqs = append(mainReqs, r)
+			return &tg.WebViewResultURL{QueryID: 42, URL: "https://wallet.example/#tgWebAppData=z"}, nil
+		}
+		return nil, errors.New("unexpected request")
+	})
+	got, err := s.RequestWebView(context.Background(), model.WebViewRequest{Kind: model.WebViewMain, BotUsername: "wallet", Theme: `{"bg_color":"#000"}`})
+	if err != nil || got.QueryID != 42 || got.URL != "https://wallet.example/#tgWebAppData=z" {
+		t.Fatalf("main %+v, %v", got, err)
+	}
+	if resolved != "wallet" || len(mainReqs) != 1 {
+		t.Fatalf("resolved %q, mainReqs %d", resolved, len(mainReqs))
+	}
+	if u, ok := mainReqs[0].Bot.(*tg.InputUser); !ok || u.UserID != 777 || u.AccessHash != 888 {
+		t.Fatalf("bot %+v", mainReqs[0].Bot)
+	}
+	if w := walletFromConfig(nil); !w.Available || w.BotUsername != "wallet" {
+		t.Fatalf("default wallet %+v", w)
+	}
+	if w := walletFromConfig(map[string]any{"wallet_available": false, "old_wallet_bot_username": "@customwallet"}); w.Available || w.BotUsername != "customwallet" {
+		t.Fatalf("custom wallet %+v", w)
+	}
+}

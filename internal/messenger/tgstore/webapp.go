@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/gotd/td/tg"
@@ -19,30 +20,45 @@ import (
 const webPlatform = "tdesktop"
 
 // bot returns the bot as an input user, and the chat's peer.
-func (s *Store) webViewPeers(req model.WebViewRequest) (api *tg.Client, bot tg.InputUserClass, chat tg.InputPeerClass, err error) {
+func (s *Store) webViewPeers(ctx context.Context, req model.WebViewRequest) (api *tg.Client, bot tg.InputUserClass, chat tg.InputPeerClass, err error) {
 	c := s.history
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.api == nil {
+	api = c.api
+	if api == nil {
+		c.mu.Unlock()
 		return nil, nil, nil, errNotConnected
 	}
 	b := c.peers[req.Bot]
-	if b.ID == 0 || b.Kind != "user" {
-		return nil, nil, nil, errors.New("the bot is not known")
-	}
-	bot = &tg.InputUser{UserID: b.ID, AccessHash: b.Hash}
 	real, _ := c.threadChat(req.Chat)
 	if p := c.peers[real]; p.ID != 0 {
 		chat = p.input()
 	}
-	return c.api, bot, chat, nil
+	c.mu.Unlock()
+	if b.ID != 0 && b.Kind == "user" {
+		return api, &tg.InputUser{UserID: b.ID, AccessHash: b.Hash}, chat, nil
+	}
+	username := strings.TrimPrefix(strings.TrimSpace(req.BotUsername), "@")
+	if username == "" {
+		return nil, nil, nil, errors.New("the bot is not known")
+	}
+	resolved, err := api.ContactsResolveUsername(ctx, &tg.ContactsResolveUsernameRequest{Username: username})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	s.rememberPeers(resolved.Users, resolved.Chats)
+	for _, u := range resolved.Users {
+		if user, ok := u.(*tg.User); ok {
+			return api, &tg.InputUser{UserID: user.ID, AccessHash: user.AccessHash}, chat, nil
+		}
+	}
+	return nil, nil, nil, errors.New("the bot is not known")
 }
 
 // RequestWebView implements model.WebViewStore: a keyboard's SimpleWebView
-// button asks messages.requestSimpleWebView, the others
-// messages.requestWebView, from the bot's menu or from the chat.
+// button asks messages.requestSimpleWebView, a Main Mini App asks
+// messages.requestMainWebView, and the others messages.requestWebView.
 func (s *Store) RequestWebView(ctx context.Context, req model.WebViewRequest) (model.WebView, error) {
-	api, bot, chat, err := s.webViewPeers(req)
+	api, bot, chat, err := s.webViewPeers(ctx, req)
 	if err != nil {
 		return model.WebView{}, err
 	}
@@ -62,6 +78,20 @@ func (s *Store) RequestWebView(ctx context.Context, req model.WebViewRequest) (m
 	if chat == nil {
 		chat = &tg.InputPeerEmpty{}
 	}
+	if req.Kind == model.WebViewMain {
+		r := &tg.MessagesRequestMainWebViewRequest{Peer: chat, Bot: bot, Platform: webPlatform}
+		if req.Theme != "" {
+			r.SetThemeParams(theme)
+		}
+		if req.StartParam != "" {
+			r.SetStartParam(req.StartParam)
+		}
+		res, err := api.MessagesRequestMainWebView(ctx, r)
+		if err != nil {
+			return model.WebView{}, err
+		}
+		return model.WebView{URL: res.URL, QueryID: res.QueryID}, nil
+	}
 	r := &tg.MessagesRequestWebViewRequest{Peer: chat, Bot: bot, ThemeParams: theme, Platform: webPlatform, FromBotMenu: req.Kind == model.WebViewMenu}
 	if req.URL != "" {
 		r.SetURL(req.URL)
@@ -78,7 +108,7 @@ func (s *Store) RequestWebView(ctx context.Context, req model.WebViewRequest) (m
 
 // ProlongWebView implements model.WebViewStore.
 func (s *Store) ProlongWebView(ctx context.Context, req model.WebViewRequest, queryID int64) error {
-	api, bot, chat, err := s.webViewPeers(req)
+	api, bot, chat, err := s.webViewPeers(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -92,7 +122,7 @@ func (s *Store) ProlongWebView(ctx context.Context, req model.WebViewRequest, qu
 // SendWebViewData implements model.WebViewStore with
 // messages.sendWebViewData; the message it makes comes back in the updates.
 func (s *Store) SendWebViewData(ctx context.Context, botID int64, buttonText, data string) error {
-	api, bot, _, err := s.webViewPeers(model.WebViewRequest{Bot: botID})
+	api, bot, _, err := s.webViewPeers(ctx, model.WebViewRequest{Bot: botID})
 	if err != nil {
 		return err
 	}

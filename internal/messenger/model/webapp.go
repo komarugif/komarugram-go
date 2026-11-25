@@ -18,6 +18,9 @@ const (
 	// WebViewMenu is the bot's menu button beside the composer: like
 	// WebViewInline, from the bot menu.
 	WebViewMenu
+	// WebViewMain is a bot's Main Mini App (messages.requestMainWebView),
+	// used for example by the Wallet entry in the main menu.
+	WebViewMain
 )
 
 // WebViewRequest asks Telegram for the link that opens a bot's Mini App.
@@ -25,6 +28,9 @@ type WebViewRequest struct {
 	Kind WebViewKind
 	// Chat is the chat the button is in, and Bot the bot's user id.
 	Chat, Bot int64
+	// BotUsername names the bot when Bot is not known yet (for example,
+	// Wallet's bot from appConfig).
+	BotUsername string
 	// URL is the button's; empty for the bot's menu button without one.
 	URL        string
 	StartParam string
@@ -69,4 +75,16 @@ type BotInfoSource interface {
 	// BotInfo returns what the bot chat is with tells: empty until it is read,
 	// which starts on the first call and redraws the window when done.
 	BotInfo(chat int64) BotInfo
+}
+
+// WalletConfig is what Telegram's client configuration says about Wallet, as
+// Telegram Desktop's AppConfig::walletAvailable and oldWalletBotUsername.
+type WalletConfig struct {
+	Available   bool
+	BotUsername string
+}
+
+// WalletSource is a Store that knows whether Wallet is offered for the account.
+type WalletSource interface {
+	Wallet() WalletConfig
 }

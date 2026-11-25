@@ -5,6 +5,7 @@ package tgstore
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/gotd/td/tg"
@@ -20,6 +21,34 @@ func (s *Store) Premium() model.Premium {
 		return model.PremiumFromConfig(s.me.Premium, nil)
 	}
 	return s.premium
+}
+
+// Wallet implements model.WalletSource.
+func (s *Store) Wallet() model.WalletConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.wallet.BotUsername == "" {
+		return walletFromConfig(nil)
+	}
+	return s.wallet
+}
+
+// walletFromConfig reads wallet_available and old_wallet_bot_username from
+// Telegram's appConfig, matching Telegram Desktop's AppConfig defaults.
+func walletFromConfig(config map[string]any) model.WalletConfig {
+	w := model.WalletConfig{Available: true, BotUsername: "wallet"}
+	if config == nil {
+		return w
+	}
+	if v, ok := config["wallet_available"].(bool); ok {
+		w.Available = v
+	}
+	if v, ok := config["old_wallet_bot_username"].(string); ok {
+		if u := strings.TrimPrefix(strings.TrimSpace(v), "@"); u != "" {
+			w.BotUsername = u
+		}
+	}
+	return w
 }
 
 // loadAppConfig reads the client configuration for the limits Premium
@@ -39,7 +68,8 @@ func (s *Store) loadAppConfig(ctx context.Context, api *tg.Client, active bool) 
 		return
 	}
 	freeze := freezeFromConfig(config)
-	s.publish(func() { s.premium, s.freeze = premium, freeze })
+	wallet := walletFromConfig(config)
+	s.publish(func() { s.premium, s.freeze, s.wallet = premium, freeze, wallet })
 }
 
 // jsonValue turns Telegram's JSON into what encoding/json would decode it to.

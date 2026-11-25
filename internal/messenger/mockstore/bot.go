@@ -115,6 +115,11 @@ func (s *Store) BotInfo(chat int64) model.BotInfo {
 	return info
 }
 
+// Wallet implements model.WalletSource for -demo.
+func (s *Store) Wallet() model.WalletConfig {
+	return model.WalletConfig{Available: true, BotUsername: "wallet"}
+}
+
 // RequestWebView implements model.WebViewStore: every Mini App of the demo is
 // the bundled one, served from the loopback with the demo's init data in the
 // link, as Telegram would answer.

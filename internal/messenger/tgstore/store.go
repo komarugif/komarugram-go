@@ -90,6 +90,7 @@ type Store struct {
 	// again: see Middleware.
 	freezeChecked time.Time
 	premium       model.Premium
+	wallet        model.WalletConfig
 	folders       []model.Folder
 	chats         []model.Chat
 	reactions     reactionState

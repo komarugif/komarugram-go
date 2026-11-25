@@ -36,10 +36,11 @@ type drawer struct {
 	badges badgesLayout
 }
 
-// drawerKey identifies a row: a section, or the theme switch.
+// drawerKey identifies a row: a section, the Wallet launch, or the theme switch.
 type drawerKey struct {
 	section section
 	theme   bool
+	wallet  bool
 }
 
 type drawerRow struct {
@@ -90,7 +91,7 @@ func (d *drawer) close() {
 	}
 }
 
-func drawerEntries(folders []model.Folder, chats []model.Chat, dark bool, l localization.Catalog) []drawerEntry {
+func drawerEntries(folders []model.Folder, chats []model.Chat, dark, wallet bool, l localization.Catalog) []drawerEntry {
 	entries := []drawerEntry{{key: drawerKey{section: section{kind: sectionAll}}, icon: iconAllChats, title: l.T("nav.all"),
 		unread: unreadChats(chats, func(model.Chat) bool { return true })}}
 	for _, f := range folders {
@@ -101,6 +102,11 @@ func drawerEntries(folders []model.Folder, chats []model.Chat, dark bool, l loca
 		drawerEntry{key: drawerKey{section: section{kind: sectionSearch}}, icon: iconSearch, title: l.T("nav.search")},
 		drawerEntry{key: drawerKey{section: section{kind: sectionProfile}}, icon: iconProfile, title: l.T("nav.profile")},
 		drawerEntry{key: drawerKey{section: section{kind: sectionSaved}}, icon: iconSaved, title: l.T("nav.saved")},
+	)
+	if wallet {
+		entries = append(entries, drawerEntry{key: drawerKey{wallet: true}, icon: iconWallet, title: l.T("nav.wallet")})
+	}
+	entries = append(entries,
 		drawerEntry{key: drawerKey{section: section{kind: sectionDownloads}}, icon: iconDownloads, title: l.T("nav.downloads")},
 		drawerEntry{key: drawerKey{section: section{kind: sectionSettings}}, icon: iconSettings, title: l.T("nav.settings")},
 	)

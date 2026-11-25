@@ -49,6 +49,7 @@ type sidebar struct {
 	search    navButton
 	profile   navButton
 	saved     navButton
+	wallet    navButton
 	downloads navButton
 	settings  navButton
 	theme     navButton
@@ -66,9 +67,10 @@ func newSidebar() *sidebar {
 type sidebarEvents struct {
 	section     *section
 	toggleTheme bool
+	openWallet  bool
 }
 
-func (s *sidebar) Update(gtx layout.Context, folders []model.Folder) sidebarEvents {
+func (s *sidebar) Update(gtx layout.Context, folders []model.Folder, wallet bool) sidebarEvents {
 	var ev sidebarEvents
 	pick := func(sec section) { ev.section = &sec }
 	if s.visible("all") && s.all.Clicked(gtx) {
@@ -87,6 +89,9 @@ func (s *sidebar) Update(gtx layout.Context, folders []model.Folder) sidebarEven
 	}
 	if s.visible("saved") && s.saved.Clicked(gtx) {
 		pick(section{kind: sectionSaved})
+	}
+	if wallet && s.visible("wallet") && s.wallet.Clicked(gtx) {
+		ev.openWallet = true
 	}
 	if s.visible("downloads") && s.downloads.Clicked(gtx) {
 		pick(section{kind: sectionDownloads})
@@ -117,7 +122,7 @@ func sidebarNeededHeight(folders int) unit.Dp {
 }
 
 // Layout draws the sidebar in the full height of the constraints.
-func (s *sidebar) Layout(gtx layout.Context, current section, folders []model.Folder, chats []model.Chat, dark bool, l localization.Catalog) layout.Dimensions {
+func (s *sidebar) Layout(gtx layout.Context, current section, folders []model.Folder, chats []model.Chat, dark, wallet bool, l localization.Catalog) layout.Dimensions {
 	sc := scheme(gtx)
 	size := image.Pt(gtx.Dp(sidebarWidth), gtx.Constraints.Max.Y)
 	fillWindowSurface(gtx, sc.SurfaceContainer, size)
@@ -147,16 +152,25 @@ func (s *sidebar) Layout(gtx layout.Context, current section, folders []model.Fo
 		button(&s.search, iconSearch, l.T("nav.search"), current.kind == sectionSearch, 0),
 		button(&s.profile, iconProfile, l.T("nav.profile"), current.kind == sectionProfile, 0),
 		button(&s.saved, iconSaved, l.T("nav.saved"), current.kind == sectionSaved, 0),
+	}
+	if wallet {
+		bottom = append(bottom, button(&s.wallet, iconWallet, l.T("nav.wallet"), false, 0))
+	}
+	bottom = append(bottom,
 		button(&s.downloads, iconDownloads, l.T("nav.downloads"), current.kind == sectionDownloads, 0),
 		button(&s.settings, iconSettings, l.T("nav.settings"), current.kind == sectionSettings, 0),
 		button(&s.theme, themeIcon, themeText, false, 0),
-	}
+	)
 
 	ids := []string{"all"}
 	for _, f := range folders {
 		ids = append(ids, navigationID(drawerKey{section: section{kind: sectionFolder, folder: f.ID}}, s.accountID()))
 	}
-	ids = append(ids, "search", "profile", "saved", "downloads", "settings", "theme")
+	ids = append(ids, "search", "profile", "saved")
+	if wallet {
+		ids = append(ids, "wallet")
+	}
+	ids = append(ids, "downloads", "settings", "theme")
 	widgets := append(top, bottom...)
 	byID := map[string]layout.Widget{}
 	for i, id := range ids {
@@ -166,7 +180,7 @@ func (s *sidebar) Layout(gtx layout.Context, current section, folders []model.Fo
 	split := len(ids)
 	for split > 0 {
 		id := ids[split-1]
-		if id != "search" && id != "profile" && id != "saved" && id != "downloads" && id != "settings" && id != "theme" {
+		if id != "search" && id != "profile" && id != "saved" && id != "wallet" && id != "downloads" && id != "settings" && id != "theme" {
 			break
 		}
 		split--

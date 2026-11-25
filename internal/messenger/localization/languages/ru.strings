@@ -1328,6 +1328,7 @@
 "nav.menu" = "Меню";
 "nav.profile" = "Профиль";
 "nav.saved" = "Избранное";
+"nav.wallet" = "Деньги";
 "nav.search" = "Поиск";
 "nav.settings" = "Настройки";
 "nav.theme_dark" = "Тёмная";

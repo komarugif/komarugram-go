@@ -407,6 +407,7 @@
 
 "nav.downloads" = "lng_downloads_section";
 "nav.saved" = "lng_saved_messages";
+"nav.wallet" = "lng_wallet_menu";
 
 "notify.all_accounts" = "lng_settings_notify_all";
 "notify.all_accounts_hint" = "lng_settings_notify_all_about";

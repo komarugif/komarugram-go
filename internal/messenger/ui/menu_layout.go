@@ -49,6 +49,9 @@ func navigationID(k drawerKey, account string) string {
 	if k.theme {
 		return "theme"
 	}
+	if k.wallet {
+		return "wallet"
+	}
 	switch k.section.kind {
 	case sectionAll:
 		return "all"
@@ -99,7 +102,7 @@ type menuCatalog struct {
 
 func menuCatalogs(folders []model.Folder, account string, l localization.Catalog) []menuCatalog {
 	var nav []menuChoice
-	for _, e := range drawerEntries(folders, nil, false, l) {
+	for _, e := range drawerEntries(folders, nil, false, true, l) {
 		nav = append(nav, menuChoice{navigationID(e.key, account), e.title, e.icon})
 	}
 	out := []menuCatalog{{menuSidebar, l.T("menus.sidebar"), nav}, {menuDrawer, l.T("menus.drawer"), nav}}
