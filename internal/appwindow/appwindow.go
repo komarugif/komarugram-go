@@ -203,28 +203,40 @@ func (w *Window) PerformLater(actions system.Action) {
 var perform = func(w *Window, actions system.Action) { w.Perform(actions) }
 
 // SetFrameDark picks the dark or the light look of the system's window frame
-// (macOS), which otherwise follows the system, not the theme of the program.
-// Setting the look it has does nothing.
+// (macOS and Windows), which otherwise follows the system, not the theme of
+// the program. Setting the look it has does nothing.
 func (w *Window) SetFrameDark(dark bool) {
 	w.titleMu.Lock()
 	same := w.frameDarkSet && w.frameDark == dark
 	w.frameDarkSet, w.frameDark = true, dark
+	c := w.frameColor
+	hwnd := w.view
 	w.titleMu.Unlock()
-	if !same && w.Window != nil && runtime.GOOS == "darwin" {
+	if same {
+		return
+	}
+	if w.Window != nil && runtime.GOOS == "darwin" {
 		w.Option(app.DarkFrame(dark))
 	}
+	applyFrameStyle(hwnd, true, dark, c)
 }
 
-// SetFrameColor colors the system's window frame (macOS) as the content, so
-// that the two match. Setting the color it has does nothing.
+// SetFrameColor colors the system's window frame (macOS and Windows 11) as
+// the content, so that the two match. Setting the color it has does nothing.
 func (w *Window) SetFrameColor(c color.NRGBA) {
 	w.titleMu.Lock()
 	same := w.frameColor == c
 	w.frameColor = c
+	darkSet, dark := w.frameDarkSet, w.frameDark
+	hwnd := w.view
 	w.titleMu.Unlock()
-	if !same && w.Window != nil && runtime.GOOS == "darwin" {
+	if same {
+		return
+	}
+	if w.Window != nil && runtime.GOOS == "darwin" {
 		w.Option(app.FrameColor(c))
 	}
+	applyFrameStyle(hwnd, darkSet, dark, c)
 }
 
 // ToggleFullscreen switches between fullscreen and windowed mode. F11 does
@@ -575,7 +587,11 @@ func run(w *Window, opts Options, build func(w *Window) Content, activated func(
 		ev := w.Event()
 		w.applyTitle()
 		if handle, ok := viewHandle(ev); ok {
+			w.titleMu.Lock()
 			w.view, w.captureApplied = handle, false
+			darkSet, dark, c := w.frameDarkSet, w.frameDark, w.frameColor
+			w.titleMu.Unlock()
+			applyFrameStyle(handle, darkSet, dark, c)
 		}
 		if view, ok := desktopView(ev); ok {
 			w.setDesktopView(view)

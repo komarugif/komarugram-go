@@ -88,7 +88,7 @@
 "animations.title" = "Animations";
 "animations.unplugged" = "on battery";
 
-"app.title" = "KomaruGram Go";
+"app.title" = "KomaruGram";
 
 "archive.about" = "Messages the local cache lacks are being saved from Telegram's history. Media are not downloaded, and the chat on screen stays as it is.";
 "archive.cancel" = "Cancel";

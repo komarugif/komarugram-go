@@ -97,7 +97,7 @@
 "animations.title" = "Анимации";
 "animations.unplugged" = "от батареи";
 
-"app.title" = "KomaruGram Go";
+"app.title" = "KomaruGram";
 
 "archive.about" = "Сообщения, которых нет в локальном кэше, сохраняются из истории Telegram. Медиа не скачиваются, открытый чат остаётся как был.";
 "archive.cancel" = "Отмена";
