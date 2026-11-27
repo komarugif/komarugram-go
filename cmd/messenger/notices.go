@@ -45,21 +45,17 @@ func (h *accountWindows) notice(s *accountSession, n model.MessageNotice) {
 }
 
 // noticeAvatar decodes the peer's cached/available avatar for a desktop
-// notification without blocking for long.
+// notification without blocking for long. Stripped thumbnails (10x10) are
+// skipped so Windows never shows a blurry upscaled preview.
 func noticeAvatar(store *tgstore.Store, chat int64) image.Image {
 	msg, ok := store.Avatar(chat)
 	if !ok {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
 	defer cancel()
 	if data, err := store.Media(ctx, msg); err == nil && len(data) > 0 {
 		if im, _, err := image.Decode(bytes.NewReader(data)); err == nil {
-			return im
-		}
-	}
-	if msg.Media != nil && len(msg.Media.Preview) > 0 {
-		if im, _, err := image.Decode(bytes.NewReader(msg.Media.Preview)); err == nil {
 			return im
 		}
 	}
