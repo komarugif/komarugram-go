@@ -496,6 +496,12 @@ func (p *chatPage) bubbleContent(gtx layout.Context, r *messageRow, m model.Mess
 			return p.forwardLine(gtx, r, *msg, l)
 		}), bubbleGap(4))
 	}
+	if msg.ViaBot != "" {
+		viaText := l.Format("history.via_bot", map[string]string{"bot": msg.ViaBot})
+		parts = append(parts, bubbleWidget(func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, viaText, token.TypestyleLabelMedium, sc.Primary.Color, 1)
+		}), bubbleGap(4))
+	}
 	// In a thread, as the comments to a post, what replies to its root
 	// quotes nothing, as in Telegram Desktop: all of it does.
 	if msg.ReplyToMessageID != 0 && msg.ReplyToMessageID != p.threadRoot || msg.ReplyToStory != nil {

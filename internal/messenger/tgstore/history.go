@@ -1589,8 +1589,12 @@ func (s *Store) convert(ctx context.Context, raw []tg.MessageClass, live bool, s
 	c.mu.Lock()
 	account, cache := c.account, c.cache
 	names := make(map[int64]string, len(c.peers))
+	usernames := make(map[int64]string, len(c.peers))
 	for id, p := range c.peers {
 		names[id] = p.Name
+		if p.Username != "" {
+			usernames[id] = p.Username
+		}
 	}
 	c.mu.Unlock()
 	var msgs []model.Message
@@ -1599,6 +1603,13 @@ func (s *Store) convert(ctx context.Context, raw []tg.MessageClass, live bool, s
 			continue
 		}
 		m, ref := convertMessage(account, r, names)
+		if m.ViaBotID != 0 {
+			if u := usernames[m.ViaBotID]; u != "" {
+				m.ViaBot = u
+			} else if name := names[m.ViaBotID]; name != "" {
+				m.ViaBot = name
+			}
+		}
 		s.applyWebMShape(ctx, m.Media)
 		refs := map[string]fileLocation{}
 		var inlines []*model.MessageMedia

@@ -87,6 +87,9 @@ func convertMessage(account string, m tg.MessageClass, names map[int64]string) (
 			out.SenderID = peerID(m.FromID)
 			out.SenderName = names[out.SenderID]
 		}
+		if viaID, ok := m.GetViaBotID(); ok && viaID != 0 {
+			out.ViaBotID = peerID(&tg.PeerUser{UserID: viaID})
+		}
 		switch r := m.ReplyTo.(type) {
 		case *tg.MessageReplyHeader:
 			out.ReplyToMessageID = model.MessageID(r.ReplyToMsgID)

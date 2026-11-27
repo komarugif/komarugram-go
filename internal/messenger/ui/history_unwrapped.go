@@ -240,8 +240,9 @@ func alignFor(m model.Message) layout.Alignment {
 // when there is none of them.
 func (p *chatPage) unwrappedSide(m *model.Message, join bubbleJoin, l localization.Catalog, r *messageRow) layout.Widget {
 	forward := !m.ForwardDate.IsZero()
+	via := m.ViaBot != ""
 	reply := m.ReplyToMessageID != 0 && m.ReplyToMessageID != p.threadRoot
-	if !forward && !reply {
+	if !forward && !via && !reply {
 		return nil
 	}
 	return func(gtx layout.Context) layout.Dimensions {
@@ -261,8 +262,17 @@ func (p *chatPage) unwrappedSide(m *model.Message, join bubbleJoin, l localizati
 				return label(gtx, text, token.TypestyleLabelMedium, sc.Primary.Color, 2)
 			}))
 		}
-		if reply {
+		if via {
 			if forward {
+				children = append(children, vspace(3))
+			}
+			viaText := l.Format("history.via_bot", map[string]string{"bot": m.ViaBot})
+			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, viaText, token.TypestyleLabelMedium, sc.Primary.Color, 1)
+			}))
+		}
+		if reply {
+			if forward || via {
 				children = append(children, vspace(4))
 			}
 			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {

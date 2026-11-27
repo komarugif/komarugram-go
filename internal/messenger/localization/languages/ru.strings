@@ -986,6 +986,7 @@
 "history.failed" = "Не удалось загрузить. Повторите попытку.";
 "history.file" = "Файл";
 "history.forward" = "Пересланное сообщение";
+"history.via_bot" = "через @{bot}";
 "history.forward_failed" = "Не удалось переслать";
 "history.forward_back" = "Вернуться";
 "history.forward_confirm" = "Переслать в «{chat}»?";

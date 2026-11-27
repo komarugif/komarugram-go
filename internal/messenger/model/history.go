@@ -171,6 +171,9 @@ type Message struct {
 	Post bool `json:",omitempty"`
 	// ForwardName is who the forwarded message came from, as a name.
 	ForwardName string `json:",omitempty"`
+	// ViaBotID and ViaBot name the inline bot that sent the message.
+	ViaBotID int64  `json:",omitempty"`
+	ViaBot   string `json:",omitempty"`
 	// Views counts who saw a channel post; PostAuthor signs it.
 	Views      int    `json:",omitempty"`
 	PostAuthor string `json:",omitempty"`

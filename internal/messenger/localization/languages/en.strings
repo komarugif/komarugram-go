@@ -935,6 +935,7 @@
 "history.failed" = "Could not load. Please try again.";
 "history.file" = "File";
 "history.forward" = "Forwarded message";
+"history.via_bot" = "via @{bot}";
 "history.forward_failed" = "Could not forward";
 "history.forward_back" = "Go back";
 "history.forward_confirm" = "Forward to “{chat}”?";
