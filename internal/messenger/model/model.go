@@ -140,7 +140,8 @@ type Chat struct {
 	// ReadInbox is the newest of the others' messages the account read, on
 	// any of its devices: a chat not opened here opens after it.
 	ReadInbox MessageID `json:",omitempty"`
-	Muted     bool
+	Muted    bool
+	Archived bool `json:",omitempty"`
 	// Pinned chats stay at the top of the list, in the order PinRank gives:
 	// 1 for the first, 0 for a chat that is not pinned.
 	Pinned  bool
@@ -237,6 +238,8 @@ type Folder struct {
 	// Match decides membership when a folder is more than a set of kinds, as
 	// a Telegram folder is: its rules name chats as well as kinds.
 	Match func(Chat) bool
+	// Pinned holds the chat ids pinned inside this folder, in pin order.
+	Pinned []int64
 }
 
 // Contains reports whether the chat belongs to the folder.

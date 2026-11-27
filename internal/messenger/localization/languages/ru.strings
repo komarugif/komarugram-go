@@ -168,6 +168,8 @@
 
 "chat_row.community" = "О сообществе";
 "chat_row.pin" = "Закрепить";
+"chat_row.archive" = "В архив";
+"chat_row.unarchive" = "Из архива";
 "chat_row.pin_failed" = "Не удалось изменить закрепы";
 "chat_row.pin_limit" = "Закрепить можно не больше {limit} чатов.";
 "chat_row.pin_limit_pro" = "Закрепить можно не больше {limit} чатов. С Telegram Premium — до {premium}.";
@@ -1324,6 +1326,7 @@
 "miniapp.title" = "Mini Apps";
 
 "nav.all" = "Все чаты";
+"nav.archive" = "Архив";
 "nav.downloads" = "Загрузки";
 "nav.menu" = "Меню";
 "nav.profile" = "Профиль";

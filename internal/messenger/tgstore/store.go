@@ -91,8 +91,10 @@ type Store struct {
 	freezeChecked time.Time
 	premium       model.Premium
 	wallet        model.WalletConfig
-	folders       []model.Folder
-	chats         []model.Chat
+	folders        []model.Folder
+	chats          []model.Chat
+	notifyDefaults notifyDefaults
+	notifyPeers    map[int64]tg.PeerNotifySettings
 	reactions     reactionState
 	recent        recentChats
 	ghost         ghostState
@@ -220,6 +222,15 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) (er
 	}
 
 	l := newList(self)
+	if v, err := api.AccountGetNotifySettings(ctx, &tg.InputNotifyUsers{}); err == nil && v != nil {
+		l.notifyDefaults.users = *v
+	}
+	if v, err := api.AccountGetNotifySettings(ctx, &tg.InputNotifyChats{}); err == nil && v != nil {
+		l.notifyDefaults.chats = *v
+	}
+	if v, err := api.AccountGetNotifySettings(ctx, &tg.InputNotifyBroadcasts{}); err == nil && v != nil {
+		l.notifyDefaults.broadcasts = *v
+	}
 	offset := page{peer: &tg.InputPeerEmpty{}}
 	for {
 		// A gap in the updates while the page is asked for leaves its
@@ -276,6 +287,7 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) (er
 			chats, entries := s.withKept(l)
 			chats = keepAlbums(chats, s.chats)
 			s.chats, s.entries, s.filters = s.keepReads(chats), entries, filters.Filters
+			s.notifyDefaults, s.notifyPeers = l.notifyDefaults, maps.Clone(l.notifyPeers)
 			s.folders = folderList(self, filters.Filters, entries)
 		})
 		if unchanged {
@@ -298,6 +310,52 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) (er
 			return ctx.Err()
 		case <-time.After(pagePause):
 		}
+	}
+	if l.hasArchive {
+		l.archiving = true
+		archOffset := page{peer: &tg.InputPeerEmpty{}}
+		for pages := 0; pages < 5; pages++ {
+			res, err := api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
+				FolderID:   1,
+				OffsetDate: archOffset.date,
+				OffsetID:   archOffset.id,
+				OffsetPeer: archOffset.peer,
+				Limit:      pageSize,
+			})
+			if err != nil {
+				break
+			}
+			dialogs, ok := res.AsModified()
+			if !ok {
+				break
+			}
+			s.rememberPeers(dialogs.GetUsers(), dialogs.GetChats())
+			added := l.add(dialogs)
+			_ = s.keepPreviewRefs(ctx, l.refs)
+			l.refs = nil
+			s.publish(func() {
+				chats, entries := s.withKept(l)
+				chats = keepAlbums(chats, s.chats)
+				s.chats, s.entries, s.filters = s.keepReads(chats), entries, filters.Filters
+				s.notifyDefaults, s.notifyPeers = l.notifyDefaults, maps.Clone(l.notifyPeers)
+				s.folders = folderList(self, filters.Filters, entries)
+			})
+			slice, ok := dialogs.(*tg.MessagesDialogsSlice)
+			if !ok || added == 0 {
+				break
+			}
+			next, ok := l.nextPage(dialogs)
+			if !ok || len(dialogs.GetDialogs()) < pageSize || slice.Count <= (pages+1)*pageSize {
+				break
+			}
+			archOffset = next
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(pagePause):
+			}
+		}
+		l.archiving = false
 	}
 	if err := s.persistDialogs(ctx); err != nil {
 		return err
@@ -429,7 +487,11 @@ type list struct {
 	// from, by their media, until the store keeps them.
 	refs map[string]fileLocation
 	// pins counts the pinned dialogs seen; they come first, in pin order.
-	pins int
+	pins           int
+	hasArchive     bool
+	archiving      bool
+	notifyDefaults notifyDefaults
+	notifyPeers    map[int64]tg.PeerNotifySettings
 }
 
 func newList(self int64) *list {
@@ -443,6 +505,7 @@ func newList(self int64) *list {
 		messages:    map[[2]int64]tg.MessageClass{},
 		entries:     map[int64]entry{},
 		seen:        map[int64]bool{},
+		notifyPeers: map[int64]tg.PeerNotifySettings{},
 	}
 }
 
@@ -483,8 +546,13 @@ func (l *list) add(page tg.ModifiedMessagesDialogs) int {
 			chat, e = l.chat(d)
 		case *tg.DialogCommunity:
 			chat = l.community(d)
+		case *tg.DialogFolder:
+			if d.Folder.ID == 1 {
+				l.hasArchive = true
+			}
+			continue
 		default:
-			continue // a folder entry: the archive is not loaded yet
+			continue
 		}
 		id := chat.ID
 		if l.seen[id] {
@@ -514,13 +582,13 @@ func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 	chat := model.Chat{
 		ID:         id,
 		Unread:     d.UnreadCount,
-		Pinned:     d.Pinned,
+		Pinned:     d.Pinned && !l.archiving,
+		Archived:   l.archiving || d.FolderID == 1,
 		ReadOutbox: model.MessageID(d.ReadOutboxMaxID),
 		ReadInbox:  model.MessageID(d.ReadInboxMaxID),
 	}
-	chat.Muted = mutedNow(d.NotifySettings)
 	chat.Draft = draftOf(d.Draft)
-	if d.Pinned {
+	if chat.Pinned {
 		l.pins++
 		chat.PinRank = l.pins
 	}
@@ -559,6 +627,10 @@ func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 			}
 			chat.Members, _ = c.GetParticipantsCount()
 		}
+	}
+	chat.Muted = mutedWithDefault(d.NotifySettings, l.notifyDefaults.forKind(chat.Kind))
+	if l.notifyPeers != nil {
+		l.notifyPeers[id] = d.NotifySettings
 	}
 	if chat.Title == "" {
 		chat.Title = l.titles[id]
@@ -804,6 +876,18 @@ func (l *list) folder(f tg.DialogFilterClass, entries map[int64]entry) (model.Fo
 		}
 		return set
 	}
+	orderedIDs := func(peers []tg.InputPeerClass) []int64 {
+		if len(peers) == 0 {
+			return nil
+		}
+		out := make([]int64, 0, len(peers))
+		for _, p := range peers {
+			if id := inputPeerID(p, l.self); id != 0 {
+				out = append(out, id)
+			}
+		}
+		return out
+	}
 	switch f := f.(type) {
 	case *tg.DialogFilter:
 		included := ids(append(append([]tg.InputPeerClass(nil), f.PinnedPeers...), f.IncludePeers...))
@@ -822,9 +906,10 @@ func (l *list) folder(f tg.DialogFilterClass, entries map[int64]entry) (model.Fo
 			kinds = append(kinds, model.KindBot)
 		}
 		return model.Folder{
-			ID:    int64(f.ID),
-			Title: f.Title.Text,
-			Kinds: kinds,
+			ID:     int64(f.ID),
+			Title:  f.Title.Text,
+			Kinds:  kinds,
+			Pinned: orderedIDs(f.PinnedPeers),
 			Match: func(c model.Chat) bool {
 				if included[c.ID] {
 					return true
@@ -839,7 +924,9 @@ func (l *list) folder(f tg.DialogFilterClass, entries map[int64]entry) (model.Fo
 				if f.ExcludeRead && c.Unread == 0 && !e.unreadMark {
 					return false
 				}
-				// Only the main list is loaded, so ExcludeArchived holds.
+				if f.ExcludeArchived && c.Archived {
+					return false
+				}
 				switch c.Kind {
 				case model.KindUser, model.KindSaved:
 					return (f.Contacts && e.contact) || (f.NonContacts && !e.contact)
@@ -856,9 +943,10 @@ func (l *list) folder(f tg.DialogFilterClass, entries map[int64]entry) (model.Fo
 	case *tg.DialogFilterChatlist:
 		included := ids(append(append([]tg.InputPeerClass(nil), f.PinnedPeers...), f.IncludePeers...))
 		return model.Folder{
-			ID:    int64(f.ID),
-			Title: f.Title.Text,
-			Match: func(c model.Chat) bool { return included[c.ID] },
+			ID:     int64(f.ID),
+			Title:  f.Title.Text,
+			Pinned: orderedIDs(f.PinnedPeers),
+			Match:  func(c model.Chat) bool { return included[c.ID] },
 		}, true
 	}
 	return model.Folder{}, false // the "All chats" entry

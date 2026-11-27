@@ -154,11 +154,19 @@ func (l *chatList) row(id int64) *chatRow {
 // visible returns the chats the section lists.
 func (l *chatList) visible(sec section, folders []model.Folder, chats []model.Chat, catalog localization.Catalog) []model.Chat {
 	var match func(model.Chat) bool
+	var folderPinned []int64
 	switch sec.kind {
+	case sectionAll:
+		if hasArchivedChats(chats) {
+			match = func(c model.Chat) bool { return !c.Archived }
+		}
+	case sectionArchive:
+		match = func(c model.Chat) bool { return c.Archived }
 	case sectionFolder:
 		for _, f := range folders {
 			if f.ID == sec.folder {
 				match = f.Contains
+				folderPinned = f.Pinned
 			}
 		}
 	case sectionSearch:
@@ -175,6 +183,20 @@ func (l *chatList) visible(sec section, folders []model.Folder, chats []model.Ch
 		if match(c) {
 			out = append(out, c)
 		}
+	}
+	if sec.kind == sectionFolder {
+		rank := make(map[int64]int, len(folderPinned))
+		for i, id := range folderPinned {
+			rank[id] = i + 1
+		}
+		for i := range out {
+			if r := rank[out[i].ID]; r > 0 {
+				out[i].Pinned, out[i].PinRank = true, r
+			} else {
+				out[i].Pinned, out[i].PinRank = false, 0
+			}
+		}
+		model.SortChats(out)
 	}
 	return out
 }

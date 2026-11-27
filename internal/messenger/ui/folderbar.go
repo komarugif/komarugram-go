@@ -56,8 +56,22 @@ type barFolder struct {
 	unread int
 }
 
+const archiveChipID = -1
+
+func hasArchivedChats(chats []model.Chat) bool {
+	for _, c := range chats {
+		if c.Archived {
+			return true
+		}
+	}
+	return false
+}
+
 func barFolders(folders []model.Folder, chats []model.Chat, l localization.Catalog) []barFolder {
-	out := []barFolder{{title: l.T("nav.all"), unread: unreadChats(chats, func(model.Chat) bool { return true })}}
+	out := []barFolder{{title: l.T("nav.all"), unread: unreadChats(chats, func(c model.Chat) bool { return !c.Archived })}}
+	if hasArchivedChats(chats) {
+		out = append(out, barFolder{id: archiveChipID, title: l.T("nav.archive"), unread: unreadChats(chats, func(c model.Chat) bool { return c.Archived })})
+	}
 	for _, f := range folders {
 		out = append(out, barFolder{id: f.ID, title: f.Title, unread: unreadChats(chats, f.Contains)})
 	}
@@ -80,6 +94,9 @@ func (b *folderBar) Update(gtx layout.Context, folders []model.Folder) (section,
 	if b.chip(0).click.Clicked(gtx) {
 		return section{kind: sectionAll}, true
 	}
+	if b.chip(archiveChipID).click.Clicked(gtx) {
+		return section{kind: sectionArchive}, true
+	}
 	for _, f := range folders {
 		if b.chip(f.ID).click.Clicked(gtx) {
 			return section{kind: sectionFolder, folder: f.ID}, true
@@ -94,7 +111,9 @@ func (b *folderBar) Layout(gtx layout.Context, current section, folders []model.
 	size := gtx.Constraints.Max
 	return b.list.Layout(gtx, len(items), func(gtx layout.Context, i int) layout.Dimensions {
 		f := items[i]
-		active := (f.id == 0 && current.kind == sectionAll) || (current.kind == sectionFolder && current.folder == f.id)
+		active := (f.id == 0 && current.kind == sectionAll) ||
+			(f.id == archiveChipID && current.kind == sectionArchive) ||
+			(current.kind == sectionFolder && current.folder == f.id)
 		gap := gtx.Dp(folderChipGap)
 		dims := offset(gtx, image.Pt(gap, (size.Y-gtx.Dp(folderChipHeight))/2), func(gtx layout.Context) layout.Dimensions {
 			return b.chip(f.id).Layout(gtx, f.title, active, f.unread)

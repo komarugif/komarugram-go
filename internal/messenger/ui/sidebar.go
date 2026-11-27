@@ -21,6 +21,7 @@ type sectionKind int
 
 const (
 	sectionAll sectionKind = iota
+	sectionArchive
 	sectionFolder
 	sectionSearch
 	sectionProfile
@@ -45,6 +46,7 @@ type sidebar struct {
 	menus     menuPreferences
 	account   func() string
 	all       navButton
+	archive   navButton
 	folders   map[int64]*navButton
 	search    navButton
 	profile   navButton
@@ -75,6 +77,9 @@ func (s *sidebar) Update(gtx layout.Context, folders []model.Folder, wallet bool
 	pick := func(sec section) { ev.section = &sec }
 	if s.visible("all") && s.all.Clicked(gtx) {
 		pick(section{kind: sectionAll})
+	}
+	if s.visible("archive") && s.archive.Clicked(gtx) {
+		pick(section{kind: sectionArchive})
 	}
 	for _, f := range folders {
 		if s.visible(navigationID(drawerKey{section: section{kind: sectionFolder, folder: f.ID}}, s.accountID())) && s.folderButton(f.ID).Clicked(gtx) {
@@ -136,9 +141,14 @@ func (s *sidebar) Layout(gtx layout.Context, current section, folders []model.Fo
 
 	// Chat sections scroll when there are many folders; the rest stays at
 	// the bottom.
+	hasArchive := hasArchivedChats(chats)
 	top := []layout.Widget{
 		button(&s.all, iconAllChats, l.T("nav.all"), current.kind == sectionAll,
-			unread(func(model.Chat) bool { return true })),
+			unread(func(c model.Chat) bool { return !c.Archived })),
+	}
+	if hasArchive {
+		top = append(top, button(&s.archive, iconArchive, l.T("nav.archive"), current.kind == sectionArchive,
+			unread(func(c model.Chat) bool { return c.Archived })))
 	}
 	for _, f := range folders {
 		top = append(top, button(s.folderButton(f.ID), folderIcon(f), f.Title,
@@ -163,6 +173,9 @@ func (s *sidebar) Layout(gtx layout.Context, current section, folders []model.Fo
 	)
 
 	ids := []string{"all"}
+	if hasArchive {
+		ids = append(ids, "archive")
+	}
 	for _, f := range folders {
 		ids = append(ids, navigationID(drawerKey{section: section{kind: sectionFolder, folder: f.ID}}, s.accountID()))
 	}

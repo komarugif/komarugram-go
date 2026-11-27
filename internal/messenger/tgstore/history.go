@@ -1708,8 +1708,11 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			c.peers[id] = p
 			c.mu.Unlock()
 		case *tg.UpdateNotifySettings:
-			if p, ok := u.Peer.(*tg.NotifyPeer); ok {
+			switch p := u.Peer.(type) {
+			case *tg.NotifyPeer:
 				s.setMuted(peerID(p.Peer), u.NotifySettings)
+			case *tg.NotifyUsers, *tg.NotifyChats, *tg.NotifyBroadcasts:
+				s.setDefaultNotify(p, u.NotifySettings)
 			}
 		case *tg.UpdateReadHistoryInbox:
 			s.setUnread(peerID(u.Peer), u.StillUnreadCount, u.MaxID)

@@ -79,12 +79,49 @@ func (s *Store) SetChatMuted(ctx context.Context, chat int64, muted bool) error 
 	}
 	settings := tg.InputPeerNotifySettings{}
 	settings.SetMuteUntil(until)
+	if !muted {
+		settings.SetSilent(false)
+	}
 	if _, err := api.AccountUpdateNotifySettings(ctx, &tg.AccountUpdateNotifySettingsRequest{Peer: &tg.InputNotifyPeer{Peer: peer.input()}, Settings: settings}); err != nil {
 		return err
 	}
 	applied := tg.PeerNotifySettings{}
 	applied.SetMuteUntil(until)
+	if !muted {
+		applied.SetSilent(false)
+	}
 	s.setMuted(chat, applied)
-	s.changed()
+	return nil
+}
+
+// SetChatArchived implements model.ArchiveSetter using folders.editPeerFolders.
+func (s *Store) SetChatArchived(ctx context.Context, chat int64, archived bool) error {
+	chat = s.realChat(chat)
+	ctx, api, peer, _, done, err := s.peerOperation(ctx, chat)
+	if err != nil {
+		return err
+	}
+	defer done()
+	folderID := 0
+	if archived {
+		folderID = 1
+	}
+	if _, err := api.FoldersEditPeerFolders(ctx, []tg.InputFolderPeer{{Peer: peer.input(), FolderID: folderID}}); err != nil {
+		return err
+	}
+	s.publish(func() {
+		chats := append([]model.Chat(nil), s.chats...)
+		for i := range chats {
+			if chats[i].ID == chat {
+				chats[i].Archived = archived
+				if archived {
+					chats[i].Pinned, chats[i].PinRank = false, 0
+				}
+			}
+		}
+		model.SortChats(chats)
+		s.chats = chats
+	})
+	s.goPersistDialogs()
 	return nil
 }

@@ -9,7 +9,6 @@ import (
 	"sort"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/gotd/td/bin"
 	"github.com/gotd/td/telegram"
@@ -215,16 +214,24 @@ func TestDialogsKeptFoldersAndArchive(t *testing.T) {
 	}
 
 	s.applyFolderPeers(&tg.UpdateFolderPeers{FolderPeers: []tg.FolderPeer{{Peer: &tg.PeerUser{UserID: 1240}, FolderID: 1}}})
-	if slices.Contains(chatIDs(s.Chats()), user(1240)) {
-		t.Fatal("a chat archived stays in the list")
+	archived := false
+	for _, c := range s.Chats() {
+		if c.ID == user(1240) {
+			archived = c.Archived
+		}
+	}
+	if !archived {
+		t.Fatal("a chat archived is not marked Archived")
 	}
 	s.applyFolderPeers(&tg.UpdateFolderPeers{FolderPeers: []tg.FolderPeer{{Peer: &tg.PeerUser{UserID: 1240}, FolderID: 0}}})
-	deadline := time.Now().Add(3 * time.Second)
-	for !slices.Contains(chatIDs(s.Chats()), user(1240)) {
-		if time.Now().After(deadline) {
-			t.Fatal("a chat brought back from the archive is not in the list")
+	unarchived := false
+	for _, c := range s.Chats() {
+		if c.ID == user(1240) && !c.Archived {
+			unarchived = true
 		}
-		time.Sleep(5 * time.Millisecond)
+	}
+	if !unarchived {
+		t.Fatal("a chat brought back from the archive is still marked Archived")
 	}
 	if !contacts(user(1240)) {
 		t.Fatal("the chat brought back is not in the contacts' folder")

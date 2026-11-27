@@ -1266,6 +1266,9 @@
 "miniapp.title" = "Mini Apps";
 
 "nav.all" = "All chats";
+"nav.archive" = "Archive";
+"chat_row.archive" = "Archive";
+"chat_row.unarchive" = "Unarchive";
 "nav.downloads" = "Downloads";
 "nav.menu" = "Menu";
 "nav.profile" = "Profile";

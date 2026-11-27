@@ -130,6 +130,7 @@ var (
 	iconLiked         = wdk.RequireIconWidget(icons.ActionFavorite)
 	iconMore          = wdk.RequireIconWidget(icons.NavigationMoreVert)
 	iconDownload      = wdk.RequireIconWidget(icons.FileFileDownload)
+	iconArchive       = wdk.RequireIconWidget(icons.ContentArchive)
 
 	// The actions of a channel's bottom bar.
 	iconDirectMessages   = wdk.RequireIconWidget(icons.ContentCreate)

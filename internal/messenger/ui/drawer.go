@@ -93,7 +93,11 @@ func (d *drawer) close() {
 
 func drawerEntries(folders []model.Folder, chats []model.Chat, dark, wallet bool, l localization.Catalog) []drawerEntry {
 	entries := []drawerEntry{{key: drawerKey{section: section{kind: sectionAll}}, icon: iconAllChats, title: l.T("nav.all"),
-		unread: unreadChats(chats, func(model.Chat) bool { return true })}}
+		unread: unreadChats(chats, func(c model.Chat) bool { return !c.Archived })}}
+	if hasArchivedChats(chats) {
+		entries = append(entries, drawerEntry{key: drawerKey{section: section{kind: sectionArchive}},
+			icon: iconArchive, title: l.T("nav.archive"), unread: unreadChats(chats, func(c model.Chat) bool { return c.Archived })})
+	}
 	for _, f := range folders {
 		entries = append(entries, drawerEntry{key: drawerKey{section: section{kind: sectionFolder, folder: f.ID}},
 			icon: folderIcon(f), title: f.Title, unread: unreadChats(chats, f.Contains)})

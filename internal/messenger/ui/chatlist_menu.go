@@ -43,6 +43,8 @@ const (
 	chatRowUnpin
 	chatRowMute
 	chatRowUnmute
+	chatRowArchive
+	chatRowUnarchive
 	chatRowRead
 	chatRowUngroup
 	chatRowCommunity
@@ -128,6 +130,13 @@ func (m *chatRowMenu) actions(c model.Chat, sec section) []chatRowAction {
 			out = append(out, chatRowMute)
 		}
 	}
+	if _, ok := m.store.(model.ArchiveSetter); ok && c.Kind != model.KindSaved && c.Kind != model.KindCommunity {
+		if c.Archived {
+			out = append(out, chatRowUnarchive)
+		} else {
+			out = append(out, chatRowArchive)
+		}
+	}
 	if c.Unread > 0 {
 		out = append(out, chatRowRead)
 	}
@@ -150,6 +159,10 @@ func chatRowLabel(a chatRowAction, l localization.Catalog) string {
 		return l.T("composer.mute")
 	case chatRowUnmute:
 		return l.T("composer.unmute")
+	case chatRowArchive:
+		return l.T("chat_row.archive")
+	case chatRowUnarchive:
+		return l.T("chat_row.unarchive")
 	case chatRowUngroup:
 		return l.T("chat_row.ungroup")
 	case chatRowCommunity:
@@ -164,6 +177,8 @@ func chatRowIcon(a chatRowAction) wdk.IconWidget {
 		return iconNotificationsOff
 	case chatRowUnmute:
 		return iconNotificationsOn
+	case chatRowArchive, chatRowUnarchive:
+		return iconArchive
 	case chatRowRead:
 		return iconRead
 	case chatRowUngroup:
@@ -246,6 +261,8 @@ func (m *chatRowMenu) update(gtx layout.Context, sec section, chats []model.Chat
 			m.pin(c, a == chatRowPin, chats, toast, l)
 		case chatRowMute, chatRowUnmute:
 			m.mute(c, a == chatRowMute)
+		case chatRowArchive, chatRowUnarchive:
+			m.archive(c, a == chatRowArchive)
 		case chatRowRead:
 			if c.Kind != model.KindCommunity {
 				m.store.MarkChatRead(c.ID)
@@ -298,6 +315,27 @@ func (m *chatRowMenu) mute(c model.Chat, mute bool) {
 		for _, id := range ids {
 			_ = muter.SetChatMuted(ctx, id, mute)
 		}
+		if m.invalidate != nil {
+			m.invalidate()
+		}
+	}()
+}
+
+// archive moves c into or out of Telegram's archive in the background.
+func (m *chatRowMenu) archive(c model.Chat, archived bool) {
+	archiver, ok := m.store.(model.ArchiveSetter)
+	if !ok {
+		return
+	}
+	go func() {
+		defer crash.Recover("archive chat", func(*crash.Panic) {
+			if m.invalidate != nil {
+				m.invalidate()
+			}
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = archiver.SetChatArchived(ctx, c.ID, archived)
 		if m.invalidate != nil {
 			m.invalidate()
 		}

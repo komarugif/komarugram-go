@@ -53,7 +53,8 @@ func readEntries(kept map[int64]keptEntry) map[int64]entry {
 // the one kept (k, ke), as far as the list shows.
 func sameChat(c model.Chat, e entry, k model.Chat, ke entry) bool {
 	return c.Unread == k.Unread && c.ReadInbox == k.ReadInbox && c.ReadOutbox == k.ReadOutbox &&
-		c.Pinned == k.Pinned && c.Muted == k.Muted && c.Last.ID == k.Last.ID && e == ke &&
+		c.Pinned == k.Pinned && c.PinRank == k.PinRank && c.Muted == k.Muted && c.Archived == k.Archived &&
+		c.Last.ID == k.Last.ID && e == ke &&
 		c.Community == k.Community && c.Collapsed == k.Collapsed
 }
 
@@ -150,28 +151,47 @@ func (s *Store) applyUnreadMark(u *tg.UpdateDialogUnreadMark) {
 	})
 }
 
-// applyFolderPeers takes the chats moved to the archive out of the list,
-// and asks Telegram for the dialogs of those moved back: a load of the
-// dialogs may stop before their place.
+// applyFolderPeers updates chats moved into or out of the archive (folder 1),
+// and asks Telegram for the dialogs of any unknown peers moved back.
 func (s *Store) applyFolderPeers(u *tg.UpdateFolderPeers) {
 	archived := map[int64]bool{}
-	var back []int64
+	unarchived := map[int64]bool{}
 	for _, p := range u.FolderPeers {
+		id := peerID(p.Peer)
 		if p.FolderID == 0 {
-			back = append(back, peerID(p.Peer))
+			unarchived[id] = true
 		} else {
-			archived[peerID(p.Peer)] = true
+			archived[id] = true
 		}
 	}
-	if len(archived) > 0 {
+	var missing []int64
+	if len(archived) > 0 || len(unarchived) > 0 {
 		s.publish(func() {
-			s.chats = slices.DeleteFunc(slices.Clone(s.chats), func(c model.Chat) bool { return archived[c.ID] })
+			chats := slices.Clone(s.chats)
+			seen := make(map[int64]bool, len(chats))
+			for i := range chats {
+				id := chats[i].ID
+				seen[id] = true
+				if archived[id] {
+					chats[i].Archived = true
+					chats[i].Pinned, chats[i].PinRank = false, 0
+				} else if unarchived[id] {
+					chats[i].Archived = false
+				}
+			}
+			for id := range unarchived {
+				if !seen[id] {
+					missing = append(missing, id)
+				}
+			}
+			model.SortChats(chats)
+			s.chats = chats
 		})
 	}
-	if len(back) > 0 {
-		s.addDialogs(back)
+	if len(missing) > 0 {
+		s.addDialogs(missing)
 	}
-	if len(archived) > 0 || len(back) > 0 {
+	if len(archived) > 0 || len(unarchived) > 0 {
 		s.goPersistDialogs()
 	}
 }

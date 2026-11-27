@@ -55,6 +55,8 @@ func navigationID(k drawerKey, account string) string {
 	switch k.section.kind {
 	case sectionAll:
 		return "all"
+	case sectionArchive:
+		return "archive"
 	case sectionFolder:
 		return "folder:" + account + ":" + strconv.FormatInt(k.section.folder, 10)
 	case sectionSearch:
@@ -80,6 +82,8 @@ func chatRowActionID(a chatRowAction) string {
 	switch a {
 	case chatRowMute, chatRowUnmute:
 		return "mute"
+	case chatRowArchive, chatRowUnarchive:
+		return "archive"
 	case chatRowRead:
 		return "read"
 	case chatRowUngroup:
@@ -129,7 +133,7 @@ func menuCatalogs(folders []model.Folder, account string, l localization.Catalog
 		message.items = append(message.items, menuChoice{id, title, menuIcon(a)})
 	}
 	out = append(out, message)
-	out = append(out, menuCatalog{menuChatRow, l.T("menus.chat_row"), []menuChoice{{"pin", l.T("chat_row.pin"), iconPinChat}, {"mute", l.T("composer.mute"), iconNotificationsOff}, {"read", l.T("chat_row.read"), iconRead}, {"ungroup", l.T("chat_row.ungroup"), iconUngroup}, {"community", l.T("chat_row.community"), iconKindCommunity}}})
+	out = append(out, menuCatalog{menuChatRow, l.T("menus.chat_row"), []menuChoice{{"pin", l.T("chat_row.pin"), iconPinChat}, {"mute", l.T("composer.mute"), iconNotificationsOff}, {"archive", l.T("chat_row.archive"), iconArchive}, {"read", l.T("chat_row.read"), iconRead}, {"ungroup", l.T("chat_row.ungroup"), iconUngroup}, {"community", l.T("chat_row.community"), iconKindCommunity}}})
 	header := menuCatalog{menuChatHeader, l.T("menus.chat_header"), nil}
 	for a := chatMenuAction(0); a < chatMenuActions; a++ {
 		title := p.chatMenuLabel(a, l)
