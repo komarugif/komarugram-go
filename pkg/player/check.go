@@ -163,8 +163,15 @@ func checkVLCVersion(version string) (string, error) {
 func checkWindows(ctx context.Context, kind Kind, path string) (string, error) {
 	if kind == MPV {
 		// mpv prints its version as elsewhere, and carries no version
-		// resource.
+		// resource. Some Windows GUI builds only print to stdout via the
+		// sibling mpv.com console wrapper, so fall back to it on ErrNoBanner.
 		banner, err := program.Banner(ctx, path, "--version")
+		if errors.Is(err, program.ErrNoBanner) && strings.EqualFold(filepath.Ext(path), ".exe") {
+			com := strings.TrimSuffix(path, filepath.Ext(path)) + ".com"
+			if program.IsExecutable(com) {
+				banner, err = program.Banner(ctx, com, "--version")
+			}
+		}
 		if err != nil {
 			return "", err
 		}

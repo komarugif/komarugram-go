@@ -22,18 +22,20 @@ func appPath(name string) (string, bool) {
 		return "", false
 	}
 	for _, root := range []registry.Key{registry.CURRENT_USER, registry.LOCAL_MACHINE} {
-		k, err := registry.OpenKey(root, `SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\`+name, registry.QUERY_VALUE)
-		if err != nil {
-			continue
-		}
-		path, _, err := k.GetStringValue("")
-		k.Close()
-		if err != nil {
-			continue
-		}
-		path, _ = registry.ExpandString(strings.Trim(path, `"`))
-		if info, err := os.Stat(path); err == nil && !info.IsDir() && filepath.IsAbs(path) {
-			return path, true
+		for _, view := range []uint32{0, registry.WOW64_32KEY} {
+			k, err := registry.OpenKey(root, `SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\`+name, registry.QUERY_VALUE|view)
+			if err != nil {
+				continue
+			}
+			path, _, err := k.GetStringValue("")
+			k.Close()
+			if err != nil {
+				continue
+			}
+			path, _ = registry.ExpandString(strings.Trim(path, `"`))
+			if info, err := os.Stat(path); err == nil && !info.IsDir() && filepath.IsAbs(path) {
+				return path, true
+			}
 		}
 	}
 	return "", false

@@ -112,18 +112,7 @@ func (k Kind) Find() string {
 		return path
 	}
 	if runtime.GOOS == "windows" {
-		if k == VLC {
-			// The installer does not put VLC on PATH.
-			for _, env := range []string{"ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"} {
-				if dir := os.Getenv(env); dir != "" {
-					path := filepath.Join(dir, "VideoLAN", "VLC", "vlc.exe")
-					if program.IsExecutable(path) {
-						return path
-					}
-				}
-			}
-		}
-		return ""
+		return findWindows(k)
 	}
 	return program.FindFlatpak(flatpakIDs[k])
 }
