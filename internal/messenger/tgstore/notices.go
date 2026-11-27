@@ -27,7 +27,7 @@ func (s *Store) SetNotices(f func(model.MessageNotice)) {
 // notice tells of m, a new message of chat that came in raw.
 func (s *Store) notice(m model.Message, chat model.Chat, raw tg.MessageClass) {
 	f := s.notices.Load()
-	if f == nil || chat.ID == 0 || m.Outgoing || m.Kind == model.MessageService || chat.Kind == model.KindSaved || time.Since(m.Date) > noticeAge {
+	if f == nil || chat.ID == 0 || m.Outgoing || m.Kind == model.MessageService || chat.Kind == model.KindSaved || time.Since(m.Date) > noticeAge || (chat.ReadInbox > 0 && m.Key.MessageID <= chat.ReadInbox) {
 		return
 	}
 	n := model.MessageNotice{Chat: chat, Message: messagePreview(m, chat.Kind == model.KindGroup)}
