@@ -282,6 +282,15 @@ func launch(ctx context.Context, url string, profile Profile, page Page, telegra
 		}
 	}
 
+	if chosen.engine == engineWebView2 {
+		bridge, err := launchWebView2(ctx, chosen, url, dir, ephemeral, page, telegram)
+		if err != nil {
+			discard()
+			return nil, err
+		}
+		return bridge, nil
+	}
+
 	firefox := chosen.engine == engineFirefox
 	var args []string
 	if firefox {
@@ -468,9 +477,6 @@ func (b *Bridge) Close() {
 // stands. The protocol's own shutdown is the browser's own path, and is
 // answered as soon as the endpoint is up, so it is what gets asked first.
 func (b *Bridge) stopBrowser() {
-	if b.browser.Process == nil {
-		return
-	}
 	if b.proto != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		if b.proto.shutdown(ctx) == nil {
@@ -480,6 +486,9 @@ func (b *Bridge) stopBrowser() {
 			}
 		}
 		cancel()
+	}
+	if b.browser == nil || b.browser.Process == nil {
+		return
 	}
 	select {
 	case <-b.exited:

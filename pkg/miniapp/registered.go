@@ -9,13 +9,14 @@ import "strings"
 // Firefox. The list holds others, Internet Explorer among them, whose
 // version resource reads like Chromium's.
 var registeredNames = map[string]bool{
-	"chrome.exe":    true, // Chrome, Chromium, Supermium
-	"msedge.exe":    true,
-	"brave.exe":     true,
-	"firefox.exe":   true,
-	"librewolf.exe": true,
-	"waterfox.exe":  true,
-	"zen.exe":       true,
+	"chrome.exe":         true, // Chrome, Chromium, Supermium
+	"msedge.exe":         true,
+	"msedgewebview2.exe": true,
+	"brave.exe":          true,
+	"firefox.exe":        true,
+	"librewolf.exe":      true,
+	"waterfox.exe":       true,
+	"zen.exe":            true,
 }
 
 // commandProgram returns the program of a command line as Windows keeps it

@@ -72,9 +72,24 @@ const (
 	// engineChromium is driven over the Chrome DevTools Protocol (cdp.go).
 	engineChromium engine = iota
 	// engineFirefox is driven over WebDriver BiDi (bidi.go): Firefox and the
-	// browsers built from it, LibreWolf and Waterfox.
+	// browsers built from it, LibreWolf, Waterfox, and Zen.
 	engineFirefox
+	// engineWebView2 is Microsoft Edge WebView2 on Windows, hosted in-process
+	// via EmbeddedBrowserWebView.dll (webview2_windows.go).
+	engineWebView2
 )
+
+// rank orders engines by preference: lower is preferred.
+func (e engine) rank() int {
+	switch e {
+	case engineWebView2:
+		return 0
+	case engineChromium:
+		return 1
+	default:
+		return 2
+	}
+}
 
 // minFirefox is the oldest Firefox driven: the extended support release
 // of 2025, whose BiDi has every command the bridge needs but
@@ -266,6 +281,12 @@ var firefoxBanner = regexp.MustCompile(`^(?:Mozilla |BrowserWorks )?(Firefox|Lib
 // itself (checkGecko).
 func (b *browser) identify(banner string) {
 	b.banner = banner
+	if runtime.GOOS == "windows" && (strings.EqualFold(filepath.Base(b.ref), "msedgewebview2.exe") ||
+		strings.HasPrefix(banner, "Microsoft Edge WebView2")) {
+		b.engine = engineWebView2
+		b.version = parseVersion(banner)
+		return
+	}
 	m := firefoxBanner.FindStringSubmatch(banner)
 	if m == nil {
 		b.engine = engineChromium
@@ -282,6 +303,9 @@ func (b *browser) identify(banner string) {
 // usable says whether a browser identified as Firefox can be driven, as far
 // as its version is known: one whose version is not is asked once it runs.
 func (b browser) usable() error {
+	if b.engine == engineWebView2 && webView2DLLPath(b.ref) == "" {
+		return ErrNotBrowser
+	}
 	if b.engine == engineFirefox && len(b.version) > 0 && b.version[0] < minFirefox {
 		return ErrOldFirefox
 	}
@@ -517,7 +541,7 @@ func newest(found []browser) browser {
 			continue
 		}
 		switch {
-		case !best.found, b.engine < best.engine:
+		case !best.found, b.engine.rank() < best.engine.rank():
 			best = b
 		case b.engine == best.engine && b.version.newer(best.version):
 			best = b

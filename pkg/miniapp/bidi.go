@@ -44,6 +44,7 @@ var firefoxPrefs = []struct {
 	// new.
 	{"browser.shell.checkDefaultBrowser", false},
 	{"browser.aboutwelcome.enabled", false},
+	{"zen.welcome-screen.seen", true},
 	{"browser.startup.homepage_override.mstone", "ignore"},
 	{"startup.homepage_welcome_url", "about:blank"},
 	{"startup.homepage_welcome_url.additional", ""},
