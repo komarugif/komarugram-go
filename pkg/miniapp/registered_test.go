@@ -12,6 +12,7 @@ func TestCommandProgram(t *testing.T) {
 		`"C:\Program Files\Supermium\chrome.exe"`:                                             `C:\Program Files\Supermium\chrome.exe`,
 		`"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --single-argument %1`: `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
 		`C:\Program Files\Mozilla Firefox\firefox.exe -osint -url "%1"`:                       `C:\Program Files\Mozilla Firefox\firefox.exe`,
+		`"C:\Program Files\Zen Browser\zen.exe"`:                                              `C:\Program Files\Zen Browser\zen.exe`,
 		`"C:\Program Files\Internet Explorer\iexplore.exe"`:                                   "",
 		`"C:\Program Files\Pale Moon\palemoon.exe"`:                                           "",
 		`"chrome.exe"`:            "",

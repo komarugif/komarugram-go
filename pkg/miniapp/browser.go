@@ -46,20 +46,23 @@ var nativeBrowsers = []string{
 	"chromium", "chromium-browser",
 	"google-chrome", "google-chrome-stable",
 	"brave-browser", "brave",
-	"firefox", "firefox-esr", "librewolf", "waterfox",
+	"microsoft-edge", "microsoft-edge-stable", "msedge",
+	"firefox", "firefox-esr", "librewolf", "waterfox", "zen-browser", "zen",
 }
 
-// flatpakBrowsers are the Chromium-based flatpaks looked for. They rank after
-// the native browsers when versions tie.
+// flatpakBrowsers are the Chromium-based and Firefox-based flatpaks looked
+// for. They rank after the native browsers when versions tie.
 var flatpakBrowsers = []string{
 	"io.github.ungoogled_software.ungoogled_chromium",
 	"com.github.Eloston.UngoogledChromium",
 	"org.chromium.Chromium",
 	"com.google.Chrome",
 	"com.brave.Browser",
+	"com.microsoft.Edge",
 	"org.mozilla.firefox",
 	"io.gitlab.librewolf-community",
 	"net.waterfox.waterfox",
+	"app.zen_browser.zen",
 }
 
 // engine is what a browser is built on, which decides how it is driven.
@@ -250,17 +253,17 @@ var chromiumVersion = regexp.MustCompile(`(^|\s)\d+\.\d+\.\d+\.\d+(\s|$)`)
 
 // firefoxBanner is what Firefox and the browsers built from it print for
 // --version: "Mozilla Firefox 157.0.1", "LibreWolf 157.0-1", "BrowserWorks
-// Waterfox 6.7.5", or, on Windows, what their version resource reads,
-// "Firefox 157.0.1".
-var firefoxBanner = regexp.MustCompile(`^(?:Mozilla |BrowserWorks )?(Firefox|LibreWolf|Waterfox) \d+\.\d+`)
+// Waterfox 6.7.5", "Zen 1.24.3b", "Zen Browser 1.24.3b", or, on Windows, what
+// their version resource reads, "Firefox 157.0.1".
+var firefoxBanner = regexp.MustCompile(`^(?:Mozilla |BrowserWorks )?(Firefox|LibreWolf|Waterfox|Zen(?: Browser)?) \d+\.\d+`)
 
 // identify sets what b is from what it printed for --version: its engine,
 // and the version of the engine. Firefox's own version is its engine's, and
-// LibreWolf follows it; Waterfox numbers its versions on its own, 6.7.5 on
-// Firefox 153, so a browser built from Firefox is asked the version of its
-// engine in platform.ini, beside the program, where it can be found. Beside
-// a launcher script it cannot, and the version stays unknown until the
-// browser tells it itself (checkGecko).
+// LibreWolf follows it; Waterfox and Zen number their versions on their own,
+// so a browser built from Firefox is asked the version of its engine in
+// platform.ini, beside the program, where it can be found. Beside a launcher
+// script it cannot, and the version stays unknown until the browser tells it
+// itself (checkGecko).
 func (b *browser) identify(banner string) {
 	b.banner = banner
 	m := firefoxBanner.FindStringSubmatch(banner)
@@ -271,7 +274,7 @@ func (b *browser) identify(banner string) {
 	}
 	b.engine = engineFirefox
 	b.version = geckoVersion(*b)
-	if b.version == nil && m[1] != "Waterfox" {
+	if b.version == nil && m[1] != "Waterfox" && !strings.HasPrefix(m[1], "Zen") {
 		b.version = parseVersion(banner)
 	}
 }

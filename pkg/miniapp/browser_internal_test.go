@@ -85,12 +85,20 @@ func TestChromiumVersion(t *testing.T) {
 		"Brave Browser 148.1.90.124":            true,
 		"Microsoft Edge 140.0.3485.54":          true,
 		"Mozilla Firefox 143.0.1":               false,
+		"Zen 1.24.3b":                           false,
 		"rm (GNU coreutils) 9.4":                false,
 		"VLC version 3.0.20 Vetinari":           false,
 		"":                                      false,
 	} {
 		if got := chromiumVersion.MatchString(banner); got != want {
 			t.Errorf("%q: got %t, want %t", banner, got, want)
+		}
+	}
+	for _, banner := range []string{"Zen 1.24.3b", "Zen Browser 1.24.3b", "Mozilla Zen 1.24.3b"} {
+		var b browser
+		b.identify(banner)
+		if b.engine != engineFirefox || b.version != nil || b.usable() != nil {
+			t.Errorf("identify(%q) = engine %v, version %v, usable %v", banner, b.engine, b.version, b.usable())
 		}
 	}
 }

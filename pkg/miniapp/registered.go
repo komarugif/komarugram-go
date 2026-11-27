@@ -15,6 +15,7 @@ var registeredNames = map[string]bool{
 	"firefox.exe":   true,
 	"librewolf.exe": true,
 	"waterfox.exe":  true,
+	"zen.exe":       true,
 }
 
 // commandProgram returns the program of a command line as Windows keeps it
