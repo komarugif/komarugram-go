@@ -15,6 +15,7 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 
 	"komarugram/internal/appicon"
 	"komarugram/pkg/resample"
@@ -333,26 +334,53 @@ func (t *Tray) createMenu() (windows.Handle, error) {
 	return windows.Handle(m), nil
 }
 
-// createIcon makes the monochrome tray icon of size pixels square, with an
-// optional bottom-left unread/muted indicator dot.
+// isDarkTaskbar reports whether Windows uses a dark taskbar, matching
+// KomaruGram's ReadDarkTaskbarValue in tray_win.cpp.
+func isDarkTaskbar() bool {
+	k, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, registry.QUERY_VALUE)
+	if err != nil {
+		return true
+	}
+	defer k.Close()
+	val, _, err := k.GetIntegerValue("SystemUsesLightTheme")
+	if err != nil {
+		return true
+	}
+	return val == 0
+}
+
+// createIcon makes the monochrome tray icon of size pixels square, colorized
+// for the current Windows taskbar theme, with an optional bottom-left
+// unread/muted indicator dot matching KomaruGram's MonochromeWithDot.
 func createIcon(size int, badge Badge) (windows.Handle, error) {
 	im := appicon.TrayImage(size)
+	if !isDarkTaskbar() {
+		// Light taskbar: black monochrome icon at alpha 228/255 (tray_win.cpp).
+		for i := 0; i < len(im.Pix); i += 4 {
+			im.Pix[i+0] = 0
+			im.Pix[i+1] = 0
+			im.Pix[i+2] = 0
+			im.Pix[i+3] = uint8(int(im.Pix[i+3]) * 228 / 255)
+		}
+	}
 	if badge != BadgeNone {
-		dot := color.NRGBA{R: 0x5A, G: 0x6D, B: 0x68, A: 0xFF} // muted unread
+		dot := color.NRGBA{R: 0x5E, G: 0x6E, B: 0x6A, A: 0xFF} // trayCounterBgMute
 		if badge == BadgeUnread {
-			dot = color.NRGBA{R: 0xE5, G: 0x39, B: 0x35, A: 0xFF} // unmuted unread
+			dot = color.NRGBA{R: 0xF2, G: 0x3C, B: 0x34, A: 0xFF} // trayCounterBg
 		}
 		drawTrayDot(im, dot)
 	}
 	return createHICON(im)
 }
 
-// drawTrayDot composites an anti-aliased circular badge at the bottom-left of im.
+// drawTrayDot composites an anti-aliased circular badge at the exact
+// KomaruGram/Telegram Desktop MonochromeWithDot position (cx=3.9, cy=12.7, r=2.2 on 16x16).
 func drawTrayDot(im *image.NRGBA, dot color.NRGBA) {
 	size := im.Bounds().Dx()
-	cx := float64(size) * 0.27
-	cy := float64(size) * 0.73
-	r := math.Max(float64(size)*0.23, 2.5)
+	scale := float64(size) / 16.0
+	cx := 3.9 * scale
+	cy := 12.7 * scale
+	r := 2.2 * scale
 	for y := 0; y < size; y++ {
 		dy := float64(y) + 0.5 - cy
 		for x := 0; x < size; x++ {
