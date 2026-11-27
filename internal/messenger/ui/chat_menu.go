@@ -3,7 +3,9 @@
 package ui
 
 import (
+	"context"
 	"image"
+	"time"
 
 	"gio-mw/token"
 	"gio-mw/wdk"
@@ -14,6 +16,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op/clip"
 
+	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 )
@@ -26,6 +29,7 @@ type chatMenuAction int
 // with AyuGram's "Jump to beginning".
 const (
 	chatMenuSearch chatMenuAction = iota
+	chatMenuMute
 	chatMenuInfo
 	// chatMenuTheme is Telegram Desktop's Change Colors: the chat's theme.
 	chatMenuTheme
@@ -57,6 +61,9 @@ func (p *chatPage) chatMenuActions() []chatMenuAction {
 	if p.canSearchChat() {
 		out = append(out, chatMenuSearch)
 	}
+	if _, ok := p.source.(model.NotificationSetter); ok && p.threadRoot == 0 && p.kind != model.KindSaved {
+		out = append(out, chatMenuMute)
+	}
 	out = append(out, chatMenuInfo)
 	if p.appearance != nil && p.appearance.source != nil && p.threadRoot == 0 {
 		out = append(out, chatMenuTheme)
@@ -73,6 +80,13 @@ func (p *chatPage) chatMenuActions() []chatMenuAction {
 	return arrangeMenu(p.menus, menuChatHeader, out, chatHeaderActionID)
 }
 
+func (p *chatPage) chatMenuMuted() bool {
+	if muter, ok := p.source.(model.NotificationSetter); ok {
+		return muter.ChatMuted(p.chat)
+	}
+	return false
+}
+
 func (p *chatPage) chatMenuLabel(a chatMenuAction, l localization.Catalog) string {
 	switch a {
 	case chatMenuLeave:
@@ -82,6 +96,11 @@ func (p *chatPage) chatMenuLabel(a chatMenuAction, l localization.Catalog) strin
 		return l.T("membership.leave_group")
 	case chatMenuSearch:
 		return l.T("chat_menu.search")
+	case chatMenuMute:
+		if p.chatMenuMuted() {
+			return l.T("composer.unmute")
+		}
+		return l.T("composer.mute")
 	case chatMenuInfo:
 		switch p.kind {
 		case model.KindGroup:
@@ -103,12 +122,24 @@ func (p *chatPage) chatMenuLabel(a chatMenuAction, l localization.Catalog) strin
 	return ""
 }
 
+func (p *chatPage) chatMenuIconFor(a chatMenuAction) wdk.IconWidget {
+	if a == chatMenuMute {
+		if p.chatMenuMuted() {
+			return iconNotificationsOn
+		}
+		return iconNotificationsOff
+	}
+	return chatMenuIcon(a)
+}
+
 func chatMenuIcon(a chatMenuAction) wdk.IconWidget {
 	switch a {
 	case chatMenuLeave:
 		return iconLogOut
 	case chatMenuSearch:
 		return iconSearch
+	case chatMenuMute:
+		return iconNotificationsOff
 	case chatMenuInfo:
 		return iconInfo
 	case chatMenuFiltered:
@@ -214,6 +245,8 @@ func (p *chatPage) chatMenuUpdate(gtx layout.Context) {
 			p.askLeave()
 		case chatMenuSearch:
 			p.openChatSearch(gtx)
+		case chatMenuMute:
+			p.toggleChatMute()
 		case chatMenuInfo:
 			p.infoAsked = true
 		case chatMenuTheme:
@@ -231,6 +264,25 @@ func (p *chatPage) chatMenuUpdate(gtx layout.Context) {
 		}
 		p.invalidate()
 	}
+}
+
+// toggleChatMute mutes or unmutes the open chat in the background.
+func (p *chatPage) toggleChatMute() {
+	muter, ok := p.source.(model.NotificationSetter)
+	if !ok {
+		return
+	}
+	chat := p.chat
+	mute := !muter.ChatMuted(chat)
+	go func() {
+		defer crash.Recover("mute chat", func(*crash.Panic) {
+			p.invalidate()
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = muter.SetChatMuted(ctx, chat, mute)
+		p.invalidate()
+	}()
 }
 
 // takeInfoAsked reports, once, whether the menu asked for the chat's info.
@@ -282,7 +334,7 @@ func (p *chatPage) layoutChatMenu(gtx layout.Context, l localization.Catalog) {
 				return m.items[a].Layout(gtx, row, style, func(gtx layout.Context) layout.Dimensions {
 					return layout.Inset{Left: 16, Right: 16}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions { return chatMenuIcon(a)(gtx, iconColor) }),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions { return p.chatMenuIconFor(a)(gtx, iconColor) }),
 							layout.Rigid(layout.Spacer{Width: 12}.Layout),
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 								return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

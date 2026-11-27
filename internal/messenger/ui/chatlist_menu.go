@@ -41,6 +41,8 @@ type chatRowAction int
 const (
 	chatRowPin chatRowAction = iota
 	chatRowUnpin
+	chatRowMute
+	chatRowUnmute
 	chatRowRead
 	chatRowUngroup
 	chatRowCommunity
@@ -119,6 +121,13 @@ func (m *chatRowMenu) actions(c model.Chat, sec section) []chatRowAction {
 			out = append(out, chatRowPin)
 		}
 	}
+	if _, ok := m.store.(model.NotificationSetter); ok && c.Kind != model.KindSaved {
+		if c.Muted {
+			out = append(out, chatRowUnmute)
+		} else {
+			out = append(out, chatRowMute)
+		}
+	}
 	if c.Unread > 0 {
 		out = append(out, chatRowRead)
 	}
@@ -137,6 +146,10 @@ func chatRowLabel(a chatRowAction, l localization.Catalog) string {
 		return l.T("chat_row.pin")
 	case chatRowUnpin:
 		return l.T("chat_row.unpin")
+	case chatRowMute:
+		return l.T("composer.mute")
+	case chatRowUnmute:
+		return l.T("composer.unmute")
 	case chatRowUngroup:
 		return l.T("chat_row.ungroup")
 	case chatRowCommunity:
@@ -147,6 +160,10 @@ func chatRowLabel(a chatRowAction, l localization.Catalog) string {
 
 func chatRowIcon(a chatRowAction) wdk.IconWidget {
 	switch a {
+	case chatRowMute:
+		return iconNotificationsOff
+	case chatRowUnmute:
+		return iconNotificationsOn
 	case chatRowRead:
 		return iconRead
 	case chatRowUngroup:
@@ -227,6 +244,8 @@ func (m *chatRowMenu) update(gtx layout.Context, sec section, chats []model.Chat
 		switch a {
 		case chatRowPin, chatRowUnpin:
 			m.pin(c, a == chatRowPin, chats, toast, l)
+		case chatRowMute, chatRowUnmute:
+			m.mute(c, a == chatRowMute)
 		case chatRowRead:
 			if c.Kind != model.KindCommunity {
 				m.store.MarkChatRead(c.ID)
@@ -253,6 +272,36 @@ func chatByID(chats []model.Chat, id int64) (model.Chat, bool) {
 		}
 	}
 	return model.Chat{}, false
+}
+
+// mute silences or unsilences c in the background.
+func (m *chatRowMenu) mute(c model.Chat, mute bool) {
+	muter, ok := m.store.(model.NotificationSetter)
+	if !ok {
+		return
+	}
+	ids := []int64{c.ID}
+	if c.Kind == model.KindCommunity {
+		ids = nil
+		for _, member := range model.CommunityMembers(m.all, c.ID) {
+			ids = append(ids, member.ID)
+		}
+	}
+	go func() {
+		defer crash.Recover("mute chat", func(*crash.Panic) {
+			if m.invalidate != nil {
+				m.invalidate()
+			}
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		for _, id := range ids {
+			_ = muter.SetChatMuted(ctx, id, mute)
+		}
+		if m.invalidate != nil {
+			m.invalidate()
+		}
+	}()
 }
 
 // pin pins or unpins c: past the limit the toast tells so, and otherwise the
