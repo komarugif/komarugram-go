@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	"math"
 	"runtime"
 	"sync"
@@ -161,6 +162,10 @@ type Tray struct {
 	wnd            windows.HWND
 	menu           windows.Handle
 	icon           windows.Handle
+	iconNone       windows.Handle
+	iconMuted      windows.Handle
+	iconUnread     windows.Handle
+	badge          atomic.Int32
 	balloonMu      sync.Mutex
 	balloonIcon    windows.Handle
 	lastBalloon    windows.Handle
@@ -214,7 +219,11 @@ func (t *Tray) loop(ready chan<- error) {
 		procDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
 	}
 	procDestroyMenu.Call(uintptr(t.menu))
-	procDestroyIcon.Call(uintptr(t.icon))
+	for _, h := range []windows.Handle{t.iconNone, t.iconMuted, t.iconUnread} {
+		if h != 0 {
+			procDestroyIcon.Call(uintptr(h))
+		}
+	}
 	t.balloonMu.Lock()
 	if t.balloonIcon != 0 {
 		procDestroyIcon.Call(uintptr(t.balloonIcon))
@@ -266,13 +275,43 @@ func (t *Tray) create() error {
 	w, _, _ := procGetSystemMetrics.Call(smCxSmIcon)
 	h, _, _ := procGetSystemMetrics.Call(smCySmIcon)
 	size := max(int(w), int(h), 16)
-	if t.icon, err = createIcon(size); err != nil {
+	if t.iconNone, err = createIcon(size, BadgeNone); err != nil {
 		return err
 	}
+	if t.iconMuted, err = createIcon(size, BadgeMuted); err != nil {
+		return err
+	}
+	if t.iconUnread, err = createIcon(size, BadgeUnread); err != nil {
+		return err
+	}
+	t.icon = t.iconNone
 	if t.balloonIcon, err = createHICON(appicon.Image(128)); err != nil {
 		return err
 	}
 	return nil
+}
+
+// SetBadge updates the tray icon to show no dot, a muted dot, or a red unread dot.
+func (t *Tray) SetBadge(b Badge) {
+	if Badge(t.badge.Swap(int32(b))) == b {
+		return
+	}
+	if !t.added.Load() {
+		return
+	}
+	t.balloonMu.Lock()
+	switch b {
+	case BadgeUnread:
+		t.icon = t.iconUnread
+	case BadgeMuted:
+		t.icon = t.iconMuted
+	default:
+		t.icon = t.iconNone
+	}
+	nid := t.notifyData()
+	nid.Flags = nifIcon
+	procShellNotifyIconW.Call(nimModify, uintptr(unsafe.Pointer(&nid)))
+	t.balloonMu.Unlock()
 }
 
 func (t *Tray) createMenu() (windows.Handle, error) {
@@ -294,9 +333,58 @@ func (t *Tray) createMenu() (windows.Handle, error) {
 	return windows.Handle(m), nil
 }
 
-// createIcon makes the monochrome tray icon of size pixels square.
-func createIcon(size int) (windows.Handle, error) {
-	return createHICON(appicon.TrayImage(size))
+// createIcon makes the monochrome tray icon of size pixels square, with an
+// optional bottom-left unread/muted indicator dot.
+func createIcon(size int, badge Badge) (windows.Handle, error) {
+	im := appicon.TrayImage(size)
+	if badge != BadgeNone {
+		dot := color.NRGBA{R: 0x5A, G: 0x6D, B: 0x68, A: 0xFF} // muted unread
+		if badge == BadgeUnread {
+			dot = color.NRGBA{R: 0xE5, G: 0x39, B: 0x35, A: 0xFF} // unmuted unread
+		}
+		drawTrayDot(im, dot)
+	}
+	return createHICON(im)
+}
+
+// drawTrayDot composites an anti-aliased circular badge at the bottom-left of im.
+func drawTrayDot(im *image.NRGBA, dot color.NRGBA) {
+	size := im.Bounds().Dx()
+	cx := float64(size) * 0.27
+	cy := float64(size) * 0.73
+	r := math.Max(float64(size)*0.23, 2.5)
+	for y := 0; y < size; y++ {
+		dy := float64(y) + 0.5 - cy
+		for x := 0; x < size; x++ {
+			dx := float64(x) + 0.5 - cx
+			d := math.Hypot(dx, dy)
+			if d > r+0.5 {
+				continue
+			}
+			cov := 1.0
+			if d > r-0.5 {
+				cov = r + 0.5 - d
+			}
+			sa := float64(dot.A) / 255.0 * cov
+			if sa <= 0 {
+				continue
+			}
+			off := (y*size + x) * 4
+			da := float64(im.Pix[off+3]) / 255.0
+			outA := sa + da*(1-sa)
+			if outA <= 0 {
+				continue
+			}
+			blend := func(sc, dc uint8) uint8 {
+				v := (float64(sc)*sa + float64(dc)*da*(1-sa)) / outA
+				return uint8(min(max(int(math.Round(v)), 0), 255))
+			}
+			im.Pix[off+0] = blend(dot.R, im.Pix[off+0])
+			im.Pix[off+1] = blend(dot.G, im.Pix[off+1])
+			im.Pix[off+2] = blend(dot.B, im.Pix[off+2])
+			im.Pix[off+3] = uint8(min(max(int(math.Round(outA*255)), 0), 255))
+		}
+	}
 }
 
 // createHICON converts a square NRGBA image into a Win32 HICON with alpha.

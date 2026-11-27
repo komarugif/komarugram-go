@@ -195,4 +195,5 @@ func (t *Tray) Close() {
 	})
 }
 
+func (*Tray) SetBadge(Badge)                                 {}
 func (*Tray) Notify(string, string, bool, image.Image) error { return ErrUnsupported }

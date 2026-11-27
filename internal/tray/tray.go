@@ -11,6 +11,18 @@ import "errors"
 // ErrUnsupported is returned by Start where no tray is implemented.
 var ErrUnsupported = errors.New("tray: not supported on this platform")
 
+// Badge marks unread state on the system tray icon.
+type Badge int
+
+const (
+	// BadgeNone shows the plain tray icon with no dot.
+	BadgeNone Badge = iota
+	// BadgeMuted shows a muted dot for unread messages in muted chats only.
+	BadgeMuted
+	// BadgeUnread shows a red dot for unread messages in unmuted chats.
+	BadgeUnread
+)
+
 // Item is an entry of the icon's menu.
 type Item struct {
 	Label string

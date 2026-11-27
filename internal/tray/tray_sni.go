@@ -94,6 +94,9 @@ func (t *Tray) Close() {
 	t.conn.Close()
 }
 
+// SetBadge is a no-op on StatusNotifierItem desktops.
+func (*Tray) SetBadge(Badge) {}
+
 func (t *Tray) register() bool {
 	err := t.conn.Object(watcherName, watcherPath).Call(watcherName+".RegisterStatusNotifierItem", 0, t.name).Err
 	t.mu.Lock()

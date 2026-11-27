@@ -38,6 +38,7 @@ import (
 	"komarugram/internal/messenger/ui"
 	"komarugram/internal/miniappprefs"
 	"komarugram/internal/notify"
+	"komarugram/internal/tray"
 	"komarugram/pkg/program"
 )
 
@@ -409,10 +410,44 @@ func (h *accountWindows) newSession() *accountSession {
 		if id := s.accountID(); id != "" {
 			h.updateProfile(id, s.store.Me(), s.window.Load())
 		}
+		h.updateTrayBadge()
 		s.invalidate()
 	})
 	s.store.SetNotices(func(n model.MessageNotice) { h.notice(s, n) })
 	return s
+}
+
+// updateTrayBadge updates the system tray icon dot from unread chats across
+// all running sessions: red when any unmuted chat has unread messages, muted
+// gray when only muted chats do, and plain otherwise.
+func (h *accountWindows) updateTrayBadge() {
+	badger, ok := h.tray.(interface{ SetBadge(tray.Badge) })
+	if !ok {
+		return
+	}
+	h.mu.Lock()
+	sessions := make([]*accountSession, 0, len(h.sessions))
+	for _, s := range h.sessions {
+		sessions = append(sessions, s)
+	}
+	h.mu.Unlock()
+	badge := tray.BadgeNone
+	for _, s := range sessions {
+		if s == nil || s.store == nil {
+			continue
+		}
+		for _, c := range s.store.Chats() {
+			if c.Archived || c.Unread <= 0 {
+				continue
+			}
+			if !c.Muted {
+				badger.SetBadge(tray.BadgeUnread)
+				return
+			}
+			badge = tray.BadgeMuted
+		}
+	}
+	badger.SetBadge(badge)
 }
 
 // LogOut implements model.Accounts. The account's window closes first, so
