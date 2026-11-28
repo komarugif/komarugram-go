@@ -125,11 +125,6 @@ type NotificationSetter interface {
 	SetChatMuted(ctx context.Context, chat int64, muted bool) error
 }
 
-// ArchiveSetter moves a chat into or out of Telegram's archive (folder 1).
-type ArchiveSetter interface {
-	SetChatArchived(ctx context.Context, chat int64, archived bool) error
-}
-
 type DiscussionSource interface {
 	Discussion(context.Context, int64) (Chat, error)
 }

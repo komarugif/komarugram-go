@@ -7,6 +7,7 @@ package mockstore
 import (
 	"context"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -38,11 +39,14 @@ type Store struct {
 	chatThemes map[int64]string
 	// mu guards histories and views: a media viewer in its own window reads
 	// the store from that window's goroutine.
-	mu        sync.Mutex
-	histories map[int64]model.History
-	chats     []model.Chat
-	views     map[int64]model.Viewport
-	me        model.Profile
+	mu          sync.Mutex
+	histories   map[int64]model.History
+	chats       []model.Chat
+	folders     []model.Folder
+	archiveMute bool
+	forumRead   bool
+	views       map[int64]model.Viewport
+	me          model.Profile
 	// recent is the search history; query, the search asked for last.
 	recent []model.Chat
 	query  model.SearchQuery
@@ -108,7 +112,7 @@ func New(now time.Time, extra int) *Store {
 	chats = append(chats, generate(now, extra, int64(len(chats)+1))...)
 	chats = withDemoCommunities(chats)
 	model.Renumbered(chats)
-	return &Store{chats: chats, created: now, presence: demoPresence(now),
+	return &Store{chats: chats, folders: demoFolders(), created: now, presence: demoPresence(now),
 		// A chat of the demo has a theme set for all in it, as from Telegram.
 		chatThemes: map[int64]string{2: "🌷"}, me: model.Profile{
 			ID:        5000000001,
@@ -169,18 +173,188 @@ func (s *Store) EditProfile(ctx context.Context, e model.ProfileEdit) error {
 }
 
 func (s *Store) Folders() []model.Folder {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.folders
+}
+
+func demoFolders() []model.Folder {
 	return []model.Folder{
-		{ID: 1, Title: "Личные", Kinds: []model.ChatKind{model.KindUser, model.KindSaved}},
-		{ID: 2, Title: "Группы", Kinds: []model.ChatKind{model.KindGroup}},
-		{ID: 3, Title: "Каналы", Kinds: []model.ChatKind{model.KindChannel}},
-		{ID: 4, Title: "Боты", Kinds: []model.ChatKind{model.KindBot}},
+		{},
+		{ID: 1, Title: "Личные", FolderTypes: model.FolderTypes{Contacts: true, NonContacts: true}},
+		{ID: 2, Title: "Группы", FolderTypes: model.FolderTypes{Groups: true}},
+		{ID: 3, Title: "Каналы", FolderTypes: model.FolderTypes{Channels: true}},
+		{ID: 4, Title: "Боты", FolderTypes: model.FolderTypes{Bots: true}},
 	}
 }
 
+// The demo's contacts include the account's own Saved Messages dialog.
+func demoDialogFlags(id int64) (bool, bool) {
+	return id == 1 || id == 2 || id == 5 || id == 9, false
+}
+
+func (s *Store) SuggestedFolders(ctx context.Context) ([]model.Folder, error) {
+	return []model.Folder{{Title: "Unread", FolderTypes: model.FolderTypes{Contacts: true, NonContacts: true, Groups: true, Bots: true, Channels: true}, ExcludeRead: true}}, ctx.Err()
+}
+
+func (s *Store) SaveFolder(ctx context.Context, previous *model.Folder, f model.Folder) error {
+	if previous == nil || previous.Title != f.Title {
+		f.Title = strings.TrimSpace(f.Title)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	premium := s.Premium()
+	s.mu.Lock()
+	if done, err := model.CheckFolderSave(s.folders, previous, f, premium); done || err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	f.Included, f.Pinned, f.Excluded = slices.Clone(f.Included), slices.Clone(f.Pinned), slices.Clone(f.Excluded)
+	f = f.WithDialogFlags(demoDialogFlags)
+	folders := slices.Clone(s.folders)
+	if previous == nil {
+		folders = append(folders, f)
+	} else {
+		folders[slices.Index(model.FolderIDs(folders), f.ID)] = f
+	}
+	s.folders = folders
+	changed := s.changed
+	s.mu.Unlock()
+	if changed != nil {
+		changed()
+	}
+	return nil
+}
+
+func (s *Store) ReorderFolders(ctx context.Context, previous, next []int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	folders, err := model.ReorderedFolders(s.folders, previous, next, s.me.Premium)
+	if err == nil {
+		s.folders = folders
+	}
+	changed := s.changed
+	s.mu.Unlock()
+	if err == nil && changed != nil {
+		changed()
+	}
+	return err
+}
+
+func (s *Store) DeleteFolder(ctx context.Context, folder model.Folder) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if folder.ID == 0 {
+		return model.ErrFolderConflict
+	}
+	s.mu.Lock()
+	i := slices.IndexFunc(s.folders, func(f model.Folder) bool { return f.ID == folder.ID })
+	if i < 0 {
+		s.mu.Unlock()
+		return nil
+	}
+	if !s.folders[i].SameRules(folder) || s.folders[i].HasMyInvites != folder.HasMyInvites {
+		s.mu.Unlock()
+		return model.ErrFolderConflict
+	}
+	s.folders = slices.Delete(slices.Clone(s.folders), i, i+1)
+	changed := s.changed
+	s.mu.Unlock()
+	if changed != nil {
+		changed()
+	}
+	return nil
+}
+
+func (s *Store) UnreadInFolder(id int64) []model.FolderReadChat {
+	return s.unreadInFolder(id, false)
+}
+
+func (s *Store) UnreadInArchivedFolder(id int64) []model.FolderReadChat {
+	return s.unreadInFolder(id, true)
+}
+
+func (s *Store) unreadInFolder(id int64, archive bool) []model.FolderReadChat {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.folders, func(f model.Folder) bool { return f.ID == id })
+	if i < 0 {
+		return nil
+	}
+	matches := s.folders[i].Contains
+	if archive {
+		matches = s.folders[i].ContainsArchived
+	}
+	var chats []model.FolderReadChat
+	for _, c := range s.chats {
+		if c.Kind != model.KindCommunity && (c.Unread > 0 || c.UnreadMentions > 0) && matches(c) {
+			chats = append(chats, model.FolderReadChat{ID: c.ID, Top: c.Last.ID, Unread: c.Unread, Mentions: c.UnreadMentions, Forum: c.Forum})
+		}
+	}
+	return chats
+}
+
+func (s *Store) ReadFolderChats(ctx context.Context, targets []model.FolderReadChat) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	tops := map[int64]model.MessageID{}
+	for _, c := range targets {
+		tops[c.ID] = c.Top
+	}
+	s.mu.Lock()
+	chats := slices.Clone(s.chats)
+	for i, c := range chats {
+		if top, ok := tops[c.ID]; ok && c.Last.ID <= top {
+			if c.ID == DemoForum {
+				s.forumRead = true
+			}
+			chats[i].Unread, chats[i].UnreadMentions = 0, 0
+			chats[i].ReadInbox = max(c.ReadInbox, top)
+		}
+	}
+	s.chats = chats
+	changed := s.changed
+	s.mu.Unlock()
+	if changed != nil {
+		changed()
+	}
+	return nil
+}
+
 func (s *Store) Chats() []model.Chat {
+	return model.MainDialogs(s.FolderDialogs())
+}
+
+func (s *Store) FolderDialogs() []model.Chat {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.chats
+}
+
+func (s *Store) SetChatArchived(ctx context.Context, chat int64, archived bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	for i, c := range s.chats {
+		if c.ID == chat && c.Archived != archived {
+			chats := slices.Clone(s.chats)
+			chats[i].Archived, chats[i].Pinned, chats[i].PinRank = archived, false, 0
+			s.chats = model.Renumbered(chats)
+			break
+		}
+	}
+	changed := s.changed
+	s.mu.Unlock()
+	if changed != nil {
+		changed()
+	}
+	return nil
 }
 
 // PinChat implements model.ChatListActions with the limit of the demo

@@ -417,6 +417,10 @@ type infoMenuItem struct {
 // while it is open or closing, and footer, footerHeight high, under them:
 // dismiss takes the clicks around it while it is open, panel those on it.
 func (p *chatInfo) layoutInfoMenu(gtx layout.Context, menu *contextMenu, open bool, at image.Point, dismiss, panel *byte, items []infoMenuItem, footer layout.Widget, footerHeight int) {
+	layoutActionMenu(gtx, menu, open, at, dismiss, panel, items, footer, footerHeight, p.renderer.menuBackdrop())
+}
+
+func layoutActionMenu(gtx layout.Context, menu *contextMenu, open bool, at image.Point, dismiss, panel *byte, items []infoMenuItem, footer layout.Widget, footerHeight int, bd *blurBackdrop) {
 	size := gtx.Constraints.Max
 	if open {
 		// Clicks around the menu close it, and take nothing else.
@@ -449,7 +453,7 @@ func (p *chatInfo) layoutInfoMenu(gtx layout.Context, menu *contextMenu, open bo
 		sc := scheme(gtx)
 		menuSize := gtx.Constraints.Max
 		defer clip.UniformRRect(image.Rectangle{Max: menuSize}, radius).Push(gtx.Ops).Pop()
-		overlayFill(gtx, p.renderer.menuBackdrop(), menuSize, menu.bounds.Min, sc.SurfaceContainerHighest, radius)
+		overlayFill(gtx, bd, menuSize, menu.bounds.Min, sc.SurfaceContainerHighest, radius)
 		event.Op(gtx.Ops, panel)
 		y := gtx.Dp(menuPadding)
 		for _, it := range items {

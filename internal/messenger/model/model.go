@@ -125,8 +125,10 @@ type PreviewAlbum struct {
 }
 
 type Chat struct {
-	ID   int64
-	Kind ChatKind
+	Archived       bool `json:",omitempty"`
+	UnreadMentions int  `json:",omitempty"`
+	ID             int64
+	Kind           ChatKind
 	// Title is the chat's name; empty for Saved Messages and a deleted
 	// account, which the interface names.
 	Title string
@@ -140,8 +142,7 @@ type Chat struct {
 	// ReadInbox is the newest of the others' messages the account read, on
 	// any of its devices: a chat not opened here opens after it.
 	ReadInbox MessageID `json:",omitempty"`
-	Muted    bool
-	Archived bool `json:",omitempty"`
+	Muted     bool
 	// Pinned chats stay at the top of the list, in the order PinRank gives:
 	// 1 for the first, 0 for a chat that is not pinned.
 	Pinned  bool
@@ -227,34 +228,6 @@ type Badges struct {
 	Channel int64
 }
 
-// Folder is a chat folder. It holds the chats Match accepts or, without
-// Match, the chats of the given kinds.
-type Folder struct {
-	ID    int64
-	Title string
-	// Kinds are the kinds of chat the folder is about. They also pick its
-	// icon, so a folder with Match may name them too.
-	Kinds []ChatKind
-	// Match decides membership when a folder is more than a set of kinds, as
-	// a Telegram folder is: its rules name chats as well as kinds.
-	Match func(Chat) bool
-	// Pinned holds the chat ids pinned inside this folder, in pin order.
-	Pinned []int64
-}
-
-// Contains reports whether the chat belongs to the folder.
-func (f Folder) Contains(c Chat) bool {
-	if f.Match != nil {
-		return f.Match(c)
-	}
-	for _, k := range f.Kinds {
-		if c.Kind == k {
-			return true
-		}
-	}
-	return false
-}
-
 type Profile struct {
 	// ID is the account's user id, 0 when unknown.
 	ID int64
@@ -281,9 +254,9 @@ func (p Profile) Name() string {
 type Store interface {
 	// Me returns the profile of the account.
 	Me() Profile
-	// Folders returns the chat folders in display order.
+	// Folders returns folders in display order, including All chats (ID 0).
 	Folders() []Folder
-	// Chats returns all chats, pinned first, then newest first.
+	// Chats returns the main list, pinned first, then newest first.
 	Chats() []Chat
 }
 

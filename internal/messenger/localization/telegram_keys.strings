@@ -62,10 +62,18 @@
 "chat_menu.profile" = "lng_context_view_profile";
 "chat_menu.search" = "lng_dlg_search_for_messages";
 
+"chat_archive.preview_list" = "lng_archived_last_list";
+"chat_archive.preview_more" = "lng_archived_last";
+
+"chat_row.archive" = "lng_archived_add";
+"chat_row.folder_add" = "lng_filters_menu_add";
+"chat_row.folder_added" = "lng_filters_toast_add";
+"chat_row.folder_removed" = "lng_filters_toast_remove";
 "chat_row.community" = "lng_context_view_community";
 "chat_row.pin" = "lng_context_pin_to_top";
 "chat_row.read" = "lng_context_mark_read";
 "chat_row.ungroup" = "lng_community_ungroup";
+"chat_row.unarchive" = "lng_archived_remove";
 "chat_row.unpin" = "lng_context_unpin_from_top";
 
 "chat_search.hint" = "lng_dlg_search_for_messages";
@@ -280,6 +288,28 @@
 "format.strike" = "lng_menu_formatting_strike_out";
 "format.underline" = "lng_menu_formatting_underline";
 
+"folders.context_edit" = "lng_filters_context_edit";
+"folders.context_read" = "lng_context_mark_read";
+"folders.archived" = "lng_filters_type_no_archived";
+"folders.bots" = "lng_filters_type_bots";
+"folders.channels" = "lng_filters_type_channels";
+"folders.contacts" = "lng_filters_type_contacts";
+"folders.create" = "lng_filters_create";
+"folders.edit" = "lng_filters_edit";
+"folders.exclude" = "lng_filters_exclude";
+"folders.groups" = "lng_filters_type_groups";
+"folders.icon" = "lng_filters_icon_header";
+"folders.include" = "lng_filters_include";
+"folders.muted" = "lng_filters_type_no_muted";
+"folders.name" = "lng_filters_new_name";
+"folders.new" = "lng_filters_new";
+"folders.noncontacts" = "lng_filters_type_non_contacts";
+"folders.read" = "lng_filters_type_no_read";
+"folders.recommended" = "lng_filters_recommended";
+"folders.save" = "lng_filters_create_button";
+"folders.select_exclude" = "lng_filters_exclude_title";
+"folders.select_include" = "lng_filters_include_title";
+"folders.title" = "lng_settings_section_filters";
 "forum.loading" = "lng_contacts_loading";
 "forum.messages" = "lng_forum_messages";
 "forum.messages_none" = "lng_forum_no_messages";
@@ -405,6 +435,7 @@
 "menu.translate" = "lng_context_translate";
 "menu.translate_selected" = "lng_context_translate_selected";
 
+"nav.archive" = "lng_archived_name";
 "nav.downloads" = "lng_downloads_section";
 "nav.saved" = "lng_saved_messages";
 "nav.wallet" = "lng_wallet_menu";
@@ -483,6 +514,8 @@
 "preview.video" = "lng_in_dlg_video";
 "preview.videos" = "lng_in_dlg_video_count";
 "preview.voice" = "lng_in_dlg_audio";
+
+"privacy.archive_mute" = "lng_settings_auto_archive";
 
 
 "record.cancel" = "lng_record_cancel_recording";

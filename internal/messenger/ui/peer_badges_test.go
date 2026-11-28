@@ -119,6 +119,23 @@ func (s *setStore) SetStickerSetInstalled(context.Context, model.StickerSetRef, 
 	return nil
 }
 
+func TestArchiveMuteRequestsPremiumStarSet(t *testing.T) {
+	w := newSettingsWindow(t, "ru", preferences.ThemeLight, image.Pt(900, 850))
+	t.Cleanup(w.window.Motion.Close)
+	w.a.store = &setStore{Store: w.a.store.(*mockstore.Store), set: model.StickerSet{
+		Items: []model.PickerItem{{DocumentID: 11, Emoji: "⭐"}},
+	}}
+	w.a.settings.show(settingsVisibility)
+	waitFor(t, "the archive setting's Premium emoji set", func() {
+		if !w.frames("visibility settings", 1) {
+			t.FailNow()
+		}
+	}, func() bool { return w.a.premiumSet.items.Load() != nil })
+	if got := w.a.premiumEmoji(); got != 11 {
+		t.Fatalf("the settings star is %d, want document 11 from the set", got)
+	}
+}
+
 // The Premium star is the first star of the set Telegram's Android icons are
 // in, and the faces of KomaruGram in another, loaded in the background; until then there is none to take.
 func TestPremiumStarComesFromTheSet(t *testing.T) {

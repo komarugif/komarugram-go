@@ -283,12 +283,20 @@ func (s *Store) configureCache(ctx context.Context, account, path string, p *sec
 	if _, e = cache.Get(ctx, "tops", &c.top); e != nil {
 		return e
 	}
+	var complete bool
+	if _, e = cache.Get(ctx, "dialog-lists-complete", &complete); e != nil {
+		return e
+	}
 	var recent []model.Chat
 	if _, e = cache.Get(ctx, recentKey, &recent); e != nil {
 		return e
 	}
 	var entries map[int64]keptEntry
 	if _, e = cache.Get(ctx, "dialog-entries", &entries); e != nil {
+		return e
+	}
+	filterSelf, filters, e := cachedDialogFilters(ctx, cache)
+	if e != nil {
 		return e
 	}
 	var stories keptStoryState
@@ -307,6 +315,11 @@ func (s *Store) configureCache(ctx context.Context, account, path string, p *sec
 	s.mu.Lock()
 	if s.chats == nil {
 		s.chats, s.entries = chats, readEntries(entries)
+		s.dialogsComplete.Store(complete)
+	}
+	if s.filterSelf == 0 && filterSelf != 0 {
+		s.filterSelf, s.filters = filterSelf, filters
+		s.folders = folderList(filterSelf, filters.Filters, s.entries)
 	}
 	s.mu.Unlock()
 	return nil
@@ -592,18 +605,9 @@ func (s *Store) persistDialogs(ctx context.Context) error {
 		return nil
 	}
 	s.mu.RLock()
-	chats, entries := s.chats, keepEntries(s.entries)
+	chats, entries, complete := s.chats, keepEntries(s.entries), s.dialogsComplete.Load()
 	s.mu.RUnlock()
-	if e := cache.Put(ctx, "dialog-entries", entries); e != nil {
-		return e
-	}
-	if e := cache.Put(ctx, "peers", peers); e != nil {
-		return e
-	}
-	if e := cache.Put(ctx, "tops", tops); e != nil {
-		return e
-	}
-	return cache.Put(ctx, "dialogs", chats)
+	return cache.PutAll(ctx, map[string]any{"dialog-lists-complete": complete, "dialog-entries": entries, "peers": peers, "tops": tops, "dialogs": chats})
 }
 func (s *Store) OpenChat(chat int64) {
 	if isThread(chat) {
@@ -691,7 +695,7 @@ func (s *Store) OpenChat(chat int64) {
 func (s *Store) unreadView(chat int64, ask bool) (model.Viewport, bool) {
 	var read model.MessageID
 	unread := false
-	for _, ch := range s.Chats() {
+	for _, ch := range s.FolderDialogs() {
 		if ch.ID == chat && ch.Unread > 0 {
 			read, unread = ch.ReadInbox, true
 		}
@@ -1691,6 +1695,7 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 	default:
 		return nil
 	}
+	refreshFilters := false
 	for i := 0; i < len(all); i++ {
 		u := all[i]
 		var msg tg.MessageClass
@@ -1778,6 +1783,8 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			s.applyBlocked(u)
 		case *tg.UpdateDialogPinned:
 			s.applyPin(u)
+		case *tg.UpdateDialogFilter, *tg.UpdateDialogFilterOrder, *tg.UpdateDialogFilters:
+			refreshFilters = true
 		case *tg.UpdateDialogUnreadMark:
 			s.applyUnreadMark(u)
 		case *tg.UpdateDraftMessage:
@@ -1830,8 +1837,14 @@ func (s *Store) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			s.replaceDeletedPreviews(ctx, tops)
 		}
 	}
+	var filterErr error
+	if refreshFilters {
+		if api, self := s.api(), s.Me().ID; api != nil && self != 0 {
+			filterErr = s.loadDialogFilters(ctx, api, self)
+		}
+	}
 	s.changed()
-	return s.persistDialogs(ctx)
+	return errors.Join(filterErr, s.persistDialogs(ctx))
 }
 
 // albumUpdates gathers the consecutive members of an album in one envelope.

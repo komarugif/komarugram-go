@@ -40,7 +40,7 @@ func renders() []render {
 	all = append(all, render{"composer-motion", "TestRenderComposerMotion", []string{"COMPOSER_MOTION_PNG={out}/composer-motion"}})
 	all = append(all, render{"composer-custom-emoji", "TestRenderComposer", []string{"COMPOSER_VIEW=custom-emoji", "COMPOSER_PNG={out}/composer-custom-emoji.png"}})
 	all = append(all, render{"outgoing-delivery", "TestRenderOutgoingDelivery", []string{"OUTBOX_PNG={out}/outgoing-delivery.png"}})
-	for _, section := range []string{"main", "appearance", "menus", "shortcuts", "shortcut-record", "chats", "wallpapers", "notify", "privacy", "premium", "integrations", "power", "graphics", "graphics-discrete", "graphics-auto"} {
+	for _, section := range []string{"main", "appearance", "menus", "shortcuts", "shortcut-record", "folders", "folders-hover", "folders-empty", "folder-create", "folder-edit", "folder-icons", "folder-peers", "folder-save", "chats", "wallpapers", "notify", "privacy", "visibility", "premium", "integrations", "power", "graphics", "graphics-discrete", "graphics-auto"} {
 		all = append(all, render{"settings-" + section, "TestRenderSettingsAccounts", []string{"SETTINGS_SECTION=" + section, "SETTINGS_PNG={out}/settings-" + section + ".png"}})
 	}
 	return append(all,
@@ -94,6 +94,10 @@ func renders() []render {
 		render{"jump-buttons", "TestRenderJumpButtons", []string{"JUMP_PNG_DIR={out}"}},
 		render{"skeletons", "TestRenderSkeletonBars", []string{"SKELETON_PNG_DIR={out}"}},
 		render{"tile-fit", "TestRenderTileFit", []string{"TILE_FIT_PNG={out}/tile-fit.png"}},
+		render{"folder-menu", "TestFolderContextMenu", []string{"FOLDER_MENU_PNG_DIR={out}"}},
+		render{"chat-row-folders", "TestChatRowFolderActions", []string{"FOLDER_MENU_PNG_DIR={out}"}},
+		render{"chat-archive", "TestChatArchive", []string{"FOLDER_MENU_PNG_DIR={out}"}},
+		render{"forward-picker", "TestForwardFolderFilter", []string{"FORWARD_PICKER_PNG_DIR={out}"}},
 		render{"album-selection", "TestRenderAlbumSelection", []string{"ALBUM_SELECTION_PNG_DIR={out}"}},
 		render{"profiler", "TestRenderProfiler", []string{"PROFILER_PNG_DIR={out}"}},
 		render{"pinned", "TestRenderPinned", []string{"PINNED_PNG={out}/pinned.png"}},

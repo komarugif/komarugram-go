@@ -2,9 +2,11 @@
 package preferences
 
 import (
+	"encoding/json"
 	"errors"
 	"gioui.org/io/key"
 	"komarugram/internal/messenger/shortcuts"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -80,5 +82,40 @@ func TestShortcutsPersistAndKeepSettingsAccessible(t *testing.T) {
 	}
 	if len(s.Global().Shortcuts["app.settings"]) != 1 {
 		t.Fatal("rejected save changed shortcuts")
+	}
+}
+
+func TestLegacyFolderMenuOrder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	g := defaults()
+	g.Menus = Menus{
+		"sidebar":       {Order: []string{"search", "folder:one:4", "profile", "all", "folder:two:4", "other"}, Hidden: []string{"profile", "folder:one:4"}},
+		"drawer":        {Order: []string{"settings", "all", "search", "folder:one:4"}, Hidden: []string{"folder:one:4", "all"}},
+		"recent_search": {Order: []string{"all", "messages"}},
+	}
+	data, err := json.Marshal(fileData{Version: version, Global: g})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	want := Menus{
+		"sidebar":       {Order: []string{"search", "folders", "profile", "other"}, Hidden: []string{"profile"}},
+		"drawer":        {Order: []string{"settings", "folders", "search"}, Hidden: []string{"folders"}},
+		"recent_search": g.Menus["recent_search"],
+	}
+	for range 2 {
+		store, err := OpenPath(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := store.Global().Menus
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("migrated menus: got %v, want %v", got, want)
+		}
+		if err := store.SetMenus(got); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

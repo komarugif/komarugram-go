@@ -72,14 +72,15 @@ func (s *pinStore) waitAsked(n int) []int64 {
 
 // listHarness draws the chat list on a router of its own.
 type listHarness struct {
-	t      *testing.T
-	router input.Router
-	list   *chatList
-	store  *pinStore
-	chats  []model.Chat
-	sec    section
-	now    time.Time
-	l      localization.Catalog
+	t       *testing.T
+	router  input.Router
+	list    *chatList
+	store   *pinStore
+	chats   []model.Chat
+	folders []model.Folder
+	sec     section
+	now     time.Time
+	l       localization.Catalog
 	// picks are the chats picked in the list.
 	picks []int64
 	// wake is when the list asked for its next frame, if wakes.
@@ -91,6 +92,7 @@ func newListHarness(t *testing.T, chats []model.Chat) *listHarness {
 	t.Helper()
 	skipFrames(t)
 	h := &listHarness{t: t, list: newChatList(), store: &pinStore{}, chats: chats, now: time.Unix(100000, 0), l: localization.For("en")}
+	h.folders = []model.Folder{{}, {ID: 1, FolderTypes: model.FolderTypes{Contacts: true, NonContacts: true}, Pinned: model.PinnedOrder(chats)}}
 	h.store.premium = model.PremiumFromConfig(false, nil)
 	h.list.menu.store, h.list.menu.premium = h.store, h.store
 	h.frames(2)
@@ -104,7 +106,7 @@ func (h *listHarness) frames(n int) {
 		if p, ok := h.list.Update(gtx, h.sec, h.l); ok {
 			h.picks = append(h.picks, p.ID)
 		}
-		h.list.Layout(gtx, h.sec, nil, h.chats, 0, false, h.l)
+		h.list.Layout(gtx, h.sec, h.folders, h.chats, 0, false, h.l)
 		h.list.layoutMenu(gtx, image.Point{}, h.list.menuBackdrop(), h.l)
 		h.router.Frame(gtx.Ops)
 		h.now = h.now.Add(16 * time.Millisecond)
@@ -253,9 +255,8 @@ func TestChatRowMenuRead(t *testing.T) {
 	}
 }
 
-// TestChatRowMenuOnlyInAllChats checks that a folder's list has no pins: they
-// are the list of all chats'.
-func TestChatRowMenuOnlyInAllChats(t *testing.T) {
+// A store that only supports main-list pins must not receive a folder pin.
+func TestChatRowMenuWithoutFolderWriter(t *testing.T) {
 	h := newListHarness(t, testChats(0))
 	h.sec = section{kind: sectionFolder, folder: 1}
 	h.frames(2)

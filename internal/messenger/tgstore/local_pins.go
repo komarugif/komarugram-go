@@ -188,12 +188,15 @@ func (s *Store) changeLocalPins(ctx context.Context, change func(chats []model.C
 	now := &localPins{}
 	if was != nil {
 		now.Order, now.Synced = slices.Clone(was.Order), was.Synced
+		now.Order = slices.DeleteFunc(now.Order, func(id int64) bool {
+			return slices.ContainsFunc(chats, func(c model.Chat) bool { return c.ID == id && c.Archived })
+		})
 	} else {
-		now.Order = model.PinnedOrder(chats)
+		now.Order = model.PinnedOrder(model.MainDialogs(chats))
 		now.Synced = slices.Clone(now.Order)
 	}
 	var err error
-	if now.Order, err = change(chats, now.Order); err != nil {
+	if now.Order, err = change(model.MainDialogs(chats), now.Order); err != nil {
 		l.mu.Unlock()
 		return err
 	}
@@ -302,8 +305,12 @@ func (s *Store) pushPins(ctx context.Context) (bool, error) {
 	if !s.local().Pins {
 		return false, nil
 	}
+	// A local archive request and a main-list pin plan must not move the
+	// same chat on Telegram at the same time.
+	s.archiveWrite.Lock()
+	defer s.archiveWrite.Unlock()
 	s.mu.RLock()
-	chats := s.chats
+	chats := model.MainDialogs(s.chats)
 	s.mu.RUnlock()
 	server := model.PinnedOrder(chats)
 	shown := func(id int64) bool {

@@ -792,7 +792,8 @@ func (a *App) configureViewer(v *mediaViewer) {
 	}
 	if store := a.store; store != nil {
 		// What the viewer forwards goes to the account's chats.
-		v.share.chats = store.Chats
+		v.share.chats = a.folderDialogs
+		v.share.picker.folders = store.Folders
 		// What the editor saves goes to the account's own chat.
 		v.savedChat = a.savedChat
 	}

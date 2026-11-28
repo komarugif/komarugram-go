@@ -102,9 +102,10 @@ func TestFolders(t *testing.T) {
 		ExcludePeers: []tg.InputPeerClass{&tg.InputPeerUser{UserID: 2}}}
 	shared := &tg.DialogFilterChatlist{ID: 5, IncludePeers: []tg.InputPeerClass{&tg.InputPeerChat{ChatID: 5}}}
 	chats, folders := l.snapshot([]tg.DialogFilterClass{&tg.DialogFilterDefault{}, contacts, unmutedGroups, unreadPeople, shared})
-	if len(folders) != 4 {
-		t.Fatalf("%d folders, want 4 without All chats", len(folders))
+	if len(folders) != 5 || folders[0].ID != 0 {
+		t.Fatalf("%d folders, want All chats and 4 filters", len(folders))
 	}
+	folders = folders[1:]
 	members := func(f model.Folder) (titles []string) {
 		for _, c := range chats {
 			if f.Contains(c) {
@@ -131,7 +132,19 @@ func TestFolders(t *testing.T) {
 			}
 		}
 	}
-	if folders[0].Kinds[0] != model.KindUser {
+	folder, _ := dialogFolder(self, &tg.DialogFilter{ID: 6, Groups: true, ExcludeMuted: true, ExcludeRead: true, ExcludeArchived: true,
+		PinnedPeers:  []tg.InputPeerClass{&tg.InputPeerUser{UserID: 73}, &tg.InputPeerUser{UserID: 42}},
+		ExcludePeers: []tg.InputPeerClass{&tg.InputPeerUser{UserID: 42}}}, nil)
+	group := model.Chat{ID: user(101), Kind: model.KindGroup, Muted: true, UnreadMentions: 1, Pinned: true}
+	rows := folder.Chats([]model.Chat{group, {ID: user(42)}, {ID: user(73), Archived: true}})
+	if len(rows) != 2 || rows[0].ID != user(73) || !rows[0].Pinned || rows[1].Pinned {
+		t.Fatalf("folder pins, exclusions and unread mentions: %v", rows)
+	}
+	group.Archived = true
+	if folder.Contains(group) {
+		t.Fatal("automatic rule admitted an archived group")
+	}
+	if !folders[0].Contacts || folders[0].NonContacts {
 		t.Error("a contacts folder should show the personal icon")
 	}
 }

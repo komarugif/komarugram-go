@@ -15,6 +15,52 @@ import (
 	"komarugram/pkg/player"
 )
 
+func TestChatArchiveDefaultsOnAndKeepsOff(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"global":{}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenPath(path)
+	if err != nil || !s.VisibilityOf("a").ChatArchive || !Memory().VisibilityOf("a").ChatArchive {
+		t.Fatalf("archive missing its enabled default: %v", err)
+	}
+	if err := s.PinVisibility("a", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ChangeVisibility("a", func(v *Visibility) { v.ChatArchive = false }); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := OpenPath(path)
+	if err != nil || loaded.VisibilityOf("a").ChatArchive || !loaded.VisibilityOf("b").ChatArchive {
+		t.Fatalf("explicit off choice lost after reopening: %v", err)
+	}
+	if err := loaded.PinVisibility("a", false); err != nil || !loaded.VisibilityOf("a").ChatArchive {
+		t.Fatalf("unpinned account did not return to shared settings: %v", err)
+	}
+}
+
+func TestLegacyPinnedVisibilityKeepsSharedArchiveChoice(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	data := `{"version":1,"global":{"chat_archive":false},"accounts":{"a":{"visibility":{"hide_peer_badges":true}},"b":{"visibility":{"chat_archive":true}}}}`
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ChangeVisibility("c", func(v *Visibility) { v.ChatArchive = true }); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := loaded.VisibilityOf("a"); a.ChatArchive || !a.HidePeerBadges || !loaded.VisibilityOf("b").ChatArchive || !loaded.VisibilityOf("c").ChatArchive {
+		t.Fatal("pin migration failed to preserve the archive choice and other rules")
+	}
+}
+
 func TestDisabledAnimationsPersistIndependently(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	if err := os.WriteFile(path, []byte(`{"version":1,"global":{"motion_mode":1}}`), 0600); err != nil {
@@ -122,7 +168,7 @@ func TestPersistsAndNotifies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Global{WindowBlur: true, ViewerBlur: true, Theme: ThemeLight, Language: "en", LastAccountID: "account-b", MotionMode: powersave.ModeOff, MotionSet: true, LowBattery: 25, MiniAppStorage: miniapp.PerApp, Composer: ComposerClassic, AudioVolume: 100, Player: player.VLC, VLCPath: "/opt/vlc/vlc", BrowserPath: "/opt/chromium/chrome", Ghost: Ghost{ReadOnInteract: true}, Overlays: Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true, Shadow: ShadowDefault}, Keep: Keep{Deleted: true, Edits: true}, Notify: Notify{Desktop: true, Sound: true, Name: true, Text: true, Private: true, Groups: true, Channels: true, AllAccounts: true}, Look: Look{BubbleRadius: BubbleRadiusMax, AvatarCorners: AvatarRound}}
+	want := Global{WindowBlur: true, ViewerBlur: true, ChatArchive: true, Theme: ThemeLight, Language: "en", LastAccountID: "account-b", MotionMode: powersave.ModeOff, MotionSet: true, LowBattery: 25, MiniAppStorage: miniapp.PerApp, Composer: ComposerClassic, AudioVolume: 100, Player: player.VLC, VLCPath: "/opt/vlc/vlc", BrowserPath: "/opt/chromium/chrome", Ghost: Ghost{ReadOnInteract: true}, Overlays: Overlays{Transparency: 30, MenusBlur: true, ToastsBlur: true, Shadow: ShadowDefault}, Keep: Keep{Deleted: true, Edits: true}, Notify: Notify{Desktop: true, Sound: true, Name: true, Text: true, Private: true, Groups: true, Channels: true, AllAccounts: true}, Look: Look{BubbleRadius: BubbleRadiusMax, AvatarCorners: AvatarRound}}
 	if got := loaded.Global(); !got.Equal(want) {
 		t.Fatalf("loaded %+v, want %+v", got, want)
 	}

@@ -373,6 +373,10 @@ size-stability fixes remain in place.
 - **Chat list rows** (`chatlist.go`): `layoutRowWith` draws any row that looks
   like a chat (avatar, title, time, line, counter) with a `surface` of the
   caller's; search results reuse it for found messages.
+- **Chat archive cards** (`chat_archive.go`) sit below stories in **All chats**
+  and in the archive. Both use the chat row's size, with the destination's
+  icon and latest chat titles. The same sidebar folders and compact chips
+  filter whichever list is open.
 - **Last message line** (`chatlist_preview.go`): `previewLine` draws a chat's
   or a topic's last message as Telegram Desktop's list does: the sender, the
   arrow of a forward, up to three thumbnails (a video's with a play mark, a
@@ -394,8 +398,8 @@ size-stability fixes remain in place.
   accent; the chat's header shows it in place of the status.
   `CHAT_PREVIEW_PNG` saves a list of every kind, light, dark and narrow.
 - **Row of stories** (`stories_row.go`): `storiesRow` is the first row of
-  all chats, as Telegram Desktop's `Dialogs::Stories::List`: who has
-  stories now (`model.StorySource`), each an avatar in a ring of a
+  all chats and the archive. Like Telegram Desktop's `Dialogs::Stories::List`,
+  it shows who has stories now (`model.StorySource`), each an avatar in a ring of a
   segment a story, the unread ones thick in the accent's gradient and the
   seen ones thin and dim, the name under it. It scrolls sideways, and a
   mouse drags it (`dragOnlyHorizontalStrip`, which leaves the wheel to the
@@ -1360,8 +1364,9 @@ navigation drawer, message menu, chat list, chat header, attachments, recent
 searches, sticker sets, phone numbers, bank cards and dates. Conditional pairs
 (pin/unpin, forward/forward selected, delete/delete selected, copy text/selection,
 select/clear selection) share a user-facing slot. Bank-provided links share one
-slot while retaining their server order. Folder slots include the local account
-ID, so equal folder numbers on different accounts do not collide.
+slot while retaining their server order. Each navigation menu has one Chat Folders
+slot. Moving or hiding it affects the entire group, including All chats. The
+folders within it follow the active account's order from Settings → Chat Folders.
 
 The grabbed row follows the pointer above its neighbors, which slide into the
 new slots. Release persists the order and settles the row into its slot; cancel
@@ -1376,6 +1381,42 @@ own layout.
 `SETTINGS_SECTION=menus SETTINGS_PNG=/tmp/menus.png go test
 ./internal/messenger/ui -run TestRenderSettingsAccounts` renders every menu card;
 `cmd/render-all -only settings-menus` runs the same scene.
+
+### Chat folders
+
+The Chat Folders section sits below Chat Settings. It lists the account's
+folders in Telegram order. The list uses the same drag handles as the menu settings.
+All chats stays first for accounts without Premium. The creation form accepts
+any combination of contacts, non-contacts, groups, channels and bots. Selecting
+one type suggests a name, and typing a name keeps it across selection changes.
+Click a folder name to edit its rules and icon. Included and excluded chats have
+separate settings cards. Leaving a changed draft through Back, the sidebar or
+the drawer asks whether to save it. A successful save or an explicit discard
+continues to the chosen page. Both peer selectors use the
+forwarding dialog's chat list with checkboxes. It searches known chats by title
+and public username, including with a leading @. Applying a selection removes
+the chosen peers from the opposite list. Cancelling keeps the draft. Shared
+folders offer explicit inclusion. Folder selectors filter by chat kind, and the
+forwarding selector filters by account folder. Changing a chip preserves the
+query and the selection. Recommended folders open as editable templates.
+
+The context menu on a chat row offers Add to folder and Remove from folder.
+The chooser lists eligible folders in account order and shows the chat name.
+In a folder, Pin and Unpin change its pinned list. Unpinning retains explicit
+membership. Removing a pinned chat also removes its folder pin. A chat
+selected by a type rule can be excluded and later restored to that rule.
+
+Secondary-click a sidebar folder or horizontal folder tab to edit it, mark
+its chats as read, or remove it. The menu belongs to the clicked folder.
+All chats opens folder settings and offers a read when applicable. Bulk read
+includes muted and off-screen members. Removing a folder asks for confirmation
+and keeps every chat. The folder-menu render shows both navigation layouts
+and their confirmation dialogs.
+
+Use `SETTINGS_SECTION` with `folders`, `folders-hover`, `folders-empty`, `folder-create`, `folder-edit`,
+`folder-icons`, `folder-peers` or `folder-save` and set `SETTINGS_PNG` to a file path.
+`TestRenderSettingsAccounts` renders the selected view.
+[Folder behavior and API references](CHAT_FOLDERS.md)
 
 ### Keyboard shortcuts
 

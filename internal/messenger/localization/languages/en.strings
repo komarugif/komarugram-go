@@ -148,6 +148,14 @@
 "chat.not_found" = "Nothing found";
 "chat.search" = "Search";
 
+"chat_archive.all" = "All archived";
+"chat_archive.empty" = "No archived chats";
+"chat_archive.empty_folder" = "No archived chats in this folder";
+"chat_archive.main_empty" = "No chats yet";
+"chat_archive.preview_list" = "{accumulated}, {chat}";
+"chat_archive.preview_more#one" = "{chats} and {count} more chat";
+"chat_archive.preview_more#other" = "{chats} and {count} more chats";
+
 "chat_menu.beginning" = "To Beginning";
 "chat_menu.channel" = "View channel info";
 "chat_menu.group" = "View group info";
@@ -157,6 +165,15 @@
 "chat_menu.search" = "Search for messages";
 "chat_menu.show_filtered" = "Show Filtered Messages";
 
+"chat_row.archive" = "Archive";
+"chat_row.archive_failed" = "Could not move the chat";
+"chat_row.archived" = "Chat archived";
+"chat_row.folder_add" = "Add to folder";
+"chat_row.folder_remove" = "Remove from folder";
+"chat_row.folder_pin" = "Pin in this folder";
+"chat_row.folder_unpin" = "Unpin in this folder";
+"chat_row.folder_added" = "{chat} added to {folder} folder";
+"chat_row.folder_removed" = "{chat} removed from {folder} folder";
 "chat_row.community" = "View community info";
 "chat_row.pin" = "Pin to top";
 "chat_row.pin_failed" = "Could not change the pinned chats";
@@ -164,6 +181,8 @@
 "chat_row.pin_limit_pro" = "You can pin no more than {limit} chats. With Telegram Premium, up to {premium}.";
 "chat_row.read" = "Mark as read";
 "chat_row.ungroup" = "Ungroup";
+"chat_row.unarchive" = "Unarchive";
+"chat_row.unarchived" = "Chat restored from the archive";
 "chat_row.unpin" = "Unpin from top";
 
 "chat_search.close" = "Close search";
@@ -802,6 +821,53 @@
 "filters.reversed" = "Reversed";
 "filters.title" = "Message Filters";
 
+"folders.context_edit" = "Edit";
+"folders.context_read" = "Mark as read";
+"folders.remove_sure" = "Remove “{folder}”? All chats will be kept.";
+"folders.remove_invites_sure" = "Remove “{folder}” and revoke its invite links? All chats will be kept.";
+"folders.read_sure" = "Mark all chats in “{folder}” as read?";
+"folders.action_failed" = "Could not finish the folder action. Try again.";
+"folders.action_changed" = "The folder has changed. Open its menu again.";
+"folders.archived" = "Archived";
+"folders.auto_icon" = "Automatic";
+"folders.bots" = "Bots";
+"folders.cache_failed" = "Saved on Telegram, but couldn’t update the offline copy.";
+"folders.changed" = "The folder order has changed. Try moving it again.";
+"folders.channels" = "Channels";
+"folders.conflict" = "Another folder was created. Try saving again.";
+"folders.contacts" = "Contacts";
+"folders.create" = "Create new folder";
+"folders.default" = "Change at least one rule. This folder matches All chats.";
+"folders.ask_save" = "Save changes to this folder?";
+"folders.no_save" = "Leave without saving";
+"folders.keep_editing" = "Keep editing";
+"folders.private" = "Private chats";
+"folders.edit" = "Edit Folder";
+"folders.edit_conflict" = "This folder changed elsewhere. Reopen it to edit the latest version.";
+"folders.empty" = "Create your first folder to organise chats.";
+"folders.exclude" = "Excluded chats";
+"folders.failed" = "Could not save folder settings. Try again.";
+"folders.groups" = "Groups";
+"folders.icon" = "Choose an icon";
+"folders.include" = "Included chats";
+"folders.limit" = "You have reached your folder limit.";
+"folders.muted" = "Muted";
+"folders.name" = "Folder name";
+"folders.name_limit" = "Enter 1 to 12 characters.";
+"folders.new" = "New Folder";
+"folders.no_suggestions" = "No recommended folders.";
+"folders.noncontacts" = "Non-contacts";
+"folders.peer_limit" = "Too many chats selected for this account.";
+"folders.read" = "Read";
+"folders.recommended" = "Recommended folders";
+"folders.save" = "Create";
+"folders.select_exclude" = "Exclude chats";
+"folders.select_include" = "Include chats";
+"folders.subtitle" = "Choose chats, edit rules and reorder folders";
+"folders.suggestions_failed" = "Could not load recommended folders. Try again.";
+"folders.title" = "Chat Folders";
+"folders.types_required" = "Choose at least one chat or chat type.";
+"folders.unknown" = "Chat {id}";
 "fonts.body" = "Font files of your own (TTF, OTF and their collections) are used before the system's. A file stays where it is: once it is gone, the system's font is back. One file is one style: without a bold file of its own, bold text is drawn regular.";
 "fonts.choose" = "Choose a File";
 "fonts.emoji" = "Emoji Font";
@@ -1270,9 +1336,7 @@
 "miniapp.title" = "Mini Apps";
 
 "nav.all" = "All chats";
-"nav.archive" = "Archive";
-"chat_row.archive" = "Archive";
-"chat_row.unarchive" = "Unarchive";
+"nav.archive" = "Archived chats";
 "nav.downloads" = "Downloads";
 "nav.menu" = "Menu";
 "nav.profile" = "Profile";
@@ -1457,6 +1521,13 @@
 "preview.videos#one" = "{count} video";
 "preview.voice" = "Voice message";
 
+"privacy.archive_mute" = "Archive and Mute";
+"privacy.archive_mute_body" = "Automatically archive and mute new chats from non-contacts. This setting applies to this account on all devices.";
+"privacy.archive_mute_load_failed" = "Could not load the account's archive setting";
+"privacy.archive_mute_premium_required" = "Archive and Mute requires Telegram Premium.";
+"privacy.archive_mute_save_failed" = "Could not save the account's archive setting";
+"privacy.chat_archive_body" = "Show the archive card in All chats and allow moving chats into and out of the archive.";
+"privacy.chat_archive_failed" = "Could not save the archive setting";
 "privacy.streamer" = "Streamer Mode";
 "privacy.streamer_body" = "The messenger's windows stay out of screen recordings and streams, which show nothing where they are, as AyuGram's Streamer Mode.";
 "privacy.visual" = "Visual privacy mode";

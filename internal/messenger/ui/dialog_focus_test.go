@@ -3,7 +3,11 @@
 package ui
 
 import (
+	"komarugram/internal/messenger/localization"
+	"komarugram/internal/messenger/mockstore"
+	"os"
 	"testing"
+	"time"
 
 	"gioui.org/io/key"
 	"gioui.org/layout"
@@ -93,5 +97,44 @@ func TestDialogKeepsTypingFromTheField(t *testing.T) {
 	h.frames(3)
 	if got := h.page.composer.draft(1).editor.Text(); got != "" {
 		t.Errorf("the message field under the dialog took %q", got)
+	}
+}
+
+// Folder chips use the same recipient filtering as the media viewer.
+func TestForwardFolderFilter(t *testing.T) {
+	h := newMenuHarness(t, nil)
+	h.still = true
+	demo := mockstore.New(time.Now(), 0)
+	p := h.page
+	p.chats = demo.Chats
+	f := &p.forwarding
+	f.folders = demo.Folders
+	f.usernames = demo
+	p.openForwardParts(layout.Context{Ops: new(op.Ops)}, p.messages[:1], false)
+	h.frame()
+	f.chips.chip(3).click.Click()
+	h.frame()
+	name := localization.For("en")
+	gtx := layout.Context{Ops: new(op.Ops)}
+	hits := p.forwardTargets(gtx, name)
+	if len(hits) == 0 {
+		t.Fatal("expected channels")
+	}
+	for _, chat := range hits {
+		if chat.Kind != model.KindChannel {
+			t.Fatal("non-channel in Channels")
+		}
+	}
+	if dir := os.Getenv("FORWARD_PICKER_PNG_DIR"); dir != "" {
+		s := newEffectsShots(t, h, dir)
+		s.save("forward-picker", s.take())
+	}
+	f.search.SetText("@ANNA_S")
+	if got := p.forwardTargets(gtx, name); len(got) != 0 {
+		t.Fatal("search bypassed selected folder")
+	}
+	f.chips.chip(0).click.Click()
+	if got := p.forwardTargets(gtx, name); len(got) != 1 || got[0].ID != 2 {
+		t.Fatal("All chats did not restore matching recipient")
 	}
 }

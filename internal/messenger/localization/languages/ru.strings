@@ -157,6 +157,16 @@
 "chat.not_found" = "Ничего не найдено";
 "chat.search" = "Поиск";
 
+"chat_archive.all" = "Весь архив";
+"chat_archive.empty" = "В архиве нет чатов";
+"chat_archive.empty_folder" = "В этой папке нет архивных чатов";
+"chat_archive.main_empty" = "Чатов пока нет";
+"chat_archive.preview_list" = "{accumulated}, {chat}";
+"chat_archive.preview_more#few" = "{chats} и ещё {count} чата";
+"chat_archive.preview_more#many" = "{chats} и ещё {count} чатов";
+"chat_archive.preview_more#one" = "{chats} и ещё {count} чат";
+"chat_archive.preview_more#other" = "{chats} и ещё {count} чата";
+
 "chat_menu.beginning" = "К началу";
 "chat_menu.channel" = "Информация о канале";
 "chat_menu.group" = "Информация о группе";
@@ -166,6 +176,15 @@
 "chat_menu.search" = "Поиск сообщений";
 "chat_menu.show_filtered" = "Показать отфильтрованные";
 
+"chat_row.archive" = "В архив";
+"chat_row.archive_failed" = "Не удалось переместить чат";
+"chat_row.archived" = "Чат перемещён в архив";
+"chat_row.folder_add" = "Добавить в папку";
+"chat_row.folder_remove" = "Убрать из папки";
+"chat_row.folder_pin" = "Закрепить в этой папке";
+"chat_row.folder_unpin" = "Открепить в этой папке";
+"chat_row.folder_added" = "Чат «{chat}» добавлен в папку «{folder}»";
+"chat_row.folder_removed" = "Чат «{chat}» убран из папки «{folder}»";
 "chat_row.community" = "О сообществе";
 "chat_row.pin" = "Закрепить";
 "chat_row.archive" = "В архив";
@@ -175,6 +194,8 @@
 "chat_row.pin_limit_pro" = "Закрепить можно не больше {limit} чатов. С Telegram Premium — до {premium}.";
 "chat_row.read" = "Прочитано";
 "chat_row.ungroup" = "Разгруппировать";
+"chat_row.unarchive" = "Вернуть из архива";
+"chat_row.unarchived" = "Чат возвращён из архива";
 "chat_row.unpin" = "Открепить";
 
 "chat_search.close" = "Закрыть поиск";
@@ -850,6 +871,53 @@
 "filters.reversed" = "Наоборот";
 "filters.title" = "Фильтры сообщений";
 
+"folders.context_edit" = "Настроить";
+"folders.context_read" = "Прочитать";
+"folders.remove_sure" = "Удалить папку «{folder}»? Все чаты сохранятся.";
+"folders.remove_invites_sure" = "Удалить папку «{folder}» и отозвать её пригласительные ссылки? Все чаты сохранятся.";
+"folders.read_sure" = "Отметить все чаты в папке «{folder}» как прочитанные?";
+"folders.action_failed" = "Не удалось завершить действие с папкой. Попробуйте ещё раз.";
+"folders.action_changed" = "Папка изменилась. Откройте её меню ещё раз.";
+"folders.archived" = "Архивные";
+"folders.auto_icon" = "Автоматически";
+"folders.bots" = "Боты";
+"folders.cache_failed" = "Настройки сохранены в Telegram, но обновить локальную копию не удалось.";
+"folders.changed" = "Порядок папок изменился. Попробуйте переместить папку ещё раз.";
+"folders.channels" = "Каналы";
+"folders.conflict" = "Появилась другая папка. Попробуйте сохранить ещё раз.";
+"folders.contacts" = "Контакты";
+"folders.create" = "Создать папку";
+"folders.default" = "Измените хотя бы одно правило. Эта папка повторяет «Все чаты».";
+"folders.ask_save" = "Сохранить изменения в папке?";
+"folders.no_save" = "Не сохранять";
+"folders.keep_editing" = "Продолжить редактирование";
+"folders.private" = "Личные";
+"folders.edit" = "Настроить папку";
+"folders.edit_conflict" = "Папка изменилась в другом окне. Откройте её заново для редактирования.";
+"folders.empty" = "Создайте первую папку и выберите, какие чаты в ней показывать.";
+"folders.exclude" = "Исключённые чаты";
+"folders.failed" = "Не удалось сохранить настройки папок. Попробуйте ещё раз.";
+"folders.groups" = "Группы";
+"folders.icon" = "Выбрать иконку";
+"folders.include" = "Включённые чаты";
+"folders.limit" = "Достигнут лимит папок.";
+"folders.muted" = "Без уведомлений";
+"folders.name" = "Название папки";
+"folders.name_limit" = "Введите от 1 до 12 символов.";
+"folders.new" = "Новая папка";
+"folders.no_suggestions" = "Рекомендованных папок нет.";
+"folders.noncontacts" = "Не контакты";
+"folders.peer_limit" = "Выбрано больше чатов, чем допускает лимит аккаунта.";
+"folders.read" = "Прочитанные";
+"folders.recommended" = "Рекомендованные папки";
+"folders.save" = "Создать";
+"folders.select_exclude" = "Исключить чаты";
+"folders.select_include" = "Включить чаты";
+"folders.subtitle" = "Выбор чатов, правила и порядок папок";
+"folders.suggestions_failed" = "Не удалось загрузить рекомендованные папки. Попробуйте ещё раз.";
+"folders.title" = "Папки чатов";
+"folders.types_required" = "Выберите хотя бы один чат или тип чатов.";
+"folders.unknown" = "Чат {id}";
 "fonts.body" = "Свои файлы шрифтов (TTF, OTF и их коллекции) используются раньше системных. Файл остаётся на месте: если его убрать, вернётся системный шрифт. Один файл — одно начертание: без отдельного полужирного файла полужирный текст рисуется обычным.";
 "fonts.choose" = "Выбрать файл";
 "fonts.emoji" = "Шрифт эмодзи";
@@ -1330,7 +1398,7 @@
 "miniapp.title" = "Mini Apps";
 
 "nav.all" = "Все чаты";
-"nav.archive" = "Архив";
+"nav.archive" = "Архив чатов";
 "nav.downloads" = "Загрузки";
 "nav.menu" = "Меню";
 "nav.profile" = "Профиль";
@@ -1535,6 +1603,13 @@
 "preview.videos#one" = "{count} видео";
 "preview.voice" = "Голосовое сообщение";
 
+"privacy.archive_mute" = "В архив и без уведомлений";
+"privacy.archive_mute_body" = "Новые чаты от тех, кого нет в контактах, автоматически попадают в архив без уведомлений. Настройка действует для этого аккаунта на всех устройствах.";
+"privacy.archive_mute_load_failed" = "Не удалось загрузить настройку автоархивации";
+"privacy.archive_mute_premium_required" = "Для опции «В архив и без уведомлений» требуется Telegram Premium.";
+"privacy.archive_mute_save_failed" = "Не удалось сохранить настройку автоархивации";
+"privacy.chat_archive_body" = "Показывает карточку архива во «Всех чатах» и позволяет перемещать чаты в архив и обратно.";
+"privacy.chat_archive_failed" = "Не удалось сохранить настройку архива";
 "privacy.streamer" = "Режим стримера";
 "privacy.streamer_body" = "Окна мессенджера не попадают в запись и трансляцию экрана: там, где они, будет пусто. Как режим стримера AyuGram.";
 "privacy.visual" = "Режим визуальной приватности";

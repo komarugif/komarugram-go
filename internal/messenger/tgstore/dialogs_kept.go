@@ -52,9 +52,8 @@ func readEntries(kept map[int64]keptEntry) map[int64]entry {
 // sameChat reports whether a chat as a page of dialogs tells it (c, e) is
 // the one kept (k, ke), as far as the list shows.
 func sameChat(c model.Chat, e entry, k model.Chat, ke entry) bool {
-	return c.Unread == k.Unread && c.ReadInbox == k.ReadInbox && c.ReadOutbox == k.ReadOutbox &&
-		c.Pinned == k.Pinned && c.PinRank == k.PinRank && c.Muted == k.Muted && c.Archived == k.Archived &&
-		c.Last.ID == k.Last.ID && e == ke &&
+	return c.Archived == k.Archived && c.UnreadMentions == k.UnreadMentions && c.Unread == k.Unread && c.ReadInbox == k.ReadInbox && c.ReadOutbox == k.ReadOutbox &&
+		c.Pinned == k.Pinned && c.Muted == k.Muted && c.Last.ID == k.Last.ID && e == ke &&
 		c.Community == k.Community && c.Collapsed == k.Collapsed
 }
 
@@ -98,13 +97,23 @@ func (l *list) horizon() (oldest time.Time, ok bool) {
 // longer hands out. A chat not brought and newer is gone: deleted, left or
 // archived meanwhile. Kept chats are not pinned, as the pinned come in the
 // first page. The caller holds s.mu.
-func (s *Store) withKept(l *list) ([]model.Chat, map[int64]entry) {
+func (s *Store) withKept(l *list, archive, complete bool) ([]model.Chat, map[int64]entry) {
 	chats := slices.Clone(l.chats)
 	entries := maps.Clone(l.entries)
 	horizon, bounded := l.horizon()
 	var kept []model.Chat
 	for _, c := range s.chats {
-		if l.seen[c.ID] || bounded && c.LastTime.After(horizon) {
+		if l.seen[c.ID] {
+			continue
+		}
+		if c.Archived != archive {
+			chats = append(chats, c)
+			if e, ok := s.entries[c.ID]; ok {
+				entries[c.ID] = e
+			}
+			continue
+		}
+		if archive && complete || !archive && bounded && c.LastTime.After(horizon) {
 			continue
 		}
 		c.Pinned, c.PinRank = false, 0
@@ -120,12 +129,17 @@ func (s *Store) withKept(l *list) ([]model.Chat, map[int64]entry) {
 // folderList is the folders filters make, over chats whose entries are
 // entries.
 func folderList(self int64, filters []tg.DialogFilterClass, entries map[int64]entry) []model.Folder {
-	l := &list{self: self}
 	var folders []model.Folder
-	for _, f := range filters {
-		if folder, ok := l.folder(f, entries); ok {
-			folders = append(folders, folder)
+	hasAll := false
+	for _, raw := range filters {
+		f, ok := dialogFolder(self, raw, entries)
+		if ok {
+			folders = append(folders, f)
+			hasAll = hasAll || f.ID == 0
 		}
+	}
+	if !hasAll {
+		folders = append([]model.Folder{{}}, folders...)
 	}
 	return folders
 }
@@ -147,53 +161,46 @@ func (s *Store) applyUnreadMark(u *tg.UpdateDialogUnreadMark) {
 		e.unreadMark = u.Unread
 		entries[id] = e
 		s.entries = entries
-		s.folders = folderList(s.me.ID, s.filters, entries)
+		s.folders = folderList(s.filterSelf, s.filters.Filters, entries)
 	})
 }
 
-// applyFolderPeers updates chats moved into or out of the archive (folder 1),
-// and asks Telegram for the dialogs of any unknown peers moved back.
+// applyFolderPeers immediately moves known chats between views. Fetch unknown
+// dialogs and the current state of chats brought back to the main list.
 func (s *Store) applyFolderPeers(u *tg.UpdateFolderPeers) {
-	archived := map[int64]bool{}
-	unarchived := map[int64]bool{}
+	moves := make(map[int64]bool, len(u.FolderPeers))
 	for _, p := range u.FolderPeers {
-		id := peerID(p.Peer)
-		if p.FolderID == 0 {
-			unarchived[id] = true
-		} else {
-			archived[id] = true
+		moves[peerID(p.Peer)] = p.FolderID == 1
+	}
+	var fetch []int64
+	s.publish(func() {
+		s.archiveRevision++
+		chats := slices.Clone(s.chats)
+		for i, c := range chats {
+			archived, ok := moves[c.ID]
+			if !ok {
+				continue
+			}
+			chats[i].Archived = archived
+			if c.Archived != archived {
+				chats[i].Pinned, chats[i].PinRank = false, 0
+			}
+			if !archived {
+				fetch = append(fetch, c.ID)
+			}
+			delete(moves, c.ID)
 		}
+		model.SortChats(chats)
+		s.chats = chats
+	})
+	for id := range moves {
+		fetch = append(fetch, id)
 	}
-	var missing []int64
-	if len(archived) > 0 || len(unarchived) > 0 {
-		s.publish(func() {
-			chats := slices.Clone(s.chats)
-			seen := make(map[int64]bool, len(chats))
-			for i := range chats {
-				id := chats[i].ID
-				seen[id] = true
-				if archived[id] {
-					chats[i].Archived = true
-					chats[i].Pinned, chats[i].PinRank = false, 0
-				} else if unarchived[id] {
-					chats[i].Archived = false
-				}
-			}
-			for id := range unarchived {
-				if !seen[id] {
-					missing = append(missing, id)
-				}
-			}
-			model.SortChats(chats)
-			s.chats = chats
-		})
+	if len(fetch) > 0 {
+		s.addDialogs(fetch)
 	}
-	if len(missing) > 0 {
-		s.addDialogs(missing)
-	}
-	if len(archived) > 0 || len(unarchived) > 0 {
-		s.goPersistDialogs()
-	}
+	s.syncPins()
+	s.goPersistDialogs()
 }
 
 // addDialogs asks Telegram for the dialogs of chats, and puts them in the
@@ -208,26 +215,31 @@ func (s *Store) addDialogs(chats []int64) {
 			peers = append(peers, &tg.InputDialogPeer{Peer: p.input()})
 		}
 	}
-	closing := c.closing
-	c.mu.Unlock()
-	if api == nil || closing || len(peers) == 0 {
+	defer c.mu.Unlock()
+	if api == nil || c.closing || len(peers) == 0 {
 		return
 	}
 	c.wg.Go(func() {
 		defer crash.Recover("dialogs added", nil)
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
+		s.mu.RLock()
+		revision := s.archiveRevision
+		self := s.filterSelf
+		s.mu.RUnlock()
 		res, err := api.MessagesGetPeerDialogs(ctx, peers)
 		if err != nil {
 			return
 		}
 		s.rememberPeers(res.Users, res.Chats)
-		s.mu.RLock()
-		self := s.me.ID
-		s.mu.RUnlock()
 		l := newList(self)
 		l.add(&tg.MessagesDialogs{Dialogs: res.Dialogs, Messages: res.Messages, Chats: res.Chats, Users: res.Users})
+		moved := false
 		s.publish(func() {
+			if s.archiveRevision != revision {
+				moved = true
+				return
+			}
 			chats := slices.Clone(s.chats)
 			entries := maps.Clone(s.entries)
 			if entries == nil {
@@ -243,8 +255,12 @@ func (s *Store) addDialogs(chats []int64) {
 			}
 			model.SortChats(chats)
 			s.chats, s.entries = chats, entries
-			s.folders = folderList(self, s.filters, entries)
+			s.folders = folderList(s.filterSelf, s.filters.Filters, entries)
 		})
+		if moved {
+			s.addDialogs(chats)
+			return
+		}
 		_ = s.persistDialogs(ctx)
 	})
 }

@@ -85,6 +85,7 @@ animate as Material 3 describes, and every animation can be turned off.
     state layer follows the handle; ripple. The row is drawn outside the
     clickable, whose clip cut the state layer; the clickable lies under all
     of the row, label included, as a checkbox's does (`TestLabelClickToggles`).
+    `LayoutWithLabel` can put a custom label with an icon in the same row.
   - `rail`: the colors of the indicator, the label and the state layer
     animate; ripple. `rail_theme.go` adds
     the hover and press opacities of an item's state layer.

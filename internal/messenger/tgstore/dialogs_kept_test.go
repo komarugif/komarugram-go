@@ -4,7 +4,10 @@ package tgstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"sync"
@@ -63,7 +66,13 @@ func (d *dialogServer) invoke(ctx context.Context, in bin.Encoder, out bin.Decod
 	switch r := in.(type) {
 	case *tg.MessagesGetDialogFiltersRequest:
 		*out.(*tg.MessagesDialogFilters) = tg.MessagesDialogFilters{Filters: []tg.DialogFilterClass{&tg.DialogFilter{ID: 2, Title: tg.TextWithEntities{Text: "Contacts"}, Contacts: true}}}
+	case *tg.MessagesGetPinnedDialogsRequest:
+		*out.(*tg.MessagesPeerDialogs) = tg.MessagesPeerDialogs{}
 	case *tg.MessagesGetDialogsRequest:
+		if r.FolderID == 1 {
+			out.(*tg.MessagesDialogsBox).Dialogs = &tg.MessagesDialogs{}
+			return nil
+		}
 		d.asked++
 		ids := d.order()
 		from := 0
@@ -117,6 +126,287 @@ func chatIDs(chats []model.Chat) []int64 {
 }
 
 func user(id int64) int64 { return peerID(&tg.PeerUser{UserID: id}) }
+
+// An archive page can contain pins from the main list when the request
+// includes pins. Reload must also repair a cache written by that old load.
+func TestDialogLoadKeepsMainPinsOutOfArchive(t *testing.T) {
+	s := testStore(t)
+	mainPin, mainChat, archivePin, archiveChat := user(2), user(3), user(4), user(5)
+	s.chats = []model.Chat{{ID: mainPin, Archived: true}}
+	s.dialogsComplete.Store(true)
+	row := func(id int64, pinned bool) *tg.Dialog {
+		return &tg.Dialog{Peer: &tg.PeerUser{UserID: id}, Pinned: pinned}
+	}
+	mainListPin := row(2, true)
+	wrongFolder := row(3, false)
+	wrongFolder.SetFolderID(0)
+	s.history.api = composerAPI(func(in bin.Encoder) (bin.Encoder, error) {
+		switch r := in.(type) {
+		case *tg.MessagesGetDialogFiltersRequest:
+			return &tg.MessagesDialogFilters{}, nil
+		case *tg.MessagesGetPinnedDialogsRequest:
+			if r.FolderID == 1 {
+				return &tg.MessagesPeerDialogs{Dialogs: []tg.DialogClass{row(4, true)}}, nil
+			}
+			return &tg.MessagesPeerDialogs{Dialogs: []tg.DialogClass{mainListPin}}, nil
+		case *tg.MessagesGetDialogsRequest:
+			if r.FolderID == 1 {
+				dialogs := []tg.DialogClass{row(5, false), wrongFolder}
+				if !r.ExcludePinned {
+					dialogs = append([]tg.DialogClass{mainListPin, row(4, true)}, dialogs...)
+				}
+				return &tg.MessagesDialogs{Dialogs: dialogs}, nil
+			}
+			dialogs := []tg.DialogClass{row(3, false)}
+			if !r.ExcludePinned {
+				dialogs = append([]tg.DialogClass{mainListPin}, dialogs...)
+			}
+			return &tg.MessagesDialogs{Dialogs: dialogs}, nil
+		default:
+			return nil, fmt.Errorf("unexpected RPC %T", in)
+		}
+	})
+	if err := s.loadDialogs(t.Context(), s.history.api, 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := chatIDs(s.Chats()); !slices.Equal(got, []int64{mainPin, mainChat}) || !slices.Equal(model.PinnedOrder(s.Chats()), []int64{mainPin}) {
+		t.Fatalf("main dialogs: %v, pins %v", got, model.PinnedOrder(s.Chats()))
+	}
+	var archived []int64
+	for _, c := range s.FolderDialogs() {
+		if c.Archived {
+			archived = append(archived, c.ID)
+		}
+	}
+	if !slices.Equal(archived, []int64{archivePin, archiveChat}) {
+		t.Fatalf("archived dialogs: %v", archived)
+	}
+}
+
+// Folders and their membership used to disappear on an offline restart.
+func TestDialogFoldersOffline(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "h")
+	open := func() *Store {
+		s := New(nil)
+		if err := s.Configure(ctx, "a", path, nil); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	s := open()
+	srv := newDialogServer(2)
+	srv.chats[1001].contact = true
+	shared := &tg.DialogFilterChatlist{
+		ID: 3, Title: tg.TextWithEntities{Text: "Shared"}, HasMyInvites: true,
+		PinnedPeers: []tg.InputPeerClass{&tg.InputPeerChannel{ChannelID: 42, AccessHash: 99}, &tg.InputPeerSelf{}},
+	}
+	shared.SetColor(0)
+	response := tg.MessagesDialogFilters{TagsEnabled: true, Filters: []tg.DialogFilterClass{
+		shared, &tg.DialogFilterDefault{},
+		&tg.DialogFilter{ID: 2, Title: tg.TextWithEntities{Text: "Contacts"}, Contacts: true},
+	}}
+	api := tg.NewClient(telegram.InvokeFunc(func(ctx context.Context, in bin.Encoder, out bin.Decoder) error {
+		if r, ok := in.(*tg.MessagesGetDialogsRequest); ok && r.FolderID == 1 {
+			archive := newDialogServer(0)
+			archive.chats[74] = &fakeDialog{top: 7, date: 4000, contact: true}
+			dialogs, msgs, users := archive.page([]int64{74})
+			out.(*tg.MessagesDialogsBox).Dialogs = &tg.MessagesDialogs{Dialogs: dialogs, Messages: msgs, Users: users}
+			return nil
+		}
+		if _, ok := in.(*tg.MessagesGetDialogFiltersRequest); ok {
+			*out.(*tg.MessagesDialogFilters) = response
+			return nil
+		}
+		return srv.invoke(ctx, in, out)
+	}))
+	s.history.api = api
+	srv.load(t, s)
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	offline := open()
+	defer offline.Close()
+	folders := offline.Folders()
+	if len(folders) != 3 || folders[0].ID != 3 || folders[1].ID != 0 || folders[2].Title != "Contacts" {
+		t.Fatalf("folders after offline restart: %v", folders)
+	}
+	chats := offline.Chats()
+	if len(chats) != 2 || folders[2].Contains(chats[0]) || !folders[2].Contains(chats[1]) {
+		t.Fatal("offline folder lost its contact rule")
+	}
+	members := folders[2].Chats(offline.FolderDialogs())
+	if len(members) != 2 || !slices.ContainsFunc(members, func(c model.Chat) bool { return c.ID == user(74) && c.Archived && !folders[1].Contains(c) }) {
+		t.Fatalf("archived contact after restart: %v", chatIDs(members))
+	}
+	if !folders[0].Contains(model.Chat{ID: user(1)}) {
+		t.Fatal("offline folder lost its Saved Messages pin")
+	}
+	if !offline.filters.TagsEnabled || len(offline.filters.Filters) != 3 {
+		t.Fatal("incomplete cached filter response")
+	}
+	if _, ok := offline.filters.Filters[1].(*tg.DialogFilterDefault); !ok {
+		t.Fatal("lost the position of All chats")
+	}
+	if got := offline.filters.Filters[0]; !reflect.DeepEqual(got, shared) {
+		t.Fatalf("shared folder after restart: %#v, want %#v", got, shared)
+	}
+	// Another session removes all folders. An empty response replaces the
+	// previous snapshot, including the tag switch, even without dialog pages.
+	response = tg.MessagesDialogFilters{}
+	offline.Remember(model.Profile{ID: 1})
+	offline.history.api = api
+	if err := offline.Handle(ctx, &tg.UpdateShort{Update: &tg.UpdateDialogFilters{}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(offline.Folders()) != 1 || offline.Folders()[0].ID != 0 || offline.filters.TagsEnabled {
+		t.Fatal("did not apply empty server snapshot")
+	}
+	_, cached, err := cachedDialogFilters(ctx, offline.Cache())
+	if err != nil || cached.TagsEnabled || len(cached.Filters) != 0 {
+		t.Fatalf("stale filters in the cache: %v, %v", cached, err)
+	}
+}
+
+func TestFolderSettingsSave(t *testing.T) {
+	s := testStore(t)
+	ctx := t.Context()
+	original := &tg.DialogFilterChatlist{ID: 2, Title: tg.TextWithEntities{Text: "Shared"}, PinnedPeers: []tg.InputPeerClass{&tg.InputPeerChannel{ChannelID: 42, AccessHash: 91}}}
+	filters := tg.MessagesDialogFilters{TagsEnabled: true, Filters: []tg.DialogFilterClass{original}}
+	var writes int
+	api := tg.NewClient(telegram.InvokeFunc(func(_ context.Context, in bin.Encoder, out bin.Decoder) error {
+		switch r := in.(type) {
+		case *tg.MessagesGetDialogFiltersRequest:
+			*out.(*tg.MessagesDialogFilters) = filters
+		case *tg.MessagesUpdateDialogFilterRequest:
+			f, ok := r.Filter.(*tg.DialogFilter)
+			if !ok || r.ID != 3 || f.ID != 3 || !f.Groups || !f.NonContacts || !f.Bots || f.Broadcasts || f.Contacts || f.Title.Text != "Study" {
+				return fmt.Errorf("unexpected creation: %v", r)
+			}
+			filters.Filters = append(slices.Clone(filters.Filters), f)
+			writes++
+			out.(*tg.BoolBox).Bool = &tg.BoolTrue{}
+		case *tg.MessagesUpdateDialogFiltersOrderRequest:
+			if !slices.Equal(r.Order, []int{0, 3, 2}) {
+				return fmt.Errorf("unexpected order: %v", r.Order)
+			}
+			writes++
+			out.(*tg.BoolBox).Bool = &tg.BoolTrue{}
+		default:
+			return fmt.Errorf("unexpected %T", in)
+		}
+		return nil
+	}))
+	s.history.api = api
+	if err := s.loadDialogFilters(ctx, api, 1); err != nil {
+		t.Fatal(err)
+	}
+	types := model.FolderTypes{NonContacts: true, Groups: true, Bots: true}
+	if err := s.SaveFolder(ctx, nil, model.Folder{ID: 3, Title: "  Study  ", FolderTypes: types}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveFolder(ctx, nil, model.Folder{ID: 3, Title: "Study", FolderTypes: types}); err != nil {
+		t.Fatal(err)
+	}
+	before := []int64{0, 2, 3}
+	after := []int64{0, 3, 2}
+	if err := s.ReorderFolders(ctx, before, []int64{2, 0, 3}); err != model.ErrFolderOrder {
+		t.Fatalf("moving All chats: %v", err)
+	}
+	if err := s.ReorderFolders(ctx, []int64{0, 2}, after); err != model.ErrFolderOrder {
+		t.Fatalf("stale order: %v", err)
+	}
+	if err := s.ReorderFolders(ctx, before, after); err != nil {
+		t.Fatal(err)
+	}
+	if writes != 2 || !slices.Equal(after, model.FolderIDs(s.Folders())) {
+		t.Fatal("folder writes or resulting order differ")
+	}
+	_, cached, err := cachedDialogFilters(ctx, s.Cache())
+	if err != nil || !cached.TagsEnabled || len(cached.Filters) != 3 || !reflect.DeepEqual(cached.Filters[2], original) {
+		t.Fatalf("cached ordered folders: %v, %v", cached, err)
+	}
+}
+
+// Preserve fields outside the editor and peers missing from the dialog cache.
+func TestFolderEditorRoundTrip(t *testing.T) {
+	ctx := t.Context()
+	s := testStore(t)
+	pin := &tg.InputPeerChannel{ChannelID: 1234, AccessHash: 775}
+	title := tg.TextWithEntities{Text: "Work", Entities: []tg.MessageEntityClass{&tg.MessageEntityBold{Offset: 0, Length: 4}}}
+	ordinary := &tg.DialogFilter{ID: 7, Title: title, TitleNoanimate: true, Bots: true, Emoticon: "💡", PinnedPeers: []tg.InputPeerClass{pin}}
+	ordinary.SetColor(0)
+	shared := &tg.DialogFilterChatlist{ID: 8, HasMyInvites: true, Title: title, PinnedPeers: []tg.InputPeerClass{pin}}
+	shared.SetColor(0)
+	filters := tg.MessagesDialogFilters{Filters: []tg.DialogFilterClass{ordinary, shared}, TagsEnabled: true}
+	var writes int
+	api := tg.NewClient(telegram.InvokeFunc(func(_ context.Context, in bin.Encoder, out bin.Decoder) error {
+		switch r := in.(type) {
+		case *tg.MessagesGetDialogFiltersRequest:
+			*out.(*tg.MessagesDialogFilters) = filters
+		case *tg.MessagesUpdateDialogFilterRequest:
+			var buf bin.Buffer
+			if err := r.Filter.Encode(&buf); err != nil {
+				return err
+			}
+			encoded, err := tg.DecodeDialogFilter(&buf)
+			if err != nil {
+				return err
+			}
+			writes++
+			switch f := encoded.(type) {
+			case *tg.DialogFilter:
+				if color, set := f.GetColor(); !set || color != 0 || !f.TitleNoanimate || !reflect.DeepEqual(f.Title, title) || f.Bots || !f.ExcludeArchived || f.Emoticon != "" || !reflect.DeepEqual(f.PinnedPeers, []tg.InputPeerClass{pin}) || !reflect.DeepEqual(f.IncludePeers, []tg.InputPeerClass{&tg.InputPeerUser{UserID: 19, AccessHash: 72}}) {
+					return fmt.Errorf("bad edited filter %v", f)
+				}
+				filters.Filters[0] = encoded
+				return context.DeadlineExceeded
+			case *tg.DialogFilterChatlist:
+				if color, set := f.GetColor(); !set || color != 0 || !f.HasMyInvites || f.Title.Text != "New" || len(f.Title.Entities) != 0 || !reflect.DeepEqual(f.PinnedPeers, []tg.InputPeerClass{pin}) {
+					return fmt.Errorf("bad shared folder %v", f)
+				}
+				filters.Filters[1] = encoded
+			default:
+				return fmt.Errorf("unexpected filter %T", f)
+			}
+			out.(*tg.BoolBox).Bool = &tg.BoolTrue{}
+		default:
+			return fmt.Errorf("unexpected RPC %T", in)
+		}
+		return nil
+	}))
+	s.history.api = api
+	s.rememberPeers([]tg.UserClass{&tg.User{ID: 19, AccessHash: 72}}, nil)
+	if err := s.loadDialogFilters(ctx, api, 1); err != nil {
+		t.Fatal(err)
+	}
+	base := s.Folders()[1]
+	f := base
+	f.Bots = false
+	f.ExcludeArchived = true
+	f.Emoticon = ""
+	f.Included = []int64{19}
+	if err := s.SaveFolder(ctx, &base, f); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal(err)
+	}
+	if err := s.SaveFolder(ctx, &base, f); err != nil {
+		t.Fatal(err)
+	}
+	stale := base
+	stale.Title = "Stale"
+	if err := s.SaveFolder(ctx, &base, stale); err != model.ErrFolderConflict {
+		t.Fatalf("stale draft: %v", err)
+	}
+	base = s.Folders()[2]
+	f = base
+	f.Title = "New"
+	if err := s.SaveFolder(ctx, &base, f); err != nil {
+		t.Fatal(err)
+	}
+	if writes != 2 {
+		t.Fatalf("%d writes", writes)
+	}
+}
 
 // A load of the dialogs stops at the first page that tells nothing new:
 // the pages after it are of chats that changed no more, kept from the load
@@ -197,7 +487,7 @@ func TestDialogsKeptFoldersAndArchive(t *testing.T) {
 			if f.ID == 2 {
 				for _, c := range s.Chats() {
 					if c.ID == id {
-						return f.Match(c)
+						return f.Contains(c)
 					}
 				}
 			}

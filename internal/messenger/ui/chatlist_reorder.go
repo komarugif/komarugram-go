@@ -33,8 +33,7 @@ import (
 // it passes half of them, and where it is let go it slides into its place
 // and the order is saved (savePinnedOrder), unless a chat was pinned or
 // unpinned meanwhile. A touch lifts the row only by the hold: its drag
-// scrolls the list. Folders have no pins of their own here (see
-// chatRowMenu.actions), so only the list of all chats is reordered.
+// scrolls the list. This drag saves the main list's order and is enabled only there.
 
 const (
 	// reorderThreshold is how far a mouse press on a pinned chat goes up

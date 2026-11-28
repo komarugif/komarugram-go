@@ -6,17 +6,14 @@ import (
 	"context"
 	"errors"
 	"image"
-	"strings"
 	"time"
 
 	"gio-mw/token"
 	"gio-mw/widget/checkbox"
-	"gio-mw/widget/scroll"
 
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/paint"
-	"gioui.org/widget"
 
 	"komarugram/internal/crash"
 	"komarugram/internal/messenger/localization"
@@ -26,6 +23,7 @@ import (
 // forwardPicker is the dialog that picks the chat to forward to: what the
 // history forwards, and what the media viewer shows. Who opens it sends.
 type forwardPicker struct {
+	folders      func() []model.Folder
 	goToMessage  bool
 	goTo         *checkbox.Checkboxes[string]
 	navigate     func(model.Chat)
@@ -38,16 +36,13 @@ type forwardPicker struct {
 	omitAlbumCaptions        map[model.MessageID]bool
 	dropAuthor, dropCaptions *checkbox.Checkboxes[string]
 	back, confirm            surface
-	presence                 model.PresenceSource
-	modal                    modal
-	search                   widget.Editor
-	list                     scroll.List
-	rows                     map[int64]*surface
-	cancel                   surface
-	busy                     bool
-	results                  chan error
-	target                   model.Chat
-	loader                   loadingIndicator
+	chatPickerList
+	modal   modal
+	cancel  surface
+	busy    bool
+	results chan error
+	target  model.Chat
+	loader  loadingIndicator
 	// from, ids and selection are what the history forwards: messages of
 	// chat from, the selected ones when selection is set, which are
 	// unselected once they are.
@@ -98,12 +93,7 @@ func (f *forwardPicker) open(gtx layout.Context) {
 		}
 		return false
 	}
-	f.search.SingleLine = true
-	f.search.SetText("")
-	f.list = scroll.List{List: layout.List{Axis: layout.Vertical}}
-	if f.rows == nil {
-		f.rows = map[int64]*surface{}
-	}
+	f.reset()
 	f.modal.field = &f.search
 	f.modal.Open()
 	gtx.Execute(op.InvalidateCmd{})
@@ -113,27 +103,6 @@ func (f *forwardPicker) open(gtx layout.Context) {
 // to every item, the confirmation can only send copies.
 func (f *forwardPicker) mustDropAuthor() bool {
 	return len(f.ids) > 0 && len(f.omitAlbumCaptions) == len(f.ids)
-}
-
-// targets are the chats of chats one may send to that match the search,
-// Saved Messages first.
-func (f *forwardPicker) targets(chats []model.Chat, rights model.RightsSource, l localization.Catalog) []model.Chat {
-	query := strings.ToLower(strings.TrimSpace(f.search.Text()))
-	var saved, out []model.Chat
-	for _, c := range chats {
-		if rights != nil && !rights.CanSend(c.ID) {
-			continue
-		}
-		if query != "" && !strings.Contains(strings.ToLower(l.ChatTitle(c)), query) {
-			continue
-		}
-		if c.Kind == model.KindSaved {
-			saved = append(saved, c)
-		} else {
-			out = append(out, c)
-		}
-	}
-	return append(saved, out...)
 }
 
 // send sends to target with send, in the background, the picker busy until
@@ -177,6 +146,20 @@ func (f *forwardPicker) result(l localization.Catalog) (err error, done bool) {
 	}
 }
 
+func (f *forwardPicker) recipients(gtx layout.Context, chats []model.Chat, rights model.RightsSource, l localization.Catalog) []model.Chat {
+	f.filters = f.filters[:0]
+	if f.folders != nil {
+		for _, folder := range f.folders() {
+			title := folder.Title
+			if folder.ID == 0 {
+				title = l.T("nav.all")
+			}
+			f.filters = append(f.filters, pickerFilter{id: folder.ID, title: title, match: folder.Contains})
+		}
+	}
+	return f.targets(gtx, chats, rights, l)
+}
+
 // layout draws the picker when it is open, of targets, and reports the
 // chat clicked.
 func (f *forwardPicker) layout(gtx layout.Context, l localization.Catalog, targets []model.Chat, avatar avatarLayout) (model.Chat, bool) {
@@ -190,11 +173,9 @@ func (f *forwardPicker) layout(gtx layout.Context, l localization.Catalog, targe
 		if f.cancel.Clicked(gtx) {
 			f.modal.Close()
 		}
-		for _, c := range targets {
-			if r := f.rows[c.ID]; r != nil && r.Clicked(gtx) {
-				f.target, f.confirming = c, true
-				f.modal.field, f.modal.focus = nil, true
-			}
+		if c, ok := f.clicked(gtx, targets); ok {
+			f.target, f.confirming = c, true
+			f.modal.field, f.modal.focus = nil, true
 		}
 	}
 	if f.confirming {
@@ -213,29 +194,17 @@ func (f *forwardPicker) layout(gtx layout.Context, l localization.Catalog, targe
 				}),
 				vspace(12),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(40))
-					fillRounded(gtx, sc.SurfaceContainerHigh, size, gtx.Dp(20))
-					return layout.Inset{Top: 10, Bottom: 8, Left: 16, Right: 16}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return flatEditor(gtx, &f.search, l.T("chat.search"))
-					})
+					return f.searchField(gtx, l)
 				}),
 				vspace(8),
+				layout.Rigid(f.layoutFilters),
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 					if f.busy {
 						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return f.loader.sized(gtx, l, 32)
 						})
 					}
-					if len(targets) == 0 {
-						return layout.N.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return layout.Inset{Top: 24}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								return label(gtx, l.T("chat.not_found"), token.TypestyleBodyMedium, sc.SurfaceVariant.OnColor, 1)
-							})
-						})
-					}
-					return f.list.Layout(gtx, len(targets), func(gtx layout.Context, i int) layout.Dimensions {
-						return f.row(gtx, targets[i], l, avatar)
-					})
+					return f.layoutRows(gtx, l, targets, avatar)
 				}),
 				vspace(8),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -351,40 +320,4 @@ func forwardWithOptions(ctx context.Context, source model.MessageForwarder, from
 		return errors.New("forwarding options are not supported")
 	}
 	return source.ForwardMessages(ctx, from, ids, to)
-}
-
-// row draws a chat of the picker: its avatar and title.
-func (f *forwardPicker) row(gtx layout.Context, c model.Chat, l localization.Catalog, avatarOf avatarLayout) layout.Dimensions {
-	r := f.rows[c.ID]
-	if r == nil {
-		r = new(surface)
-		f.rows[c.ID] = r
-	}
-	sc := scheme(gtx)
-	size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(52))
-	style := surfaceStyle{radius: gtx.Dp(10), background: sc.Surface.OnColor.SetOpacity(0), content: sc.Surface.OnColor}
-	return r.Layout(gtx, size, style, func(gtx layout.Context) layout.Dimensions {
-		avatarPx := gtx.Dp(40)
-		avatarAt := image.Pt(gtx.Dp(6), (size.Y-avatarPx)/2)
-		offset(gtx, avatarAt, func(gtx layout.Context) layout.Dimensions {
-			if avatarOf != nil {
-				return avatarOf(gtx, c.ID, c.Kind, l.ChatTitle(c), 40)
-			}
-			return avatar(gtx, c.ID, c.Kind, l.ChatTitle(c), 40)
-		})
-		if chatOnline(gtx, c, f.presence) {
-			drawOnlineDot(gtx, avatarAt, avatarPx, dialogSurface(gtx))
-		}
-		textX := gtx.Dp(6) + avatarPx + gtx.Dp(12)
-		text := gtx
-		text.Constraints = layout.Constraints{Max: image.Pt(max(size.X-textX-gtx.Dp(6), 0), size.Y)}
-		macro := op.Record(gtx.Ops)
-		dims := label(text, l.ChatTitle(c), token.TypestyleBodyLarge, sc.Surface.OnColor, 1)
-		call := macro.Stop()
-		offset(gtx, image.Pt(textX, (size.Y-dims.Size.Y)/2), func(gtx layout.Context) layout.Dimensions {
-			call.Add(gtx.Ops)
-			return dims
-		})
-		return layout.Dimensions{Size: size}
-	})
 }

@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -89,8 +90,8 @@ type Store struct {
 	// freezeChecked is when a refused request last read the configuration
 	// again: see Middleware.
 	freezeChecked time.Time
-	premium       model.Premium
-	wallet        model.WalletConfig
+	premium        model.Premium
+	wallet         model.WalletConfig
 	folders        []model.Folder
 	chats          []model.Chat
 	notifyDefaults notifyDefaults
@@ -103,11 +104,19 @@ type Store struct {
 	bots          botState
 	// dialogsLoading: loadDialogs runs.
 	dialogsLoading atomic.Bool
+	// Both main and archived dialogs have been enumerated at least once.
+	dialogsComplete atomic.Bool
+	archiveRevision uint64 // Incremented on a move between the main list and archive.
+	archiveWrite    sync.Mutex
+	archiveMute     model.ArchiveMute
+	archiveMuteMu   sync.Mutex // Serializes reads and writes of global privacy settings.
 
 	// entries is what the folders' rules ask of the chats beyond them, and
 	// filters the folders as Telegram tells them: see folderList.
-	entries map[int64]entry
-	filters []tg.DialogFilterClass
+	entries    map[int64]entry
+	filterLoad sync.Mutex
+	filterSelf int64
+	filters    tg.MessagesDialogFilters
 }
 
 // New returns an empty store that calls changed whenever Load has read more.
@@ -127,17 +136,24 @@ func (s *Store) Me() model.Profile {
 func (s *Store) Folders() []model.Folder {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if len(s.folders) == 0 {
+		return []model.Folder{{}}
+	}
 	return s.folders
 }
 
 func (s *Store) Chats() []model.Chat {
+	return model.MainDialogs(s.FolderDialogs())
+}
+
+func (s *Store) FolderDialogs() []model.Chat {
 	s.mu.RLock()
 	chats := s.chats
 	s.mu.RUnlock()
 	return s.withLocalCollections(s.withOutgoingPreviews(s.withForumUnread(chats)))
 }
 
-// Load reads the profile, the folders and every dialog of the main list,
+// Load reads the profile, folders, main dialogs and archive,
 // publishing each part as soon as it has it.
 func (s *Store) Load(ctx context.Context, api *tg.Client) error {
 	full, err := api.UsersGetFullUser(ctx, &tg.InputUserSelf{})
@@ -158,7 +174,6 @@ func (s *Store) Load(ctx context.Context, api *tg.Client) error {
 		s.me = profile(self, full.FullUser.About)
 		s.me.DC = s.dc
 	})
-	s.markGhostOnline()
 	s.loadAppConfig(ctx, api, self.Premium)
 	if err := s.loadDialogs(ctx, api, self.ID); err != nil {
 		return err
@@ -204,7 +219,7 @@ func (s *Store) reloadDialogs() {
 	s.goLoadStories(ctx, api)
 }
 
-// loadDialogs reads the folders and every dialog of the main list, and
+// loadDialogs reads folders and dialogs from the main list and the archive, and
 // then the histories open: see resync. One runs at a time.
 func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) (err error) {
 	if !s.dialogsLoading.CompareAndSwap(false, true) {
@@ -216,146 +231,33 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) (er
 	defer func() {
 		historylog.Printf("dialogs: loaded, err=%v (only a load without one reads the histories again)", err)
 	}()
-	filters, err := api.MessagesGetDialogFilters(ctx)
-	if err != nil {
+	if err := s.loadDialogFilters(ctx, api, self); err != nil {
 		return fmt.Errorf("tgstore: folders: %w", err)
 	}
-
-	l := newList(self)
+	var defs notifyDefaults
 	if v, err := api.AccountGetNotifySettings(ctx, &tg.InputNotifyUsers{}); err == nil && v != nil {
-		l.notifyDefaults.users = *v
+		defs.users = *v
 	}
 	if v, err := api.AccountGetNotifySettings(ctx, &tg.InputNotifyChats{}); err == nil && v != nil {
-		l.notifyDefaults.chats = *v
+		defs.chats = *v
 	}
 	if v, err := api.AccountGetNotifySettings(ctx, &tg.InputNotifyBroadcasts{}); err == nil && v != nil {
-		l.notifyDefaults.broadcasts = *v
+		defs.broadcasts = *v
 	}
-	offset := page{peer: &tg.InputPeerEmpty{}}
-	for {
-		// A gap in the updates while the page is asked for leaves its
-		// chats as they are.
-		s.history.mu.Lock()
-		liveEpoch := s.history.liveEpoch
-		s.history.mu.Unlock()
-		res, err := api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
-			OffsetDate: offset.date,
-			OffsetID:   offset.id,
-			OffsetPeer: offset.peer,
-			Limit:      pageSize,
-		})
-		if err != nil {
-			return fmt.Errorf("tgstore: dialogs: %w", err)
-		}
-		dialogs, ok := res.AsModified()
-		if !ok {
-			break
-		}
-		s.rememberPeers(dialogs.GetUsers(), dialogs.GetChats())
-		s.history.mu.Lock()
-		tops, pts := map[int64]int{}, map[int64]int{}
-		for _, d := range dialogs.GetDialogs() {
-			if d, ok := d.(*tg.Dialog); ok {
-				s.history.top[peerID(d.Peer)] = max(s.history.top[peerID(d.Peer)], d.TopMessage)
-				tops[peerID(d.Peer)] = d.TopMessage
-				if p, ok := d.Peer.(*tg.PeerChannel); ok {
-					if n, ok := d.GetPts(); ok {
-						pts[p.ChannelID] = n
-					}
-				}
-			}
-		}
-		s.history.mu.Unlock()
-		if err := s.keepChannelPts(ctx, self, pts); err != nil {
-			return err
-		}
-		if err := s.liveFromDialogs(ctx, tops, liveEpoch); err != nil {
-			return err
-		}
-		read := len(l.chats)
-		added := l.add(dialogs)
-		page := l.chats[read:]
-		// Without them the thumbnails stay blank: the list is shown all the
-		// same.
-		_ = s.keepPreviewRefs(ctx, l.refs)
-		l.refs = nil
-		// The pages after one that tells nothing new are of chats that
-		// changed no more: see dialogs_kept.go.
-		unchanged := false
-		s.publish(func() {
-			unchanged = s.pageUnchanged(page, l)
-			chats, entries := s.withKept(l)
-			chats = keepAlbums(chats, s.chats)
-			s.chats, s.entries, s.filters = s.keepReads(chats), entries, filters.Filters
-			s.notifyDefaults, s.notifyPeers = l.notifyDefaults, maps.Clone(l.notifyPeers)
-			s.folders = folderList(self, filters.Filters, entries)
-		})
-		if unchanged {
-			break
-		}
+	s.mu.Lock()
+	s.notifyDefaults = defs
+	s.mu.Unlock()
 
-		// A complete list comes as messages.dialogs; only a slice has more,
-		// and it says how many dialogs there are in all.
-		slice, ok := dialogs.(*tg.MessagesDialogsSlice)
-		if !ok || added == 0 || len(l.chats) >= slice.Count {
-			break
-		}
-		next, ok := l.nextPage(dialogs)
-		if !ok {
-			break
-		}
-		offset = next
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(pagePause):
-		}
+	mainComplete, err := s.loadDialogPages(ctx, api, self, 0)
+	if err != nil {
+		return err
 	}
-	if l.hasArchive {
-		l.archiving = true
-		archOffset := page{peer: &tg.InputPeerEmpty{}}
-		for pages := 0; pages < 5; pages++ {
-			res, err := api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
-				FolderID:   1,
-				OffsetDate: archOffset.date,
-				OffsetID:   archOffset.id,
-				OffsetPeer: archOffset.peer,
-				Limit:      pageSize,
-			})
-			if err != nil {
-				break
-			}
-			dialogs, ok := res.AsModified()
-			if !ok {
-				break
-			}
-			s.rememberPeers(dialogs.GetUsers(), dialogs.GetChats())
-			added := l.add(dialogs)
-			_ = s.keepPreviewRefs(ctx, l.refs)
-			l.refs = nil
-			s.publish(func() {
-				chats, entries := s.withKept(l)
-				chats = keepAlbums(chats, s.chats)
-				s.chats, s.entries, s.filters = s.keepReads(chats), entries, filters.Filters
-				s.notifyDefaults, s.notifyPeers = l.notifyDefaults, maps.Clone(l.notifyPeers)
-				s.folders = folderList(self, filters.Filters, entries)
-			})
-			slice, ok := dialogs.(*tg.MessagesDialogsSlice)
-			if !ok || added == 0 {
-				break
-			}
-			next, ok := l.nextPage(dialogs)
-			if !ok || len(dialogs.GetDialogs()) < pageSize || slice.Count <= (pages+1)*pageSize {
-				break
-			}
-			archOffset = next
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(pagePause):
-			}
-		}
-		l.archiving = false
+	archiveComplete, err := s.loadDialogPages(ctx, api, self, 1)
+	if err != nil {
+		return err
+	}
+	if mainComplete && archiveComplete && !s.dialogsComplete.Swap(true) {
+		s.changed()
 	}
 	if err := s.persistDialogs(ctx); err != nil {
 		return err
@@ -364,6 +266,166 @@ func (s *Store) loadDialogs(ctx context.Context, api *tg.Client, self int64) (er
 	s.preloadForums()
 	s.resync(0)
 	return nil
+}
+
+func (s *Store) loadDialogPages(ctx context.Context, api *tg.Client, self int64, folderID int) (bool, error) {
+	s.mu.RLock()
+	revision := s.archiveRevision
+	defs := s.notifyDefaults
+	s.mu.RUnlock()
+	l := newList(self)
+	l.notifyDefaults = defs
+	offset := page{peer: &tg.InputPeerEmpty{}}
+	pinnedCount := 0
+	for {
+		// A gap in the updates while the page is asked for leaves its
+		// chats as they are.
+		s.history.mu.Lock()
+		liveEpoch := s.history.liveEpoch
+		s.history.mu.Unlock()
+		read := len(l.chats)
+		if offset.id == 0 {
+			pinned, err := api.MessagesGetPinnedDialogs(ctx, folderID)
+			if err != nil {
+				return false, fmt.Errorf("tgstore: pinned dialogs: %w", err)
+			}
+			if _, err := s.ingestDialogPage(ctx, l, pinned, folderID, true, liveEpoch); err != nil {
+				return false, err
+			}
+			pinnedCount = len(l.chats)
+		}
+		req := &tg.MessagesGetDialogsRequest{
+			ExcludePinned: true,
+			OffsetDate:    offset.date,
+			OffsetID:      offset.id,
+			OffsetPeer:    offset.peer,
+			Limit:         pageSize,
+		}
+		req.SetFolderID(folderID)
+		res, err := api.MessagesGetDialogs(ctx, req)
+		if err != nil {
+			return false, fmt.Errorf("tgstore: dialogs: %w", err)
+		}
+		dialogs, ok := res.AsModified()
+		if !ok {
+			break
+		}
+		batch, err := s.ingestDialogPage(ctx, l, dialogs, folderID, false, liveEpoch)
+		if err != nil {
+			return false, err
+		}
+		pageChats := l.chats[read:]
+		// The pages after one that tells nothing new are of chats that
+		// changed no more: see dialogs_kept.go.
+		slice, sliced := dialogs.(*tg.MessagesDialogsSlice)
+		complete := !sliced || len(l.chats)-pinnedCount >= slice.Count || len(dialogs.GetDialogs()) == 0
+		unchanged, moved := false, false
+		s.publish(func() {
+			if revision != s.archiveRevision {
+				revision = s.archiveRevision
+				moved = true
+				return
+			}
+			unchanged = folderID == 0 && s.dialogsComplete.Load() && s.pageUnchanged(pageChats, l) &&
+				slices.Equal(model.PinnedOrder(l.chats[:pinnedCount]), model.PinnedOrder(model.MainDialogs(s.chats)))
+			chats, entries := s.withKept(l, folderID == 1, complete)
+			chats = keepAlbums(chats, s.chats)
+			s.chats, s.entries = s.keepReads(chats), entries
+			if s.notifyPeers == nil {
+				s.notifyPeers = map[int64]tg.PeerNotifySettings{}
+			}
+			maps.Copy(s.notifyPeers, l.notifyPeers)
+			s.folders = folderList(self, s.filters.Filters, entries)
+		})
+		if moved {
+			l = newList(self)
+			l.notifyDefaults = defs
+			offset = page{peer: &tg.InputPeerEmpty{}}
+			continue
+		}
+		if unchanged {
+			return true, nil
+		}
+
+		// A complete list comes as messages.dialogs; only a slice has more,
+		// and it says how many dialogs there are in all.
+		if complete {
+			return true, nil
+		}
+		if len(pageChats) == 0 {
+			break
+		}
+		next, ok := l.nextPage(batch)
+		if !ok {
+			break
+		}
+		offset = next
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(pagePause):
+		}
+	}
+	// An unpageable tail can still be displayed, but cannot certify a new cache.
+	return s.dialogsComplete.Load(), nil
+}
+
+// A request's folder is a fallback when the dialog omits its own folder ID.
+// Pins are accepted only from getPinnedDialogs, where the folder is required.
+func (s *Store) ingestDialogPage(ctx context.Context, l *list, page interface {
+	GetDialogs() []tg.DialogClass
+	GetMessages() []tg.MessageClass
+	GetChats() []tg.ChatClass
+	GetUsers() []tg.UserClass
+}, folderID int, pinned bool, liveEpoch uint64) (*tg.MessagesDialogs, error) {
+	batch := &tg.MessagesDialogs{Messages: page.GetMessages(), Chats: page.GetChats(), Users: page.GetUsers()}
+	for _, raw := range page.GetDialogs() {
+		switch d := raw.(type) {
+		case *tg.Dialog:
+			if id, known := d.GetFolderID(); known && id != folderID || d.Pinned && !pinned {
+				continue
+			}
+		case *tg.DialogCommunity:
+			if d.Pinned && !pinned {
+				continue
+			}
+		}
+		batch.Dialogs = append(batch.Dialogs, raw)
+	}
+	s.rememberPeers(batch.Users, batch.Chats)
+	s.history.mu.Lock()
+	tops, pts := map[int64]int{}, map[int64]int{}
+	for _, raw := range batch.Dialogs {
+		if d, ok := raw.(*tg.Dialog); ok {
+			id := peerID(d.Peer)
+			s.history.top[id] = max(s.history.top[id], d.TopMessage)
+			tops[id] = d.TopMessage
+			if p, ok := d.Peer.(*tg.PeerChannel); ok {
+				if n, ok := d.GetPts(); ok {
+					pts[p.ChannelID] = n
+				}
+			}
+		}
+	}
+	s.history.mu.Unlock()
+	if err := s.keepChannelPts(ctx, l.self, pts); err != nil {
+		return nil, err
+	}
+	if err := s.liveFromDialogs(ctx, tops, liveEpoch); err != nil {
+		return nil, err
+	}
+	read := len(l.chats)
+	l.add(batch)
+	if folderID == 1 {
+		for i := range l.chats[read:] {
+			c := &l.chats[read+i]
+			c.Archived, c.Pinned, c.PinRank = true, false, 0
+		}
+	}
+	// Missing thumbnails do not hold back the dialog list.
+	_ = s.keepPreviewRefs(ctx, l.refs)
+	l.refs = nil
+	return batch, nil
 }
 
 // keepChannelPts keeps the channels' pts the dialogs tell (pts, by channel
@@ -488,8 +550,6 @@ type list struct {
 	refs map[string]fileLocation
 	// pins counts the pinned dialogs seen; they come first, in pin order.
 	pins           int
-	hasArchive     bool
-	archiving      bool
 	notifyDefaults notifyDefaults
 	notifyPeers    map[int64]tg.PeerNotifySettings
 }
@@ -546,13 +606,8 @@ func (l *list) add(page tg.ModifiedMessagesDialogs) int {
 			chat, e = l.chat(d)
 		case *tg.DialogCommunity:
 			chat = l.community(d)
-		case *tg.DialogFolder:
-			if d.Folder.ID == 1 {
-				l.hasArchive = true
-			}
-			continue
 		default:
-			continue
+			continue // The archive summary is not a chat.
 		}
 		id := chat.ID
 		if l.seen[id] {
@@ -580,12 +635,13 @@ func messagePeer(m tg.MessageClass) (tg.PeerClass, bool) {
 func (l *list) chat(d *tg.Dialog) (model.Chat, entry) {
 	id := peerID(d.Peer)
 	chat := model.Chat{
-		ID:         id,
-		Unread:     d.UnreadCount,
-		Pinned:     d.Pinned && !l.archiving,
-		Archived:   l.archiving || d.FolderID == 1,
-		ReadOutbox: model.MessageID(d.ReadOutboxMaxID),
-		ReadInbox:  model.MessageID(d.ReadInboxMaxID),
+		ID:             id,
+		Unread:         d.UnreadCount,
+		Archived:       d.FolderID == 1,
+		UnreadMentions: d.UnreadMentionsCount,
+		Pinned:         d.Pinned && d.FolderID != 1,
+		ReadOutbox:     model.MessageID(d.ReadOutboxMaxID),
+		ReadInbox:      model.MessageID(d.ReadInboxMaxID),
 	}
 	chat.Draft = draftOf(d.Draft)
 	if chat.Pinned {
@@ -862,94 +918,6 @@ func (l *list) snapshot(filters []tg.DialogFilterClass) ([]model.Chat, []model.F
 	chats := append([]model.Chat(nil), l.chats...)
 	folders := folderList(l.self, filters, maps.Clone(l.entries))
 	return chats, folders
-}
-
-// folder turns a Telegram folder into the model's, with its rules as Match.
-// The rules are Telegram's own: the chats a folder names are always in it and
-// the ones it excludes never are; the rest are in it by kind, unless muted,
-// read or archived chats are left out.
-func (l *list) folder(f tg.DialogFilterClass, entries map[int64]entry) (model.Folder, bool) {
-	ids := func(peers []tg.InputPeerClass) map[int64]bool {
-		set := make(map[int64]bool, len(peers))
-		for _, p := range peers {
-			set[inputPeerID(p, l.self)] = true
-		}
-		return set
-	}
-	orderedIDs := func(peers []tg.InputPeerClass) []int64 {
-		if len(peers) == 0 {
-			return nil
-		}
-		out := make([]int64, 0, len(peers))
-		for _, p := range peers {
-			if id := inputPeerID(p, l.self); id != 0 {
-				out = append(out, id)
-			}
-		}
-		return out
-	}
-	switch f := f.(type) {
-	case *tg.DialogFilter:
-		included := ids(append(append([]tg.InputPeerClass(nil), f.PinnedPeers...), f.IncludePeers...))
-		excluded := ids(f.ExcludePeers)
-		var kinds []model.ChatKind
-		if f.Contacts || f.NonContacts {
-			kinds = append(kinds, model.KindUser)
-		}
-		if f.Groups {
-			kinds = append(kinds, model.KindGroup)
-		}
-		if f.Broadcasts {
-			kinds = append(kinds, model.KindChannel)
-		}
-		if f.Bots {
-			kinds = append(kinds, model.KindBot)
-		}
-		return model.Folder{
-			ID:     int64(f.ID),
-			Title:  f.Title.Text,
-			Kinds:  kinds,
-			Pinned: orderedIDs(f.PinnedPeers),
-			Match: func(c model.Chat) bool {
-				if included[c.ID] {
-					return true
-				}
-				if excluded[c.ID] {
-					return false
-				}
-				e := entries[c.ID]
-				if f.ExcludeMuted && c.Muted {
-					return false
-				}
-				if f.ExcludeRead && c.Unread == 0 && !e.unreadMark {
-					return false
-				}
-				if f.ExcludeArchived && c.Archived {
-					return false
-				}
-				switch c.Kind {
-				case model.KindUser, model.KindSaved:
-					return (f.Contacts && e.contact) || (f.NonContacts && !e.contact)
-				case model.KindBot:
-					return f.Bots
-				case model.KindGroup:
-					return f.Groups
-				case model.KindChannel:
-					return f.Broadcasts
-				}
-				return false
-			},
-		}, true
-	case *tg.DialogFilterChatlist:
-		included := ids(append(append([]tg.InputPeerClass(nil), f.PinnedPeers...), f.IncludePeers...))
-		return model.Folder{
-			ID:     int64(f.ID),
-			Title:  f.Title.Text,
-			Pinned: orderedIDs(f.PinnedPeers),
-			Match:  func(c model.Chat) bool { return included[c.ID] },
-		}, true
-	}
-	return model.Folder{}, false // the "All chats" entry
 }
 
 // liveFromDialogs marks live the chats whose newest span reaches the newest

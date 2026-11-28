@@ -34,6 +34,8 @@ var (
 	iconAttachTasks   = wdk.RequireIconWidget(icons.ActionCheckCircle)
 	iconAllChats      = wdk.RequireIconWidget(icons.CommunicationForum)
 	iconFolder        = wdk.RequireIconWidget(icons.FileFolder)
+	iconArchive       = wdk.RequireIconWidget(icons.ContentArchive)
+	iconUnarchive     = wdk.RequireIconWidget(icons.ContentUnarchive)
 	iconPersonal      = wdk.RequireIconWidget(icons.SocialPerson)
 	iconGroups        = wdk.RequireIconWidget(icons.SocialGroup)
 	iconChannels      = wdk.RequireIconWidget(icons.ActionAnnouncement)
@@ -100,6 +102,8 @@ var (
 	iconPlace         = wdk.RequireIconWidget(icons.MapsPlace)
 	iconForward       = wdk.RequireIconWidget(icons.ContentForward)
 	iconDelete        = wdk.RequireIconWidget(icons.ActionDelete)
+	iconChatChecked   = wdk.RequireIconWidget(icons.ToggleCheckBox)
+	iconChatUnchecked = wdk.RequireIconWidget(icons.ToggleCheckBoxOutlineBlank)
 	iconCheck         = wdk.RequireIconWidget(icons.NavigationCheck)
 	iconGIF           = wdk.RequireIconWidget(icons.ActionGIF)
 	iconEditBrush     = wdk.RequireIconWidget(icons.ImageBrush)
@@ -130,7 +134,6 @@ var (
 	iconLiked         = wdk.RequireIconWidget(icons.ActionFavorite)
 	iconMore          = wdk.RequireIconWidget(icons.NavigationMoreVert)
 	iconDownload      = wdk.RequireIconWidget(icons.FileFileDownload)
-	iconArchive       = wdk.RequireIconWidget(icons.ContentArchive)
 
 	// The actions of a channel's bottom bar.
 	iconDirectMessages   = wdk.RequireIconWidget(icons.ContentCreate)
@@ -152,17 +155,19 @@ var (
 
 // folderIcon picks an icon for a folder by the kinds of chats it holds.
 func folderIcon(f model.Folder) wdk.IconWidget {
-	if len(f.Kinds) == 0 {
-		return iconFolder
+	if icon := f.Emoticon; icon != "" {
+		return func(gtx layout.Context, col token.MatColor) layout.Dimensions {
+			return centeredLabel(gtx, icon, token.TypestyleTitleMedium, col, 1)
+		}
 	}
-	switch f.Kinds[0] {
-	case model.KindUser:
+	switch {
+	case f.Contacts || f.NonContacts:
 		return iconPersonal
-	case model.KindGroup:
+	case f.Groups:
 		return iconGroups
-	case model.KindChannel:
+	case f.Channels:
 		return iconChannels
-	case model.KindBot:
+	case f.Bots:
 		return iconBots
 	default:
 		return iconFolder

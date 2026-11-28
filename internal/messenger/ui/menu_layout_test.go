@@ -19,6 +19,7 @@ import (
 	"gioui.org/unit"
 
 	"komarugram/internal/messenger/localization"
+	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/preferences"
 )
 
@@ -28,7 +29,7 @@ func TestMenuSettingsDragAndHidePersist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalog := menuCatalog{"example", "Example", []menuChoice{{"a", "First", iconReply}, {"b", "Second", iconCopy}, {"c", "Third", iconDelete}}}
+	catalog := menuCatalogs(localization.For("en"))[0]
 	view := newMenuSettings(func() preferences.Menus { return prefs.Global().Menus }, prefs.SetMenus, func(localization.Catalog) []menuCatalog { return []menuCatalog{catalog} }, nil)
 	var router input.Router
 	now := time.Unix(1000, 0)
@@ -52,30 +53,30 @@ func TestMenuSettingsDragAndHidePersist(t *testing.T) {
 	for range 20 {
 		frame()
 	}
-	if got := prefs.Global().Menus[catalog.id].Order; !reflect.DeepEqual(got, []string{"b", "c", "a"}) {
+	if got := prefs.Global().Menus[catalog.id].Order; !reflect.DeepEqual(got, []string{"search", "profile", "folders", "saved", "downloads", "settings", "theme"}) {
 		t.Fatalf("drag: %v", got)
 	}
-	send(pointer.Press, 476, c.reorder.top+24)
-	send(pointer.Release, 476, c.reorder.top+24)
+	send(pointer.Press, 476, c.reorder.top+2*menuSettingsRowHeight+24)
+	send(pointer.Release, 476, c.reorder.top+2*menuSettingsRowHeight+24)
 	frame()
 	saved, err := preferences.OpenPath(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := saved.Global().Menus[catalog.id].Arrange(catalogIDs(catalog), false); !reflect.DeepEqual(got, []string{"c", "a"}) {
+	if got := saved.Global().Menus[catalog.id].Arrange(catalogIDs(catalog), false); !reflect.DeepEqual(got, []string{"search", "profile", "saved", "downloads", "settings", "theme"}) {
 		t.Fatalf("hidden: %v", got)
 	}
-	send(pointer.Press, 476, c.reorder.top+24)
-	send(pointer.Release, 476, c.reorder.top+24)
+	send(pointer.Press, 476, c.reorder.top+2*menuSettingsRowHeight+24)
+	send(pointer.Release, 476, c.reorder.top+2*menuSettingsRowHeight+24)
 	frame()
-	if got := prefs.Global().Menus[catalog.id].Arrange(catalogIDs(catalog), false); !reflect.DeepEqual(got, []string{"b", "c", "a"}) {
+	if got := prefs.Global().Menus[catalog.id].Arrange(catalogIDs(catalog), false); !reflect.DeepEqual(got, []string{"search", "profile", "folders", "saved", "downloads", "settings", "theme"}) {
 		t.Fatalf("unhidden: %v", got)
 	}
 	// Cancel restores the previous order without saving a partial drag.
 	send(pointer.Press, 20, c.reorder.top+24)
 	send(pointer.Move, 20, c.reorder.top+120)
 	send(pointer.Cancel, 20, c.reorder.top+120)
-	if got := prefs.Global().Menus[catalog.id].Order; !reflect.DeepEqual(got, []string{"b", "c", "a"}) {
+	if got := prefs.Global().Menus[catalog.id].Order; !reflect.DeepEqual(got, []string{"search", "profile", "folders", "saved", "downloads", "settings", "theme"}) {
 		t.Fatalf("cancel: %v", got)
 	}
 }
@@ -99,9 +100,6 @@ func TestMenuChoicesRespectContext(t *testing.T) {
 	h.page.entityMenu.target = entityTarget{kind: "date", date: 1}
 	if got := h.page.entityItems(localization.For("en")); len(got) != 1 || got[0].group != "calendar" {
 		t.Fatal(got)
-	}
-	if navigationID(drawerKey{section: section{kind: sectionFolder, folder: 1}}, "first") == navigationID(drawerKey{section: section{kind: sectionFolder, folder: 1}}, "second") {
-		t.Fatal("folder choices crossed accounts")
 	}
 }
 
@@ -138,5 +136,39 @@ func TestMenuRowMotionTracksAndSettles(t *testing.T) {
 	gtx.Constraints.Max.X += 20
 	if got := row.Position(gtx, 48, false); got != 48 {
 		t.Fatal("resize animated old geometry", got)
+	}
+}
+
+// Moving a folder in Chat Folders used to be overridden by the menu order.
+func TestNavigationFolderBlock(t *testing.T) {
+	l := localization.For("en")
+	prefs := preferences.Menus{
+		menuSidebar: {Order: []string{"search", "folders", "settings"}},
+		menuDrawer:  {Order: []string{"settings", "folders", "search"}},
+	}
+	for _, catalog := range menuCatalogs(l)[:2] {
+		t.Run(catalog.id, func(t *testing.T) {
+			if got := catalogIDs(catalog); !slices.Equal(got, []string{"folders", "search", "profile", "saved", "downloads", "settings", "theme"}) {
+				t.Fatalf("choices: %v", got)
+			}
+			slots := arrangeMenu(func() preferences.Menus { return prefs }, catalog.id, navigationSlots(false, l), navigationID)
+			for _, folders := range [][]model.Folder{
+				{{ID: 4}, {}, {ID: 2}}, {{ID: 2}, {ID: 5}, {}, {ID: 4}}, {{}},
+			} {
+				rows := navigationEntries(slots, folders, nil, false, l)
+				if len(rows) != len(slots)-1+len(folders) || navigationID(rows[0]) != prefs[catalog.id].Order[0] || navigationID(rows[1+len(folders)]) != prefs[catalog.id].Order[2] {
+					t.Fatalf("misplaced folder block for %v", folders)
+				}
+				for i, folder := range folders {
+					want := section{kind: sectionFolder, folder: folder.ID}
+					if folder.ID == 0 {
+						want.kind = sectionAll
+					}
+					if got := rows[i+1].key; got.theme || got.section != want {
+						t.Fatalf("row %d opens %v, want %v", i+1, got, want)
+					}
+				}
+			}
+		})
 	}
 }

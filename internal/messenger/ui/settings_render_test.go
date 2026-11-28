@@ -9,13 +9,20 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"gioui.org/f32"
 	"gioui.org/gpu"
+	"gioui.org/io/input"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
+	"gioui.org/io/semantic"
+	"gioui.org/layout"
 	"komarugram/internal/messenger/emojipacks"
+	"komarugram/internal/messenger/localization"
 	"komarugram/internal/messenger/model"
 	"komarugram/internal/messenger/preferences"
 	"komarugram/internal/messenger/proxy"
@@ -23,6 +30,265 @@ import (
 	"komarugram/internal/wallpaper"
 	"komarugram/pkg/player"
 )
+
+// Exercise the controls through the same settings page and account store as the demo.
+func TestFolderSettingsActions(t *testing.T) {
+	h := newSettingsApp(t, newSettingsPrefs(t), Services{}, false, image.Pt(900, 700))
+	p := h.app.settings
+	p.items[settingsFolders].click.Click()
+	h.frame(nil)
+	if p.section != settingsFolders {
+		t.Fatal("folder settings did not open")
+	}
+	v := p.folders
+	v.create.click.Click()
+	h.frame(nil)
+	if !v.draft {
+		t.Fatal("creation form did not open")
+	}
+	var router input.Router
+	drawPage := func() {
+		gtx := h.context()
+		gtx.Source = router.Source()
+		h.draw(gtx)
+		router.Frame(gtx.Ops)
+	}
+	drawPage()
+	toggle := func(label string) {
+		t.Helper()
+		var point f32.Point
+		var find func([]input.SemanticNode) bool
+		find = func(nodes []input.SemanticNode) bool {
+			for _, n := range nodes {
+				if n.Desc.Label == label {
+					point = layout.FPt(n.Desc.Bounds.Min.Add(image.Pt(4, 4)))
+					return true
+				}
+				if find(n.Children) {
+					return true
+				}
+			}
+			return false
+		}
+		if !find(router.AppendSemantics(nil)) {
+			t.Fatalf("checkbox %q not found", label)
+		}
+		for _, kind := range []pointer.Kind{pointer.Press, pointer.Release} {
+			router.Queue(pointer.Event{Kind: kind, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: point})
+			drawPage()
+		}
+	}
+	toggle("Группы")
+	if v.name.Text() != "Группы" {
+		t.Fatalf("automatic name: %q", v.name.Text())
+	}
+	toggle("Каналы")
+	if v.name.Text() != "" {
+		t.Fatalf("two types still suggest %q", v.name.Text())
+	}
+	toggle("Группы")
+	if v.name.Text() != "Каналы" {
+		t.Fatalf("changing the single type: %q", v.name.Text())
+	}
+	v.name.editor.SetText("Work")
+	toggle("Каналы")
+	v.leaveDraft(h.context(), localization.For("ru"), nil)
+	v.save.click.Click()
+	drawPage()
+	if !v.draft || !v.invalidTypes || v.pending != nil {
+		t.Fatal("empty selection was accepted")
+	}
+	toggle("Группы")
+	toggle("Каналы")
+	if v.name.Text() != "Work" || v.invalidTypes {
+		t.Fatal("lost custom name or selection")
+	}
+	v.leaveDraft(h.context(), localization.For("ru"), nil)
+	v.save.click.Click()
+	h.frame(nil)
+	h.until("created folder", func() bool { return v.pending == nil && !v.draft })
+	folders := h.store.Folders()
+	last := folders[len(folders)-1]
+	if last.Title != "Work" || !last.Contains(model.Chat{Kind: model.KindGroup}) || !last.Contains(model.Chat{Kind: model.KindChannel}) || last.Contains(model.Chat{Kind: model.KindBot}) {
+		t.Fatalf("created folder: %v", last)
+	}
+	// Feed the list a pointer drag in its own coordinates, just as the
+	// settings scroll container does after transforming input to the card.
+	l := localization.For("ru")
+	frame := func() {
+		gtx := h.context()
+		gtx.Source = router.Source()
+		v.update(gtx, p, l)
+		v.layoutList(gtx, l, false)
+		router.Frame(gtx.Ops)
+	}
+	frame()
+	height := h.context().Dp(menuSettingsRowHeight)
+	send := func(kind pointer.Kind, row int) {
+		router.Queue(pointer.Event{Kind: kind, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: f32.Pt(12, float32(height*row+height/2))})
+		frame()
+	}
+	send(pointer.Move, len(folders)-1)
+	if !v.edits[last.ID].handleHover.Update(router.Source()) {
+		t.Fatal("hover over the drag handle did not reach its row")
+	}
+	send(pointer.Press, len(folders)-1)
+	send(pointer.Move, 0)
+	send(pointer.Release, 0)
+	h.until("reordered folders", func() bool { return v.pending == nil })
+	folders = h.store.Folders()
+	if v.draft || folders[0].ID != 0 || folders[1].ID != last.ID {
+		t.Fatalf("drag across the fixed row: %v", model.FolderIDs(folders))
+	}
+}
+
+// Search and multiple selection share the same recipients list as forwarding.
+func TestFolderEditorRecipients(t *testing.T) {
+	h := newSettingsApp(t, newSettingsPrefs(t), Services{}, false, image.Pt(900, 1100))
+	h.show(settingsFolders)
+	v := h.app.settings.folders
+	folder := h.store.Folders()[2]
+	v.edits[folder.ID].click.Click()
+	h.frame(nil)
+	if v.base == nil || v.name.Text() != folder.Title {
+		t.Fatal("did not open the chosen folder")
+	}
+	v.chooseIcon.click.Click()
+	h.frame(nil)
+	v.iconButtons["💼"].click.Click()
+	h.frame(nil)
+	h.until("chosen icon", func() bool { return !v.iconDialog.Shown() })
+	v.includePeers.click.Click()
+	h.frame(nil)
+	p := &v.peers
+	l := localization.For("ru")
+	for _, picker := range []*chatPickerList{&h.app.history.forwarding.chatPickerList, &h.app.viewer.share.picker.chatPickerList, &p.chatPickerList} {
+		picker.search.SetText("  @GoNeWs  ")
+		hits := picker.targets(h.context(), h.store.Chats(), nil, l)
+		if len(hits) != 1 || hits[0].ID != 4 {
+			t.Fatalf("username search: %v", hits)
+		}
+	}
+	pick := func(query string, id int64) {
+		t.Helper()
+		p.search.SetText(query)
+		h.frame(nil)
+		hits := p.targets(h.context(), p.chats, nil, l)
+		if len(hits) != 1 || hits[0].ID != id || p.rows[id] == nil {
+			t.Fatalf("search %q: %v", query, hits)
+		}
+		p.rows[id].click.Click()
+		h.frame(nil)
+	}
+	p.chips.chip(3).click.Click() // Channels
+	pick("GoNeWs", 4)
+	p.search.SetText("@ANNA_S")
+	h.frame(nil)
+	if hits := p.targets(h.context(), p.chats, nil, l); len(hits) != 0 {
+		t.Fatal("a name match escaped the channel filter")
+	}
+	p.chips.chip(1).click.Click() // Private chats
+	pick("@ANNA_S", 2)
+	p.apply.click.Click()
+	h.frame(nil)
+	h.until("picker closed", func() bool { return !p.modal.Shown() })
+	if !slices.Equal(v.working.Included, []int64{4, 2}) {
+		t.Fatal(v.working.Included)
+	}
+	v.excludePeers.click.Click()
+	h.frame(nil)
+	pick("@GoNews", 4)
+	p.cancel.click.Click()
+	h.frame(nil)
+	h.until("cancelled selection", func() bool { return !p.modal.Shown() })
+	if len(v.working.Excluded) != 0 || !slices.Equal(v.working.Included, []int64{4, 2}) {
+		t.Fatal("cancel changed draft")
+	}
+	v.excludePeers.click.Click()
+	h.frame(nil)
+	pick("GoNews", 4)
+	p.apply.click.Click()
+	h.frame(nil)
+	h.until("exclusions applied", func() bool { return !p.modal.Shown() })
+	v.types.SetValues(nil)
+	v.excludeTypes.SetValues([]string{"folders.read", "folders.archived"})
+	// The network error leaves the draft in place so a retry uses the same selections.
+	v.store = offlineFolderWriter{v.store}
+	h.app.openSection(h.context(), section{kind: sectionDownloads})
+	if h.app.section.kind != sectionSettings || !v.saveDialog.Shown() {
+		t.Fatal("left the editor before confirming")
+	}
+	v.save.click.Click()
+	h.frame(nil)
+	h.until("save failure", func() bool { return v.pending == nil })
+	if h.app.section.kind != sectionSettings || !v.draft || !slices.Equal(v.definition().Excluded, []int64{4}) || h.store.Folders()[2].ExcludeRead {
+		t.Fatal("failed save lost or published the draft")
+	}
+	v.store = h.store
+	h.app.openSection(h.context(), section{kind: sectionDownloads})
+	if h.app.section.kind != sectionSettings || !v.saveDialog.Shown() {
+		t.Fatal("left the editor before confirming")
+	}
+	v.save.click.Click()
+	h.frame(nil)
+	h.until("folder edits saved", func() bool { return v.pending == nil && !v.draft })
+	if h.app.section.kind != sectionDownloads {
+		t.Fatal("did not resume requested navigation")
+	}
+	got := h.store.Folders()[2]
+	if got.Emoticon != "💼" || !slices.Equal(got.Included, []int64{2}) || !slices.Equal(got.Excluded, []int64{4}) || !got.ExcludeRead || !got.ExcludeArchived || got.FolderTypes != (model.FolderTypes{}) {
+		t.Fatalf("saved %v", got)
+	}
+}
+
+// Leaving through either navigation menu honours the folder editor's decision.
+func TestFolderEditorMenuExit(t *testing.T) {
+	h := newSettingsApp(t, newSettingsPrefs(t), Services{}, false, image.Pt(1400, 1200))
+	h.show(settingsFolders)
+	a, v := h.app, h.app.settings.folders
+	f := h.store.Folders()[1]
+	v.edits[f.ID].click.Click()
+	h.frame(nil)
+	v.includePeers.click.Click()
+	h.frame(nil)
+	v.peers.rows[2].click.Click()
+	h.frame(nil)
+	dest := drawerKey{section: section{kind: sectionAll}}
+	gtx := h.context()
+	a.sidebar.Layout(gtx, a.section, navigationEntries(navigationSlots(false, a.catalog()), h.store.Folders(), h.store.Chats(), false, a.catalog()), false, a.catalog())
+	a.sidebar.buttons[dest].click.Click()
+	a.Update(h.context())
+	if a.section.kind != sectionSettings || !v.saveDialog.Shown() {
+		t.Fatal("sidebar bypassed the folder editor")
+	}
+	v.stay.click.Click()
+	h.frame(nil)
+	h.until("returned to editor", func() bool { return !v.saveDialog.Shown() })
+	if !v.draft || !v.peers.modal.Shown() || !v.peers.selection[2] || v.afterLeave != nil {
+		t.Fatal("stay lost draft or queued a transition")
+	}
+	dest = drawerKey{section: section{kind: sectionFolder, folder: f.ID}}
+	a.drawer.row(dest).click.Click()
+	a.layoutDrawer(h.context())
+	if a.section.kind != sectionSettings || !v.saveDialog.Shown() {
+		t.Fatal("drawer bypassed the folder editor")
+	}
+	v.discard.click.Click()
+	h.frame(nil)
+	if a.section != dest.section || v.draft || !h.store.Folders()[1].SameRules(f) {
+		t.Fatal("discard did not resume the chosen navigation")
+	}
+}
+
+type offlineFolderWriter struct{ model.FolderManager }
+
+func (offlineFolderWriter) SaveFolder(context.Context, *model.Folder, model.Folder) error {
+	return errors.New("offline")
+}
+
+type emptyFolderList struct{ model.FolderManager }
+
+func (emptyFolderList) Folders() []model.Folder { return []model.Folder{{}} }
 
 type staticAccounts []model.AccountInfo
 
@@ -98,6 +364,13 @@ func TestRenderSettingsAccounts(t *testing.T) {
 	size := image.Pt(900, 1300)
 	var show settingsSection
 	switch section {
+	case "folders", "folders-empty", "folders-hover":
+		show, size.Y = settingsFolders, 700
+	case "folder-create", "folder-edit", "folder-icons", "folder-peers", "folder-save":
+		show, size.Y = settingsFolders, 1100
+		if section == "folder-peers" {
+			size = image.Pt(550, 750)
+		}
 	case "appearance":
 		show, size.Y = settingsAppearance, 2700
 		// One font is picked and gone since, the others are the system's.
@@ -228,6 +501,69 @@ func TestRenderSettingsAccounts(t *testing.T) {
 		h.show(show)
 	}
 	switch section {
+	case "folders-hover":
+		var router input.Router
+		frame := func() {
+			gtx := h.context()
+			gtx.Source = router.Source()
+			h.draw(gtx)
+			router.Frame(gtx.Ops)
+		}
+		frame()
+		f := h.store.Folders()[2]
+		// The full-width navigation button exposes the row, including its handle.
+		var rowBounds func([]input.SemanticNode) image.Rectangle
+		rowBounds = func(nodes []input.SemanticNode) image.Rectangle {
+			for _, n := range nodes {
+				if n.Desc.Label == f.Title && n.Desc.Class == semantic.Button {
+					return n.Desc.Bounds
+				}
+				if b := rowBounds(n.Children); !b.Empty() {
+					return b
+				}
+			}
+			return image.Rectangle{}
+		}
+		b := rowBounds(router.AppendSemantics(nil))
+		if b.Empty() {
+			t.Fatal("folder row missing from semantics")
+		}
+		router.Queue(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: layout.FPt(image.Pt(b.Min.X+10, (b.Min.Y+b.Max.Y)/2))})
+		frame()
+		if !p.folders.edits[f.ID].handleHover.Update(router.Source()) {
+			t.Fatal("handle did not receive hover")
+		}
+	case "folders-empty":
+		p.folders.store = emptyFolderList{p.folders.store}
+	case "folder-create":
+		p.folders.create.click.Click()
+		h.frame(nil)
+		p.folders.types.SetValues([]string{"folders.groups"})
+	case "folder-edit", "folder-icons", "folder-peers", "folder-save":
+		f := h.store.Folders()[1]
+		p.folders.edits[f.ID].click.Click()
+		h.frame(nil)
+		if section == "folder-save" {
+			p.folders.name.editor.SetText("Work")
+			p.folders.leaveDraft(h.context(), h.app.catalog(), nil)
+			h.frame(nil)
+		}
+		if section == "folder-icons" {
+			p.folders.chooseIcon.click.Click()
+			h.frame(nil)
+		}
+		if section == "folder-peers" {
+			p.folders.includePeers.click.Click()
+			h.frame(nil)
+			peer := &p.folders.peers
+			peer.rows[2].click.Click()
+			h.frame(nil)
+			peer.rows[4].click.Click()
+			h.frame(nil)
+			peer.chips.chip(3).click.Click()
+			peer.search.SetText("@GoN")
+			h.frame(nil)
+		}
 	case "appearance":
 		// The catalog is read, and the pack used is installed, as the
 		// user installed it before.

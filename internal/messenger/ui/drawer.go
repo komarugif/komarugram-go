@@ -91,34 +91,42 @@ func (d *drawer) close() {
 	}
 }
 
-func drawerEntries(folders []model.Folder, chats []model.Chat, dark, wallet bool, l localization.Catalog) []drawerEntry {
-	entries := []drawerEntry{{key: drawerKey{section: section{kind: sectionAll}}, icon: iconAllChats, title: l.T("nav.all"),
-		unread: unreadChats(chats, func(c model.Chat) bool { return !c.Archived })}}
-	if hasArchivedChats(chats) {
-		entries = append(entries, drawerEntry{key: drawerKey{section: section{kind: sectionArchive}},
-			icon: iconArchive, title: l.T("nav.archive"), unread: unreadChats(chats, func(c model.Chat) bool { return c.Archived })})
-	}
-	for _, f := range folders {
-		entries = append(entries, drawerEntry{key: drawerKey{section: section{kind: sectionFolder, folder: f.ID}},
-			icon: folderIcon(f), title: f.Title, unread: unreadChats(chats, f.Contains)})
-	}
-	entries = append(entries,
-		drawerEntry{key: drawerKey{section: section{kind: sectionSearch}}, icon: iconSearch, title: l.T("nav.search")},
-		drawerEntry{key: drawerKey{section: section{kind: sectionProfile}}, icon: iconProfile, title: l.T("nav.profile")},
-		drawerEntry{key: drawerKey{section: section{kind: sectionSaved}}, icon: iconSaved, title: l.T("nav.saved")},
-	)
-	if wallet {
-		entries = append(entries, drawerEntry{key: drawerKey{wallet: true}, icon: iconWallet, title: l.T("nav.wallet")})
-	}
-	entries = append(entries,
-		drawerEntry{key: drawerKey{section: section{kind: sectionDownloads}}, icon: iconDownloads, title: l.T("nav.downloads")},
-		drawerEntry{key: drawerKey{section: section{kind: sectionSettings}}, icon: iconSettings, title: l.T("nav.settings")},
-	)
+// navigationSlots supplies the same catalog to both menus and their settings.
+// Its folder placeholder is expanded only when rendering a particular account.
+func navigationSlots(dark bool, l localization.Catalog) []drawerEntry {
 	theme := drawerEntry{key: drawerKey{theme: true}, icon: iconDark, title: l.T("nav.theme_dark_full")}
 	if dark {
 		theme.icon, theme.title = iconLight, l.T("nav.theme_light_full")
 	}
-	return append(entries, theme)
+	return []drawerEntry{
+		{key: drawerKey{section: section{kind: sectionFolder}}, icon: iconFolder, title: l.T("folders.title")},
+		{key: drawerKey{section: section{kind: sectionSearch}}, icon: iconSearch, title: l.T("nav.search")},
+		{key: drawerKey{section: section{kind: sectionProfile}}, icon: iconProfile, title: l.T("nav.profile")},
+		{key: drawerKey{section: section{kind: sectionSaved}}, icon: iconSaved, title: l.T("nav.saved")},
+		{key: drawerKey{wallet: true}, icon: iconWallet, title: l.T("nav.wallet")},
+		{key: drawerKey{section: section{kind: sectionDownloads}}, icon: iconDownloads, title: l.T("nav.downloads")},
+		{key: drawerKey{section: section{kind: sectionSettings}}, icon: iconSettings, title: l.T("nav.settings")},
+		theme,
+	}
+}
+
+func navigationEntries(slots []drawerEntry, folders []model.Folder, chats []model.Chat, archive bool, l localization.Catalog) []drawerEntry {
+	rows := make([]drawerEntry, 0, len(slots)+len(folders))
+	for _, slot := range slots {
+		if slot.key.section.kind != sectionFolder {
+			rows = append(rows, slot)
+			continue
+		}
+		for _, f := range folders {
+			item := navigationFolder(f, chats, archive, l)
+			row := drawerEntry{key: drawerKey{section: folderSection(f.ID, false)}, icon: folderIcon(f), title: item.title, unread: item.unread}
+			if f.ID == 0 {
+				row.icon = iconAllChats
+			}
+			rows = append(rows, row)
+		}
+	}
+	return rows
 }
 
 // Update returns what the user picked; the caller closes the drawer.
@@ -179,7 +187,7 @@ func (d *drawer) Layout(gtx layout.Context, entries []drawerEntry, current secti
 	offset(listGtx, image.Pt(0, headerHeight), func(gtx layout.Context) layout.Dimensions {
 		return d.list.Layout(gtx, len(entries), func(gtx layout.Context, i int) layout.Dimensions {
 			e := entries[i]
-			active := !e.key.theme && e.key.section == current
+			active := !e.key.theme && e.key.section == current.destination()
 			return layout.Inset{Left: 8, Right: 8, Top: 2, Bottom: 2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return d.row(e.key).Layout(gtx, e, active)
 			})

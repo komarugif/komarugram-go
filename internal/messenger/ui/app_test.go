@@ -32,6 +32,8 @@ func (s noSavedDialogStore) Chats() []model.Chat {
 	return chats
 }
 
+func (s noSavedDialogStore) FolderDialogs() []model.Chat { return s.Chats() }
+
 func (s noSavedDialogStore) History(chat int64) model.History {
 	if chat == s.Me().ID {
 		return model.History{}

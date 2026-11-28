@@ -135,9 +135,10 @@ type App struct {
 	// found is the open chat when a search found it outside the chat list.
 	found model.Chat
 
-	sidebar  *sidebar
-	chats    *chatList
-	splitter splitter
+	folderMenu folderContextMenu
+	sidebar    *sidebar
+	chats      *chatList
+	splitter   splitter
 
 	// When the window is too small for the sidebar, its items move to a
 	// drawer opened by the menu button, and the folders to a bar over the
@@ -289,6 +290,10 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	a.profile.premium, _ = store.(model.PremiumSource)
 	a.chats.badges = a.badges
 	a.chats.menu.store, _ = store.(model.ChatListActions)
+	a.chats.menu.folderStore, _ = store.(model.FolderManager)
+	a.chats.menu.archiveStore, _ = store.(model.ChatArchiveActions)
+	a.chats.menu.archiveOn = a.chatArchiveEnabled
+	a.chats.archiveEnabled = a.chatArchiveEnabled
 	a.chats.menu.premium, _ = store.(model.PremiumSource)
 	a.chats.menu.invalidate = w.Invalidate
 	a.chats.reorder.store, _ = store.(model.PinReorderer)
@@ -372,9 +377,32 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 	a.settings.images = &a.images
 	a.settings.private = a.private
 	a.settings.premium, _ = store.(model.PremiumSource)
+	if source, ok := store.(model.FolderManager); ok {
+		a.settings.folders = newFolderSettings(source)
+		if actions, ok := store.(model.FolderActions); ok {
+			a.folderMenu.store = actions
+			a.sidebar.folderMenu = &a.folderMenu
+			a.folderBar.folderMenu = &a.folderMenu
+		}
+		a.settings.folders.dialogs = a.folderDialogs
+		a.settings.folders.avatar = a.layoutAvatar
+		a.settings.folders.peers.usernames, _ = store.(model.UsernameSource)
+		a.settings.folders.peers.presence, _ = store.(model.PresenceSource)
+	}
 	a.settings.setPrivate = func(on bool) {
 		if err := services.Preferences.SetVisualPrivacy(on); err != nil {
 			log.Printf("save settings: %v", err)
+		}
+	}
+	a.settings.chatArchive = a.chatArchiveEnabled
+	if source, ok := store.(model.ArchiveMuteStore); ok {
+		a.settings.archiveMute = newArchiveMuteSettings(source, w.Invalidate, func() {
+			a.settings.toast.Show(a.catalog().T("privacy.archive_mute_premium_required"))
+		})
+	}
+	a.settings.setChatArchive = func(on bool) {
+		if err := a.preferences.ChangeVisibility(a.accountID(), func(v *preferences.Visibility) { v.ChatArchive = on }); err != nil {
+			a.settings.toast.Show(a.catalog().T("privacy.chat_archive_failed"))
 		}
 	}
 	a.settings.filtersView.filters = func() preferences.Filters { return a.visibility().Filters }
@@ -692,14 +720,11 @@ func New(w *appwindow.Window, store model.Store, services Services) *App {
 		a.settings.sessions.private = a.private
 	}
 	a.sidebar.menus = a.menuPrefs
-	a.sidebar.account = a.currentAccount
 	a.chats.menu.menus = a.menuPrefs
 	if a.chats.panel != nil {
 		a.chats.panel.recent.menus = a.menuPrefs
 	}
-	a.settings.menus = newMenuSettings(a.menuPrefs, a.preferences.SetMenus, func(l localization.Catalog) []menuCatalog {
-		return menuCatalogs(a.store.Folders(), a.currentAccount(), l)
-	}, &a.settings.toast)
+	a.settings.menus = newMenuSettings(a.menuPrefs, a.preferences.SetMenus, menuCatalogs, &a.settings.toast)
 	a.security = a.settings.security
 	if services.Security != nil {
 		a.unsubscribe = append(a.unsubscribe, services.Security.Subscribe(w.Invalidate))
@@ -853,7 +878,8 @@ func (a *App) newChatPage(source model.ConversationStore, store model.Store, w *
 	p.stickers.menus = a.menuPrefs
 	p.membershipNotice = a.chats.toast.Show
 	p.frozen = a.frozen
-	p.chats = store.Chats
+	p.chats = a.folderDialogs
+	p.forwarding.folders = store.Folders
 	p.images = &a.images
 	p.classic = func() bool { return a.composerStyle() == preferences.ComposerClassic }
 	p.deleteEffect = func() preferences.DeleteEffect { return a.preferences.Global().DeleteEffect }
@@ -927,6 +953,9 @@ func (a *App) messageFilter() *messageFilter {
 
 // Close releases process-wide subscriptions when this window closes.
 func (a *App) Close() {
+	if a.folderMenu.stop != nil {
+		a.folderMenu.stop()
+	}
 	if a.stopBadges != nil {
 		a.stopBadges()
 	}
@@ -1039,6 +1068,8 @@ func WindowLocale(l localization.Catalog) system.Locale {
 
 // private reports whether visual privacy mode is on.
 func (a *App) private() bool { return a.preferences.Global().VisualPrivacy }
+
+func (a *App) chatArchiveEnabled() bool { return a.visibility().ChatArchive }
 
 func (a *App) composerStyle() preferences.ComposerStyle { return a.preferences.Global().Composer }
 
@@ -1199,18 +1230,31 @@ func (a *App) Update(gtx layout.Context) {
 	a.shownChat.Store(a.selected)
 	a.shortcutEvents(gtx)
 	folders := a.store.Folders()
+	a.folderMenu.update(gtx, a, folders)
+	if a.section.kind == sectionArchive && !a.chatArchiveEnabled() {
+		a.openSection(gtx, section{kind: sectionAll})
+	} else if a.section.folder != 0 && !slices.ContainsFunc(folders, func(f model.Folder) bool { return f.ID == a.section.folder }) {
+		if a.section.kind == sectionArchive {
+			a.openSection(gtx, section{kind: sectionArchive})
+		} else {
+			a.section = section{kind: sectionAll}
+		}
+	}
+	if a.beforeSearch.kind == sectionArchive && !a.chatArchiveEnabled() {
+		a.beforeSearch = section{kind: sectionAll}
+	}
 	a.overlay.Update(gtx)
 	a.overlayUpdated = true
 	if a.compact {
 		if a.menu.Clicked(gtx) {
 			a.drawer.open(a.overlay, a.layoutDrawer)
 		}
-		if sec, ok := a.folderBar.Update(gtx, folders); ok {
-			a.openSection(gtx, sec)
+		if id, ok := a.folderBar.Update(gtx, folders); ok {
+			a.openNavigation(gtx, folderSection(id, false))
 		}
 	} else {
 		a.drawer.close()
-		ev := a.sidebar.Update(gtx, folders, a.walletConfig().Available)
+		ev := a.sidebar.Update(gtx, folders)
 		if ev.toggleTheme {
 			a.toggleTheme()
 		}
@@ -1218,7 +1262,7 @@ func (a *App) Update(gtx layout.Context) {
 			a.openWallet(gtx)
 		}
 		if ev.section != nil {
-			a.openSection(gtx, *ev.section)
+			a.openNavigation(gtx, *ev.section)
 		}
 	}
 	// The profile can arrive after the Saved Messages button was pressed.
@@ -1226,6 +1270,9 @@ func (a *App) Update(gtx layout.Context) {
 		a.selected = a.savedChat()
 	}
 	if a.section.showsChats() {
+		if sec, ok := a.chats.archiveDestination(gtx, a.section); ok {
+			a.openSection(gtx, sec)
+		}
 		if pick, ok := a.chats.Update(gtx, a.section, a.catalog()); ok {
 			if pick.Community {
 				a.openCommunity(pick.ID)
@@ -1288,21 +1335,44 @@ func (a *App) openWallet(gtx layout.Context) {
 
 // layoutDrawer is the content of the drawer overlay item.
 func (a *App) layoutDrawer(gtx layout.Context) layout.Dimensions {
-	entries := arrangeMenu(a.menuPrefs, menuDrawer, drawerEntries(a.store.Folders(), a.store.Chats(), a.dark(), a.walletConfig().Available, a.catalog()), func(e drawerEntry) string { return navigationID(e.key, a.currentAccount()) })
+	slots := a.navigationSlots(menuDrawer)
+	entries := navigationEntries(slots, a.store.Folders(), a.folderDialogs(), a.section.kind == sectionArchive, a.catalog())
 	if key, ok := a.drawer.Update(gtx, entries); ok {
 		if key.theme {
 			a.toggleTheme()
 		} else if key.wallet {
 			a.openWallet(gtx)
 		} else {
-			a.openSection(gtx, key.section)
+			a.openNavigation(gtx, key.section)
 		}
 		a.drawer.close()
 	}
 	return a.drawer.Layout(gtx, entries, a.section, a.store.Me(), a.layoutAvatar, a.private())
 }
 
+func (a *App) navigationSlots(menu string) []drawerEntry {
+	return arrangeMenu(a.menuPrefs, menu, navigationSlots(a.dark(), a.catalog()), navigationID)
+}
+
+// openNavigation keeps the current chat scope when picking a folder.
+func (a *App) openNavigation(gtx layout.Context, sec section) {
+	if sec.kind == sectionAll || sec.kind == sectionFolder {
+		sec = folderSection(sec.folder, a.section.kind == sectionArchive)
+	}
+	a.openSection(gtx, sec)
+}
+
 func (a *App) openSection(gtx layout.Context, sec section) {
+	if sec.kind == sectionArchive && !a.chatArchiveEnabled() {
+		return
+	}
+	if a.chats != nil {
+		a.chats.menu.close()
+	}
+	if a.section.kind == sectionSettings && a.settings != nil && a.settings.section == settingsFolders && a.settings.folders != nil && a.settings.folders.draft {
+		a.settings.folders.leaveDraft(gtx, a.catalog(), func(current layout.Context) { a.openSection(current, sec) })
+		return
+	}
 	if a.settings != nil && a.settings.shortcuts != nil {
 		a.settings.shortcuts.Close()
 		a.settings.shortcuts.signature = ""
@@ -1313,6 +1383,9 @@ func (a *App) openSection(gtx layout.Context, sec section) {
 			return
 		}
 		a.beforeSearch = a.section
+	}
+	if a.chats != nil && sec != a.section && (sec.kind == sectionArchive || a.section.kind == sectionArchive) {
+		a.chats.list.Position = layout.Position{}
 	}
 	a.section = sec
 	switch sec.kind {
@@ -1348,8 +1421,15 @@ func (a *App) savedChat() int64 {
 	return a.store.Me().ID
 }
 
+func (a *App) folderDialogs() []model.Chat {
+	if store, ok := a.store.(interface{ FolderDialogs() []model.Chat }); ok {
+		return store.FolderDialogs()
+	}
+	return a.store.Chats()
+}
+
 func (a *App) selectedChat() (model.Chat, bool) {
-	for _, c := range a.store.Chats() {
+	for _, c := range a.folderDialogs() {
 		if c.ID == a.selected {
 			c.Title = a.catalog().ChatTitle(c)
 			return c, true
@@ -1389,7 +1469,7 @@ func (a *App) open(pick chatPick) {
 	a.selected = pick.ID
 	if pick.Chat != nil {
 		a.found = *pick.Chat
-	} else if c, ok := chatByID(a.store.Chats(), pick.ID); ok && c.Kind == model.KindCommunity {
+	} else if c, ok := chatByID(a.folderDialogs(), pick.ID); ok && c.Kind == model.KindCommunity {
 		// Shown apart, a community has no row: its page stays open.
 		c.Collapsed = false
 		a.found = c
@@ -1602,7 +1682,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	}
 	size := gtx.Constraints.Max
 	folders := a.store.Folders()
-	chats := a.store.Chats()
+	chats := a.folderDialogs()
 	sc := scheme(gtx)
 
 	sidebarPx := gtx.Dp(sidebarWidth)
@@ -1615,14 +1695,22 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 
 	// The sidebar needs room for itself, the list and the page across,
 	// and for all its buttons down.
-	a.compact = toDp(size.X) < sidebarWidth+listMinWidth+pageMinWidth ||
-		toDp(size.Y) < sidebarNeededHeight(len(folders))
+	a.compact = toDp(size.X) < sidebarWidth+listMinWidth+pageMinWidth
 	x := 0
 	if !a.compact {
-		column(0, 0, sidebarPx, size.Y, func(gtx layout.Context) layout.Dimensions {
-			return a.sidebar.Layout(gtx, a.section, folders, chats, a.dark(), a.walletConfig().Available, a.catalog())
-		})
-		x = sidebarPx
+		slots := a.navigationSlots(menuSidebar)
+		rows := len(slots)
+		if slices.ContainsFunc(slots, func(e drawerEntry) bool { return e.key.section.kind == sectionFolder }) {
+			rows += len(folders) - 1
+		}
+		a.compact = toDp(size.Y) < sidebarNeededHeight(rows)
+		if !a.compact {
+			entries := navigationEntries(slots, folders, chats, a.section.kind == sectionArchive, a.catalog())
+			column(0, 0, sidebarPx, size.Y, func(gtx layout.Context) layout.Dimensions {
+				return a.sidebar.Layout(gtx, a.section, entries, a.dark(), a.catalog())
+			})
+			x = sidebarPx
+		}
 	}
 
 	var listAt image.Point
@@ -1691,6 +1779,7 @@ func (a *App) layoutWindow(gtx layout.Context, transparent bool) {
 	if a.section.showsChats() {
 		a.chats.layoutMenu(gtx, listAt, menuBackdrop, a.catalog())
 	}
+	a.folderMenu.layout(gtx, menuBackdrop, a.catalog())
 	a.drop.layout(gtx, a.catalog())
 	if !a.overlayUpdated {
 		// A window locked or signing in returns from Update before the
@@ -1975,6 +2064,9 @@ func (a *App) Showing() (chat int64, focused bool) {
 // the focus: the account shows online while it has it, if Ghost allows, and
 // its animations play, if the settings pause them in an inactive window.
 func (a *App) SetFocused(focused bool) {
+	if focused && !a.focused && a.section.kind == sectionSettings && a.settings != nil && a.settings.section == settingsVisibility && a.settings.archiveMute != nil {
+		a.settings.archiveMute.reload = true
+	}
 	a.focused = focused
 	a.shownFocus.Store(focused)
 	a.tellGhost()

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"image"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -43,11 +44,15 @@ const (
 	chatRowUnpin
 	chatRowMute
 	chatRowUnmute
-	chatRowArchive
-	chatRowUnarchive
 	chatRowRead
 	chatRowUngroup
 	chatRowCommunity
+	chatRowFolderPin
+	chatRowFolderUnpin
+	chatRowAddFolder
+	chatRowRemoveFolder
+	chatRowArchive
+	chatRowUnarchive
 	chatRowActions
 )
 
@@ -61,7 +66,16 @@ var iconPinChat wdk.IconWidget = func(gtx layout.Context, color token.MatColor) 
 type chatRowMenu struct {
 	menus menuPreferences
 	// store does what the menu offers; nil leaves the menu off.
-	store model.ChatListActions
+	store        model.ChatListActions
+	folderStore  model.FolderManager
+	folderChoice chatFolderChoice
+	folderSave   chan error
+	folderNotice string
+	archiveStore model.ChatArchiveActions
+	archiveOn    func() bool
+	archiveSave  chan error
+	archiveMove  chatRowAction
+	section      section
 	// premium tells the pin limit; nil skips the check.
 	premium model.PremiumSource
 	// invalidate redraws the window when a pin is answered.
@@ -109,8 +123,7 @@ func (m *chatRowMenu) row(chat int64) *byte {
 	return t
 }
 
-// actions are the items the menu of c offers; pins are only of the list of
-// all chats, where a pin is the list's own.
+// actions keeps folder pins separate from the main list's server or local pins.
 func (m *chatRowMenu) actions(c model.Chat, sec section) []chatRowAction {
 	if m.store == nil {
 		return nil
@@ -130,11 +143,40 @@ func (m *chatRowMenu) actions(c model.Chat, sec section) []chatRowAction {
 			out = append(out, chatRowMute)
 		}
 	}
-	if _, ok := m.store.(model.ArchiveSetter); ok && c.Kind != model.KindSaved && c.Kind != model.KindCommunity {
+	if m.archiveStore != nil && m.archiveOn != nil && m.archiveOn() && m.archiveSave == nil && c.Kind != model.KindSaved && c.Kind != model.KindCommunity {
 		if c.Archived {
 			out = append(out, chatRowUnarchive)
 		} else {
 			out = append(out, chatRowArchive)
+		}
+	}
+	if m.folderStore != nil && m.folderSave == nil && c.Kind != model.KindCommunity {
+		var add, remove bool
+		for _, f := range m.folderStore.Folders() {
+			if f.ID == 0 {
+				continue
+			}
+			if sec.kind == sectionArchive {
+				f = f.ForArchive()
+			}
+			if !f.Contains(c) {
+				add = true
+				continue
+			}
+			if f.ID == sec.folder {
+				if slices.Contains(f.Pinned, c.ID) {
+					out = append(out, chatRowFolderUnpin)
+				} else {
+					out = append(out, chatRowFolderPin)
+				}
+			}
+			remove = remove || f.CanRemoveChat(c)
+		}
+		if add {
+			out = append(out, chatRowAddFolder)
+		}
+		if remove {
+			out = append(out, chatRowRemoveFolder)
 		}
 	}
 	if c.Unread > 0 {
@@ -151,18 +193,26 @@ func (m *chatRowMenu) actions(c model.Chat, sec section) []chatRowAction {
 
 func chatRowLabel(a chatRowAction, l localization.Catalog) string {
 	switch a {
-	case chatRowPin:
-		return l.T("chat_row.pin")
-	case chatRowUnpin:
-		return l.T("chat_row.unpin")
 	case chatRowMute:
 		return l.T("composer.mute")
 	case chatRowUnmute:
 		return l.T("composer.unmute")
+	case chatRowFolderPin:
+		return l.T("chat_row.folder_pin")
+	case chatRowFolderUnpin:
+		return l.T("chat_row.folder_unpin")
+	case chatRowAddFolder:
+		return l.T("chat_row.folder_add")
+	case chatRowRemoveFolder:
+		return l.T("chat_row.folder_remove")
 	case chatRowArchive:
 		return l.T("chat_row.archive")
 	case chatRowUnarchive:
 		return l.T("chat_row.unarchive")
+	case chatRowPin:
+		return l.T("chat_row.pin")
+	case chatRowUnpin:
+		return l.T("chat_row.unpin")
 	case chatRowUngroup:
 		return l.T("chat_row.ungroup")
 	case chatRowCommunity:
@@ -177,8 +227,12 @@ func chatRowIcon(a chatRowAction) wdk.IconWidget {
 		return iconNotificationsOff
 	case chatRowUnmute:
 		return iconNotificationsOn
-	case chatRowArchive, chatRowUnarchive:
+	case chatRowAddFolder, chatRowRemoveFolder:
+		return iconFolder
+	case chatRowArchive:
 		return iconArchive
+	case chatRowUnarchive:
+		return iconUnarchive
 	case chatRowRead:
 		return iconRead
 	case chatRowUngroup:
@@ -196,6 +250,12 @@ func (m *chatRowMenu) update(gtx layout.Context, sec section, chats []model.Chat
 		return
 	}
 	m.tell(toast, l)
+	m.folderResult(toast, l)
+	m.archiveResult(toast, l)
+	if (m.open || m.folderChoice.modal.Shown()) && m.section != sec {
+		m.close()
+	}
+
 	// Where the right click was, in the list, and on which chat.
 	for {
 		ev, ok := gtx.Event(pointer.Filter{Target: &m.area, Kinds: pointer.Press})
@@ -216,13 +276,17 @@ func (m *chatRowMenu) update(gtx layout.Context, sec section, chats []model.Chat
 			if !ok || e.Source != pointer.Mouse || e.Buttons != pointer.ButtonSecondary {
 				continue
 			}
-			if c, ok := chatByID(chats, id); ok && len(m.actions(c, sec)) > 0 {
-				m.open, m.id, m.focus = true, id, true
+			if c, ok := chatByID(chats, id); ok && !m.folderChoice.modal.Shown() && len(m.actions(c, sec)) > 0 {
+				m.open, m.id, m.focus, m.section = true, id, true, sec
 				m.menu = contextMenu{}
 				m.at = image.Pt(int(m.press.X), int(m.press.Y))
 				gtx.Execute(op.InvalidateCmd{})
 			}
 		}
+	}
+	if m.folderChoice.modal.Shown() {
+		m.folderChoice.update(gtx, m, chats, toast, l)
+		return
 	}
 	if !m.open {
 		return
@@ -242,7 +306,7 @@ func (m *chatRowMenu) update(gtx layout.Context, sec section, chats []model.Chat
 		}
 	}
 	c, ok := chatByID(chats, m.id)
-	if !ok {
+	if !ok || !m.open {
 		m.open = false
 		return
 	}
@@ -257,12 +321,27 @@ func (m *chatRowMenu) update(gtx layout.Context, sec section, chats []model.Chat
 		}
 		m.open = false
 		switch a {
-		case chatRowPin, chatRowUnpin:
-			m.pin(c, a == chatRowPin, chats, toast, l)
 		case chatRowMute, chatRowUnmute:
 			m.mute(c, a == chatRowMute)
+		case chatRowFolderPin, chatRowFolderUnpin:
+			for _, f := range m.folderStore.Folders() {
+				if f.ID == sec.folder {
+					change := model.FolderPinChat
+					if a == chatRowFolderUnpin {
+						change = model.FolderUnpinChat
+					}
+					m.changeFolder(f, c, change, toast, l)
+					break
+				}
+			}
+		case chatRowAddFolder, chatRowRemoveFolder:
+			if m.folderSave == nil {
+				m.folderChoice.open(c, a, m.folderStore.Folders(), sec.kind == sectionArchive)
+			}
+		case chatRowPin, chatRowUnpin:
+			m.pin(c, a == chatRowPin, chats, toast, l)
 		case chatRowArchive, chatRowUnarchive:
-			m.archive(c, a == chatRowArchive)
+			m.moveArchive(c.ID, a)
 		case chatRowRead:
 			if c.Kind != model.KindCommunity {
 				m.store.MarkChatRead(c.ID)
@@ -279,6 +358,36 @@ func (m *chatRowMenu) update(gtx layout.Context, sec section, chats []model.Chat
 		case chatRowCommunity:
 			m.openCommunity(c.Community)
 		}
+	}
+}
+
+func (m *chatRowMenu) moveArchive(chat int64, action chatRowAction) {
+	result := make(chan error, 1)
+	m.archiveSave, m.archiveMove = result, action
+	store, invalidate := m.archiveStore, m.invalidate
+	go func() {
+		if invalidate != nil {
+			defer invalidate()
+		}
+		defer crash.Recover("move chat archive", func(p *crash.Panic) { result <- p })
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		result <- store.SetChatArchived(ctx, chat, action == chatRowArchive)
+	}()
+}
+
+func (m *chatRowMenu) archiveResult(toast *toast, l localization.Catalog) {
+	select {
+	case err := <-m.archiveSave:
+		m.archiveSave = nil
+		key := "chat_row.archived"
+		if err != nil {
+			key = "chat_row.archive_failed"
+		} else if m.archiveMove == chatRowUnarchive {
+			key = "chat_row.unarchived"
+		}
+		toast.Show(l.T(key))
+	default:
 	}
 }
 
@@ -315,27 +424,6 @@ func (m *chatRowMenu) mute(c model.Chat, mute bool) {
 		for _, id := range ids {
 			_ = muter.SetChatMuted(ctx, id, mute)
 		}
-		if m.invalidate != nil {
-			m.invalidate()
-		}
-	}()
-}
-
-// archive moves c into or out of Telegram's archive in the background.
-func (m *chatRowMenu) archive(c model.Chat, archived bool) {
-	archiver, ok := m.store.(model.ArchiveSetter)
-	if !ok {
-		return
-	}
-	go func() {
-		defer crash.Recover("archive chat", func(*crash.Panic) {
-			if m.invalidate != nil {
-				m.invalidate()
-			}
-		})
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		_ = archiver.SetChatArchived(ctx, c.ID, archived)
 		if m.invalidate != nil {
 			m.invalidate()
 		}

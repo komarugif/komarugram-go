@@ -90,6 +90,8 @@ type Global struct {
 	// account's identifiers in its profile with spoilers, for showing the
 	// screen to others: streams, recordings, screenshots.
 	VisualPrivacy bool `json:"visual_privacy,omitempty"`
+	// ChatArchive enables the archive section and chat archive actions on this device.
+	ChatArchive bool `json:"chat_archive"`
 	// StreamerMode hides the windows from screen capture, as AyuGram's
 	// Streamer Mode, where the platform allows it.
 	StreamerMode bool `json:"streamer_mode,omitempty"`
@@ -525,6 +527,7 @@ type StorageChannel struct {
 // in Global until one pins its own.
 type Visibility struct {
 	Calm           Calm    `json:"calm"`
+	ChatArchive    bool    `json:"chat_archive"`
 	HidePeerBadges bool    `json:"hide_peer_badges,omitempty"`
 	KeepPeerArrows bool    `json:"keep_peer_arrows,omitempty"`
 	KeepPeerFaces  bool    `json:"keep_peer_faces,omitempty"`
@@ -540,10 +543,11 @@ func (v Visibility) HidesPeerArrows() bool { return v.HidePeerBadges && !v.KeepP
 func (v Visibility) HidesPeerFaces() bool { return v.HidePeerBadges && !v.KeepPeerFaces }
 
 func (g Global) visibility() Visibility {
-	return Visibility{Calm: g.Calm, HidePeerBadges: g.HidePeerBadges, KeepPeerArrows: g.KeepPeerArrows, KeepPeerFaces: g.KeepPeerFaces, Ghost: g.Ghost, Filters: g.Filters, Keep: g.Keep}
+	return Visibility{Calm: g.Calm, ChatArchive: g.ChatArchive, HidePeerBadges: g.HidePeerBadges, KeepPeerArrows: g.KeepPeerArrows, KeepPeerFaces: g.KeepPeerFaces, Ghost: g.Ghost, Filters: g.Filters, Keep: g.Keep}
 }
 
 func (v Visibility) applyTo(g *Global) {
+	g.ChatArchive = v.ChatArchive
 	g.Calm, g.HidePeerBadges, g.KeepPeerArrows, g.KeepPeerFaces = v.Calm, v.HidePeerBadges, v.KeepPeerArrows, v.KeepPeerFaces
 	g.Ghost, g.Filters, g.Keep = v.Ghost, v.Filters, v.Keep
 }
@@ -799,6 +803,7 @@ func defaults() Global {
 		LowBattery:     powersave.DefaultLowBattery,
 		MiniAppStorage: miniapp.Shared,
 		PauseInactive:  true,
+		ChatArchive:    true,
 		ComposerBlur:   true,
 		AudioVolume:    100,
 		WindowBlur:     true,
@@ -837,14 +842,43 @@ func OpenPath(path string) (*Store, error) {
 	if data.Version != version {
 		return nil, fmt.Errorf("unsupported settings version %d", data.Version)
 	}
+	data.Global.Menus.migrateFolderItems()
 	if err := validate(data.Global); err != nil {
 		return nil, fmt.Errorf("read settings: %w", err)
 	}
 	s.global = data.Global
 	if data.Accounts != nil {
 		s.accounts = data.Accounts
+		migrateArchiveVisibility(s.accounts, s.global.ChatArchive)
 	}
 	return s, nil
+}
+
+// The archive switch was shared even by accounts with pinned Visibility.
+// Seed their own value from the shared setting before it can change again.
+func migrateArchiveVisibility(accounts map[string]json.RawMessage, enabled bool) {
+	archive := json.RawMessage("false")
+	if enabled {
+		archive = json.RawMessage("true")
+	}
+	for id, raw := range accounts {
+		var account, visibility map[string]json.RawMessage
+		if json.Unmarshal(raw, &account) != nil || json.Unmarshal(account["visibility"], &visibility) != nil || visibility == nil {
+			continue
+		}
+		if _, present := visibility["chat_archive"]; present {
+			continue
+		}
+		visibility["chat_archive"] = archive
+		encoded, err := json.Marshal(visibility)
+		if err != nil {
+			continue
+		}
+		account["visibility"] = encoded
+		if encoded, err := json.Marshal(account); err == nil {
+			accounts[id] = encoded
+		}
+	}
 }
 
 // Memory returns a non-persistent store, primarily for demos and tests.

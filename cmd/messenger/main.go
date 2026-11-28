@@ -716,9 +716,10 @@ func printSummary(store *tgstore.Store) {
 	fmt.Printf("chats: %d (users %d, saved %d, bots %d, groups %d, channels %d), pinned %d, unread %d, muted %d\n",
 		len(chats), kinds[model.KindUser], kinds[model.KindSaved], kinds[model.KindBot],
 		kinds[model.KindGroup], kinds[model.KindChannel], pinned, unread, muted)
+	candidates := store.FolderDialogs()
 	for i, f := range store.Folders() {
 		n := 0
-		for _, c := range chats {
+		for _, c := range candidates {
 			if f.Contains(c) {
 				n++
 			}

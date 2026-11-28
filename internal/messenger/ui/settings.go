@@ -83,6 +83,7 @@ const (
 	// drawn with, and the graphics API and Vulkan device where there is a
 	// choice.
 	settingsGraphics
+	settingsFolders
 )
 
 func settingsTitles(l localization.Catalog) map[settingsSection]string {
@@ -97,6 +98,7 @@ func settingsTitles(l localization.Catalog) map[settingsSection]string {
 		settingsShortcuts:  l.T("keys.title"),
 		settingsVisibility: l.T("settings.visibility"),
 		settingsGraphics:   l.T("settings.graphics"),
+		settingsFolders:    l.T("folders.title"),
 	}
 }
 
@@ -116,6 +118,7 @@ var settingsIcons = map[settingsSection]wdk.IconWidget{
 	settingsShortcuts:    iconKeyboard,
 	settingsVisibility:   iconVisibility,
 	settingsGraphics:     iconGraphics,
+	settingsFolders:      iconFolder,
 }
 
 func storageShort(l localization.Catalog) map[miniapp.Storage]string {
@@ -134,6 +137,7 @@ func motionShort(l localization.Catalog) map[powersave.Mode]string {
 
 // settingsPage shows the main settings page or one of its sections.
 type settingsPage struct {
+	folders     *folderSettings
 	shortcuts   *shortcutSettings
 	menus       *menuSettings
 	cardHeights map[string]*heightTransition
@@ -182,9 +186,13 @@ type settingsPage struct {
 	images        *imageOps
 	// private and setPrivate read and switch visual privacy mode; without
 	// them the mode is off and the switch hidden.
-	private    func() bool
-	setPrivate func(bool)
-	visual     *toggle.Toggle[string]
+	private        func() bool
+	setPrivate     func(bool)
+	visual         *toggle.Toggle[string]
+	chatArchive    func() bool
+	setChatArchive func(bool)
+	archiveToggle  *toggle.Toggle[string]
+	archiveMute    *archiveMuteSettings
 	// streamer and setStreamer read and switch Streamer Mode, where the
 	// platform has it.
 	streamer     func() bool
@@ -384,6 +392,7 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 			settingsShortcuts:    new(settingsItem),
 			settingsVisibility:   new(settingsItem),
 			settingsGraphics:     new(settingsItem),
+			settingsFolders:      new(settingsItem),
 		},
 		back:          button.Text(),
 		motion:        m,
@@ -409,6 +418,9 @@ func newSettingsPage(m *motion.Settings, miniapps *miniappprefs.Settings, protec
 		if p.setPrivate != nil {
 			p.setPrivate(len(values) == 1)
 		}
+	})
+	p.archiveToggle = toggle.NewToggle([]string{"archive"}, nil, func(values []string) {
+		p.setChatArchive(len(values) != 0)
 	})
 	p.streamerMode = toggle.NewToggle([]string{"streamer"}, nil, func(values []string) {
 		if p.setStreamer != nil {
@@ -627,6 +639,10 @@ func (p *settingsPage) show(section settingsSection) {
 		p.refreshPrograms()
 	case settingsDevices:
 		p.sessions.refresh()
+	case settingsVisibility:
+		if p.archiveMute != nil {
+			p.archiveMute.reload = true
+		}
 	case settingsAbout:
 		p.about.open()
 	case settingsProxy:
@@ -677,7 +693,11 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		}
 	}
 	if p.back.Clicked(gtx) {
-		p.open()
+		if p.section == settingsFolders && p.folders.draft {
+			p.folders.leaveDraft(gtx, p.worded, func(layout.Context) { p.list.Position = layout.Position{} })
+		} else {
+			p.open()
+		}
 	}
 	if p.subscribe.Clicked(gtx) && p.premium != nil {
 		if bot := p.premium.Premium().Bot; bot != "" {
@@ -876,6 +896,9 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		p.localPremiumBoxes.Update(gtx)
 	}
 	if p.section == settingsVisibility {
+		if p.archiveMute != nil {
+			p.archiveMute.update(gtx, p.worded, &p.toast)
+		}
 		p.filtersView.Update(gtx)
 		if p.calm != nil {
 			p.calmBoxes.Update(gtx)
@@ -910,6 +933,11 @@ func (p *settingsPage) Update(gtx layout.Context, mode themeMode, language strin
 		p.lookView.Update(gtx)
 		p.chats.Update(gtx)
 	}
+	if p.section == settingsFolders && p.folders != nil {
+		p.folders.update(gtx, p, localization.For(language))
+	} else if p.folders != nil {
+		p.folders.reorder.cancel()
+	}
 	if p.section == settingsAbout {
 		p.about.Update(gtx)
 	}
@@ -925,7 +953,15 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 	dims := p.layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		header := layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			title := func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, titles[p.section], token.TypestyleHeadlineSmall, sc.Surface.OnColor, 1)
+				text := titles[p.section]
+				if p.section == settingsFolders && p.folders.draft {
+					key := "folders.new"
+					if p.folders.base != nil {
+						key = "folders.edit"
+					}
+					text = l.T(key)
+				}
+				return label(gtx, text, token.TypestyleHeadlineSmall, sc.Surface.OnColor, 1)
 			}
 			if p.section == settingsMain {
 				return title(gtx)
@@ -1002,6 +1038,14 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 						})
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						if p.setChatArchive == nil {
+							return layout.Dimensions{}
+						}
+						return layout.Inset{Bottom: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return p.cardHeight("chat-archive").Card(gtx, func(gtx layout.Context) layout.Dimensions { return p.layoutChatArchive(gtx, l) }, defaultCardPadding)
+						})
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						if p.hidePeerBadges == nil {
 							return layout.Dimensions{}
 						}
@@ -1069,6 +1113,10 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 			content = func(gtx layout.Context) layout.Dimensions { return p.layoutIntegrations(gtx, l) }
 		case settingsDevices:
 			content = func(gtx layout.Context) layout.Dimensions { return p.sessions.Layout(gtx, l) }
+		case settingsFolders:
+			content = func(gtx layout.Context) layout.Dimensions {
+				return p.folders.layout(gtx, l, p.premium != nil && p.premium.Premium().Active)
+			}
 		case settingsChats:
 			content = func(gtx layout.Context) layout.Dimensions { return p.layoutChats(gtx, l) }
 		case settingsAbout:
@@ -1093,6 +1141,9 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 	})
 	p.layingOut = false
 	p.followLogOut(gtx)
+	if p.section == settingsFolders && p.folders != nil {
+		p.folders.overlay(gtx, l)
+	}
 	if p.section == settingsShortcuts && p.shortcuts != nil {
 		p.shortcuts.Overlay(gtx, l)
 	}
@@ -1101,6 +1152,33 @@ func (p *settingsPage) Layout(gtx layout.Context, mode themeMode, system appeara
 
 func (p *settingsPage) isPrivate() bool {
 	return p.private != nil && p.private()
+}
+
+func (p *settingsPage) layoutChatArchive(gtx layout.Context, l localization.Catalog) layout.Dimensions {
+	if on := p.chatArchive(); on != (len(p.archiveToggle.GetValues()) != 0) {
+		if on {
+			p.archiveToggle.SetValues([]string{"archive"})
+		} else {
+			p.archiveToggle.SetValues(nil)
+		}
+	}
+	children := []layout.FlexChild{
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return p.archiveToggle.Layout(gtx, map[string]string{"archive": l.T("nav.archive")})
+		}),
+		vspace(4),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, l.T("privacy.chat_archive_body"), token.TypestyleBodyMedium, scheme(gtx).SurfaceVariant.OnColor, 0)
+		}),
+	}
+	if p.archiveMute != nil {
+		children = append(children, vspace(12), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return p.archiveMute.layout(gtx, l, func(gtx layout.Context) layout.Dimensions {
+				return p.layoutPremiumMark(gtx, settingsPremiumMarkSize)
+			})
+		}))
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 }
 
 // layoutVisualPrivacy draws the switch of visual privacy mode. The mode may
@@ -1177,6 +1255,7 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 		settingsPremium:      p.premiumText(l),
 		settingsIntegrations: p.players.subtitle(l),
 		settingsDevices:      l.T("settings.devices_hint"),
+		settingsFolders:      l.T("folders.subtitle"),
 		settingsChats:        p.chats.subtitle(l),
 		settingsNotify:       p.notifyView.subtitle(l),
 		settingsMenuOrder:    l.T("menus.subtitle"),
@@ -1263,6 +1342,9 @@ func (p *settingsPage) layoutMain(gtx layout.Context, mode themeMode, dark bool,
 				}
 				if p.chats.available() || p.composerStyle != nil || p.lookView.look != nil {
 					sections = append(sections, settingsChats)
+				}
+				if p.folders != nil {
+					sections = append(sections, settingsFolders)
 				}
 				if p.hasVisibility() {
 					sections = append(sections, settingsVisibility)
@@ -1847,6 +1929,8 @@ func (p *settingsPage) premiumText(l localization.Catalog) string {
 	return l.T("premium.off")
 }
 
+const settingsPremiumMarkSize = unit.Dp(20)
+
 // layoutPremiumMark draws the Premium star in a square of size, nothing
 // where there is no window to take it from.
 func (p *settingsPage) layoutPremiumMark(gtx layout.Context, size unit.Dp) layout.Dimensions {
@@ -1945,9 +2029,9 @@ func (p *settingsPage) layoutPremium(gtx layout.Context, l localization.Catalog)
 			return withBadges(gtx, nil, func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, title, token.TypestyleTitleMedium, sc.Surface.OnColor, 1)
 			}, func(gtx layout.Context) layout.Dimensions {
-				px := gtx.Dp(20)
+				px := gtx.Dp(settingsPremiumMarkSize)
 				return exact(gtx, image.Pt(px, px), func(gtx layout.Context) layout.Dimensions {
-					return p.layoutPremiumMark(gtx, 20)
+					return p.layoutPremiumMark(gtx, settingsPremiumMarkSize)
 				})
 			})
 		}),
