@@ -274,3 +274,59 @@ func TestLetGoRowsTakeShapesFromProfiles(t *testing.T) {
 		t.Fatalf("only %d rows above had profiles", checked)
 	}
 }
+
+// Sending a message appends a pending row with a negative local ID at the end
+// of the loaded window, then replaces it with a positive server ID. Neither
+// transition may be mistaken for a leap into p.above or populate p.below with
+// skeletons, and a view at the end must stay at the end.
+func TestPendingMessageKeepsRoomAndStaysAtEnd(t *testing.T) {
+	var store *reserveStore
+	all := reserveMessages(120, time.Unix(1000, 0))
+	h := newMenuHarnessOn(t, nil, func(s *menuStore) model.ConversationStore {
+		store = &reserveStore{menuStore: s, revision: 1, shown: len(all), all: all}
+		return store
+	})
+	p := h.page
+	p.list.Position.BeforeEnd = false
+	h.frames(5)
+	// Simulate older rows let go of above the loaded window (as in a long chat).
+	store.mu.Lock()
+	store.from = 30
+	store.revision++
+	store.mu.Unlock()
+	h.frames(3)
+	if len(p.above) != 30 || len(p.below) != 0 || p.list.Position.BeforeEnd {
+		t.Fatalf("before send: above=%d below=%d beforeEnd=%t", len(p.above), len(p.below), p.list.Position.BeforeEnd)
+	}
+	// Append a pending outgoing message with a negative local ID.
+	pending := model.Message{
+		Key:             model.MessageKey{AccountID: "demo", ChatID: 1, MessageID: -(1 << 30)},
+		Text:            "sending",
+		Outgoing:        true,
+		Sending:         true,
+		Date:            time.Unix(2000, 0),
+		ContentRevision: 1,
+	}
+	store.mu.Lock()
+	store.all = append(append([]model.Message(nil), all...), pending)
+	store.shown = len(store.all)
+	store.revision++
+	store.mu.Unlock()
+	h.frames(3)
+	if len(p.above) != 30 || len(p.below) != 0 || p.list.Position.BeforeEnd {
+		t.Fatalf("while pending: above=%d below=%d beforeEnd=%t", len(p.above), len(p.below), p.list.Position.BeforeEnd)
+	}
+	// Replace the pending message with the confirmed server message.
+	confirmed := pending
+	confirmed.Key.MessageID = model.MessageID(len(all) + 1)
+	confirmed.Sending = false
+	store.mu.Lock()
+	store.all = append(append([]model.Message(nil), all...), confirmed)
+	store.shown = len(store.all)
+	store.revision++
+	store.mu.Unlock()
+	h.frames(3)
+	if len(p.above) != 30 || len(p.below) != 0 || p.list.Position.BeforeEnd {
+		t.Fatalf("after confirm: above=%d below=%d beforeEnd=%t", len(p.above), len(p.below), p.list.Position.BeforeEnd)
+	}
+}

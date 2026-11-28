@@ -77,13 +77,9 @@ type reserveResult struct {
 
 // after is the rows of the reserve after the last of messages.
 func (r *reserve) after(messages []model.Message) []skeletonRow {
-	if len(messages) == 0 {
+	_, end, ok := serverSpan(messages)
+	if !ok {
 		return nil
-	}
-	last := messages[len(messages)-1]
-	end := last.Key.MessageID
-	for _, a := range last.Attachments {
-		end = max(end, a.Key.MessageID)
 	}
 	for i, s := range r.rows {
 		if s.id > end {
@@ -114,10 +110,9 @@ func (p *chatPage) askReserve(history model.History) {
 	// new ones come: the scrollbar keeps its length meanwhile.
 	p.reserve.chat, p.reserve.env, p.reserve.asked, p.reserve.taken = p.chat, p.env, true, false
 	p.measurer.dropGap()
-	last := p.messages[len(p.messages)-1]
-	after := last.Key.MessageID
-	for _, a := range last.Attachments {
-		after = max(after, a.Key.MessageID)
+	_, after, ok := serverSpan(p.messages)
+	if !ok {
+		return
 	}
 	p.readReserve(source, after, false, reserveLimit)
 }

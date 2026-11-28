@@ -1267,6 +1267,9 @@ func (p *chatPage) restore(id model.MessageID, offset int) {
 	}
 	for i, m := range p.messages {
 		scanned++
+		if m.Local() {
+			continue
+		}
 		if m.Key.MessageID <= id {
 			index = above + i
 		}
@@ -1274,11 +1277,11 @@ func (p *chatPage) restore(id model.MessageID, offset int) {
 			break
 		}
 	}
-	if n := len(p.messages); n > 0 && id > p.messages[n-1].Key.MessageID {
+	if _, last, ok := serverSpan(p.messages); ok && id > last {
 		// A row of the reserve below what is loaded.
 		for k, s := range p.below {
 			if s.id <= id {
-				index = above + n + k
+				index = above + len(p.messages) + k
 			}
 		}
 	}

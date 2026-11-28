@@ -58,7 +58,11 @@ func (p *chatPage) keepRoom(messages []model.Message, env model.RenderEnvironmen
 		}
 		return
 	}
-	first, last := messages[0].Key.MessageID, rowEnd(messages[len(messages)-1])
+	first, last, ok := serverSpan(messages)
+	if !ok {
+		p.above = nil
+		return
+	}
 	var above []skeletonRow
 	if p.olderAbove {
 		for _, s := range p.above {
@@ -67,6 +71,9 @@ func (p *chatPage) keepRoom(messages []model.Message, env model.RenderEnvironmen
 			}
 		}
 		for i, m := range old {
+			if m.Local() {
+				continue
+			}
 			if rowEnd(m) >= first {
 				break
 			}
@@ -111,10 +118,36 @@ func rowEnd(m model.Message) model.MessageID {
 	return end
 }
 
+// serverSpan returns the first and last non-local (positive) message IDs in
+// messages. Pending outgoing messages, local stickers and streamed drafts sit
+// at the end with negative IDs (m.Local()), so reading the last element
+// directly would treat them as older than every server message.
+func serverSpan(messages []model.Message) (first, last model.MessageID, ok bool) {
+	for _, m := range messages {
+		if !m.Local() {
+			first = m.Key.MessageID
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		return 0, 0, false
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		if !messages[i].Local() {
+			last = rowEnd(messages[i])
+			break
+		}
+	}
+	return first, last, true
+}
+
 // overlap tells whether rows a and b have a message in common, of
 // themselves or of their albums.
 func overlap(a, b []model.Message) bool {
-	if len(a) == 0 || len(b) == 0 || rowEnd(a[len(a)-1]) < b[0].Key.MessageID || rowEnd(b[len(b)-1]) < a[0].Key.MessageID {
+	aFirst, aLast, aOK := serverSpan(a)
+	bFirst, bLast, bOK := serverSpan(b)
+	if !aOK || !bOK || aLast < bFirst || bLast < aFirst {
 		return false
 	}
 	ids := make(map[model.MessageID]bool, len(a))
@@ -446,8 +479,11 @@ func (p *chatPage) moveRoom(messages []model.Message, env model.RenderEnvironmen
 	if env != p.env {
 		return false
 	}
-	first, last := messages[0].Key.MessageID, rowEnd(messages[len(messages)-1])
-	oldFirst, oldLast := old[0].Key.MessageID, rowEnd(old[len(old)-1])
+	first, last, ok := serverSpan(messages)
+	oldFirst, oldLast, oldOK := serverSpan(old)
+	if !ok || !oldOK {
+		return false
+	}
 	r := &p.reserve
 	switch {
 	case first > oldLast:

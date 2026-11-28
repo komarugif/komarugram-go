@@ -461,8 +461,8 @@ func (p *chatPage) reserveEnd() model.MessageID {
 	if n := len(p.below); n > 0 {
 		return p.below[n-1].id
 	}
-	if n := len(p.messages); n > 0 {
-		return p.messages[n-1].Key.MessageID
+	if _, last, ok := serverSpan(p.messages); ok {
+		return last
 	}
 	return 0
 }
