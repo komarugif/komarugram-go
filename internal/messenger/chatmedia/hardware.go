@@ -5,6 +5,7 @@ package chatmedia
 import (
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"log"
 	"time"
@@ -28,6 +29,14 @@ type gifVideo interface {
 	Picture(size image.Point) *image.RGBA
 	PictureInto(dst *image.RGBA) *image.RGBA
 	Close(ctx context.Context)
+}
+
+// noPicture is errNoPicture with why v gave no picture, where it tells.
+func noPicture(v gifVideo) error {
+	if e, ok := v.(interface{ Err() error }); ok && e.Err() != nil {
+		return fmt.Errorf("%w: %w", errNoPicture, e.Err())
+	}
+	return errNoPicture
 }
 
 // errNoPicture is the error of a video whose decoder gave no picture.
@@ -102,11 +111,21 @@ func (m *Manager) playGIFHardware(ctx context.Context, e *entry, id string, data
 			from = -1
 		}
 		v, err := client.Open(file)
+		if errors.Is(err, hwvideo.ErrStopped) {
+			// Stopped as it opened, every window hidden: it is opened
+			// again when the GIF is to animate.
+			continue
+		}
 		if err != nil {
 			return fail(err)
 		}
 		err = m.playVideoFrames(ctx, e, v, from, publish)
 		v.Close(context.Background())
+		if errors.Is(err, hwvideo.ErrStopped) {
+			// The helper was stopped, every window hidden, not failed: the
+			// GIF goes on in a new one when it is to animate again.
+			continue
+		}
 		if err != nil {
 			return fail(err)
 		}

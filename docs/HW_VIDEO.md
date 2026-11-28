@@ -24,7 +24,12 @@ HardwareGIFs`), shown where the system has a decoder to try.
   million runs, no finding).
 - **The helper**: the client's own binary with `-video-decoder`
   (`Serve`), started by `Client` when the first GIF of the list is opened,
-  stopped 10 s after the last is closed. The window demuxes the MP4 and
+  stopped 10 s after the last is closed, and at once when every window
+  has been hidden or closed for 5 s (`appwindow.OnAllHidden`, as the
+  memory is given back): a hidden window draws nothing. A helper stopped so
+  fails nothing (`ErrStopped`): the next GIF a window shown plays starts a
+  new one. Streams are counted by helper, so that those of one stopped,
+  ending late, do not count against the next. The window demuxes the MP4 and
   sends samples over the helper's standard input; the helper reads no
   file. A helper that ends on its own fails the client: every GIF goes
   back to software for the rest of the session, and the settings tell so;
@@ -116,7 +121,13 @@ FFmpeg's row.
   to the next; a stream the parser refuses wakes no other. Where the
   windows' device is not known, one helper tries every GPU, an
   integrated one first. The windows keep their device: only the GIFs
-  move. On Windows the default Direct3D 11 adapter decodes alone.
+  move. On Windows the tiers are Direct3D 11 adapters, as DXGI lists them
+  without loading a driver: first the one the windows draw with
+  (`Graphics.D3D11`, the system's default where none is chosen or the one
+  chosen could not draw, named `default`), then every other but WARP, the
+  default first. The client follows the windows' GPU: when they move to
+  another, a new client is made for it, and the old one's helpers stop
+  once its streams have ended.
 - A device lost, or a submission not done in 5 s, ends the helper
   (exit 4): its client gives every GIF back to software.
 - Every call waits for the GPU (one fence); a session needs Vulkan 1.3

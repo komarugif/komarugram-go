@@ -30,6 +30,11 @@ import (
 // hardware after it.
 var ErrHelper = errors.New("hwvideo: the decoding process ended")
 
+// ErrStopped is the error of what is asked of a helper the client stopped
+// itself (Close): nothing failed, and a video opened again decodes on a
+// new one.
+var ErrStopped = errors.New("hwvideo: the decoding process was stopped")
+
 // idleStop is how long the helper lives with no stream to decode.
 const idleStop = 10 * time.Second
 
@@ -54,9 +59,8 @@ type tier struct {
 	name string
 	// command makes the command that starts the helper.
 	command func() *exec.Cmd
-	helper  *helper
-	streams int
-	idle    *time.Timer
+	helper *helper
+	idle   *time.Timer
 	// failed is why nothing is decoded in it any more: the helper ended
 	// on its own, or found no decoder.
 	failed error
@@ -80,8 +84,33 @@ func (c *Client) Opened() int {
 
 // DeviceEnv is the variable that tells the helper which GPU to decode on:
 // "VENDOR:DEVICE" (the ids, in hexadecimal) for that one alone,
-// "!VENDOR:DEVICE" for any but it.
+// "!VENDOR:DEVICE" for any but it. On Windows, "default" and "!default"
+// name the system's default adapter, DXGI's first.
 const DeviceEnv = "KOMARUGRAM_HWVIDEO_DEVICE"
+
+// The choices of DeviceEnv.
+const (
+	pickAny = iota
+	pickOnly
+	pickOthers
+)
+
+// parsePick reads DeviceEnv: any GPU, the one of the ids alone, or any but
+// it; the ids are zero for the system's default.
+func parsePick() (pick int, vendor, device uint32) {
+	v := os.Getenv(DeviceEnv)
+	pick = pickOnly
+	if strings.HasPrefix(v, "!") {
+		pick, v = pickOthers, v[1:]
+	}
+	if v == "default" {
+		return pick, 0, 0
+	}
+	if _, err := fmt.Sscanf(v, "%x:%x", &vendor, &device); err != nil || vendor == 0 && device == 0 {
+		return pickAny, 0, 0
+	}
+	return pick, vendor, device
+}
 
 // NewClientFor is NewClient whose helpers, on Linux, try the GPU the
 // windows draw with first, and the others after: driver is the manifest of
@@ -90,11 +119,29 @@ const DeviceEnv = "KOMARUGRAM_HWVIDEO_DEVICE"
 // the second, started only when the first decodes nothing or refuses a
 // stream, every driver, and leaves that GPU out. Where the ids are not
 // known, one helper tries every GPU, an integrated one first.
+//
+// On Windows the GPU is a Direct3D 11 adapter, the system's default where
+// the ids are zero, and both helpers list the adapters without loading a
+// driver, then make a device on the one they take alone.
 func NewClientFor(driver string, vendor, device uint32) *Client {
-	if (runtime.GOOS != "linux" && runtime.GOOS != "windows") || vendor == 0 && device == 0 {
+	return clientFor(runtime.GOOS, driver, vendor, device)
+}
+
+// clientFor is NewClientFor on the system goos.
+func clientFor(goos, driver string, vendor, device uint32) *Client {
+	ids := fmt.Sprintf("%04x:%04x", vendor, device)
+	switch {
+	case goos == "windows":
+		if vendor == 0 && device == 0 {
+			ids = "default"
+		}
+		return &Client{tiers: []*tier{
+			{name: "video-decoder-window-gpu", command: envCommand(DeviceEnv + "=" + ids)},
+			{name: "video-decoder-other-gpus", command: envCommand(DeviceEnv + "=!" + ids)},
+		}}
+	case goos != "linux" || vendor == 0 && device == 0:
 		return NewClient(nil)
 	}
-	ids := fmt.Sprintf("%04x:%04x", vendor, device)
 	manifest := driverManifest(driver)
 	own := func() *exec.Cmd {
 		cmd := selfCommand()
@@ -114,6 +161,15 @@ func NewClientFor(driver string, vendor, device uint32) *Client {
 		{name: "video-decoder-window-gpu", command: own},
 		{name: "video-decoder-other-gpus", command: others},
 	}}
+}
+
+// envCommand starts the client's own binary as the helper with env set.
+func envCommand(env ...string) func() *exec.Cmd {
+	return func() *exec.Cmd {
+		cmd := selfCommand()
+		cmd.Env = append(os.Environ(), env...)
+		return cmd
+	}
 }
 
 // ParseDeviceEnv reads DeviceEnv: the ids of a GPU, and whether it is the
@@ -205,6 +261,8 @@ type helper struct {
 	err error
 	// stopped is set when the client stopped it itself.
 	stopped bool
+	// streams counts its streams open, under the client's mu.
+	streams int
 }
 
 // start starts the helper of t; c.mu is held.
@@ -251,6 +309,9 @@ func (c *Client) start(t *tier) (*helper, error) {
 		h.mu.Lock()
 		h.err = fmt.Errorf("%w: %v", ErrHelper, err)
 		stopped := h.stopped
+		if stopped {
+			h.err = ErrStopped
+		}
 		h.mu.Unlock()
 		if !stopped {
 			log.Printf("hwvideo: a decoding process ended on its own (%v): its GPU decodes nothing from now on", cmd.ProcessState)
@@ -278,6 +339,9 @@ func (c *Client) start(t *tier) (*helper, error) {
 func (h *helper) stop() {
 	h.mu.Lock()
 	h.stopped = true
+	if h.err == nil {
+		h.err = ErrStopped
+	}
 	h.mu.Unlock()
 	h.inMu.Lock()
 	h.in.Close()
@@ -321,8 +385,11 @@ func (h *helper) callInto(ctx context.Context, kind uint8, stream uint32, body, 
 	h.inMu.Unlock()
 	if err != nil {
 		h.mu.Lock()
+		defer h.mu.Unlock()
 		delete(h.calls, id)
-		h.mu.Unlock()
+		if h.stopped {
+			return nil, ErrStopped
+		}
 		return nil, fmt.Errorf("%w: %v", ErrHelper, err)
 	}
 	var m message
@@ -447,7 +514,7 @@ func (c *Client) Open(file *mp4.File) (*Video, error) {
 		h := t.helper
 		c.stream++
 		id := c.stream
-		t.streams++
+		h.streams++
 		c.mu.Unlock()
 
 		_, err := h.call(opOpen, id, body)
@@ -470,20 +537,21 @@ func (c *Client) Open(file *mp4.File) (*Video, error) {
 			refused = append(refused, err)
 			next = true
 		}
-		c.closed(t)
+		c.closed(t, h)
 		if !next {
 			return nil, err
 		}
 	}
 }
 
-// closed counts a stream of t that ended, and stops its helper once none
-// has been open for idleStop.
-func (c *Client) closed(t *tier) {
+// closed counts a stream of h, a helper of t, that ended, and stops h
+// once none has been open for idleStop. The streams are counted by helper:
+// those of one stopped (Close) end after a new one started.
+func (c *Client) closed(t *tier, h *helper) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	t.streams--
-	if t.streams > 0 || t.helper == nil {
+	h.streams--
+	if h.streams > 0 || t.helper != h {
 		return
 	}
 	if t.failed != nil {
@@ -492,18 +560,19 @@ func (c *Client) closed(t *tier) {
 		t.helper = nil
 		return
 	}
-	h := t.helper
 	t.idle = time.AfterFunc(idleStop, func() {
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		if t.streams == 0 && t.helper == h {
+		if h.streams == 0 && t.helper == h {
 			h.stop()
 			t.helper = nil
 		}
 	})
 }
 
-// Close stops the helpers at once.
+// Close stops the helpers at once, as when every window is hidden: they
+// draw nothing then. The client goes on: the next video opened starts a
+// helper again, and the videos of those stopped fail with ErrStopped.
 func (c *Client) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -697,5 +766,5 @@ func (v *Video) Close(ctx context.Context) {
 	}
 	v.closed = true
 	_, _ = v.helper.call(opClose, v.id, nil)
-	v.client.closed(v.tier)
+	v.client.closed(v.tier, v.helper)
 }

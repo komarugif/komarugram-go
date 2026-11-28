@@ -951,6 +951,9 @@
 "gift.title" = "Подарок";
 "gift.value" = "Стоимость";
 
+"graphics.adapter" = "Устройство D3D11";
+"graphics.adapter_auto" = "Автоматически: по умолчанию в системе";
+"graphics.adapter_failed" = "Выбранная видеокарта не смогла рисовать окна, вместо неё рисует видеокарта по умолчанию.";
 "graphics.api" = "Графический API";
 "graphics.api_auto" = "Автоматически";
 "graphics.api_auto_chosen" = "Автоматически ({api})";

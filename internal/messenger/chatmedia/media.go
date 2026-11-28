@@ -1471,7 +1471,7 @@ func (m *Manager) playVideoFrames(ctx context.Context, e *entry, v gifVideo, fro
 			e.setPosition(v.Time(i))
 			still := v.Picture(size)
 			if still == nil {
-				return errNoPicture
+				return noPicture(v)
 			}
 			showStill(e, still, publish)
 			// Played on, it goes on from there.
@@ -1529,7 +1529,7 @@ func (m *Manager) playVideoFrames(ctx context.Context, e *entry, v gifVideo, fro
 			im = v.Picture(size)
 		}
 		if im == nil {
-			return errNoPicture
+			return noPicture(v)
 		}
 		if at.Before(soonest) {
 			// Behind time, the next picture follows at once: a slow machine

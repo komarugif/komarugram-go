@@ -76,8 +76,9 @@ type Global struct {
 	// PauseInactive stops stickers, GIFs, animated emoji and video avatars
 	// while the window is not active, as Telegram Desktop does.
 	PauseInactive bool `json:"pause_inactive"`
-	// Graphics is how windows are drawn where there is a choice, on
-	// Wayland: the graphics API and the Vulkan device.
+	// Graphics is how windows are drawn where there is a choice: on
+	// Wayland, the graphics API and the Vulkan device; on Windows, the
+	// Direct3D 11 adapter.
 	Graphics Graphics `json:"graphics,omitzero"`
 	// SystemAccent takes the application's accent color from the system's,
 	// where the system has one, in place of the baseline scheme's.
@@ -1126,6 +1127,30 @@ type Graphics struct {
 	// video decoder of the graphics card, in a process of its own
 	// (docs/HW_VIDEO.md), where there is one.
 	HardwareGIFs bool `json:"hardware_gifs,omitempty"`
+	// D3D11 is the adapter chosen to draw with by Direct3D 11, on Windows;
+	// the zero value is the system's default.
+	D3D11 D3D11Adapter `json:"d3d11,omitzero"`
+}
+
+// D3D11Adapter is a Direct3D 11 adapter, a GPU, by its ids (Gio's
+// app.D3D11Adapter). Its name and kind are kept to show it where it is not
+// listed any more.
+type D3D11Adapter struct {
+	VendorID uint32 `json:"vendor_id,omitempty"`
+	DeviceID uint32 `json:"device_id,omitempty"`
+	Name     string `json:"name,omitempty"`
+	// Kind is Gio's app.VulkanDeviceKind: integrated, discrete or other.
+	Kind uint8 `json:"kind,omitempty"`
+}
+
+// IsZero reports whether a is no adapter: the system's default.
+func (a D3D11Adapter) IsZero() bool {
+	return a.VendorID == 0 && a.DeviceID == 0
+}
+
+// Same reports whether a and b are the same adapter.
+func (a D3D11Adapter) Same(b D3D11Adapter) bool {
+	return a.VendorID == b.VendorID && a.DeviceID == b.DeviceID
 }
 
 // VulkanDevice is a Vulkan device, by the manifest of its driver and its

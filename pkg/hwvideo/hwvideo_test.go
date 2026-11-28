@@ -479,6 +479,106 @@ func TestPictureIntoAnyImage(t *testing.T) {
 	}
 }
 
+// TestCloseStopsAndRestarts checks that the client stopping its helpers,
+// every window hidden, fails nothing: the videos of the old helper tell
+// ErrStopped, the next one opened starts a new helper, and the old video
+// ending does not count against the new one's streams.
+func TestCloseStopsAndRestarts(t *testing.T) {
+	file := testFile(t)
+	c := testClient(t, "fake")
+	old, err := c.Open(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.Next(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	if _, err := old.Next(context.Background()); !errors.Is(err, ErrStopped) || errors.Is(err, ErrHelper) {
+		t.Fatalf("a video of a helper stopped: %v", err)
+	}
+	if c.Failed() != nil {
+		t.Fatalf("stopping failed the client: %v", c.Failed())
+	}
+	v, err := c.Open(file)
+	if err != nil {
+		t.Fatalf("not opened after the stop: %v", err)
+	}
+	defer v.Close(context.Background())
+	if v.helper == old.helper {
+		t.Fatal("opened on the helper stopped")
+	}
+	old.Close(context.Background())
+	c.mu.Lock()
+	running, streams := c.tiers[0].helper == v.helper, v.helper.streams
+	idle := c.tiers[0].idle != nil
+	c.mu.Unlock()
+	if !running || streams != 1 || idle {
+		t.Fatalf("the new helper running %v with %d streams, idle %v", running, streams, idle)
+	}
+	if _, err := v.Next(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPick reads what the client tells a helper of the GPU to decode on,
+// the system's default included, as the Windows helper reads it.
+func TestPick(t *testing.T) {
+	for _, tc := range []struct {
+		value          string
+		pick           int
+		vendor, device uint32
+	}{
+		{"", pickAny, 0, 0},
+		{"10de:25a5", pickOnly, 0x10de, 0x25a5},
+		{"!10de:25a5", pickOthers, 0x10de, 0x25a5},
+		{"default", pickOnly, 0, 0},
+		{"!default", pickOthers, 0, 0},
+		{"0000:0000", pickAny, 0, 0},
+		{"nvidia", pickAny, 0, 0},
+	} {
+		t.Setenv(DeviceEnv, tc.value)
+		pick, vendor, device := parsePick()
+		if pick != tc.pick || vendor != tc.vendor || device != tc.device {
+			t.Errorf("%q: pick %d %04x:%04x", tc.value, pick, vendor, device)
+		}
+	}
+}
+
+// TestClientForWindows checks the helpers of a client on Windows: the
+// window's adapter alone first, then every other, the system's default
+// named where none was chosen.
+func TestClientForWindows(t *testing.T) {
+	env := func(c *Client, i int) string {
+		cmd := c.tiers[i].command()
+		v := ""
+		for _, e := range cmd.Env {
+			if s, ok := strings.CutPrefix(e, DeviceEnv+"="); ok {
+				v = s
+			}
+			if strings.HasPrefix(e, "VK_DRIVER_FILES=") {
+				t.Errorf("a Vulkan driver named on Windows: %s", e)
+			}
+		}
+		return v
+	}
+	for _, tc := range []struct {
+		vendor, device uint32
+		own, others    string
+	}{
+		{0x10de, 0x25a5, "10de:25a5", "!10de:25a5"},
+		{0, 0, "default", "!default"},
+	} {
+		c := clientFor("windows", "", tc.vendor, tc.device)
+		if len(c.tiers) != 2 || env(c, 0) != tc.own || env(c, 1) != tc.others {
+			t.Errorf("%04x:%04x: %d tiers, %q then %q", tc.vendor, tc.device, len(c.tiers), env(c, 0), env(c, 1))
+		}
+	}
+	if c := clientFor("darwin", "", 0x10de, 0x25a5); len(c.tiers) != 1 {
+		t.Errorf("%d tiers where nothing decodes", len(c.tiers))
+	}
+}
+
 // TestDeviceEnv reads what the client tells the helpers.
 func TestDeviceEnv(t *testing.T) {
 	for _, tc := range []struct {
