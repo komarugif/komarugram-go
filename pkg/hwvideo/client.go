@@ -91,7 +91,7 @@ const DeviceEnv = "KOMARUGRAM_HWVIDEO_DEVICE"
 // stream, every driver, and leaves that GPU out. Where the ids are not
 // known, one helper tries every GPU, an integrated one first.
 func NewClientFor(driver string, vendor, device uint32) *Client {
-	if runtime.GOOS != "linux" || vendor == 0 && device == 0 {
+	if (runtime.GOOS != "linux" && runtime.GOOS != "windows") || vendor == 0 && device == 0 {
 		return NewClient(nil)
 	}
 	ids := fmt.Sprintf("%04x:%04x", vendor, device)

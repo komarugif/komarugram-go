@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Unlicense OR MIT
 
-//go:build !linux
+//go:build !linux && !windows
 
 package security
 

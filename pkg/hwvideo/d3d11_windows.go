@@ -215,16 +215,108 @@ type d3dDevice struct {
 	videoDevice, videoContext *comObject
 }
 
-var d3d11CreateDevice = windows.NewLazySystemDLL("d3d11.dll").NewProc("D3D11CreateDevice")
+var (
+	d3d11CreateDevice  = windows.NewLazySystemDLL("d3d11.dll").NewProc("D3D11CreateDevice")
+	createDXGIFactory1 = windows.NewLazySystemDLL("dxgi.dll").NewProc("CreateDXGIFactory1")
+)
 
-// newDevice makes a device on the GPU the system gives by default.
+const (
+	driverUnknown          = 0
+	dxgiFactoryEnumAdapters1 = 12
+	dxgiAdapterGetDesc1    = 10
+	dxgiAdapterSoftware    = 2
+	dxgiErrorNotFound      = 0x887A0002
+)
+
+var iidIDXGIFactory1 = windows.GUID{
+	Data1: 0x770aae78, Data2: 0xf26f, Data3: 0x4dba,
+	Data4: [8]byte{0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87},
+}
+
+type dxgiAdapterDesc1 struct {
+	Description           [128]uint16
+	VendorID              uint32
+	DeviceID              uint32
+	SubSysID              uint32
+	Revision              uint32
+	DedicatedVideoMemory  uintptr
+	DedicatedSystemMemory uintptr
+	SharedSystemMemory    uintptr
+	AdapterLuidLow        uint32
+	AdapterLuidHigh       int32
+	Flags                 uint32
+}
+
+// newDevice makes a Direct3D 11 H.264 decoder device, honoring
+// KOMARUGRAM_HWVIDEO_DEVICE and falling back across hardware DXGI adapters
+// (matching Linux's multi-GPU Vulkan Video selection).
 func newDevice() (device, error) {
 	if err := d3d11CreateDevice.Find(); err != nil {
 		return nil, unsupported("no Direct3D 11: %v", err)
 	}
+	wantVendor, wantDevice, only, filtered := ParseDeviceEnv()
+
+	if createDXGIFactory1.Find() == nil {
+		var factory *comObject
+		if r, _, _ := createDXGIFactory1.Call(uintptr(unsafe.Pointer(&iidIDXGIFactory1)), uintptr(unsafe.Pointer(&factory))); int32(r) >= 0 && factory != nil {
+			defer factory.release()
+			var lastErr error
+			matched := false
+			for i := uint32(0); ; i++ {
+				var adapter *comObject
+				r := factory.call(dxgiFactoryEnumAdapters1, uintptr(i), uintptr(unsafe.Pointer(&adapter)))
+				if uint32(r) == dxgiErrorNotFound || int32(r) < 0 || adapter == nil {
+					break
+				}
+				var desc dxgiAdapterDesc1
+				if int32(adapter.call(dxgiAdapterGetDesc1, uintptr(unsafe.Pointer(&desc)))) < 0 {
+					adapter.release()
+					continue
+				}
+				if desc.Flags&dxgiAdapterSoftware != 0 {
+					adapter.release()
+					continue
+				}
+				same := desc.VendorID == wantVendor && desc.DeviceID == wantDevice
+				if filtered && ((only && !same) || (!only && same)) {
+					adapter.release()
+					continue
+				}
+				matched = true
+				d, err := openD3DAdapter(adapter, windows.UTF16ToString(desc.Description[:]), desc.VendorID, desc.DeviceID)
+				adapter.release()
+				if err == nil {
+					return d, nil
+				}
+				lastErr = err
+			}
+			if filtered {
+				if !matched {
+					return nil, unsupported("no matching Direct3D 11 GPU for %s", DeviceEnv)
+				}
+				return nil, lastErr
+			}
+			if lastErr != nil {
+				return nil, lastErr
+			}
+		}
+	}
+	if filtered {
+		return nil, unsupported("DXGI unavailable to filter Direct3D 11 GPU")
+	}
+	return openD3DAdapter(nil, "default", 0, 0)
+}
+
+func openD3DAdapter(adapter *comObject, name string, vendor, device uint32) (*d3dDevice, error) {
 	d := new(d3dDevice)
 	levels := [...]uint32{0xb000, 0xa100, 0xa000}
-	r, _, _ := d3d11CreateDevice.Call(0, driverHardware, 0, createVideo,
+	driverType := uintptr(driverHardware)
+	adapterPtr := uintptr(0)
+	if adapter != nil {
+		driverType = driverUnknown
+		adapterPtr = uintptr(unsafe.Pointer(adapter))
+	}
+	r, _, _ := d3d11CreateDevice.Call(adapterPtr, driverType, 0, createVideo,
 		uintptr(unsafe.Pointer(&levels[0])), uintptr(len(levels)), sdkVersion,
 		uintptr(unsafe.Pointer(&d.device)), 0, uintptr(unsafe.Pointer(&d.context)))
 	if err := check("D3D11CreateDevice", r); err != nil {
@@ -253,7 +345,10 @@ func newDevice() (device, error) {
 	}
 	if !found {
 		d.close()
-		return nil, unsupported("the GPU decodes no H.264")
+		return nil, unsupported("the GPU %s (%04x:%04x) decodes no H.264", name, vendor, device)
+	}
+	if vendor != 0 || device != 0 {
+		log.Printf("hwvideo: Direct3D 11 adapter %s (%04x:%04x)", name, vendor, device)
 	}
 	return d, nil
 }

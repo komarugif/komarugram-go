@@ -498,7 +498,7 @@ func TestDeviceEnv(t *testing.T) {
 		}
 	}
 	c := NewClientFor("intel_icd.x86_64.json", 0x8086, 0x46a3)
-	if runtime.GOOS == "linux" && len(c.tiers) != 2 {
+	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && len(c.tiers) != 2 {
 		t.Fatalf("%d tiers", len(c.tiers))
 	}
 }
